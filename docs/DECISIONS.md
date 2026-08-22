@@ -303,3 +303,21 @@ long scans or planning.
 Gives up: free coordination for broad aggregates. Coarser dependency tokens are
 simpler but cause more retries; finer tokens reduce false conflicts but enlarge
 certificates and maintenance work.
+
+## D21. Persist stable bytes before choosing a consensus library
+
+Status: `[DECIDED]` for the first durability implementation, 2026-08-22.
+
+Decision: place an opaque checksummed frame and local file persistence seam
+under the frozen commit envelope before selecting OpenRaft or `raft-rs`.
+Recovery groups identical frames by index and admits only a contiguous quorum.
+Consensus metadata, election, replication transport, and generation activation
+remain separate protocol layers.
+
+Optimizes for: testing partial writes, file synchronization, quorum
+reconstruction, envelope chains, and durable retry outcomes without binding the
+kernel to a consensus library before the storage contract is executable.
+
+Gives up: this prototype cannot prove distributed agreement or independent
+failure-domain durability. A two-file match is only a local recovery rule until
+the consensus and placement layers exist.

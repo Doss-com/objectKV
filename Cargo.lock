@@ -1668,6 +1668,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "okv-model",
+ "okv-wal",
  "serde",
  "serde_json",
  "sha2",
@@ -1682,6 +1683,13 @@ dependencies = [
  "okv-model",
  "slatedb",
  "tokio",
+]
+
+[[package]]
+name = "okv-wal"
+version = "0.0.0"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]

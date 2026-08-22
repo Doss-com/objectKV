@@ -62,6 +62,17 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   and mutation payloads, request identity, resolver and log-tag coverage,
   generation fencing, quorum acknowledgement, durable outcome reconstruction,
   and six negative controls. It is not a production WAL or consensus system.
+- `[EXISTS]` The local persisted-WAL prototype writes opaque commit envelopes in
+  checksummed versioned frames to three ordinary files, calls `sync_all` on each
+  selected replica, and reconstructs only a contiguous matching two-file
+  quorum after fresh opens. It rebuilds retained retry outcomes, ignores only
+  incomplete final frames, rejects bad envelope chains, and fails closed when
+  complete corruption leaves no quorum. The six negative subjects cover
+  RAM-only deduplication, early acknowledgement, single-copy trust, torn-tail
+  promotion, skipped chain checks, and ignored corruption.
+- `[PROPOSED]` Consensus, network replication, process election, generation
+  recovery, disk repair, and independent failure-domain placement remain ahead
+  of this local stable-storage proof.
 - `[EXISTS]` The pure ZebraDB HTAP contract model compares base-plus-tail output
   with a logical row oracle at one target version. It covers pushdown
   invalidation, schema and partition movement, analytical-tail retention,

@@ -77,6 +77,11 @@ must stay outside the repository and review artifacts.
   restart, partition, repair, generation activation, stale publication, exact
   fresh-process replay, and a failing negative control. Replicated WAL and
   objectification faults remain proposed.
+- `[EXISTS]` The first `okv-wal` slice persists opaque commit envelopes in
+  versioned checksummed frames across three local files and reconstructs only a
+  matching two-copy prefix after fresh opens. Six negative subjects detect
+  unsafe acknowledgement, recovery, torn-tail, chain, corruption, and retry
+  interpretations. This is a stable-storage proof, not consensus evidence.
 - `[PROPOSED]` RFC-0011 defines cell, tenant database, range, segment, and
   metacluster as separate topology layers, with no cross-cell transaction.
 - `[PROPOSED]` RFC-0010 defines exact base-plus-tail snapshot semantics,

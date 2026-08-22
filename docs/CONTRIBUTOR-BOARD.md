@@ -220,10 +220,14 @@ become one GitHub issue.
 - Exists: `okv-sim` has a checksummed, length-delimited model envelope and
   reconstructs retained request outcomes from quorum-certified records. The
   `cell-commit-contract-v1` suite runs five seeds and six bounded negative
-  controls through the shared result and OTel path.
-- Remaining: run the contract through Turmoil with a real coordinator and Raft
-  persistence seam, define retained-outcome expiry and compaction, and prove
-  recovery across partial writes and replica replacement.
+  controls through the shared result and OTel path. `okv-wal` now persists the
+  envelope through checksummed frames on three local files and reconstructs a
+  matching two-copy prefix after fresh opens. Its suite rejects six persistence
+  violations through the same result and OTel path.
+- Remaining: run the persistence seam through Turmoil with a coordinator and
+  selected consensus implementation, add real process-crash boundaries, define
+  retained-outcome expiry and compaction, and prove disk-full, replica repair,
+  generation takeover, and replacement recovery.
 
 ## Opens after Gate 1
 

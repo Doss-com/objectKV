@@ -4,10 +4,12 @@
 compile_error!("okv-sim requires --cfg tokio_unstable to seed Tokio runtime scheduling");
 
 mod commit;
+mod persisted_wal;
 
 pub use commit::{
     run_commit_contract, CommitCodecError, CommitContractMode, CommitContractReport, CommitEnvelope,
 };
+pub use persisted_wal::{run_persisted_wal_contract, PersistedWalMode, PersistedWalReport};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};

@@ -48,6 +48,7 @@ crates/okv-eval/    configurable eval runner and OTel instrumentation
 crates/okv-object/  named-object correctness boundary and conformance runner
 crates/okv-sim/     exact seeded crash, network, and fencing replay probe
 crates/okv-slate/   pinned SlateDB adaptation and external-version spike
+crates/okv-wal/     checksummed local quorum-WAL persistence prototype
 docs/               decisions, staged plan, eval design, PostgreSQL path
 evals/              frozen suite definitions and result contract
 infra/gcp/          guarded objectKV-dev project and GCS configuration
@@ -76,6 +77,8 @@ cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \
   --profile sim-dev --workload overlapping-generation-failures --backend turmoil
 cargo run -p okv-eval -- run evals/suites/commit-contract.toml \
   --profile sim-dev --workload cell-commit-envelope --backend sim-model
+cargo run -p okv-eval -- run evals/suites/persisted-wal.toml \
+  --profile local-fs --workload persisted-wal-reopen --backend local-fs
 cargo run -p okv-eval -- run evals/suites/htap-contract.toml \
   --profile model-dev --workload zebradb-base-plus-tail --backend model
 ```
@@ -87,7 +90,11 @@ The object-store runner proves named-object semantics for one exact backend and
 version. A passing `segment` profile is not evidence that the backend can host
 mutable authority metadata.
 The commit-contract runner proves a deterministic envelope and failure oracle,
-not replicated-log durability or production consensus.
+not production consensus. The persisted-WAL runner writes that envelope through
+a checksummed frame to three local files, synchronizes each selected file,
+reopens the topology, and reconstructs only matching quorum copies. It proves a
+stable-storage seam on one machine, not Raft, replication transport, leader
+election, independent failure domains, or a complete transaction cell.
 The HTAP-contract runner proves exact model semantics, not a DataFusion physical
 operator or Parquet/Vortex performance.
 

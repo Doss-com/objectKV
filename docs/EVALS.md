@@ -21,6 +21,11 @@ The `cell-commit-contract-v1` suite checks a replayable Cell v0 envelope and
 durable retry outcome across five seeds. Six negative subjects break durable
 deduplication, request identity, complete resolver acceptance, complete log
 tagging, generation fencing, and quorum acknowledgement.
+The `persisted-wal-contract-v1` suite writes the same envelope through a
+versioned checksummed local frame and reopens a three-file topology. It covers
+matching-quorum reconstruction, one-file loss, durable retry outcomes,
+leader-only suffixes, torn final frames, chain disagreement, and complete
+corruption. Six negative subjects make each unsafe interpretation observable.
 The `zebradb-htap-contract-v1` suite checks base-plus-tail exactness across one
 query version, unequal partition and table watermarks, schema normalization,
 row movement, leases, independent tail retention, and certified writes. Five
@@ -134,6 +139,25 @@ anomaly count as its admission metric and requires `query.result_exact = 1`.
 Tail rows, tail bytes, peak memory, spill bytes, and operation duration remain
 separate measurements. They are not freshness proxies and are not yet
 DataFusion performance evidence.
+
+## Persisted WAL stable-storage gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/persisted-wal.toml \
+  --profile local-fs \
+  --workload persisted-wal-reopen \
+  --backend local-fs
+```
+
+The suite freezes RFC-0005, RFC-0009, RFC-0011, and the version-1 frame fixture.
+The correctness lane requires zero anomalies across five seeds and exact replay
+of the logical report. It emits `correctness.anomalies`,
+`transaction.commits`, `wal.retained_bytes`, and
+`availability.success_ratio` through the shared OTel path. Local file bytes and
+`sync_all` are real. The retained-byte sample is the maximum local topology
+size observed in the scenario with object durability fixed at zero; it is not a
+capacity result. Replica transport, consensus commit, leader election,
+cross-process crash, and independent-disk durability remain proposed.
 
 ## MVCC semantic gate
 

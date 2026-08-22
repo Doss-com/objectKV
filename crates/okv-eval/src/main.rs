@@ -15,7 +15,10 @@ use okv_object::{
     run_conformance, validate_conformance_report, CaseStatus, ConformanceOptions,
     ConformanceProfile,
 };
-use okv_sim::{run_commit_contract, run_generation_fencing, CommitContractMode};
+use okv_sim::{
+    run_commit_contract, run_generation_fencing, run_persisted_wal_contract, CommitContractMode,
+    PersistedWalMode,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -465,12 +468,230 @@ fn execute_workload(
             run_generation_recovery(workload, candidate_commit, seeds)
         }
         "commit_envelope_contract" => run_commit_envelope_contract(workload, seeds),
+        "persisted_wal_contract" => run_persisted_wal(workload, seeds, backend),
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
         operation => execution_from_result(Err(format!(
             "operation {operation} is declared but has no runner implementation"
         ))),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_persisted_wal(workload: &WorkloadConfig, seeds: &[u64], backend: &str) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "persisted WAL workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => PersistedWalMode::Correct,
+        Some("ram_only_dedup") => PersistedWalMode::RamOnlyDedup,
+        Some("ack_before_quorum") => PersistedWalMode::AckBeforeQuorum,
+        Some("trust_single_replica") => PersistedWalMode::TrustSingleReplica,
+        Some("accept_torn_as_commit") => PersistedWalMode::AcceptTornAsCommit,
+        Some("skip_log_chain_validation") => PersistedWalMode::SkipLogChainValidation,
+        Some("ignore_complete_corruption") => PersistedWalMode::IgnoreCompleteCorruption,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown persisted WAL negative control {other}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut event_count = 0_u64;
+    let mut quorum_appends = 0_u64;
+    let mut recovered_records = 0_u64;
+    let mut reopened_wals = 0_u64;
+    let mut recovered_outcomes = 0_u64;
+    let mut leader_only_attempts = 0_u64;
+    let mut torn_tail_replicas = 0_u64;
+    let mut corruption_failures = 0_u64;
+    let mut physical_bytes = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+    for seed in seeds {
+        let first = match run_persisted_wal_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_persisted_wal_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        event_count = event_count.saturating_add(first.executed_steps);
+        quorum_appends = quorum_appends.saturating_add(first.quorum_appends);
+        recovered_records = recovered_records.saturating_add(first.recovered_records);
+        reopened_wals = reopened_wals.saturating_add(first.reopened_wals);
+        recovered_outcomes = recovered_outcomes.saturating_add(first.recovered_outcomes);
+        leader_only_attempts = leader_only_attempts.saturating_add(first.leader_only_attempts);
+        torn_tail_replicas = torn_tail_replicas.saturating_add(first.torn_tail_replicas);
+        corruption_failures = corruption_failures.saturating_add(first.corruption_failures);
+        physical_bytes = physical_bytes.saturating_add(first.physical_bytes);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, step {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "okv-persisted-wal-contract-v1"),
+                    (
+                        "anomaly.class",
+                        if exact { "none" } else { "persisted_wal" },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "transaction.commits",
+                value: bounded_count(first.quorum_appends),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("isolation", "cell-commit-contract"),
+                    ("result", "quorum-fsynced"),
+                ]),
+            },
+            Measurement {
+                metric: "wal.retained_bytes",
+                value: bounded_count(first.physical_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("topology", "local-three-file"),
+                    ("fault", mode.id()),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "fresh-open-recovery"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-persisted-wal://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let expected_events = u64::try_from(seeds.len())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(7);
+    let semantic_operations_exercised = event_count == expected_events
+        && quorum_appends > 0
+        && recovered_records > 0
+        && reopened_wals > 0
+        && recovered_outcomes > 0
+        && leader_only_attempts > 0
+        && torn_tail_replicas > 0
+        && corruption_failures > 0;
+    let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "persisted WAL gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "persisted_wal.exact_seed_replay".to_owned(),
+                status: if exact_replay {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: None,
+            },
+            HardGateResult {
+                id: "persisted_wal.semantic_operations_exercised".to_owned(),
+                status: if semantic_operations_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(format!(
+                    "events={event_count}, quorum_appends={quorum_appends}, recovered_records={recovered_records}, reopened={reopened_wals}, outcomes={recovered_outcomes}, leader_only={leader_only_attempts}, torn={torn_tail_replicas}, corruption_failures={corruption_failures}"
+                )),
+            },
+            HardGateResult {
+                id: "persisted_wal.contract_agreement".to_owned(),
+                status: if anomaly_count == 0 {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            ("wal.contract.events".to_owned(), bounded_count(event_count)),
+            (
+                "wal.contract.quorum_appends".to_owned(),
+                bounded_count(quorum_appends),
+            ),
+            (
+                "wal.contract.recovered_records".to_owned(),
+                bounded_count(recovered_records),
+            ),
+            (
+                "wal.contract.reopened".to_owned(),
+                bounded_count(reopened_wals),
+            ),
+            (
+                "wal.contract.recovered_outcomes".to_owned(),
+                bounded_count(recovered_outcomes),
+            ),
+            (
+                "wal.contract.leader_only_attempts".to_owned(),
+                bounded_count(leader_only_attempts),
+            ),
+            (
+                "wal.contract.torn_tail_replicas".to_owned(),
+                bounded_count(torn_tail_replicas),
+            ),
+            (
+                "wal.contract.corruption_failures".to_owned(),
+                bounded_count(corruption_failures),
+            ),
+            (
+                "wal.contract.physical_bytes".to_owned(),
+                bounded_count(physical_bytes),
+            ),
+        ]),
     }
 }
 

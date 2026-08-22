@@ -5,6 +5,7 @@ members = [
     "crates/okv-object",
     "crates/okv-sim",
     "crates/okv-slate",
+    "crates/okv-wal",
 ]
 resolver = "2"
 
@@ -33,6 +34,7 @@ crc-fast = "=1.9.0"
 futures-util = "0.3.31"
 jsonschema = { version = "0.50.1", default-features = false }
 okv-model = { path = "crates/okv-model" }
+okv-wal = { path = "crates/okv-wal" }
 object_store = { version = "=0.14.1", features = ["aws", "gcp"] }
 opentelemetry = { version = "0.32.0", features = ["logs", "metrics", "trace"] }
 opentelemetry-appender-tracing = "0.32.0"

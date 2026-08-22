@@ -29,6 +29,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/object-store.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/model-history.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/commit-contract.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/persisted-wal.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
       - name: Verify generated MVCC histories and negative control
         run: |
@@ -74,6 +75,21 @@ jobs:
             output="/tmp/${workload}.json"
             cargo run --quiet -p okv-eval -- run evals/suites/htap-contract.toml --profile model-dev --workload "$workload" --backend model --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap.exact_result").status == "fail")' "$output"
+          done
+      - name: Verify persisted WAL reopen contract and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload persisted-wal-reopen --backend local-fs --output /tmp/okv-persisted-wal.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "persisted_wal.contract_agreement").status == "pass")' /tmp/okv-persisted-wal.json
+          for workload in \
+            persisted-wal-ram-only-dedup \
+            persisted-wal-ack-before-quorum \
+            persisted-wal-trust-single-replica \
+            persisted-wal-accept-torn-as-commit \
+            persisted-wal-skip-log-chain-validation \
+            persisted-wal-ignore-complete-corruption; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload "$workload" --backend local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "persisted_wal.contract_agreement").status == "fail")' "$output"
           done
       - name: Verify local object-store capability profiles
         run: |

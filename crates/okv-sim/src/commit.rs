@@ -225,6 +225,30 @@ impl CommitEnvelope {
         })
     }
 
+    pub(crate) const fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) const fn version(&self) -> Version {
+        self.version
+    }
+
+    pub(crate) const fn log_index(&self) -> u64 {
+        self.log_index
+    }
+
+    pub(crate) const fn client_identity(&self) -> ([u8; 16], u64) {
+        (self.client_id, self.request_id)
+    }
+
+    pub(crate) const fn logical_fingerprint(&self) -> [u8; 32] {
+        self.logical_fingerprint
+    }
+
+    pub(crate) const fn previous_log_chain(&self) -> [u8; 32] {
+        self.previous_log_chain
+    }
+
     fn encode_without_checksum(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(256);
         bytes.extend_from_slice(MAGIC);
@@ -247,6 +271,23 @@ impl CommitEnvelope {
         bytes.extend_from_slice(&self.previous_log_chain);
         bytes
     }
+}
+
+pub(crate) fn fixture_envelope(
+    seed: u64,
+    ordinal: u64,
+    generation: u64,
+    sequence: u64,
+    log_index: u64,
+    previous_log_chain: [u8; 32],
+) -> CommitEnvelope {
+    CommitEnvelope::new(
+        &request(seed, ordinal, generation),
+        Version::from_parts(generation, sequence),
+        log_index,
+        REQUIRED_LOG_TAGS.to_vec(),
+        previous_log_chain,
+    )
 }
 
 /// Commit envelope decoding failure.

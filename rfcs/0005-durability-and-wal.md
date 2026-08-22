@@ -113,6 +113,27 @@ scheme, or stable external compatibility promise. It freezes the information
 and rejection rules that a Raft-backed implementation must preserve while its
 framing and certificate representation remain replaceable.
 
+### Executable local persistence seam
+
+`[EXISTS]` `crates/okv-wal` wraps the opaque `OKVC` envelope in an `OKVW`
+version-1 frame containing a log index, payload length, and SHA-256 checksum. A
+three-file local topology writes and calls `sync_all` on each selected replica.
+Fresh-open recovery scans each file, ignores an incomplete final frame, groups
+checksum-valid payloads by index and digest, and returns only the contiguous
+prefix with at least two matching copies. Complete corruption without a
+remaining quorum and missing middle quorums fail closed.
+
+The exact version-1 bytes are frozen in
+`crates/okv-wal/fixtures/frame-v1.hex`; the compatibility test requires the
+current encoder to reproduce the fixture and the current reader to recover it.
+
+`[PROPOSED]` This seam does not establish consensus commit, replicate over a
+network, elect or fence a leader, model separate disks or zones, repair a
+replica, or survive a real machine crash. Quorum evidence is reconstructed from
+matching local files rather than accepted from a self-declared certificate.
+Those limits prevent this experiment from being described as a production
+replicated WAL.
+
 ## Durability and RPO statement
 
 - Loss of one WAL replica or one failure domain does not lose acknowledged
@@ -182,6 +203,12 @@ window, RPO, and recovery duration.
 
 The negative control acknowledges after leader-only fsync. One bounded seed set
 must catch it before a WAL implementation is admitted.
+
+`evals/suites/persisted-wal.toml` owns the first stable-storage admission. Its
+six negative subjects trust RAM-only deduplication, acknowledge one synchronized
+copy, trust one recovered copy, promote a torn suffix, skip the envelope chain,
+or ignore complete corruption. All must be discarded before the local
+persistence seam is admitted.
 
 ## Compatibility and migration
 
