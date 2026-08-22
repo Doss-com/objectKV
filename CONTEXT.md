@@ -26,9 +26,21 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   caches immutable objects, and serves versioned reads.
 - **object durable version**: the highest commit version reconstructable from
   authoritative object metadata and immutable objects without older WAL.
-- **commit version**: a total-order identifier assigned to an accepted commit.
-- **range**: `[FUTURE]` a logical keyspace ownership and routing unit, not a
-  permanent data replica.
+- **commit version**: a cell-scoped total-order identifier assigned to an
+  accepted commit. Different cells have independent version spaces.
+- **range**: `[FUTURE]` a contiguous interval of one cell's ordered keyspace and
+  a routing/work-assignment unit, not a permanent data replica.
+- **tenant database**: `[PROPOSED]` the normal transaction domain. One bounded
+  transaction may span its keys and ranges but cannot cross cells.
+- **cell**: `[PROPOSED]` one complete distributed transaction, durability,
+  storage, control, and recovery cluster with its own versions and generations.
+- **metacluster**: `[FUTURE]` the tenant-to-cell placement, routing-epoch, and
+  migration authority. It does not join cell transaction histories.
+- **analytical tail**: `[PROPOSED]` durable table changes after a partition's
+  columnar base watermark, retained independently when required beyond recovery
+  WAL retention.
+- **snapshot lease**: `[PROPOSED]` a bounded pin on base manifests, schema, and
+  analytical tail through one query version, not an open OLTP transaction.
 - **eval lane**: one research objective with one primary metric and frozen hard
   gates.
 
@@ -39,7 +51,13 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   path, an exact seeded generation-fencing probe, an object-store conformance
   runner, and planning/RFC scaffolding.
 - `[EXISTS]` The SlateDB spike can apply externally assigned versions and reject
-  conflicting replay. It cannot yet expose an explicit public read version.
+  conflicting replay. It stores the complete logical latest-version record and
+  rejects unsupported generations and range clears explicitly. It cannot yet
+  expose an explicit public read version.
+- `[EXISTS]` The generation-aware reference model and `mvcc-semantics-v1` eval
+  cover canonical replay, range clears, scans, retention errors,
+  read-your-writes, exact seeded replay, and an ignore-range-clears negative
+  control.
 - `[EXISTS]` The `objectKV-dev` Terraform configuration validates locally.
 - `[EXISTS]` The objectKV workstream is registered as `OKV-BOOTSTRAP` in the
   local DOSSBOT project tracker and its dedicated playground port is documented.
@@ -63,10 +81,15 @@ This file defines vocabulary and current facts. Behavioral policy lives in
 - `[PROPOSED]` Distributed Redis, inverted search, and PostgreSQL are initial
   serving-model consumers. DataFusion over the same version history becomes the
   ZebraDB analytical path.
+- `[PROPOSED]` A cell bounds fleet and recovery topology. It does not restrict a
+  tenant transaction to one range or one atomic KV partition.
+- `[PROPOSED]` Exact ZebraDB queries merge each columnar base with its durable
+  analytical tail through one target version. Materialization lag affects cost,
+  not required freshness.
 
 ## Load-bearing invariant
 
-For latest committed version `C` and object durable version `O`:
+For one cell's latest committed version `C` and object durable version `O`:
 
 ```text
 O <= C

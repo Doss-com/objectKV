@@ -6,27 +6,24 @@ model, pinned SlateDB adapter spike, eval runner, and OTel path currently exist.
 ## Target shape
 
 ```text
-Redis service   inverted search   PostgreSQL compute
-       \              |                  /
-        serving-model adapters and semantic contracts
-                         |
-       ordered transactional key/value API (okv)
-                         |
-     versions, conflict ranges, ranges, WAL references
-                         |
-          transactional segment contract
-                         |
-               row-oriented LSM blocks
-                         |
-                S3-compatible object API
-                         |
-          local cache + external coordination/WAL
+global fabric / metacluster
+  -> tenant directory and routing epochs
+       -> bounded cell
+            -> tenant database transaction domains
+                 -> ordered keyspace and logical ranges
+                      -> disposable serving/materialization workers
+                           -> immutable transactional segments
+                                -> S3-compatible object API
 
-sorted versioned-entry stream -> analytical artifact materializer
-                                      |
-                          Parquet / Vortex artifacts
-                                      |
-                              DataFusion / ZebraDB HTAP
+inside each cell:
+  read-version + commit proxies + resolvers + transaction logs
+  versions + generations + range map + watermarks + GC roots
+
+authoritative commit history
+  -> transactional KV segments
+  -> durable table-change tail
+  -> Parquet / Vortex columnar bases
+       -> DataFusion base-plus-tail overlay at exact version T
 ```
 
 The FoundationDB inspiration belongs in the transaction and distribution model:
@@ -34,6 +31,10 @@ ordered keys, explicit read versions, optimistic conflict ranges, logical key
 ranges, stateless transaction clients, and deterministic fault testing. It does
 not imply FoundationDB API compatibility or that its local-disk storage-server
 design transfers unchanged to object storage.
+
+The cell boundary limits fleet size, recovery, and operations. It does not make
+one key, range, segment, or tenant the unit of the storage architecture. The
+normal tenant transaction may span arbitrary ranges inside its cell.
 
 ## Decisions to review
 
@@ -89,6 +90,8 @@ Gives up: describing a PostgreSQL-wire frontend as full PostgreSQL.
 | Surface | Initial proposed constraint | Why it is load-bearing |
 |---|---|---|
 | Ordering | one monotonically ordered commit-version domain before partitioning | snapshots and replay need one unambiguous history |
+| Fleet topology | independent bounded cells; no cross-cell transaction | one global recovery and transaction system has unbounded blast radius |
+| Transaction domain | one tenant database, spanning arbitrary in-cell ranges | physical shards must not leak into application atomicity |
 | Isolation | strict serializability with explicit read/write conflict ranges | PostgreSQL and general transactions cannot inherit vague snapshot semantics |
 | Durability | acknowledgement means quorum WAL durability; object durability has a separate watermark | object publication is too slow for the target commit path |
 | Lag control | retained WAL has a hard bound; `C - O` drives throttle then refusal | an object-store brownout cannot create unbounded recovery debt |
@@ -101,7 +104,8 @@ Gives up: describing a PostgreSQL-wire frontend as full PostgreSQL.
 | Bootstrap | one external or explicitly bootstrapped consensus authority owns epochs, range maps, and watermarks | control metadata cannot depend circularly on the transaction system it starts |
 | GC | delete only below global read, clone, backup, range, and object-durable watermarks | premature reclamation is unrecoverable data loss |
 | Transactions | bounded bytes, conflict ranges, duration, and retained versions | unbounded transactions pin log, metadata, and history |
-| Tenancy | quotas and encryption/identity boundary precede noisy-neighbor claims | shared compaction and cache can violate isolation operationally |
+| Tenancy | transaction domain plus quotas and encryption/identity boundary | shared transaction roles, compaction, and cache can violate isolation operationally |
+| Analytics | exact base plus durable table tail at one `T`; snapshot lease, not open OLTP transaction | a lagging base must change cost rather than silently weaken freshness |
 | Compatibility | each serving model publishes supported and unsupported semantics | protocol acceptance is not semantic compatibility |
 
 ## Expected bottlenecks
@@ -118,7 +122,8 @@ Gives up: describing a PostgreSQL-wire frontend as full PostgreSQL.
 | Range movement | durable-byte copy causes long rebalancing | reference existing objects, generation cutover | bytes copied and unavailable time during split/move |
 | Cache churn | restart or tenant competition collapses latency | bounded metadata boot, admission, tiered cache | time to first correct read and steady-state recovery |
 | PostgreSQL double work | two WAL/MVCC systems amplify latency and recovery complexity | establish one authority and map LSN to commit versions | crash matrix and WAL/page byte amplification |
-| HTAP freshness | columnar data lags or double-counts deltas | explicit covered-through version plus OLTP delta | result equality and freshness lag at fixed write rate |
+| HTAP overlay | columnar data lags, misses invalidations, or double-counts deltas | explicit covered-through version plus durable table tail | result equality, tail size, and overlay cost at fixed write rate |
+| Cell ceiling | proxy, resolver, log, or recovery role saturates | partition roles behind stable protocols, then add cells | throughput and recovery curves by cell size and tenant count |
 | Format abstraction leak | point reads regress on analytical layout or scans regress on row layout | capability negotiation and workload-specific materialization | same logical history across format conformance suite |
 
 ## Serving-model risks
@@ -148,11 +153,17 @@ and catalog bootstrap all need explicit supported-state tables.
 
 ### DataFusion and ZebraDB HTAP
 
-DataFusion reads immutable columnar snapshots labeled with a covered-through
-okv version. Queries either wait for that version or merge a bounded newer
-transactional delta exactly once. Parquet is the first control format. Vortex is
-an experiment after logical equivalence, pruning, recovery, and mixed-version
+DataFusion reads immutable columnar bases labeled with a covered-through okv
+version `W_p` and overlays the durable table-change tail `(W_p, T]` for one exact
+query version `T`. A lagging base increases overlay work but does not require a
+stale result. The tail must retain base-row invalidation keys even when the new
+row fails a pushed predicate. Parquet is the first control format. Vortex is an
+experiment after logical equivalence, pruning, recovery, and mixed-version
 fixtures pass.
+
+Queries use snapshot leases that pin immutable bases and tails. Invariant-critical
+aggregates remain transactional projections. Other analytical decisions must
+validate dependency tokens in a short transaction before writing.
 
 ## Contributor-first proof order
 

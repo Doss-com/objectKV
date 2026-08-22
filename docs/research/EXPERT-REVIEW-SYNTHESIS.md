@@ -44,6 +44,15 @@ must stay outside the repository and review artifacts.
    watermarks cannot be vaguely placed inside a transaction system that depends
    on them to start. A small consensus authority or a bootstrapped system
    keyspace needs a worked recovery protocol.
+8. A follow-up architecture correction separates physical granularity,
+   transaction topology, and fleet topology. A cell should be a bounded complete
+   FDB-like database cluster; a tenant database is its normal transaction domain;
+   ranges and objects remain below that boundary. This is now RFC-0011, not an
+   implemented claim.
+9. A lagging analytical base does not require a stale query. RFC-0010 now
+   proposes exact base plus durable table-tail overlay through one target version
+   `T`. The watermark bounds cost. Predicate pushdown must not remove tail keys
+   required to invalidate matching base rows.
 
 ## Changes applied to the plan
 
@@ -58,6 +67,40 @@ must stay outside the repository and review artifacts.
   restart, partition, repair, generation activation, stale publication, exact
   fresh-process replay, and a failing negative control. Replicated WAL and
   objectification faults remain proposed.
+- `[PROPOSED]` RFC-0011 defines cell, tenant database, range, segment, and
+  metacluster as separate topology layers, with no cross-cell transaction.
+- `[PROPOSED]` RFC-0010 defines exact base-plus-tail snapshot semantics,
+  analytical-tail retention, snapshot leases, and later write validation.
+
+## SlateDB inference follow-up
+
+The pinned SlateDB source resolves one Fable inference and confirms the other.
+Its single-writer batch loop checks an externally supplied sequence against the
+current oracle and rejects `seqnum <= current` before advancing it, so the
+adapter's preflight check does not permit a lower sequence to land after a
+higher one. The adapter now has a concurrent 20-versus-10 regression fixture and
+maps the losing lower apply to a non-monotonic result. See the pinned
+[SlateDB write path](https://github.com/slatedb/slatedb/blob/e0161973d8d7ffdede7c44725729838811674e99/slatedb/src/batch_write.rs#L189-L220).
+
+The second inference was correct: a SlateDB snapshot sequence is not a stable
+objectKV logical version. `okv-slate` now stores objectKV's complete 16-byte
+version in private metadata and rejects nonzero generations until the underlying
+external sequence seam can represent or map them safely.
+
+## Primary-source checks for the topology correction
+
+- FoundationDB defines shards as continuous key ranges and routes sequenced,
+  resolver-checked transactions through tagged logs inside one cluster:
+  [HA write path](https://apple.github.io/foundationdb/ha-write-path.html).
+- FoundationDB tenants are named transaction domains confined to a keyspace;
+  the documented feature remains experimental:
+  [tenants](https://apple.github.io/foundationdb/tenants.html).
+- FoundationDB publishes bounded tested cluster and data-size envelopes, which
+  motivates declared cell limits without predicting objectKV's limits:
+  [known limitations](https://apple.github.io/foundationdb/known-limitations.html).
+- DataFusion exposes the custom source, plan, ordering, partitioning, and filter
+  declarations needed for an exact overlay operator:
+  [custom source guide](https://datafusion.apache.org/library-user-guide/custom-table-providers.html).
 
 ## What can falsify this synthesis
 

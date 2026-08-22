@@ -13,15 +13,18 @@ use std::fmt::{Display, Formatter};
 pub const SLATEDB_REVISION: &str = "e0161973d8d7ffdede7c44725729838811674e99";
 
 const COMMIT_KEY_PREFIX: &[u8] = b"\x00okv/commit/";
+const LATEST_VERSION_KEY: &[u8] = b"\x00okv/latest-version";
 const USER_KEY_PREFIX: u8 = 1;
-const FINGERPRINT_VERSION: &[u8] = b"okv-commit-v1";
 
 /// Errors produced at the objectKV to `SlateDB` boundary.
 #[derive(Debug, Eq, PartialEq)]
 pub enum AdapterError {
     Backend(String),
     ConflictingReplay { version: Version },
+    InvalidBatch(String),
     NonMonotonicVersion { latest: Version, attempted: Version },
+    UnsupportedGeneration { generation: u64 },
+    UnsupportedRangeClear,
     ZeroVersion,
 }
 
@@ -31,15 +34,20 @@ impl Display for AdapterError {
             Self::Backend(message) => write!(formatter, "SlateDB error: {message}"),
             Self::ConflictingReplay { version } => write!(
                 formatter,
-                "version {} was replayed with different mutations",
-                version.get()
+                "version {version} was replayed with different mutations"
             ),
+            Self::InvalidBatch(message) => write!(formatter, "invalid commit batch: {message}"),
             Self::NonMonotonicVersion { latest, attempted } => write!(
                 formatter,
-                "version {} cannot follow version {}",
-                attempted.get(),
-                latest.get()
+                "version {attempted} cannot follow version {latest}"
             ),
+            Self::UnsupportedGeneration { generation } => write!(
+                formatter,
+                "SlateDB adapter does not yet support logical generation {generation}"
+            ),
+            Self::UnsupportedRangeClear => {
+                formatter.write_str("SlateDB adapter does not yet support atomic range clear")
+            }
             Self::ZeroVersion => formatter.write_str("version zero is reserved"),
         }
     }
@@ -72,9 +80,23 @@ impl SlateEngine {
         if batch.version == Version::ZERO {
             return Err(AdapterError::ZeroVersion);
         }
+        if batch.version.generation() != 0 {
+            return Err(AdapterError::UnsupportedGeneration {
+                generation: batch.version.generation(),
+            });
+        }
+        if batch
+            .mutations
+            .iter()
+            .any(|mutation| matches!(mutation, Mutation::ClearRange { .. }))
+        {
+            return Err(AdapterError::UnsupportedRangeClear);
+        }
 
         let commit_key = commit_key(batch.version);
-        let fingerprint = fingerprint(&batch);
+        let fingerprint = batch
+            .fingerprint()
+            .map_err(|error| AdapterError::InvalidBatch(error.to_string()))?;
         if let Some(outcome) = self
             .replay_outcome(&commit_key, &fingerprint, batch.version)
             .await?
@@ -95,9 +117,11 @@ impl SlateEngine {
             match mutation {
                 Mutation::Set { key, value } => write_batch.put(user_key(&key), value),
                 Mutation::Clear { key } => write_batch.delete(user_key(&key)),
+                Mutation::ClearRange { .. } => unreachable!("rejected before write construction"),
             }
         }
-        write_batch.put(&commit_key, &fingerprint);
+        write_batch.put(&commit_key, fingerprint);
+        write_batch.put(LATEST_VERSION_KEY, batch.version.to_be_bytes());
 
         let options = WriteOptions {
             seqnum: batch.version.get(),
@@ -116,6 +140,13 @@ impl SlateEngine {
                 {
                     return outcome;
                 }
+                let latest = self.latest_version().await?;
+                if batch.version <= latest {
+                    return Err(AdapterError::NonMonotonicVersion {
+                        latest,
+                        attempted: batch.version,
+                    });
+                }
                 Err(AdapterError::Backend(error.to_string()))
             }
         }
@@ -125,13 +156,21 @@ impl SlateEngine {
     ///
     /// # Errors
     ///
-    /// Returns an adapter error when `SlateDB` cannot create a snapshot.
+    /// Returns an adapter error when the private version record is malformed or
+    /// `SlateDB` cannot serve the read.
     pub async fn latest_version(&self) -> Result<Version, AdapterError> {
-        self.db
-            .snapshot()
+        let encoded = self
+            .db
+            .get(LATEST_VERSION_KEY)
             .await
-            .map(|snapshot| Version::new(snapshot.seq()))
-            .map_err(|error| backend(&error))
+            .map_err(|error| backend(&error))?;
+        let Some(encoded) = encoded else {
+            return Ok(Version::ZERO);
+        };
+        let encoded: [u8; 16] = encoded.as_ref().try_into().map_err(|_| {
+            AdapterError::Backend("private latest-version record is not 16 bytes".to_owned())
+        })?;
+        Ok(Version::from_be_bytes(encoded))
     }
 
     /// Read the latest value for a user key.
@@ -182,9 +221,9 @@ fn backend(error: &slatedb::Error) -> AdapterError {
 }
 
 fn commit_key(version: Version) -> Vec<u8> {
-    let mut key = Vec::with_capacity(COMMIT_KEY_PREFIX.len() + 8);
+    let mut key = Vec::with_capacity(COMMIT_KEY_PREFIX.len() + 16);
     key.extend_from_slice(COMMIT_KEY_PREFIX);
-    key.extend_from_slice(&version.get().to_be_bytes());
+    key.extend_from_slice(&version.to_be_bytes());
     key
 }
 
@@ -195,40 +234,10 @@ fn user_key(key: &[u8]) -> Vec<u8> {
     encoded
 }
 
-fn fingerprint(batch: &CommitBatch) -> Vec<u8> {
-    let mut encoded = Vec::new();
-    encoded.extend_from_slice(FINGERPRINT_VERSION);
-    push_len(&mut encoded, batch.mutations.len());
-    for mutation in &batch.mutations {
-        match mutation {
-            Mutation::Set { key, value } => {
-                encoded.push(1);
-                push_bytes(&mut encoded, key);
-                push_bytes(&mut encoded, value);
-            }
-            Mutation::Clear { key } => {
-                encoded.push(2);
-                push_bytes(&mut encoded, key);
-            }
-        }
-    }
-    encoded
-}
-
-fn push_bytes(target: &mut Vec<u8>, bytes: &[u8]) {
-    push_len(target, bytes.len());
-    target.extend_from_slice(bytes);
-}
-
-fn push_len(target: &mut Vec<u8>, len: usize) {
-    let len = u64::try_from(len).expect("usize always fits in u64 on supported targets");
-    target.extend_from_slice(&len.to_be_bytes());
-}
-
 #[cfg(test)]
 mod tests {
     use super::{AdapterError, SlateEngine, SLATEDB_REVISION};
-    use okv_model::{ApplyOutcome, CommitBatch, Mutation, Version};
+    use okv_model::{ApplyOutcome, CommitBatch, CommitIdentity, KeyRange, Mutation, Version};
     use slatedb::object_store::memory::InMemory;
     use slatedb::object_store::ObjectStore;
     use slatedb::Db;
@@ -245,6 +254,7 @@ mod tests {
     fn set(version: u64, key: &[u8], value: &[u8]) -> CommitBatch {
         CommitBatch {
             version: Version::new(version),
+            identity: CommitIdentity::for_test(version),
             mutations: vec![Mutation::Set {
                 key: key.to_vec(),
                 value: value.to_vec(),
@@ -315,6 +325,50 @@ mod tests {
             })
         );
 
+        engine.close().await.expect("close SlateDB");
+    }
+
+    #[tokio::test]
+    async fn rejects_unimplemented_logical_generation_and_range_clear() {
+        let engine = engine("unsupported-contract").await;
+        let mut generated = set(1, b"k", b"v");
+        generated.version = Version::from_parts(1, 1);
+        assert_eq!(
+            engine.apply(generated).await,
+            Err(AdapterError::UnsupportedGeneration { generation: 1 })
+        );
+        assert_eq!(
+            engine
+                .apply(CommitBatch {
+                    version: Version::new(1),
+                    identity: CommitIdentity::for_test(1),
+                    mutations: vec![Mutation::ClearRange {
+                        range: KeyRange::new(b"a".to_vec(), b"z".to_vec()).expect("range"),
+                    }],
+                })
+                .await,
+            Err(AdapterError::UnsupportedRangeClear)
+        );
+        engine.close().await.expect("close SlateDB");
+    }
+
+    #[tokio::test]
+    async fn concurrent_lower_version_cannot_replace_higher_version() {
+        let engine = engine("concurrent-monotonic").await;
+        let (high, low) = tokio::join!(
+            engine.apply(set(20, b"high", b"twenty")),
+            engine.apply(set(10, b"low", b"ten"))
+        );
+        assert_eq!(high, Ok(ApplyOutcome::Applied));
+        assert!(
+            low == Ok(ApplyOutcome::Applied)
+                || low
+                    == Err(AdapterError::NonMonotonicVersion {
+                        latest: Version::new(20),
+                        attempted: Version::new(10),
+                    })
+        );
+        assert_eq!(engine.latest_version().await, Ok(Version::new(20)));
         engine.close().await.expect("close SlateDB");
     }
 

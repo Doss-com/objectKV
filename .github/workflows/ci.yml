@@ -27,6 +27,13 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/serving-models.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/fault-recovery.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/object-store.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/model-history.toml
+      - name: Verify generated MVCC histories and negative control
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history --backend model --output /tmp/okv-model-history.json
+          cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history-ignore-range-clears --backend model --output /tmp/okv-model-history-negative.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0' /tmp/okv-model-history.json
+          jq -e '.verdict == "discard" and .primary_metric.median > 0' /tmp/okv-model-history-negative.json
       - name: Verify local object-store capability profiles
         run: |
           cargo run --quiet -p okv-object -- --backend memory --profile authority > /tmp/okv-object-memory.json

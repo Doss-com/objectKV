@@ -11,6 +11,9 @@ The `object-store` suite also executes segment and authority capability profiles
 against memory, filesystem, MinIO, and GCS adapters. Memory and pinned MinIO
 have local authority receipts; filesystem has a segment receipt and an expected
 authority failure; GCS awaits authentication.
+The `mvcc-semantics-v1` suite runs five deterministic 1,000-event histories
+against an independent full-snapshot oracle. Its deliberate ignore-range-clears
+subject receives a `discard` verdict at step 2.
 
 ## Executable configuration
 
@@ -85,9 +88,28 @@ Each lane owns one champion. Champions are not blended automatically.
 | `commit-failover` | durable commit p99 | zero acknowledged loss across leader, disk, and lost-ack faults |
 | `takeover` | time to first correct read | stale owner fenced and no durable dataset copy |
 | `gc-snapshot-race` | anomaly count | no reachable object reclaimed under snapshot, branch, backup, or CDC interleavings |
+| `cell-scale` | committed transactions per second | strict serializability and bounded recovery as roles partition |
+| `tenant-move` | unavailable time and durable bytes copied | one writable routing epoch and exact snapshot plus tail |
+| `htap-overlay` | rows or bytes processed in `(W_p, T]` | exact row oracle, predicate invalidation, one query version |
+| `certified-write` | validation retry rate | no write commits from an invalid analytical dependency certificate |
 
 `generation-recovery` has one executable bootstrap probe. The other fault lanes
 remain configuration contracts until their owning components exist.
+
+## MVCC semantic gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/model-history.toml \
+  --profile generated-dev \
+  --workload generated-mvcc-history \
+  --backend model
+```
+
+The suite freezes RFC-0002 into its contract hash. It records anomaly samples,
+event/read/range-clear/replay counts, exact seed replay, and a trace digest over
+five seeds. The adjacent negative workload injects an implementation that
+ignores range clears; CI requires the normal workload to keep and the negative
+workload to discard.
 
 ```bash
 cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \

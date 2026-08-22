@@ -1,16 +1,21 @@
 # RFC-0002: Version and MVCC model
 
-- Status: proposed
+- Status: proposed; implementation evidence `[ACTIVE-WORK]`
 - Authors: DOSS
 - Created: 2026-08-22
 
 ## Decision
 
-objectKV exposes a totally ordered `CommitVersion` represented logically as
-`(generation, sequence)`. Generations never decrease; sequences increase within
-one generation; gaps are legal; and no committed version may ever be reused.
-The current `Version(u64)` model and SlateDB sequence number are bootstrap
-adapters, not the stable wire representation.
+Within one cell, objectKV exposes a totally ordered `CommitVersion` represented as
+`(generation: u64, sequence: u64)`. The stable value encoding is 16 bytes,
+`generation_be || sequence_be`, so byte order equals logical order. `(0, 0)` is
+reserved. Generations never decrease; sequences increase within one generation;
+gaps are legal; and no committed version may ever be reused.
+
+At 10 million committed versions per second, one `u64` sequence space lasts
+more than 58,000 years. Version exhaustion is therefore an invalid state, not a
+wraparound case. The containing durable batch envelope still requires an
+explicit codec version before its layout is stable.
 
 ## Context and invariant
 
@@ -27,6 +32,8 @@ in one committed batch become visible atomically at one version.
 ### Allocation and ordering
 
 - The bootstrap coordinator quorum owns the active generation.
+- Version order is cell-scoped. Different cells have independent version spaces
+  and no cross-cell snapshot or transaction order.
 - A recovery generation is strictly greater than every generation the quorum
   has previously activated.
 - Within one active generation, the sequencer allocates increasing sequence
@@ -35,9 +42,8 @@ in one committed batch become visible atomically at one version.
   suffix through contiguous log indexes and checksums, never by assuming commit
   versions are gapless.
 - `(g1, s1) < (g2, s2)` when `g1 < g2`, or when `g1 == g2` and `s1 < s2`.
-- The stable binary encoding must preserve this order and must not silently
-  truncate either component. Its byte layout remains unresolved until the
-  longevity and allocation-rate analysis is complete.
+- The stable value encoding is 16-byte big endian. Inverted-order and generation
+  rollover fixtures must fail any truncated or packed alternative.
 
 ### Mutation batches and replay
 
@@ -53,6 +59,12 @@ The first application of a version records its fingerprint. Reapplying the same
 version and fingerprint is a no-op success. Reapplying the version with a
 different fingerprint is corruption and halts that apply stream. Mutation order
 inside the canonical batch cannot affect the fingerprint.
+
+Canonicalization sorts mutations by kind and bytewise key/range, removes exact
+duplicates, and rejects two distinct point mutations for one key. A point
+mutation wins over a covering range clear at the same version. This gives a
+stable meaning equivalent to applying range clears before points without making
+caller order part of commit identity.
 
 Initial mutation kinds are `Set(key, value)`, `Clear(key)`, and
 `ClearRange(begin, end)`, where ranges are half-open. Atomic arithmetic and
@@ -72,6 +84,8 @@ visible.
   then performs `read_at(R)`. A worker cannot define latest independently.
 - A transaction has a local write overlay, so it reads its own writes before
   commit without publishing a partial version.
+- Read availability checks `R > applied_version` before
+  `R < oldest_readable_version`. The oldest-readable boundary is inclusive.
 
 ### Retention and wall clock
 
@@ -83,6 +97,10 @@ lease and expiry policy; it cannot pin history forever by accident.
 Commit versions are not timestamps. A separately persisted monotonic sample map
 relates selected commit versions to wall-clock time for PITR and operations.
 Clock movement cannot change transaction order.
+
+The boundary advances monotonically, may advance through an unallocated version
+gap, and cannot advance beyond applied state. Logical expiry does not require
+immediate physical deletion.
 
 ## Worked failure cases
 
@@ -99,6 +117,11 @@ Clock movement cannot change transaction order.
    that version stop the apply stream as corruption.
 5. A range clear at version 20 covers key `k`; an older set at 19 is hidden, and
    a later set at 21 is visible.
+6. A range clear and point set both cover `k` at version 20. The point set is
+   visible because same-version point precedence is part of canonical semantics.
+7. The oldest-readable boundary is version 30. Reads at 30 remain valid, reads
+   below 30 return `version_too_old`, and reads above applied state return
+   `version_not_applied` even when both conditions could be inferred locally.
 
 ## Alternatives
 
@@ -110,26 +133,32 @@ Clock movement cannot change transaction order.
   analytical coverage vectors materially more complex before scaling evidence
   exists.
 
-## Eval plan
+## Executable evidence
 
-- Extend `okv-model` with generations, range clears, large-value references,
-  read-your-writes, and retention boundaries.
-- Generate histories with gaps, duplicate delivery, conflicting replay, stale
-  generations, and range-clear overlap.
-- Hard gates: zero model divergence, zero version reuse, exact failing-seed
-  replay, and no silent read fallback.
-- Negative controls: reuse one committed version and serve one future read from
-  stale applied state. Both must fail.
+- `[EXISTS]` `okv-model` implements the 16-byte generation-aware value, exact
+  replay identity, point and half-open range tombstones, scans, retention
+  boundaries, and read-your-writes.
+- `[EXISTS]` `evals/suites/model-history.toml` runs five deterministic seeds,
+  1,000 events per seed, against an independent full-snapshot oracle.
+- `[EXISTS]` The current developer receipt covers 5,000 events, 85,000 reads,
+  960 range clears, and 170 exact replays with zero divergence.
+- `[EXISTS]` The deliberate ignore-range-clears subject diverges at step 2 for
+  every seed and receives a `discard` verdict.
+- `[ACTIVE-WORK]` Generated conflicting replay, stale-generation apply, future
+  read fallback, and retention histories remain to be added. Direct unit
+  fixtures cover their local model semantics today.
 
 ## Compatibility and migration
 
-The repository has not published a stable version encoding. The existing
-`Version(u64)` remains an internal Phase 0 adapter. Accepting this RFC requires a
-versioned binary envelope and migration fixture before durable objects are
-declared stable.
+The repository has not published a stable durable batch envelope. The SlateDB
+adapter accepts only generation zero because its public external sequence seam
+is one `u64`; it now stores the complete logical version in private metadata and
+fails explicitly on later generations. Accepting this RFC for durable objects
+requires the versioned envelope and migration fixture.
 
 ## Unresolved questions
 
-- Exact component widths and stable byte encoding.
 - Maximum version allocation rate and expected cluster lifetime.
 - Lease duration and operator policy for stalled CDC, snapshots, and branches.
+- Whether client-request deduplication needs a record separate from apply-stream
+  replay identity before the transaction authority exists.

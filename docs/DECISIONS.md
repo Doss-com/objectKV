@@ -241,3 +241,58 @@ update.
 
 Evidence: `crates/okv-object`, `evals/suites/object-store.toml`, and
 `docs/OBJECT-STORE-SUPPORT.md`.
+
+## D18. Cells bound fleet topology, not intra-tenant transactions
+
+Status: `[PROPOSED]` after architecture correction, 2026-08-22.
+
+Decision: A cell is a complete distributed transaction, durability, storage,
+control, and recovery system. A tenant database is the normal transaction
+domain, so one bounded transaction may span arbitrary keys and ranges inside
+that tenant. Cells have independent versions, generations, logs, and watermarks;
+there is no cross-cell transaction. A metacluster owns tenant placement and
+migration.
+
+Optimizes for: FDB-like serializable semantics inside a bounded operating and
+failure envelope.
+
+Gives up: one global transaction domain and the simpler permanent design of one
+sequencer, resolver, or log for every cell.
+
+Evidence required: RFC-0011 review, Cell v0 multi-range serializability, declared
+cell capacity/recovery envelopes, and a fenced snapshot-plus-tail tenant move.
+
+## D19. Columnar lag changes cost, not snapshot freshness
+
+Status: `[PROPOSED]` after architecture correction, 2026-08-22.
+
+Decision: A ZebraDB analytical query chooses one target version `T`. Each
+partition reads a columnar base through `W_p` and overlays the durable table
+change tail `(W_p, T]`. The analytical tail has retention independent of the
+short recovery WAL. A DataFusion source must preserve tail keys needed to
+invalidate base rows before applying final predicates.
+
+Optimizes for: exact current snapshots over one history while allowing columnar
+materialization to lag.
+
+Gives up: treating the analytical watermark as query freshness or pushing every
+predicate below the overlay boundary.
+
+Evidence required: RFC-0010 base-plus-tail oracle, predicate-invalidation
+negative control, exact multi-table version alignment, and bounded overlay cost.
+
+## D20. Analytical results do not create long OLTP transactions
+
+Status: `[PROPOSED]` after architecture correction, 2026-08-22.
+
+Decision: Invariant-critical aggregates are maintained as transactional
+projections. Other analytical results that drive writes return a snapshot and
+dependency certificate, then validate in a short transaction. Long planning
+workflows produce proposals that revalidate or reserve resources before apply.
+
+Optimizes for: serializable decisions without keeping a transaction open during
+long scans or planning.
+
+Gives up: free coordination for broad aggregates. Coarser dependency tokens are
+simpler but cause more retries; finer tokens reduce false conflicts but enlarge
+certificates and maintenance work.

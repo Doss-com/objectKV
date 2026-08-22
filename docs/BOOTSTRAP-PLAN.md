@@ -51,8 +51,9 @@ models that pressure-test the kernel without replacing the PostgreSQL north star
 - Mechanism: a single-threaded executable specification, generated histories,
   differential checks, and an immutable-segment interface.
 - First files: `crates/okv-model`, RFC-0002, RFC-0003, RFC-0004.
-- Open question: how are exact replay, gaps, range tombstones, large values, and
-  oldest-readable-version represented?
+- `[EXISTS]` The logical model fixes generation-aware versions, gaps, canonical
+  exact replay, range tombstones, scans, read-your-writes, and an inclusive
+  oldest-readable boundary. Large-value references remain open.
 - Failure mode: implementation and oracle share the same bug or the version
   contract changes silently under benchmarks.
 - Rough scope: small for point operations, large once range deletes, snapshots,
@@ -85,8 +86,10 @@ models that pressure-test the kernel without replacing the PostgreSQL north star
 
 ### W5. Logical distribution
 
-- Mechanism: ordered key ranges, generation-fenced assignments, metadata-only
-  split/move, shared historical segments, and background physical realignment.
+- Mechanism: bounded complete cells, tenant database transaction domains,
+  ordered key ranges, generation-fenced assignments, metadata-only split/move,
+  shared historical segments, and background physical realignment. A future
+  metacluster maps tenants to cells without cross-cell transactions.
 - First files: future `crates/okv-router`, `crates/okv-control`, RFC-0006.
 - Open question: how are segment references shared safely across child ranges
   while watermarking and GC remain correct?
@@ -97,7 +100,9 @@ models that pressure-test the kernel without replacing the PostgreSQL north star
 ### W6. Transaction semantics
 
 - Mechanism: read versions, explicit read/write conflict ranges, partitionable
-  resolver state, one ordered commit stream first, then measured scaling.
+  resolver state, one ordered commit stream first, then measured scaling inside
+  one cell. Transactions may span arbitrary in-cell ranges inside one tenant
+  database.
 - First files: future `crates/okv-txn`, `crates/okv-resolver`, RFC-0008.
 - Open question: ordered versus hashed resolver domains, transaction lifetime,
   commit-unknown handling, and log partitioning threshold.
@@ -198,12 +203,19 @@ named target workload. A blended average cannot pass the gate.
 
 ### S2. Build the versioned object engine
 
-Status: `[PROPOSED]`.
+Status: `[ACTIVE-WORK]` logical contract; storage-engine implementation remains
+`[PROPOSED]`.
 
 Introduce externally assigned versions, point reads, range reads, exact replay,
 immutable segment publication, checksums, and manifest inspection behind a small
 storage-engine contract. Differentially test every generated history against
 `okv-model`.
+
+The logical contract and generated differential gate now exist. The pinned
+SlateDB adapter owns a full 16-byte latest-version metadata record, rejects
+unsupported generations and range clears explicitly, and proves concurrent
+lower versions cannot replace a higher one. Explicit historical reads and
+atomic range clears remain adaptation seams.
 
 Exit: Gate 1 re-runs against the objectKV adapter with no correctness failures.
 
@@ -237,7 +249,10 @@ Gate 3: complete worker loss does not require durable dataset copy.
 Status: `[PROPOSED]`.
 
 Add logical ranges, assignment generations, metadata-only split/move, global
-read versions, conflict ranges, and resolver checks in that order.
+cell read versions, tenant transaction domains, conflict ranges, and resolver
+checks in that order. The first cell centralizes throughput while keeping role
+protocols explicit; resolver, proxy, and log partitioning follow measured
+ceilings. Cross-cell transactions are out of scope.
 
 Gates 4 and 5: range movement copies approximately zero durable database bytes;
 generated histories remain strictly serializable at useful measured throughput.
@@ -258,9 +273,12 @@ and passes a declared regression subset with objectKV as its durable backing.
 Status: `[FUTURE]`.
 
 Map records and indexes to atomic objectKV transactions. Materialize Parquet from
-the authoritative commit history with explicit coverage versions. Query a
-columnar base through DataFusion plus bounded OLTP delta, or wait for a declared
-analytical watermark.
+the authoritative commit history with explicit per-partition coverage versions.
+Query one exact version `T` through a DataFusion base-plus-tail overlay. The
+durable analytical tail may outlive the recovery WAL. Predicate pushdown must
+retain keys needed to invalidate stale base rows. Long queries use snapshot
+leases; writes based on their results use transactional projections or later
+dependency validation.
 
 Gate 6B: a representative ZebraDB workload is simpler or materially better than
 the current dual-system path enough to justify owning the substrate.

@@ -6,7 +6,10 @@ use okv_eval::result::{
     HardGateResult, PrimaryMetricResult, ProfileIdentity, Verdict,
 };
 use okv_eval::telemetry::{RunResource, Telemetry};
-use okv_model::{ApplyOutcome, CommitBatch, Model, Mutation, Version};
+use okv_model::{
+    run_differential_history, ApplyOutcome, CommitBatch, CommitIdentity, DifferentialMode, Model,
+    Mutation, Version,
+};
 use okv_object::{
     filesystem_backend, gcs_backend_from_env, memory_backend, minio_backend_from_env,
     run_conformance, validate_conformance_report, CaseStatus, ConformanceOptions,
@@ -461,10 +464,146 @@ fn execute_workload(
         "deterministic_generation_recovery" => {
             run_generation_recovery(workload, candidate_commit, seeds)
         }
+        "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
         operation => execution_from_result(Err(format!(
             "operation {operation} is declared but has no runner implementation"
         ))),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_model_differential(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "model differential workload requires at least one seed".to_owned(),
+        ));
+    }
+    let steps = workload
+        .parameters
+        .get("steps")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| u64::try_from(value).ok())
+        .unwrap_or(1_000);
+    let inject_bug = workload
+        .parameters
+        .get("inject_ignore_range_clears")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false);
+    let mode = if inject_bug {
+        DifferentialMode::IgnoreRangeClears
+    } else {
+        DifferentialMode::Correct
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut event_count = 0_u64;
+    let mut range_clear_count = 0_u64;
+    let mut replay_count = 0_u64;
+    let mut read_count = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+    for seed in seeds {
+        let first = run_differential_history(*seed, steps, mode);
+        let second = run_differential_history(*seed, steps, mode);
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        event_count = event_count.saturating_add(first.executed_steps);
+        range_clear_count = range_clear_count.saturating_add(first.range_clear_count);
+        replay_count = replay_count.saturating_add(first.replay_count);
+        read_count = read_count.saturating_add(first.read_count);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, step {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        measurements.push(Measurement {
+            metric: "correctness.anomalies",
+            value: bounded_count(first.anomaly_count),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("oracle", "okv-model-full-snapshot-v1"),
+                (
+                    "anomaly.class",
+                    if first.anomaly_count == 0 {
+                        "none"
+                    } else {
+                        "mvcc_semantics"
+                    },
+                ),
+            ]),
+        });
+        artifact_refs.push(format!(
+            "okv-model-history://{seed}/{steps}/{}",
+            first.trace_sha256
+        ));
+    }
+
+    let range_clear_exercised = range_clear_count > 0;
+    let passed = anomaly_count == 0 && exact_replay && range_clear_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "MVCC differential gate failed: anomalies={anomaly_count}, exact_replay={exact_replay}, range_clears={range_clear_count}; {detail}"
+        )
+    });
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "model.exact_seed_replay".to_owned(),
+                status: if exact_replay {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: None,
+            },
+            HardGateResult {
+                id: "model.range_clear_exercised".to_owned(),
+                status: if range_clear_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(range_clear_count.to_string()),
+            },
+            HardGateResult {
+                id: "model.oracle_agreement".to_owned(),
+                status: if anomaly_count == 0 {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            (
+                "model.history.events".to_owned(),
+                bounded_count(event_count),
+            ),
+            (
+                "model.history.range_clears".to_owned(),
+                bounded_count(range_clear_count),
+            ),
+            (
+                "model.history.replays".to_owned(),
+                bounded_count(replay_count),
+            ),
+            ("model.history.reads".to_owned(), bounded_count(read_count)),
+        ]),
     }
 }
 
@@ -777,6 +916,7 @@ fn run_model_smoke() -> Result<(), String> {
     let mut model = Model::default();
     let batch = CommitBatch {
         version: Version::new(1),
+        identity: CommitIdentity::for_test(1),
         mutations: vec![Mutation::Set {
             key: b"inventory/sku-1".to_vec(),
             value: b"10".to_vec(),

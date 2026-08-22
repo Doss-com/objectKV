@@ -24,6 +24,12 @@ objectKV uses these load-bearing principles:
     Parquet and Vortex artifacts are separate version-aligned materializations.
 11. S3 compatibility describes the object API contract, not the transaction or
     file-format contract.
+12. A cell is a bounded complete database cluster. A tenant database, not a
+    range or physical object, is the normal transaction domain.
+13. Columnar materialization lag changes query cost. An exact query merges base
+    plus a durable table-change tail through one target version.
+14. Long analytical work uses snapshot leases and later validation, never an
+    unbounded OLTP transaction.
 
 ## Tradeoff
 

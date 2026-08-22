@@ -5,20 +5,29 @@ become one GitHub issue.
 
 ## Ready now
 
-### T1. Complete RFC-0002, version and MVCC model
+### T1. Complete RFC-0002, version and MVCC model `[COMPLETE]`
 
 - Scope: commit ordering, exact replay, read-version availability, tombstones,
   and oldest-readable-version.
 - Done when: examples and failure cases are precise enough to extend
   `okv-model` without guessing.
 - Dependency: none.
+- Evidence: RFC-0002 fixes the two-`u64` ordered encoding, canonical replay,
+  range-clear precedence, exact read errors, inclusive retention boundary, and
+  read-your-writes. `okv-model` executes each invariant.
 
-### T2. Add generated differential histories
+### T2. Add generated differential histories `[ACTIVE-WORK]`
 
 - Scope: produce deterministic sequences of set, clear, replay, and read; compare
   a candidate engine contract to `okv-model`.
 - Done when: a deliberately incorrect engine fails with a minimized seed.
 - Dependency: T1 for semantics beyond the current point model.
+- Exists: five 1,000-event deterministic histories compare `okv-model` with an
+  independent full-snapshot oracle. The ignore-range-clears negative subject
+  fails at step 2 and the clean subject has zero anomalies.
+- Remaining: generate conflicting replay, availability, retention, and stale
+  generation operations; run the same contract against a storage-engine adapter
+  after its range-clear and explicit-version read seams exist.
 
 ### T3. Inventory SlateDB adaptation seams `[COMPLETE]`
 
@@ -148,6 +157,34 @@ become one GitHub issue.
   normal, rate-limited, commit-refused, and recovery-only states;
   `evals/suites/fault-recovery.toml` owns the brownout lane. The workload
   executor remains gated on WAL and objectification components.
+
+### T15. Adversarially review cell and tenant topology
+
+- Scope: RFC-0011 cell boundary, tenant transaction domain, role-partitioning
+  sequence, metacluster authority, and snapshot-plus-tail tenant movement.
+- Done when: each invariant has a failure case; reviewers identify the first
+  throughput, recovery, and control-plane ceiling; and one alternative topology
+  is compared with the same workload and failure assumptions.
+- Dependency: none. Read-only architecture review can start immediately.
+
+### T16. Prototype exact DataFusion base-plus-tail semantics
+
+- Scope: RFC-0010 `TableProvider`, ordered `SnapshotOverlayExec`, insert/update/
+  delete and row-move tail, per-partition watermarks, and predicate invalidation.
+- Done when: a row oracle and injected predicate-pushdown bug prove exact results
+  at one target version across differently lagging partitions. Measure tail rows,
+  bytes, memory, and query latency as `T - W_p` grows.
+- Dependency: RFC-0010 review and a synthetic table-change fixture. It does not
+  depend on the distributed transaction implementation.
+
+### T17. Specify analytical dependency certificates
+
+- Scope: transactional projections, dependency-token granularity, snapshot
+  leases, validation retries, and uncertifiable query classes.
+- Done when: one credit-exposure invariant is expressed both as a transactional
+  projection and as a certified query; conflicting writers cannot commit from a
+  stale result; retry and certificate-size tradeoffs are measured.
+- Dependency: RFC-0008 and RFC-0010 drafts. Model work can begin independently.
 
 ## Opens after Gate 1
 
