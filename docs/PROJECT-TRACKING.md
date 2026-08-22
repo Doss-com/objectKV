@@ -28,3 +28,12 @@ the DOSSBOT app page on its default port. Filter the canonical queue by the
 
 Update the tracker when the critical path, owner, or external blocker changes.
 Do not copy the full RFC queue into the playground.
+
+## Current checkpoint
+
+`[EXISTS]` Tracker revision 90 points at objectKV main
+`8d6d05ac1d3dc08053f2030e04226440788bc466`. The Cell v0 commit contract and
+ZebraDB HTAP exactness contract both have clean OTel-backed admission receipts
+in `experiments/ledger.jsonl`. The next critical path is the real replicated-log
+persistence proof followed by the Arrow, Parquet, and DataFusion implementation
+against the frozen row oracle.
