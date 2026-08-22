@@ -31,9 +31,10 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[EXISTS]` Tracker revision 90 points at objectKV main
-`8d6d05ac1d3dc08053f2030e04226440788bc466`. The Cell v0 commit contract and
-ZebraDB HTAP exactness contract both have clean OTel-backed admission receipts
-in `experiments/ledger.jsonl`. The next critical path is the real replicated-log
-persistence proof followed by the Arrow, Parquet, and DataFusion implementation
+`[ACTIVE-WORK]` Tracker revision 91 is being advanced from the admitted semantic
+contracts to the first persisted-WAL receipt on objectKV main. Commit
+`0552c7a93bb19b49283ab9cc49fcfed8ef6ff1c6` contains the local stable-storage
+prototype and its clean OTel-backed admission ledger. The next critical path is
+deterministic network replication, election, and generation takeover over that
+persistence seam, followed by the Arrow, Parquet, and DataFusion implementation
 against the frozen row oracle.
