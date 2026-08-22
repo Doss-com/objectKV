@@ -48,7 +48,8 @@ crates/okv-eval/    configurable eval runner and OTel instrumentation
 crates/okv-object/  named-object correctness boundary and conformance runner
 crates/okv-sim/     exact seeded crash, network, and fencing replay probe
 crates/okv-slate/   pinned SlateDB adaptation and external-version spike
-crates/okv-wal/     checksummed local quorum-WAL persistence prototype
+crates/okv-wal/     checksummed local quorum frames and per-node stable journal
+crates/okv-consensus/ pinned OpenRaft storage adapter and executable contracts
 docs/               decisions, staged plan, eval design, PostgreSQL path
 evals/              frozen suite definitions and result contract
 infra/gcp/          guarded objectKV-dev project and GCS configuration

@@ -30,6 +30,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/model-history.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/commit-contract.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/persisted-wal.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-storage.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
       - name: Verify generated MVCC histories and negative control
         run: |
@@ -90,6 +91,21 @@ jobs:
             output="/tmp/${workload}.json"
             cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload "$workload" --backend local-fs --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "persisted_wal.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify OpenRaft stable storage and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/raft-storage.toml --profile local-fs --workload openraft-storage-reopen --backend local-fs --output /tmp/okv-openraft-storage.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "raft_storage.contract_agreement").status == "pass")' /tmp/okv-openraft-storage.json
+          for workload in \
+            openraft-storage-ram-only-vote \
+            openraft-storage-ram-only-committed \
+            openraft-storage-ignore-conflict-truncate \
+            openraft-storage-ignore-purge \
+            openraft-storage-accept-log-gap \
+            openraft-storage-ignore-complete-corruption; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/raft-storage.toml --profile local-fs --workload "$workload" --backend local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "raft_storage.contract_agreement").status == "fail")' "$output"
           done
       - name: Verify local object-store capability profiles
         run: |

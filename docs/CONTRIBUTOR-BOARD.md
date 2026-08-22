@@ -223,9 +223,13 @@ become one GitHub issue.
   controls through the shared result and OTel path. `okv-wal` now persists the
   envelope through checksummed frames on three local files and reconstructs a
   matching two-copy prefix after fresh opens. Its suite rejects six persistence
-  violations through the same result and OTel path.
-- Remaining: run the persistence seam through Turmoil with a coordinator and
-  selected consensus implementation, add real process-crash boundaries, define
+  violations through the same result and OTel path. `okv-consensus` pins
+  OpenRaft `0.9.25` and passes its upstream storage conformance suite over an
+  objectKV per-node journal. The `openraft-storage-contract-v1` gate reopens
+  vote, committed index, append, truncate, purge, torn-tail, and corruption
+  state and discards six negative subjects.
+- Remaining: run three OpenRaft nodes through Turmoil with a coordinator,
+  add real process-crash boundaries, define
   retained-outcome expiry and compaction, and prove disk-full, replica repair,
   generation takeover, and replacement recovery.
 

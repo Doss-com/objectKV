@@ -1,5 +1,6 @@
 use chrono::Utc;
 use clap::{Parser, Subcommand};
+use okv_consensus::{run_raft_storage_contract, RaftStorageMode};
 use okv_eval::config::{load_suite, BudgetKind, LoadedSuite, WorkloadConfig};
 use okv_eval::result::{
     median, median_absolute_deviation, validate_result, BudgetResult, EvalResult, GateStatus,
@@ -469,6 +470,7 @@ fn execute_workload(
         }
         "commit_envelope_contract" => run_commit_envelope_contract(workload, seeds),
         "persisted_wal_contract" => run_persisted_wal(workload, seeds, backend),
+        "raft_storage_contract" => run_raft_storage(workload, seeds, backend),
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
@@ -689,6 +691,223 @@ fn run_persisted_wal(workload: &WorkloadConfig, seeds: &[u64], backend: &str) ->
             ),
             (
                 "wal.contract.physical_bytes".to_owned(),
+                bounded_count(physical_bytes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_raft_storage(workload: &WorkloadConfig, seeds: &[u64], backend: &str) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "Raft storage workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => RaftStorageMode::Correct,
+        Some("ram_only_vote") => RaftStorageMode::RamOnlyVote,
+        Some("ram_only_committed") => RaftStorageMode::RamOnlyCommitted,
+        Some("ignore_conflict_truncate") => RaftStorageMode::IgnoreConflictTruncate,
+        Some("ignore_purge") => RaftStorageMode::IgnorePurge,
+        Some("accept_log_gap") => RaftStorageMode::AcceptLogGap,
+        Some("ignore_complete_corruption") => RaftStorageMode::IgnoreCompleteCorruption,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown Raft storage negative control {other}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut event_count = 0_u64;
+    let mut reopened_stores = 0_u64;
+    let mut durable_votes = 0_u64;
+    let mut durable_committed_positions = 0_u64;
+    let mut appended_entries = 0_u64;
+    let mut conflict_truncations = 0_u64;
+    let mut purged_prefixes = 0_u64;
+    let mut rejected_log_gaps = 0_u64;
+    let mut torn_tail_repairs = 0_u64;
+    let mut corruption_failures = 0_u64;
+    let mut physical_bytes = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+    for seed in seeds {
+        let first = match run_raft_storage_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_raft_storage_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        event_count = event_count.saturating_add(first.executed_steps);
+        reopened_stores = reopened_stores.saturating_add(first.reopened_stores);
+        durable_votes = durable_votes.saturating_add(first.durable_votes);
+        durable_committed_positions =
+            durable_committed_positions.saturating_add(first.durable_committed_positions);
+        appended_entries = appended_entries.saturating_add(first.appended_entries);
+        conflict_truncations = conflict_truncations.saturating_add(first.conflict_truncations);
+        purged_prefixes = purged_prefixes.saturating_add(first.purged_prefixes);
+        rejected_log_gaps = rejected_log_gaps.saturating_add(first.rejected_log_gaps);
+        torn_tail_repairs = torn_tail_repairs.saturating_add(first.torn_tail_repairs);
+        corruption_failures = corruption_failures.saturating_add(first.corruption_failures);
+        physical_bytes = physical_bytes.saturating_add(first.physical_bytes);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, step {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "openraft-storage-contract-v1"),
+                    ("anomaly.class", if exact { "none" } else { "raft_storage" }),
+                ]),
+            },
+            Measurement {
+                metric: "wal.retained_bytes",
+                value: bounded_count(first.physical_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("topology", "per-node-journal"),
+                    ("fault", mode.id()),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "stable-log-reopen"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-openraft-storage://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let expected_events = u64::try_from(seeds.len())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(8);
+    let semantic_operations_exercised = event_count == expected_events
+        && reopened_stores > 0
+        && durable_votes > 0
+        && durable_committed_positions > 0
+        && appended_entries > 0
+        && conflict_truncations > 0
+        && purged_prefixes > 0
+        && torn_tail_repairs > 0;
+    let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "Raft storage gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "raft_storage.exact_seed_replay".to_owned(),
+                status: if exact_replay {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: None,
+            },
+            HardGateResult {
+                id: "raft_storage.semantic_operations_exercised".to_owned(),
+                status: if semantic_operations_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(format!(
+                    "events={event_count}, reopened={reopened_stores}, votes={durable_votes}, committed={durable_committed_positions}, appended={appended_entries}, truncations={conflict_truncations}, purges={purged_prefixes}, gap_rejections={rejected_log_gaps}, torn_repairs={torn_tail_repairs}, corruption_failures={corruption_failures}"
+                )),
+            },
+            HardGateResult {
+                id: "raft_storage.contract_agreement".to_owned(),
+                status: if anomaly_count == 0 {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            ("raft_storage.events".to_owned(), bounded_count(event_count)),
+            (
+                "raft_storage.reopened".to_owned(),
+                bounded_count(reopened_stores),
+            ),
+            (
+                "raft_storage.durable_votes".to_owned(),
+                bounded_count(durable_votes),
+            ),
+            (
+                "raft_storage.durable_committed".to_owned(),
+                bounded_count(durable_committed_positions),
+            ),
+            (
+                "raft_storage.appended_entries".to_owned(),
+                bounded_count(appended_entries),
+            ),
+            (
+                "raft_storage.conflict_truncations".to_owned(),
+                bounded_count(conflict_truncations),
+            ),
+            (
+                "raft_storage.purged_prefixes".to_owned(),
+                bounded_count(purged_prefixes),
+            ),
+            (
+                "raft_storage.rejected_log_gaps".to_owned(),
+                bounded_count(rejected_log_gaps),
+            ),
+            (
+                "raft_storage.torn_tail_repairs".to_owned(),
+                bounded_count(torn_tail_repairs),
+            ),
+            (
+                "raft_storage.corruption_failures".to_owned(),
+                bounded_count(corruption_failures),
+            ),
+            (
+                "raft_storage.physical_bytes".to_owned(),
                 bounded_count(physical_bytes),
             ),
         ]),

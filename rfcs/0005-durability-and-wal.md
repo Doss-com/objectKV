@@ -134,6 +134,28 @@ matching local files rather than accepted from a self-declared certificate.
 Those limits prevent this experiment from being described as a production
 replicated WAL.
 
+### Executable per-node consensus storage seam
+
+`[EXISTS]` `crates/okv-wal` also owns the `OKVR` version-1 per-node journal.
+It serializes and synchronizes durable vote, committed-log position, append,
+conflicting-suffix truncate, and purged-prefix records. Recovery reconstructs
+the logical log by replaying those operations. An incomplete final frame is
+removed before any new append; complete checksum or semantic corruption fails
+closed. Appends below the durable purge marker are ignored as obsolete, while
+gaps above the retained suffix are rejected.
+
+`[EXISTS]` `crates/okv-consensus` adapts that journal to OpenRaft `0.9.25`'s
+`RaftLogStorage` contract. It passes OpenRaft's full upstream storage suite and
+an objectKV gate that reopens votes, committed positions, entries, conflict
+replacement, purge state, torn tails, and corruption across five seeds. The
+exact journal bytes are frozen in
+`crates/okv-wal/fixtures/node-journal-v1.hex`.
+
+`[PROPOSED]` This seam still does not establish a three-node consensus commit,
+network replication, leader election, generation takeover, cross-process
+crash durability, disk independence, or repair. Those claims require the next
+Turmoil and real-process gates.
+
 ## Durability and RPO statement
 
 - Loss of one WAL replica or one failure domain does not lose acknowledged
@@ -204,11 +226,16 @@ window, RPO, and recovery duration.
 The negative control acknowledges after leader-only fsync. One bounded seed set
 must catch it before a WAL implementation is admitted.
 
-`evals/suites/persisted-wal.toml` owns the first stable-storage admission. Its
+`evals/suites/persisted-wal.toml` owns the first local quorum-frame admission. Its
 six negative subjects trust RAM-only deduplication, acknowledge one synchronized
 copy, trust one recovered copy, promote a torn suffix, skip the envelope chain,
 or ignore complete corruption. All must be discarded before the local
 persistence seam is admitted.
+
+`evals/suites/raft-storage.toml` owns the per-node OpenRaft storage admission.
+Its six negative subjects lose vote or committed position on restart, retain a
+conflicting suffix, lose a purge marker, accept a log gap, or ignore complete
+corruption. All must be discarded before networked consensus work begins.
 
 ## Compatibility and migration
 
@@ -219,7 +246,8 @@ log concurrently.
 
 ## Unresolved questions
 
-- `raft-rs` versus OpenRaft after the simulator and persistence seam exist.
+- Whether OpenRaft remains the production consensus implementation after the
+  deterministic cluster, process-crash, and generation-takeover gates.
 - Final strong retained-identity deduplication versus an explicit
   unknown-result contract that permits application-level reconciliation.
 - Exact production retained-byte and lag thresholds from measured object-store

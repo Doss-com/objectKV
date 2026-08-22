@@ -48,9 +48,10 @@ exist.
 | `okv-slate` | `[EXISTS]` spike | externally versioned point mutations and durable logical-version metadata over pinned SlateDB | cell substrate storage adapter after range-clear and historical-read seams exist |
 | `okv-object` | `[EXISTS]` | named-object, conditional-publication, fault, request, byte, and provider-conformance boundary | segment builders, manifest authority, materializers, and evals |
 | `okv-sim` | `[EXISTS]` contract models | exact seeded generation fencing, canonical replay, and the Cell v0 commit envelope, quorum, recovery, retry, resolver, tag, and generation contract | generation authority, WAL, resolvers, materializers, and recovery protocol |
-| `okv-wal` | `[EXISTS]` local persistence prototype | versioned checksummed frames, per-file synchronization, matching-quorum reopen, torn-tail handling, and compatibility fixture | consensus-backed replicated log and deterministic disk fault seam |
+| `okv-wal` | `[EXISTS]` local persistence primitives | local quorum frames plus a per-node vote, commit, append, truncate, and purge journal with compatibility fixtures | networked replicated log and deterministic disk fault seam |
+| `okv-consensus` | `[ACTIVE-WORK]` | pinned OpenRaft adapter, upstream storage conformance, fresh-open stable-log contract, and six negative subjects | deterministic three-node replication, election, generation fencing, and recovery |
 | `okv-eval` | `[EXISTS]` | suite configuration, semantic runners, hard gates, receipts, and OTel signals | CI, contributor experiments, and the autonomous research loop |
-| cell substrate | `[ACTIVE-WORK]` | versioned storage, object publication contracts, and a local WAL stable-storage seam | consensus replication and bounded recovery root |
+| cell substrate | `[ACTIVE-WORK]` | versioned storage, object publication contracts, local quorum frames, and an admitted per-node consensus store | consensus replication and bounded recovery root |
 | `GenerationAuthority` plus `DurableLog` | `[PROPOSED]` | per-cell generation, membership, ordered quorum durability, and recovery root | read-version and commit proxies, recovery, ratekeeper |
 | `ReadVersionService` plus `CommitProxy` plus `Resolver` | `[PROPOSED]` | strict-serializable tenant transactions across ranges | Redis, search, PostgreSQL, and ZebraDB record adapters |
 | `RangeMap` plus `ServingWorker` plus `DataDistributor` | `[PROPOSED]` | direct exact reads, range placement, split, movement, and empty-cache service | transaction clients and materializers |

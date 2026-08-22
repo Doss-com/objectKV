@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/okv-consensus",
     "crates/okv-eval",
     "crates/okv-model",
     "crates/okv-object",
@@ -33,9 +34,11 @@ clap = { version = "4.5.44", features = ["derive"] }
 crc-fast = "=1.9.0"
 futures-util = "0.3.31"
 jsonschema = { version = "0.50.1", default-features = false }
+okv-consensus = { path = "crates/okv-consensus" }
 okv-model = { path = "crates/okv-model" }
 okv-wal = { path = "crates/okv-wal" }
 object_store = { version = "=0.14.1", features = ["aws", "gcp"] }
+openraft = { version = "=0.9.25", features = ["serde", "storage-v2"] }
 opentelemetry = { version = "0.32.0", features = ["logs", "metrics", "trace"] }
 opentelemetry-appender-tracing = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "logs", "metrics", "trace"] }

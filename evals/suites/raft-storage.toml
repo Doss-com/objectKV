@@ -1,0 +1,97 @@
+schema_version = 1
+id = "openraft-storage-contract-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../crates/okv-wal/fixtures/node-journal-v1.hex",
+]
+dataset_generator = "deterministic-openraft-storage-scenario-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 0
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 50
+repeats = 1
+backend = "local-fs"
+nodes = 1
+consensus_library = "openraft-0.9.25"
+
+[[lanes]]
+id = "commit-failover"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "openraft-storage-reopen"
+lane = "commit-failover"
+operation = "raft_storage_contract"
+
+[[workloads]]
+id = "openraft-storage-ram-only-vote"
+lane = "commit-failover"
+operation = "raft_storage_contract"
+negative_control = "ram_only_vote"
+
+[[workloads]]
+id = "openraft-storage-ram-only-committed"
+lane = "commit-failover"
+operation = "raft_storage_contract"
+negative_control = "ram_only_committed"
+
+[[workloads]]
+id = "openraft-storage-ignore-conflict-truncate"
+lane = "commit-failover"
+operation = "raft_storage_contract"
+negative_control = "ignore_conflict_truncate"
+
+[[workloads]]
+id = "openraft-storage-ignore-purge"
+lane = "commit-failover"
+operation = "raft_storage_contract"
+negative_control = "ignore_purge"
+
+[[workloads]]
+id = "openraft-storage-accept-log-gap"
+lane = "commit-failover"
+operation = "raft_storage_contract"
+negative_control = "accept_log_gap"
+
+[[workloads]]
+id = "openraft-storage-ignore-complete-corruption"
+lane = "commit-failover"
+operation = "raft_storage_contract"
+negative_control = "ignore_complete_corruption"
+
+[hard_gates]
+correctness_anomalies = 0
+vote_survives_reopen = true
+committed_position_survives_reopen = true
+log_is_consecutive = true
+conflicting_suffix_is_replaced = true
+purged_prefix_is_monotonic = true
+complete_corruption_fails_closed = true
+exact_seed_replay = true
+schema_valid = true
+budget_must_hold = true

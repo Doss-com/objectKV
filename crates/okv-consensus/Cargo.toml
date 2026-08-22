@@ -1,0 +1,19 @@
+[package]
+name = "okv-consensus"
+description = "OpenRaft adapter and executable consensus contracts for objectKV"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+okv-wal.workspace = true
+openraft.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

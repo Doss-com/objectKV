@@ -4,6 +4,10 @@
 //! and torn-suffix handling on ordinary files. It does not implement consensus,
 //! leader election, replication transport, or independent failure domains.
 
+mod node_journal;
+
+pub use node_journal::{JournalError, JournalMarker, JournalState, NodeJournal};
+
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;

@@ -321,3 +321,22 @@ kernel to a consensus library before the storage contract is executable.
 Gives up: this prototype cannot prove distributed agreement or independent
 failure-domain durability. A two-file match is only a local recovery rule until
 the consensus and placement layers exist.
+
+## D22. Pin OpenRaft for the bootstrap consensus spike
+
+Status: `[DECIDED]` for the bootstrap spike, 2026-08-22.
+
+Decision: pin OpenRaft `0.9.25` with its `storage-v2` and `serde` features
+behind objectKV-owned request bytes, stable-journal framing, and network seams.
+Do not use the `0.10` alpha line. The deterministic cluster harness will
+disable automatic election and heartbeat timers and trigger those events from
+the recorded schedule. The production timing policy remains a separate gate.
+
+Optimizes for: exercising a maintained Raft state machine with pluggable log,
+state-machine, network, and runtime boundaries while using OpenRaft's upstream
+storage conformance suite as an independent contract check.
+
+Gives up: the lower-level protocol and driver control offered by `raft-rs`.
+The choice remains reversible because the `OKVC` commit envelope and `OKVR`
+per-node journal are objectKV formats rather than OpenRaft compatibility
+promises.

@@ -159,6 +159,24 @@ size observed in the scenario with object durability fixed at zero; it is not a
 capacity result. Replica transport, consensus commit, leader election,
 cross-process crash, and independent-disk durability remain proposed.
 
+## OpenRaft per-node storage gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/raft-storage.toml \
+  --profile local-fs \
+  --workload openraft-storage-reopen \
+  --backend local-fs
+```
+
+The suite freezes RFC-0005, RFC-0009, RFC-0011, and the `OKVR` version-1
+journal fixture. It requires byte-stable logical replay across five seeds and
+real fresh opens of durable vote, committed position, entries, conflict
+truncate, purge marker, torn-tail repair, and complete-corruption rejection.
+`cargo test -p okv-consensus` also runs OpenRaft `0.9.25`'s upstream storage
+conformance suite. Six negative subjects must discard. Network quorum,
+election, generation takeover, real process crash, and throughput remain
+proposed.
+
 ## MVCC semantic gate
 
 ```bash

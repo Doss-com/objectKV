@@ -49,7 +49,8 @@ This file defines vocabulary and current facts. Behavioral policy lives in
 - `[EXISTS]` The repository contains a Rust workspace, an in-memory reference
   model, a pinned SlateDB adapter spike, a configurable eval runner, an OTel
   path, an exact seeded generation-fencing probe, an object-store conformance
-  runner, and planning/RFC scaffolding.
+  runner, local persisted-WAL contracts, a pinned OpenRaft per-node storage
+  adapter, and planning/RFC scaffolding.
 - `[EXISTS]` The SlateDB spike can apply externally assigned versions and reject
   conflicting replay. It stores the complete logical latest-version record and
   rejects unsupported generations and range clears explicitly. It cannot yet
