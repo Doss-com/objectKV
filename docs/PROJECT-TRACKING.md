@@ -31,10 +31,12 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 91 is being advanced from the admitted semantic
-contracts to the first persisted-WAL receipt on objectKV main. Commit
-`0552c7a93bb19b49283ab9cc49fcfed8ef6ff1c6` contains the local stable-storage
-prototype and its clean OTel-backed admission ledger. The next critical path is
-deterministic network replication, election, and generation takeover over that
-persistence seam, followed by the Arrow, Parquet, and DataFusion implementation
-against the frozen row oracle.
+`[ACTIVE-WORK]` Tracker revision 92 advances through the deterministic
+three-node replication and failover receipt. Candidate
+`d77b7b548a30cdc7534f966cd1f0621e977b1561` passed clean run
+`ce63ffd2-502b-4418-88c0-f9e7dd6e1599` with zero anomalies across three seeds,
+nine quorum commits, nine elections, six partitions, six repairs, three
+simulated process crashes, three bounces, and nine caught-up nodes. Three unsafe
+subjects discarded. The next critical path is a real process-kill and durable
+request-outcome gate, followed by generation takeover and the Arrow, Parquet,
+and DataFusion implementation against the frozen row oracle.
