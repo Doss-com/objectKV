@@ -48,22 +48,30 @@ latest root through LIST.
    quorum evidence. A single observer cannot start recovery.
 2. Reserve generation `G + 1` durably at the coordinator quorum. Generation `G`
    can no longer publish or acknowledge.
-3. Read the last accepted root, every range manifest, object-durable watermark
-   `O`, and the retained WAL suffix. Reconcile identities and checksums before
-   serving.
+3. Read the last accepted root, its bounded range-map and manifest index,
+   object-durable watermark `O_cell`, per-consumer durable frontiers, and the
+   retained WAL suffix. Reconcile the control root, WAL chain, and every range
+   assigned for immediate service before that range serves a read. Recovery
+   does not fetch or validate every data object before any range can serve.
 4. Determine the maximum committed WAL index and commit version supported by a
    quorum. Unknown client outcomes remain unknown until replay resolves them.
-5. Replay the contiguous committed suffix after `O` into clean generation-owned
+5. Replay the contiguous committed suffix after `O_cell` into clean generation-owned
    state. Missing or conflicting committed entries halt recovery.
 6. Recruit sequencer, resolver, WAL, and worker roles for `G + 1`. In-flight
    transactions from `G` abort and retry; they never cross generations.
 7. Conditionally publish the new control root through the coordinator quorum.
-8. Activate commits only after the new roles pass the invariant scan. Read-only
-   recovery may precede writes only under an explicit version ceiling.
+8. Activate commits only after the new roles pass the bounded control and active
+   assignment invariant scan. Read-only recovery may precede writes only under
+   an explicit version ceiling, and each lazily opened range must verify its
+   manifest closure before serving.
 
 No rollback reactivates an older generation. Failed recovery attempts allocate
 another generation or continue the same reserved attempt under one quorum-owned
 recovery identity.
+
+The root and range index must have a declared size and open-cost envelope. A
+recovery path that requires scanning all objects or every historical range
+manifest before the first correct read violates the disposable-serving thesis.
 
 ## Simulation contract
 
@@ -94,7 +102,7 @@ insufficient evidence.
 - one committed version maps to one batch fingerprint;
 - active generation never decreases and committed versions are never reused;
 - a stale generation never wins a root or manifest publication;
-- `O` never advances beyond reconstructable object state;
+- `O_cell` never advances beyond reconstructable object state;
 - popped WAL is never required to reconstruct any admitted version;
 - after faults stop, the system either heals within the declared RTO or reports
   one bounded terminal reason;
@@ -152,6 +160,8 @@ through seams that the simulator can replace.
 ## Unresolved questions
 
 - Coordinator implementation and membership-change protocol.
+- Bounded range-index representation, active recovery set, and maximum root
+  size before a second index level is required.
 - Whether upstream Turmoil closes all runtime entropy for the eventual WAL and
   object-store dependency graph without a pinned fork.
 - Seed corpus size and long-running exploration budget per release phase.

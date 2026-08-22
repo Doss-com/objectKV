@@ -485,21 +485,43 @@ fn run_model_differential(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadE
         .and_then(toml::Value::as_integer)
         .and_then(|value| u64::try_from(value).ok())
         .unwrap_or(1_000);
-    let inject_bug = workload
+    let legacy_range_bug = workload
         .parameters
         .get("inject_ignore_range_clears")
         .and_then(toml::Value::as_bool)
         .unwrap_or(false);
-    let mode = if inject_bug {
-        DifferentialMode::IgnoreRangeClears
-    } else {
-        DifferentialMode::Correct
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match (control, legacy_range_bug) {
+        (None | Some("none"), false) => DifferentialMode::Correct,
+        (None | Some("ignore_range_clears"), true) | (Some("ignore_range_clears"), false) => {
+            DifferentialMode::IgnoreRangeClears
+        }
+        (Some("mutation_order_affects_replay"), false) => {
+            DifferentialMode::MutationOrderAffectsReplay
+        }
+        (Some("accept_conflicting_replay"), false) => DifferentialMode::AcceptConflictingReplay,
+        (Some("future_read_falls_back"), false) => DifferentialMode::FutureReadFallsBack,
+        (Some("reject_retention_boundary"), false) => DifferentialMode::RejectRetentionBoundary,
+        (Some("serve_expired_read"), false) => DifferentialMode::ServeExpiredRead,
+        (Some("accept_stale_generation"), false) => DifferentialMode::AcceptStaleGeneration,
+        (Some(other), _) => {
+            return execution_from_result(Err(format!("unknown model negative control {other}")));
+        }
     };
 
     let mut anomaly_count = 0_u64;
     let mut event_count = 0_u64;
     let mut range_clear_count = 0_u64;
-    let mut replay_count = 0_u64;
+    let mut exact_replay_count = 0_u64;
+    let mut conflicting_replay_count = 0_u64;
+    let mut future_read_count = 0_u64;
+    let mut retention_count = 0_u64;
+    let mut too_old_read_count = 0_u64;
+    let mut historical_read_count = 0_u64;
+    let mut stale_generation_count = 0_u64;
     let mut read_count = 0_u64;
     let mut exact_replay = true;
     let mut mismatch_details = Vec::new();
@@ -512,7 +534,15 @@ fn run_model_differential(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadE
         anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
         event_count = event_count.saturating_add(first.executed_steps);
         range_clear_count = range_clear_count.saturating_add(first.range_clear_count);
-        replay_count = replay_count.saturating_add(first.replay_count);
+        exact_replay_count = exact_replay_count.saturating_add(first.exact_replay_count);
+        conflicting_replay_count =
+            conflicting_replay_count.saturating_add(first.conflicting_replay_count);
+        future_read_count = future_read_count.saturating_add(first.future_read_count);
+        retention_count = retention_count.saturating_add(first.retention_count);
+        too_old_read_count = too_old_read_count.saturating_add(first.too_old_read_count);
+        historical_read_count = historical_read_count.saturating_add(first.historical_read_count);
+        stale_generation_count =
+            stale_generation_count.saturating_add(first.stale_generation_count);
         read_count = read_count.saturating_add(first.read_count);
         if let Some(detail) = &first.first_mismatch {
             mismatch_details.push(format!(
@@ -526,7 +556,7 @@ fn run_model_differential(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadE
             attributes: attributes(&[
                 ("lane", &workload.lane),
                 ("workload", &workload.id),
-                ("oracle", "okv-model-full-snapshot-v1"),
+                ("oracle", "okv-model-independent-snapshot-v2"),
                 (
                     "anomaly.class",
                     if first.anomaly_count == 0 {
@@ -538,13 +568,22 @@ fn run_model_differential(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadE
             ]),
         });
         artifact_refs.push(format!(
-            "okv-model-history://{seed}/{steps}/{}",
+            "okv-model-history://{}/{seed}/{steps}/{}",
+            mode.id(),
             first.trace_sha256
         ));
     }
 
     let range_clear_exercised = range_clear_count > 0;
-    let passed = anomaly_count == 0 && exact_replay && range_clear_exercised;
+    let semantic_operations_exercised = range_clear_exercised
+        && exact_replay_count > 0
+        && conflicting_replay_count > 0
+        && future_read_count > 0
+        && retention_count > 0
+        && too_old_read_count > 0
+        && historical_read_count > 0
+        && stale_generation_count > 0;
+    let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
     let error = (!passed).then(|| {
         let detail = if mismatch_details.is_empty() {
             "no semantic mismatch detail".to_owned()
@@ -552,7 +591,8 @@ fn run_model_differential(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadE
             mismatch_details.join("; ")
         };
         format!(
-            "MVCC differential gate failed: anomalies={anomaly_count}, exact_replay={exact_replay}, range_clears={range_clear_count}; {detail}"
+            "MVCC differential gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
         )
     });
     WorkloadExecution {
@@ -578,6 +618,17 @@ fn run_model_differential(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadE
                 detail: Some(range_clear_count.to_string()),
             },
             HardGateResult {
+                id: "model.semantic_operations_exercised".to_owned(),
+                status: if semantic_operations_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(format!(
+                    "exact_replay={exact_replay_count}, conflicting_replay={conflicting_replay_count}, future_read={future_read_count}, retention={retention_count}, too_old={too_old_read_count}, historical={historical_read_count}, stale_generation={stale_generation_count}"
+                )),
+            },
+            HardGateResult {
                 id: "model.oracle_agreement".to_owned(),
                 status: if anomaly_count == 0 {
                     GateStatus::Pass
@@ -599,8 +650,32 @@ fn run_model_differential(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadE
                 bounded_count(range_clear_count),
             ),
             (
-                "model.history.replays".to_owned(),
-                bounded_count(replay_count),
+                "model.history.exact_replays".to_owned(),
+                bounded_count(exact_replay_count),
+            ),
+            (
+                "model.history.conflicting_replays".to_owned(),
+                bounded_count(conflicting_replay_count),
+            ),
+            (
+                "model.history.future_reads".to_owned(),
+                bounded_count(future_read_count),
+            ),
+            (
+                "model.history.retentions".to_owned(),
+                bounded_count(retention_count),
+            ),
+            (
+                "model.history.too_old_reads".to_owned(),
+                bounded_count(too_old_read_count),
+            ),
+            (
+                "model.history.historical_reads".to_owned(),
+                bounded_count(historical_read_count),
+            ),
+            (
+                "model.history.stale_generations".to_owned(),
+                bounded_count(stale_generation_count),
             ),
             ("model.history.reads".to_owned(), bounded_count(read_count)),
         ]),

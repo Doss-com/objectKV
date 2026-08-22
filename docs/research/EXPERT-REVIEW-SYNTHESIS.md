@@ -1,8 +1,10 @@
 # objectKV independent review synthesis
 
-Status: `[ACTIVE-WORK]`. The Fable review is complete. The Kimi 3 review is
-blocked before inference on local OpenRouter authentication, so the findings
-below are one independent review plus maintainer synthesis, not model consensus.
+Status: `[ACTIVE-WORK]`. The Fable review and two focused internal Codex
+multi-agent reviews are complete. The Kimi 3 review is blocked before inference
+on local OpenRouter authentication, so the findings below are one independent
+model review, two internal reviews, and maintainer synthesis, not model or
+expert consensus.
 
 ## Review ledger
 
@@ -10,6 +12,8 @@ below are one independent review plus maintainer synthesis, not model consensus.
 |---|---|---|
 | Claude Code, Fable | `[EXISTS]` complete on 2026-08-22 | `docs/research/reviews/fable-2026-08-22.md` |
 | OpenCode, OpenRouter `moonshotai/kimi-k3` | `[ACTIVE-WORK]` blocked before inference with `User not found` | rerun after `opencode auth login --provider OpenRouter` |
+| Codex multi-agent, cell topology | `[EXISTS]` internal review on 2026-08-22 | `docs/research/reviews/codex-cell-topology-2026-08-22.md` |
+| Codex multi-agent, exact HTAP overlay | `[EXISTS]` internal review on 2026-08-22 | `docs/research/reviews/codex-htap-overlay-2026-08-22.md` |
 
 The exact shared prompt is in `docs/research/multi-review-brief.md`. Credentials
 must stay outside the repository and review artifacts.
@@ -53,6 +57,12 @@ must stay outside the repository and review artifacts.
    proposes exact base plus durable table-tail overlay through one target version
    `T`. The watermark bounds cost. Predicate pushdown must not remove tail keys
    required to invalidate matching base rows.
+10. A correct topology diagram is not yet a safe WAL contract. Cell authority,
+    retained deduplication, causal read versions, all-resolver aggregation,
+    tagged-log frontiers, and bounded recovery roots are pre-WAL freeze gates.
+11. Exact HTAP needs a second coverage watermark `A_p`, atomic and complete
+    change capture, schema-at-`T` normalization, two-effect partition movement,
+    exact-or-error leases, and phantom-safe certificate validation.
 
 ## Changes applied to the plan
 
@@ -71,6 +81,13 @@ must stay outside the repository and review artifacts.
   metacluster as separate topology layers, with no cross-cell transaction.
 - `[PROPOSED]` RFC-0010 defines exact base-plus-tail snapshot semantics,
   analytical-tail retention, snapshot leases, and later write validation.
+- `[DECIDED]` for bootstrap, one coordinator quorum per cell owns its generation
+  and root control pointer. The future metacluster remains separate.
+- `[PROPOSED]` The WAL envelope is gated on cell/tenant identity, canonical
+  commit identity, resolver aggregation, mutation tags, checksums, and durable
+  deduplication semantics.
+- `[PROPOSED]` The HTAP eval uses exact canonical row equality as a hard gate;
+  tail rows, bytes, memory, spill, and latency measure cost separately.
 
 ## SlateDB inference follow-up
 

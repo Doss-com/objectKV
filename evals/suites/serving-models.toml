@@ -86,8 +86,8 @@ op = "eq"
 value = 1.0
 
 [[lanes]]
-id = "htap-freshness"
-primary_metric = "snapshot.freshness_lag"
+id = "htap-overlay"
+primary_metric = "operation.duration"
 statistic = "p99"
 direction = "lower"
 practical_improvement_fraction = 0.05
@@ -99,7 +99,7 @@ op = "eq"
 value = 0.0
 
 [[lanes.constraints]]
-metric = "query.result_recall"
+metric = "query.result_exact"
 statistic = "minimum"
 op = "eq"
 value = 1.0
@@ -149,8 +149,8 @@ operation = "postgres_regress_and_faults"
 manifest = "postgres-bootstrap-v1"
 
 [[workloads]]
-id = "datafusion-base-plus-delta"
-lane = "htap-freshness"
+id = "datafusion-base-plus-tail"
+lane = "htap-overlay"
 operation = "datafusion_version_alignment"
 base_format = "parquet"
 

@@ -12,8 +12,10 @@ against memory, filesystem, MinIO, and GCS adapters. Memory and pinned MinIO
 have local authority receipts; filesystem has a segment receipt and an expected
 authority failure; GCS awaits authentication.
 The `mvcc-semantics-v1` suite runs five deterministic 1,000-event histories
-against an independent full-snapshot oracle. Its deliberate ignore-range-clears
-subject receives a `discard` verdict at step 2.
+against an independently normalized full-snapshot oracle. Seven negative
+subjects break range clears, replay ordering, conflict rejection, future-read
+availability, inclusive retention, expired-read rejection, and stale-generation
+fencing. They receive `discard` verdicts at deterministic steps 2 through 9.
 
 ## Executable configuration
 
@@ -61,7 +63,7 @@ are not interchangeable.
 | E4 | fault and recovery | process death, lost replies, retries, empty cache |
 | E5 | distributed invariants | WAL quorum, fencing, range move, OCC histories |
 | E6 | PostgreSQL compatibility | `pg_regress` subsets plus crash/restart scenarios |
-| E7 | HTAP version alignment | columnar coverage version plus OLTP delta checks |
+| E7 | HTAP version alignment | exact columnar base plus durable analytical tail checks |
 | E8 | serving-model semantics | Redis subset, inverted-index snapshots, PostgreSQL behavior |
 
 ## Research lanes
@@ -82,7 +84,7 @@ Each lane owns one champion. Champions are not blended automatically.
 | `redis` | p99 command latency | declared Redis subset has zero semantic mismatches |
 | `search` | top-k queries per second | version-aligned postings/deletes; recall and freshness gates |
 | `pg-compat` | passed PostgreSQL cases per fixed budget | zero acknowledged-loss or impossible recovery histories |
-| `htap-freshness` | covered-through lag | exact results with no missed or double-applied delta |
+| `htap-overlay` | p99 exact-snapshot latency | exact canonical result with no missed, extra, duplicate, or incorrect row |
 | `generation-recovery` | anomaly count under exact seeded replay | zero acknowledged loss, version reuse, or stale publication |
 | `object-brownout` | p99 objectification lag | bounded retained WAL and zero acknowledged loss |
 | `commit-failover` | durable commit p99 | zero acknowledged loss across leader, disk, and lost-ack faults |
@@ -90,7 +92,7 @@ Each lane owns one champion. Champions are not blended automatically.
 | `gc-snapshot-race` | anomaly count | no reachable object reclaimed under snapshot, branch, backup, or CDC interleavings |
 | `cell-scale` | committed transactions per second | strict serializability and bounded recovery as roles partition |
 | `tenant-move` | unavailable time and durable bytes copied | one writable routing epoch and exact snapshot plus tail |
-| `htap-overlay` | rows or bytes processed in `(W_p, T]` | exact row oracle, predicate invalidation, one query version |
+| `htap-overlay` | p99 exact-snapshot latency | exact row oracle, predicate invalidation, one query version; report tail rows/bytes, peak memory, and spill separately |
 | `certified-write` | validation retry rate | no write commits from an invalid analytical dependency certificate |
 
 `generation-recovery` has one executable bootstrap probe. The other fault lanes
@@ -106,10 +108,10 @@ cargo run -p okv-eval -- run evals/suites/model-history.toml \
 ```
 
 The suite freezes RFC-0002 into its contract hash. It records anomaly samples,
-event/read/range-clear/replay counts, exact seed replay, and a trace digest over
-five seeds. The adjacent negative workload injects an implementation that
-ignores range clears; CI requires the normal workload to keep and the negative
-workload to discard.
+event/read/range-clear/replay/availability/retention/generation counts, exact
+seed replay, and a trace digest over five seeds. The oracle canonicalizes replay
+independently from `CommitBatch::fingerprint`. CI requires the normal workload
+to keep and every negative workload to discard for oracle disagreement.
 
 ```bash
 cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \

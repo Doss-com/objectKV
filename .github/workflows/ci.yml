@@ -31,9 +31,19 @@ jobs:
       - name: Verify generated MVCC histories and negative control
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history --backend model --output /tmp/okv-model-history.json
-          cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history-ignore-range-clears --backend model --output /tmp/okv-model-history-negative.json
           jq -e '.verdict == "keep" and .primary_metric.median == 0' /tmp/okv-model-history.json
-          jq -e '.verdict == "discard" and .primary_metric.median > 0' /tmp/okv-model-history-negative.json
+          for workload in \
+            generated-mvcc-history-ignore-range-clears \
+            generated-mvcc-history-mutation-order-affects-replay \
+            generated-mvcc-history-accept-conflicting-replay \
+            generated-mvcc-history-future-read-fallback \
+            generated-mvcc-history-reject-retention-boundary \
+            generated-mvcc-history-serve-expired-read \
+            generated-mvcc-history-accept-stale-generation; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload "$workload" --backend model --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "model.oracle_agreement").status == "fail")' "$output"
+          done
       - name: Verify local object-store capability profiles
         run: |
           cargo run --quiet -p okv-object -- --backend memory --profile authority > /tmp/okv-object-memory.json

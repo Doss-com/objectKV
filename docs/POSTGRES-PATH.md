@@ -86,7 +86,9 @@ described as full compatibility.
 
 The first analytical representation remains Parquet. A materializer consumes an
 authoritative commit/version interval and publishes a columnar snapshot with an
-explicit covered-through version. Queries either combine that base with a newer
-OLTP delta or wait for the analytical watermark.
+explicit covered-through version. Queries combine that base with the complete
+durable analytical tail through one target `T`, wait within policy, or return
+`snapshot_unavailable`. They never substitute the recovery WAL or return a
+mixed-version result.
 
 Vortex becomes an experiment only after this version contract works with Parquet.

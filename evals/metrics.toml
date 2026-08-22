@@ -210,6 +210,15 @@ attributes = ["lane", "workload", "query.class", "backend"]
 required_attributes = ["lane", "workload", "query.class", "backend"]
 
 [[metrics]]
+id = "query.result_exact"
+otel_name = "okv.eval.query.result_exact"
+kind = "gauge"
+unit = "1"
+description = "One only when canonical row multisets, values, duplicates, deletes, and aggregates equal the oracle"
+attributes = ["lane", "workload", "query.class", "backend", "oracle"]
+required_attributes = ["lane", "workload", "query.class", "backend", "oracle"]
+
+[[metrics]]
 id = "snapshot.freshness_lag"
 otel_name = "okv.eval.snapshot.freshness_lag"
 kind = "histogram"
@@ -218,6 +227,42 @@ description = "Time between the latest committed version and the query-visible c
 attributes = ["lane", "workload", "consumer", "format", "result"]
 required_attributes = ["lane", "workload", "consumer", "result"]
 boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 300.0]
+
+[[metrics]]
+id = "htap.tail_rows"
+otel_name = "okv.eval.htap.tail_rows"
+kind = "gauge"
+unit = "{row}"
+description = "Analytical tail rows processed to produce an exact snapshot"
+attributes = ["lane", "workload", "query.class", "backend", "base.format"]
+required_attributes = ["lane", "workload", "query.class", "backend", "base.format"]
+
+[[metrics]]
+id = "htap.tail_bytes"
+otel_name = "okv.eval.htap.tail_bytes"
+kind = "gauge"
+unit = "By"
+description = "Analytical tail bytes processed to produce an exact snapshot"
+attributes = ["lane", "workload", "query.class", "backend", "base.format"]
+required_attributes = ["lane", "workload", "query.class", "backend", "base.format"]
+
+[[metrics]]
+id = "htap.peak_memory"
+otel_name = "okv.eval.htap.peak_memory"
+kind = "gauge"
+unit = "By"
+description = "Peak operator memory while producing an exact analytical snapshot"
+attributes = ["lane", "workload", "query.class", "backend", "merge.kind"]
+required_attributes = ["lane", "workload", "query.class", "backend", "merge.kind"]
+
+[[metrics]]
+id = "htap.spill_bytes"
+otel_name = "okv.eval.htap.spill_bytes"
+kind = "counter"
+unit = "By"
+description = "Bytes spilled by the analytical snapshot overlay"
+attributes = ["lane", "workload", "query.class", "backend", "merge.kind"]
+required_attributes = ["lane", "workload", "query.class", "backend", "merge.kind"]
 
 [[metrics]]
 id = "format.pruning_ratio"

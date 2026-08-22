@@ -80,11 +80,13 @@ provenance.
 
 ## Analytical artifact contract
 
-Parquet is the initial control. Vortex is a later candidate. Each artifact
-declares schema version, table and partition identity, covered commit interval,
-delete representation, row identity, source segment or WAL provenance, and
-checksum. Analytical artifacts are never read by the kernel point-read path and
-cannot advance `O` for transactional durability.
+Parquet is the initial control. Vortex is a later candidate. A complete
+partition snapshot manifest at `W_p` identifies the full base object closure,
+schema and partitioning epoch, primary-key encoding and ordering, row identity,
+delete representation, source provenance, and checksums. Individual artifacts
+may declare covered intervals, but a bag of interval-labeled files is not by
+itself an exact base. Analytical artifacts are never read by the kernel
+point-read path and cannot advance `O_cell` for transactional durability.
 
 ## Worked failure cases
 

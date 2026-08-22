@@ -36,6 +36,33 @@ The cell boundary limits fleet size, recovery, and operations. It does not make
 one key, range, segment, or tenant the unit of the storage architecture. The
 normal tenant transaction may span arbitrary ranges inside its cell.
 
+## Current module and caller map
+
+The repository currently proves contracts below the complete-cell line. The
+proposed role names are protocol boundaries, not claims that their services
+exist.
+
+| Module or caller | State | Owns now | Intended downstream caller |
+|---|---|---|---|
+| `okv-model` | `[EXISTS]` | cell-scoped versions, canonical batches, point/range MVCC, exact reads, retention, differential oracle | transaction and storage adapters use it as semantic reference, never as production authority |
+| `okv-slate` | `[EXISTS]` spike | externally versioned point mutations and durable logical-version metadata over pinned SlateDB | cell substrate storage adapter after range-clear and historical-read seams exist |
+| `okv-object` | `[EXISTS]` | named-object, conditional-publication, fault, request, byte, and provider-conformance boundary | segment builders, manifest authority, materializers, and evals |
+| `okv-sim` | `[EXISTS]` probe | exact seeded generation fencing and canonical replay | generation authority, WAL, resolvers, materializers, and recovery protocol |
+| `okv-eval` | `[EXISTS]` | suite configuration, semantic runners, hard gates, receipts, and OTel signals | CI, contributor experiments, and the autonomous research loop |
+| cell substrate | `[ACTIVE-WORK]` | versioned storage and object publication contracts | first replicated WAL and bounded recovery root |
+| `GenerationAuthority` plus `DurableLog` | `[PROPOSED]` | per-cell generation, membership, ordered quorum durability, and recovery root | read-version and commit proxies, recovery, ratekeeper |
+| `ReadVersionService` plus `CommitProxy` plus `Resolver` | `[PROPOSED]` | strict-serializable tenant transactions across ranges | Redis, search, PostgreSQL, and ZebraDB record adapters |
+| `RangeMap` plus `ServingWorker` plus `DataDistributor` | `[PROPOSED]` | direct exact reads, range placement, split, movement, and empty-cache service | transaction clients and materializers |
+| ZebraDB record and change layer | `[FUTURE]` | schema history, transactional projections, complete analytical change capture | Parquet/Vortex materializers and DataFusion snapshot provider |
+| `SnapshotOverlayExec` | `[FUTURE]` | exact base plus tail at one leased `T` | DataFusion joins, aggregates, and certified analytical decisions |
+| metacluster directory | `[FUTURE]` | tenant-to-cell placement and routing epochs | client bootstrap and tenant movement, not ordinary cell commit or recovery |
+
+The present call path is `suite -> okv-eval -> model/object/sim runner -> OTel
+and receipt`. The first complete-cell path will be `tenant session -> read
+version or range map -> serving worker`, and `tenant session -> commit proxy ->
+version authority -> all required resolvers -> all required log sets -> storage
+materializers`.
+
 ## Decisions to review
 
 ### D1. Serving models are consumers, not kernel modes
@@ -94,7 +121,7 @@ Gives up: describing a PostgreSQL-wire frontend as full PostgreSQL.
 | Transaction domain | one tenant database, spanning arbitrary in-cell ranges | physical shards must not leak into application atomicity |
 | Isolation | strict serializability with explicit read/write conflict ranges | PostgreSQL and general transactions cannot inherit vague snapshot semantics |
 | Durability | acknowledgement means quorum WAL durability; object durability has a separate watermark | object publication is too slow for the target commit path |
-| Lag control | retained WAL has a hard bound; `C - O` drives throttle then refusal | an object-store brownout cannot create unbounded recovery debt |
+| Lag control | retained WAL has a hard bound; `C_cell - O_cell` drives throttle then refusal | an object-store brownout cannot create unbounded recovery debt |
 | Commit unknown | clients receive an explicit indeterminate result and must use idempotency identity | lost replies cannot become duplicate commits |
 | Reads | callers choose latest or explicit version; unavailable history fails visibly | silent fallback produces impossible snapshots |
 | Range ownership | generation-fenced leases; stale owners cannot publish or acknowledge | object visibility alone cannot prevent split brain |
@@ -155,11 +182,13 @@ and catalog bootstrap all need explicit supported-state tables.
 
 DataFusion reads immutable columnar bases labeled with a covered-through okv
 version `W_p` and overlays the durable table-change tail `(W_p, T]` for one exact
-query version `T`. A lagging base increases overlay work but does not require a
-stale result. The tail must retain base-row invalidation keys even when the new
-row fails a pushed predicate. Parquet is the first control format. Vortex is an
-experiment after logical equivalence, pruning, recovery, and mixed-version
-fixtures pass.
+query version `T`. A lagging base increases overlay work while the durable
+analytical tail remains complete through `T`. If that coverage or the complete
+leased object closure is unavailable, the query waits within policy or returns
+`snapshot_unavailable`; it never rebases silently. The tail must retain base-row
+invalidation keys even when the new row fails a pushed predicate. Parquet is the
+first control format. Vortex is an experiment after logical equivalence,
+pruning, recovery, and mixed-version fixtures pass.
 
 Queries use snapshot leases that pin immutable bases and tails. Invariant-critical
 aggregates remain transactional projections. Other analytical decisions must

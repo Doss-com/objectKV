@@ -23,11 +23,13 @@ become one GitHub issue.
 - Done when: a deliberately incorrect engine fails with a minimized seed.
 - Dependency: T1 for semantics beyond the current point model.
 - Exists: five 1,000-event deterministic histories compare `okv-model` with an
-  independent full-snapshot oracle. The ignore-range-clears negative subject
-  fails at step 2 and the clean subject has zero anomalies.
-- Remaining: generate conflicting replay, availability, retention, and stale
-  generation operations; run the same contract against a storage-engine adapter
-  after its range-clear and explicit-version read seams exist.
+  independently normalized full-snapshot oracle. Generated operations include
+  canonical and conflicting replay, future and expired reads, inclusive
+  retention, historical/gap reads, range clears, and stale generations. Seven
+  negative subjects fail at deterministic steps 2 through 9; the clean subject
+  has zero anomalies.
+- Remaining: run the same contract against a storage-engine adapter after its
+  range-clear, explicit-version read, and retention seams exist.
 
 ### T3. Inventory SlateDB adaptation seams `[COMPLETE]`
 
@@ -148,17 +150,17 @@ become one GitHub issue.
 ### T14. Specify acknowledgement, RPO, and lag backpressure `[COMPLETE]`
 
 - Scope: `COMMITTED`, `commit_unknown`, WAL topology and placement, regional
-  loss model, `C` and `O`, retained-WAL bounds, ratekeeper thresholds, refusal,
+  loss model, `C_cell` and `O_cell`, retained-WAL bounds, ratekeeper thresholds, refusal,
   repair, and operator-visible telemetry.
 - Done when: a 30-minute object PUT brownout has one bounded state transition
   table and one falsifiable `fault-recovery` suite configuration.
 - Dependency: RFC-0005 and RFC-0007. Design can start immediately.
-- Evidence: RFC-0005 defines `COMMITTED`, single-region RPO, `C/O`, and the
+- Evidence: RFC-0005 defines `COMMITTED`, single-region RPO, `C_cell/O_cell`, and the
   normal, rate-limited, commit-refused, and recovery-only states;
   `evals/suites/fault-recovery.toml` owns the brownout lane. The workload
   executor remains gated on WAL and objectification components.
 
-### T15. Adversarially review cell and tenant topology
+### T15. Adversarially review cell and tenant topology `[ACTIVE-WORK]`
 
 - Scope: RFC-0011 cell boundary, tenant transaction domain, role-partitioning
   sequence, metacluster authority, and snapshot-plus-tail tenant movement.
@@ -166,6 +168,13 @@ become one GitHub issue.
   throughput, recovery, and control-plane ceiling; and one alternative topology
   is compared with the same workload and failure assumptions.
 - Dependency: none. Read-only architecture review can start immediately.
+- Exists: an internal Codex multi-agent review mapped the protocol roles,
+  identified eight contract gaps, and produced five minimal negative controls
+  in `docs/research/reviews/codex-cell-topology-2026-08-22.md`. RFC-0011 now
+  separates the pre-cell substrate from complete Cell v0 and freezes one
+  coordinator quorum per bootstrap cell.
+- Remaining: one external database reviewer, alternative-topology comparison,
+  and executable commit, frontier, resolver-partition, and tenant-move models.
 
 ### T16. Prototype exact DataFusion base-plus-tail semantics
 
@@ -174,8 +183,13 @@ become one GitHub issue.
 - Done when: a row oracle and injected predicate-pushdown bug prove exact results
   at one target version across differently lagging partitions. Measure tail rows,
   bytes, memory, and query latency as `T - W_p` grows.
-- Dependency: RFC-0010 review and a synthetic table-change fixture. It does not
-  depend on the distributed transaction implementation.
+- Dependency: RFC-0010 review and a synthetic table-change fixture. Freeze
+  primary-key encoding and ordering, atomic change coverage, schema-at-`T`,
+  partition-move, lease, and exact-or-error rules first. It does not depend on
+  the distributed transaction implementation.
+- Exists: the internal review and five minimal negative controls are recorded in
+  `docs/research/reviews/codex-htap-overlay-2026-08-22.md`. The configured hard
+  gate now requires exact canonical results rather than recall.
 
 ### T17. Specify analytical dependency certificates
 
@@ -184,7 +198,10 @@ become one GitHub issue.
 - Done when: one credit-exposure invariant is expressed both as a transactional
   projection and as a certified query; conflicting writers cannot commit from a
   stale result; retry and certificate-size tradeoffs are measured.
-- Dependency: RFC-0008 and RFC-0010 drafts. Model work can begin independently.
+- Dependency: RFC-0008 and RFC-0010 drafts. The certificate must bind cell,
+  tenant, snapshot, schema, plan rules, and phantom-safe dependency tokens;
+  validation and write occur in one serializable transaction. Model work can
+  begin independently.
 
 ## Opens after Gate 1
 

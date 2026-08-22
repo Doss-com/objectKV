@@ -196,10 +196,11 @@ probe is not yet evidence for replicated-WAL recovery.
 
 Status: `[PROPOSED]`, required before Gate 2.
 
-Decision: `COMMITTED` means quorum-fsynced in the declared WAL topology. `C` is
-the committed watermark and `O` is the object-durable watermark. The contract
+Decision: `COMMITTED` means quorum-fsynced in the declared WAL topology. Within
+one cell, `C_cell` is the committed watermark and `O_cell` is the conservative
+object-durable watermark. The contract
 must publish regional RPO, `commit_unknown` behavior, a hard retained-WAL bound,
-and the `C - O` thresholds for ratekeeping, commit refusal, and recovery.
+and the `C_cell - O_cell` thresholds for ratekeeping, commit refusal, and recovery.
 
 Optimizes for: an honest durability claim and bounded behavior during object
 store brownouts.
@@ -209,18 +210,24 @@ suffix or allowing unbounded commit progress during an object-store outage.
 
 ## D16. Control-plane bootstrap authority
 
-Status: `[PROPOSED]`, unresolved.
+Status: `[DECIDED]` for a bootstrap cell, 2026-08-22.
 
-Decision: choose and specify one bootstrap authority for range maps, epochs,
-generations, and durable watermarks before range distribution work. Candidate
-shapes are a small dedicated consensus service or a system keyspace with an
-explicit coordinator and recovery bootstrap.
+Decision: each bootstrap cell has a small statically configured coordinator
+quorum outside the objectKV data keyspace. It owns cell identity, active
+generation, transaction-system and WAL root, root control pointer, and completed
+recovery identity. Bulk range state may move into a versioned system keyspace,
+but the external root remains sufficient to locate and fence it. A future
+metacluster has separate authority and is not required to recover an existing
+cell.
 
 Optimizes for: eliminating circular recovery and ensuring stale owners can be
 fenced at manifest publication.
 
-Gives up: treating control metadata as an implementation detail that can be
-placed inside the transaction system later.
+Gives up: a storage-only bootstrap and treating control metadata as an
+implementation detail that can be placed inside the transaction system later.
+
+Evidence required: RFC-0009 generation recovery, stale-publication simulation,
+bounded root-open cost, and coordinator loss/recovery fixtures.
 
 ## D17. Object-store support is capability-profiled
 

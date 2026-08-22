@@ -4,7 +4,7 @@ status = "active-work"
 metric_registry = "../metrics.toml"
 result_schema = "../schema/result.schema.json"
 contract_files = ["../../rfcs/0002-version-and-mvcc-model.md"]
-dataset_generator = "splitmix64-generated-mvcc-history-v1"
+dataset_generator = "splitmix64-generated-mvcc-history-v2"
 
 [telemetry]
 protocol = "otlp-http"
@@ -47,11 +47,54 @@ id = "generated-mvcc-history-ignore-range-clears"
 lane = "mvcc-semantics"
 operation = "model_differential_history"
 steps = 1000
-inject_ignore_range_clears = true
+negative_control = "ignore_range_clears"
+
+[[workloads]]
+id = "generated-mvcc-history-mutation-order-affects-replay"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "mutation_order_affects_replay"
+
+[[workloads]]
+id = "generated-mvcc-history-accept-conflicting-replay"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "accept_conflicting_replay"
+
+[[workloads]]
+id = "generated-mvcc-history-future-read-fallback"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "future_read_falls_back"
+
+[[workloads]]
+id = "generated-mvcc-history-reject-retention-boundary"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "reject_retention_boundary"
+
+[[workloads]]
+id = "generated-mvcc-history-serve-expired-read"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "serve_expired_read"
+
+[[workloads]]
+id = "generated-mvcc-history-accept-stale-generation"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "accept_stale_generation"
 
 [hard_gates]
 correctness_anomalies = 0
 exact_seed_replay = true
 range_clear_exercised = true
+semantic_operations_exercised = true
 schema_valid = true
 budget_must_hold = true

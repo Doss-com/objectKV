@@ -372,6 +372,41 @@ mod tests {
         engine.close().await.expect("close SlateDB");
     }
 
+    #[tokio::test]
+    async fn concurrent_identical_version_has_one_apply_and_one_replay() {
+        let engine = engine("concurrent-identical").await;
+        let batch = set(10, b"k", b"value");
+        let (left, right) = tokio::join!(engine.apply(batch.clone()), engine.apply(batch));
+        assert!(
+            (left == Ok(ApplyOutcome::Applied) && right == Ok(ApplyOutcome::AlreadyApplied))
+                || (right == Ok(ApplyOutcome::Applied) && left == Ok(ApplyOutcome::AlreadyApplied))
+        );
+        assert_eq!(engine.latest_version().await, Ok(Version::new(10)));
+        engine.close().await.expect("close SlateDB");
+    }
+
+    #[tokio::test]
+    async fn concurrent_conflicting_version_has_one_winner() {
+        let engine = engine("concurrent-conflicting").await;
+        let (left, right) = tokio::join!(
+            engine.apply(set(10, b"k", b"left")),
+            engine.apply(set(10, b"k", b"right"))
+        );
+        let conflict = Err(AdapterError::ConflictingReplay {
+            version: Version::new(10),
+        });
+        assert!(
+            (left == Ok(ApplyOutcome::Applied) && right == conflict)
+                || (right == Ok(ApplyOutcome::Applied) && left == conflict)
+        );
+        assert_eq!(engine.latest_version().await, Ok(Version::new(10)));
+        assert!(matches!(
+            engine.get_latest(b"k").await,
+            Ok(Some(value)) if value == b"left" || value == b"right"
+        ));
+        engine.close().await.expect("close SlateDB");
+    }
+
     #[test]
     fn pins_the_observed_revision() {
         assert_eq!(SLATEDB_REVISION.len(), 40);
