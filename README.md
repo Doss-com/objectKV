@@ -45,11 +45,13 @@ and HTAP materialization follow only after the prior gate passes.
 ```text
 crates/okv-model/   executable reference model and correctness oracle
 crates/okv-eval/    configurable eval runner and OTel instrumentation
+crates/okv-object/  named-object correctness boundary and conformance runner
 crates/okv-sim/     exact seeded crash, network, and fencing replay probe
 crates/okv-slate/   pinned SlateDB adaptation and external-version spike
 docs/               decisions, staged plan, eval design, PostgreSQL path
 evals/              frozen suite definitions and result contract
 infra/gcp/          guarded objectKV-dev project and GCS configuration
+infra/minio/        digest-pinned local S3 protocol fixture
 infra/otel/         pinned local OTel collector
 experiments/        append-only research ledger conventions
 rfcs/                architecture decisions before implementation hardens them
@@ -62,6 +64,11 @@ program.md          autonomous research operating loop
 cargo test --workspace
 cargo run -p okv-eval -- smoke
 cargo run -p okv-eval -- validate-suite evals/suites/phase0.toml
+cargo run -p okv-object -- --backend memory --profile authority
+cargo run -p okv-eval -- run evals/suites/object-store.toml \
+  --profile memory-authority \
+  --workload named-object-authority-contract \
+  --backend memory
 cargo run -p okv-eval -- run evals/suites/smoke.toml \
   --profile dev --workload model-smoke --backend model
 cargo run -p okv-sim -- replay --seed 1103
@@ -72,6 +79,9 @@ cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \
 The model smoke is not a storage or performance benchmark. The simulator probe
 exercises one control-authority crash, restart, partition, repair, generation
 change, and stale-publication oracle. It is not yet a replicated WAL simulator.
+The object-store runner proves named-object semantics for one exact backend and
+version. A passing `segment` profile is not evidence that the backend can host
+mutable authority metadata.
 
 ## Project principles
 
@@ -88,6 +98,8 @@ change, and stale-publication oracle. It is not yet a replicated WAL simulator.
 Start with [the system shape](docs/SYSTEM-SHAPE.md) and
 [the bootstrap plan](docs/BOOTSTRAP-PLAN.md), then choose one open RFC or eval
 lane from [the contributor board](docs/CONTRIBUTOR-BOARD.md).
+Backend claims live in the versioned
+[object-store capability matrix](docs/OBJECT-STORE-SUPPORT.md).
 The [independent review synthesis](docs/research/EXPERT-REVIEW-SYNTHESIS.md)
 tracks completed and pending adversarial reviews without implying consensus.
 The active project slice is registered in the

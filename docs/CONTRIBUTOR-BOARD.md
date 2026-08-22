@@ -30,13 +30,21 @@ become one GitHub issue.
 - Dependency: none. Read-only research.
 - Evidence: `docs/research/slatedb-seams-e016197.md`.
 
-### T4. Implement object-store conformance fixtures
+### T4. Implement object-store conformance fixtures `[ACTIVE-WORK]`
 
 - Scope: memory, filesystem, and MinIO backends; conditional create/update,
   range GET, lost response, retry, checksum, and LIST non-authority behavior.
-- Done when: the same contract suite runs against all three local backends and a
-  negative store implementation fails.
+- Done when: one capability-profiled suite runs against memory, filesystem,
+  pinned MinIO, and GCS; every published support row records exact versions;
+  immutable-overwrite and LIST-authority negative stores fail.
 - Dependency: RFC-0004 draft.
+- Exists: memory passes `authority`; filesystem passes `segment` and fails
+  `authority`; pinned MinIO passes `authority`; short-range, checksum, lost
+  response, overwrite, and stale-LIST fixtures execute; results flow through
+  the shared schema and OTel path.
+- Remaining: run the same accepted suite against the protected `objectKV-dev`
+  GCS bucket, add a provider-specific generation-guarded delete adapter, and
+  publish a clean-commit cloud receipt.
 
 ### T5. Build the Phase 0 benchmark runner `[ACTIVE-WORK]`
 

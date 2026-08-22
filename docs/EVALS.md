@@ -7,13 +7,17 @@ object-store implementations, replicated-WAL fault injection, and PostgreSQL
 oracles remain proposed. The first generation-fencing fault workload runs
 through `okv-sim` and records its anomaly count, event budget, trace digest, and
 exact-replay gate through the shared result and OTel path.
+The `object-store` suite also executes segment and authority capability profiles
+against memory, filesystem, MinIO, and GCS adapters. Memory and pinned MinIO
+have local authority receipts; filesystem has a segment receipt and an expected
+authority failure; GCS awaits authentication.
 
 ## Executable configuration
 
 - `evals/metrics.toml` owns instruments, units, histogram boundaries, attributes,
   and cardinality limits.
 - Each suite owns profiles, workloads, lanes, practical thresholds, constraints,
-  and telemetry requirements.
+  telemetry requirements, and any additional frozen contract files.
 - `okv-eval validate-suite` validates the suite, registry, and result schema as
   one contract.
 - `okv-eval run` executes registered workloads, records OTel signals, and refuses
@@ -137,6 +141,23 @@ held-out inputs.
 Cross-machine performance results are not compared directly. A result is
 comparable only when suite hash, profile hash, toolchain, backend, and relevant
 hardware identity match.
+
+## Object-store conformance
+
+```bash
+cargo run -p okv-eval -- validate-suite evals/suites/object-store.toml
+cargo run -p okv-eval -- run evals/suites/object-store.toml \
+  --profile memory-authority \
+  --workload named-object-authority-contract \
+  --backend memory
+```
+
+The direct `okv-object` report and the enclosing eval result have separate JSON
+Schemas. Every case becomes a hard gate and a bounded-cardinality
+`compatibility.cases` measurement. Requests and bytes are split by API and
+result class. Object keys and credentials never become attributes.
+The object-store suite lists its direct report schema in `contract_files`, so a
+schema change also changes the suite contract hash.
 
 ## Noise and effect rule
 

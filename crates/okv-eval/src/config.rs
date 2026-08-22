@@ -12,6 +12,8 @@ pub struct Suite {
     pub status: String,
     pub metric_registry: String,
     pub result_schema: String,
+    #[serde(default)]
+    pub contract_files: Vec<String>,
     pub telemetry: TelemetryConfig,
     #[serde(default)]
     pub dataset: BTreeMap<String, DatasetConfig>,
@@ -156,6 +158,7 @@ pub struct LoadedSuite {
     pub registry_path: PathBuf,
     pub registry: MetricRegistry,
     pub result_schema_path: PathBuf,
+    pub contract_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -216,10 +219,16 @@ pub fn load_suite(path: &Path) -> Result<LoadedSuite, ConfigError> {
             message: error.to_string(),
         })?;
 
+    let contract_paths = suite
+        .contract_files
+        .iter()
+        .map(|contract| base.join(contract))
+        .collect();
     let loaded = LoadedSuite {
         suite_path: path.to_path_buf(),
         suite_bytes,
         result_schema_path: base.join(&suite.result_schema),
+        contract_paths,
         suite,
         registry_path,
         registry,
@@ -268,6 +277,14 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
             "result schema does not exist: {}",
             loaded.result_schema_path.display()
         ));
+    }
+    for contract_path in &loaded.contract_paths {
+        if !contract_path.is_file() {
+            errors.push(format!(
+                "contract file does not exist: {}",
+                contract_path.display()
+            ));
+        }
     }
 
     validate_telemetry(suite, &mut errors);

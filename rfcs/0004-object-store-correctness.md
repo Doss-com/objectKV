@@ -83,15 +83,32 @@ value, credential, and request identity are forbidden telemetry attributes.
 
 ## Conformance profiles
 
-- `memory`: deterministic model and negative-store fixtures.
-- `filesystem`: local durability and lost-response fixtures.
-- `minio`: pinned S3 protocol implementation for contributor CI.
+The contract has two capability levels:
+
+- `segment` proves named immutable create, identity reads, exact byte ranges,
+  checksum enforcement, unknown-outcome recovery, and LIST non-authority.
+- `authority` includes `segment` and also proves conditional root update,
+  one-winner same-revision races, stale-writer fencing, and lost-update response
+  recovery.
+
+Backends are execution targets, not implicit capability levels:
+
+- `memory`: deterministic authority model and negative-store fixtures.
+- `filesystem`: segment-only through Apache `object_store 0.14.1`; its local
+  implementation rejects `PutMode::Update`.
+- `minio`: digest-pinned S3 protocol implementation for contributor CI.
 - `gcs-dev`: protected `objectKV-dev` bucket with generation preconditions.
-- `aws-s3` and `azure-blob`: `[FUTURE]` provider profiles after local gates.
+- `aws-s3` and `azure-blob`: `[FUTURE]` targets after local gates.
 
 A published support matrix records each backend, exact server/client version,
 conditional primitive, checksum behavior, and suite hash. A category-level
 claim such as S3-compatible never substitutes for a passing row.
+
+The shared Apache `object_store` delete API has no revision precondition. Until
+a provider adapter proves guarded delete, the report records
+`guarded_delete=false` and requires immutable digest keys plus a conservative
+reachability horizon. That fallback is explicit evidence, not an implied
+provider capability.
 
 ## Alternatives
 
@@ -111,6 +128,10 @@ precondition races. One negative backend that uses LIST as authority and one
 that overwrites immutable keys must fail. Correctness failures are hard gates;
 request, byte, latency, and cost curves are lane metrics.
 
+Status: `[ACTIVE-WORK]` all listed cases except live throttling and timeout
+classification execute against memory, filesystem, and pinned MinIO. The two
+negative controls fail in CI configuration. GCS is configured but has not run.
+
 ## Compatibility and migration
 
 Backend capability evidence is versioned independently from stored segment
@@ -119,7 +140,8 @@ requires an explicit root handoff while the old authority is still fenced.
 
 ## Unresolved questions
 
-- Whether Apache `object_store` exposes every required conditional identity
-  without provider-specific adapters at the chosen pinned revision.
 - Minimum checksum guarantees for multipart and encrypted objects.
-- Delete precondition support matrix and the fallback GC proof per provider.
+- Provider-specific guarded delete adapters and the fallback GC proof per
+  provider.
+- Mapping actual 429, 503, timeout-before-send, and timeout-after-send responses
+  into the bounded retry taxonomy without depending on error strings.

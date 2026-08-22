@@ -221,3 +221,23 @@ fenced at manifest publication.
 
 Gives up: treating control metadata as an implementation detail that can be
 placed inside the transaction system later.
+
+## D17. Object-store support is capability-profiled
+
+Status: `[DECIDED]` for bootstrap, 2026-08-22.
+
+Decision: publish two independent conformance results. The `segment` profile
+proves named immutable create, identity reads, exact ranges, corruption
+detection, unknown-outcome recovery, and LIST non-authority. The `authority`
+profile additionally proves conditional root update, one-winner races, and
+lost-update response recovery. A provider or API label is never a support row.
+
+Optimizes for: preventing partial S3 compatibility or a segment-only filesystem
+from being mistaken for a safe authority store.
+
+Gives up: one binary supported/unsupported label. Operators must choose an
+authority backend separately when a segment backend cannot pass conditional
+update.
+
+Evidence: `crates/okv-object`, `evals/suites/object-store.toml`, and
+`docs/OBJECT-STORE-SUPPORT.md`.

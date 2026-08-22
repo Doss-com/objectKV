@@ -46,6 +46,12 @@ After apply:
 export OKV_GCP_PROJECT="$(terraform -chdir=infra/gcp output -raw project_id)"
 export OKV_GCS_BUCKET="$(terraform -chdir=infra/gcp output -raw eval_bucket)"
 gcloud auth application-default login
+
+cargo run -p okv-object -- --backend gcs --profile authority
+cargo run -p okv-eval -- run evals/suites/object-store.toml \
+  --profile gcs-authority \
+  --workload named-object-authority-contract \
+  --backend gcs
 ```
 
 The command substitutions above read Terraform outputs only. They do not expose

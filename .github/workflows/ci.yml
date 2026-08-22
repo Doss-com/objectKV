@@ -26,6 +26,42 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/phase0.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/serving-models.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/fault-recovery.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-store.toml
+      - name: Verify local object-store capability profiles
+        run: |
+          cargo run --quiet -p okv-object -- --backend memory --profile authority > /tmp/okv-object-memory.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-store.toml --profile memory-authority --workload named-object-authority-contract --backend memory --output /tmp/okv-object-memory-eval.json
+          fixture_dir=$(mktemp -d)
+          cargo run --quiet -p okv-object -- --backend filesystem --profile segment --filesystem-root "$fixture_dir" > /tmp/okv-object-filesystem.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-store.toml --profile filesystem-segment --workload named-object-segment-contract --backend filesystem --output /tmp/okv-object-filesystem-eval.json
+      - name: Verify object-store negative controls
+        run: |
+          set +e
+          cargo run --quiet -p okv-object -- --backend memory --profile segment --inject-immutable-overwrite-bug > /tmp/okv-object-negative-overwrite.json
+          overwrite_status=$?
+          cargo run --quiet -p okv-object -- --backend memory --profile segment --inject-list-authority-bug > /tmp/okv-object-negative-list.json
+          list_status=$?
+          set -e
+          test "$overwrite_status" -eq 2
+          test "$list_status" -eq 2
+      - name: Start pinned MinIO fixture
+        run: |
+          mkdir -p /tmp/objectkv-minio-data
+          docker compose -f infra/minio/compose.yaml up -d --wait minio
+          docker compose -f infra/minio/compose.yaml run --rm initialize
+      - name: Verify MinIO authority profile
+        env:
+          OKV_S3_ENDPOINT: http://127.0.0.1:19110
+          OKV_S3_BUCKET: okv-dev
+          OKV_S3_ACCESS_KEY_ID: okvdev
+          OKV_S3_SECRET_ACCESS_KEY: okv-dev-only-secret
+          OKV_OBJECT_SERVER_VERSION: RELEASE.2025-09-07T16-13-09Z
+        run: |
+          cargo run --quiet -p okv-object -- --backend minio --profile authority > /tmp/okv-object-minio.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-store.toml --profile minio-authority --workload named-object-authority-contract --backend minio --output /tmp/okv-object-minio-eval.json
+      - name: Stop pinned MinIO fixture
+        if: always()
+        run: docker compose -f infra/minio/compose.yaml down
       - run: cargo run -p okv-eval -- run evals/suites/fault-recovery.toml --profile sim-dev --workload overlapping-generation-failures --backend turmoil
       - name: Verify deterministic simulation replay and negative control
         run: |

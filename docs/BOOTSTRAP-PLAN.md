@@ -176,7 +176,14 @@ the architecture memo.
 
 ### S1. Establish the Phase 0 baseline
 
-Status: `[PROPOSED]`.
+Status: `[ACTIVE-WORK]` object-store conformance prerequisite; SlateDB workload
+baseline remains `[PROPOSED]`.
+
+Memory, filesystem, and pinned MinIO now have executable capability-profiled
+conformance evidence. Filesystem is intentionally segment-only because the
+shared Apache `object_store` API does not expose conditional update for its
+local backend. GCS remains unexecuted until `objectKV-dev` authentication and
+provisioning are available.
 
 Implement the same fixed dataset/workloads against:
 

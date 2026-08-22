@@ -36,6 +36,12 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
   cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \
   --profile sim-dev --workload overlapping-generation-failures \
   --backend turmoil --allow-dirty
+
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+  cargo run -p okv-eval -- run evals/suites/object-store.toml \
+  --profile memory-authority \
+  --workload named-object-authority-contract \
+  --backend memory --allow-dirty
 ```
 
 The developer profile permits local JSON-only execution when no endpoint is
@@ -45,6 +51,10 @@ non-reproducible run from completing without its performance evidence.
 `--allow-dirty` is only for local diagnostics. Comparable candidates run from a
 clean commit, and the contract hash covers the suite, metric registry, and result
 schema together.
+
+The result JSON is the only stdout payload. Structured local logs use stderr and
+OTLP, so shell pipelines and the autonomous research loop can parse one result
+without discarding telemetry.
 
 ## Signal roles
 

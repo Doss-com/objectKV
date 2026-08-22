@@ -1,0 +1,25 @@
+[package]
+name = "okv-object"
+description = "Object-store correctness boundary and conformance runner for objectKV"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+clap.workspace = true
+crc-fast.workspace = true
+futures-util.workspace = true
+jsonschema.workspace = true
+object_store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

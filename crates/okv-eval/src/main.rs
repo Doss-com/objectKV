@@ -7,6 +7,11 @@ use okv_eval::result::{
 };
 use okv_eval::telemetry::{RunResource, Telemetry};
 use okv_model::{ApplyOutcome, CommitBatch, Model, Mutation, Version};
+use okv_object::{
+    filesystem_backend, gcs_backend_from_env, memory_backend, minio_backend_from_env,
+    run_conformance, validate_conformance_report, CaseStatus, ConformanceOptions,
+    ConformanceProfile,
+};
 use okv_sim::run_generation_fencing;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -213,6 +218,18 @@ fn run_suite(
         .profiles
         .get(profile_id)
         .ok_or_else(|| format!("unknown profile {profile_id}"))?;
+    if let Some(expected_backend) = profile
+        .parameters
+        .get("backend")
+        .and_then(toml::Value::as_str)
+    {
+        if expected_backend != backend {
+            return Err(format!(
+                "profile {profile_id} requires backend {expected_backend}, received {backend}"
+            )
+            .into());
+        }
+    }
     let workload = loaded
         .suite
         .workloads
@@ -273,7 +290,7 @@ fn run_suite(
 
     let seeds = dataset_seeds(&loaded, profile_id);
     let started = Instant::now();
-    let workload_execution = execute_workload(workload, &candidate_commit, &seeds);
+    let workload_execution = execute_workload(workload, &candidate_commit, &seeds, backend);
     let elapsed = started.elapsed().as_secs_f64();
     for measurement in &workload_execution.measurements {
         recorder.record(
@@ -437,16 +454,223 @@ fn execute_workload(
     workload: &WorkloadConfig,
     candidate_commit: &str,
     seeds: &[u64],
+    backend: &str,
 ) -> WorkloadExecution {
     match workload.operation.as_str() {
         "model_smoke" => execution_from_result(run_model_smoke()),
         "deterministic_generation_recovery" => {
             run_generation_recovery(workload, candidate_commit, seeds)
         }
+        "object_store_conformance" => run_object_store_conformance(workload, backend),
         operation => execution_from_result(Err(format!(
             "operation {operation} is declared but has no runner implementation"
         ))),
     }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_object_store_conformance(workload: &WorkloadConfig, backend_id: &str) -> WorkloadExecution {
+    let profile = match workload
+        .parameters
+        .get("contract_profile")
+        .and_then(toml::Value::as_str)
+    {
+        Some("segment") => ConformanceProfile::Segment,
+        Some("authority") => ConformanceProfile::Authority,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unsupported object-store contract profile {other}"
+            )));
+        }
+        None => {
+            return execution_from_result(Err(
+                "object-store workload requires contract_profile".to_owned()
+            ));
+        }
+    };
+
+    let filesystem_root = std::env::temp_dir().join(format!("okv-object-eval-{}", Uuid::new_v4()));
+    let backend = match backend_id {
+        "memory" => Ok(memory_backend()),
+        "filesystem" => filesystem_backend(&filesystem_root),
+        "minio" => minio_backend_from_env(),
+        "gcs" => gcs_backend_from_env(),
+        other => {
+            return execution_from_result(Err(format!(
+                "object-store conformance has no backend adapter for {other}"
+            )));
+        }
+    };
+    let backend = match backend {
+        Ok(backend) => backend,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            return execution_from_result(Err(format!(
+                "failed to create object-store evaluation runtime: {error}"
+            )));
+        }
+    };
+    let report = runtime.block_on(run_conformance(
+        backend,
+        profile,
+        &ConformanceOptions::default(),
+    ));
+    if let Err(error) = validate_conformance_report(&report) {
+        return execution_from_result(Err(error.to_string()));
+    }
+
+    if backend_id == "filesystem" {
+        let _ = fs::remove_dir_all(&filesystem_root);
+    }
+
+    let mut measurements = vec![Measurement {
+        metric: "correctness.anomalies",
+        value: bounded_count(report.failure_count),
+        attributes: attributes(&[
+            ("lane", &workload.lane),
+            ("workload", &workload.id),
+            ("oracle", "okv-object-store-v1"),
+            (
+                "anomaly.class",
+                if report.passed() {
+                    "none"
+                } else {
+                    "backend_contract"
+                },
+            ),
+        ]),
+    }];
+    for case in &report.cases {
+        measurements.push(Measurement {
+            metric: "compatibility.cases",
+            value: 1.0,
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("compat.suite", "okv-object-store-v1"),
+                ("feature.class", &case.id),
+                (
+                    "status",
+                    match case.status {
+                        CaseStatus::Pass => "pass",
+                        CaseStatus::Fail => "fail",
+                        CaseStatus::Unsupported => "unsupported",
+                    },
+                ),
+            ]),
+        });
+    }
+    let mut request_count = 0_u64;
+    let mut request_bytes = 0_u64;
+    let mut response_bytes = 0_u64;
+    for stat in &report.stats.requests {
+        request_count = request_count.saturating_add(stat.count);
+        request_bytes = request_bytes.saturating_add(stat.request_bytes);
+        response_bytes = response_bytes.saturating_add(stat.response_bytes);
+        measurements.push(Measurement {
+            metric: "object_store.requests",
+            value: bounded_count(stat.count),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend_id),
+                ("store", &report.backend.id),
+                ("api", &stat.api),
+                ("result", &stat.result),
+            ]),
+        });
+        if stat.request_bytes > 0 {
+            measurements.push(Measurement {
+                metric: "object_store.bytes",
+                value: bounded_count(stat.request_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend_id),
+                    ("store", &report.backend.id),
+                    ("direction", "request"),
+                    ("api", &stat.api),
+                ]),
+            });
+        }
+        if stat.response_bytes > 0 {
+            measurements.push(Measurement {
+                metric: "object_store.bytes",
+                value: bounded_count(stat.response_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend_id),
+                    ("store", &report.backend.id),
+                    ("direction", "response"),
+                    ("api", &stat.api),
+                ]),
+            });
+        }
+    }
+
+    let hard_gates = report
+        .cases
+        .iter()
+        .map(|case| HardGateResult {
+            id: format!("object_store.{}", case.id),
+            status: match case.status {
+                CaseStatus::Pass => GateStatus::Pass,
+                CaseStatus::Fail => GateStatus::Fail,
+                CaseStatus::Unsupported => GateStatus::Error,
+            },
+            detail: Some(case.detail.clone()),
+        })
+        .collect();
+    WorkloadExecution {
+        error: (!report.passed()).then(|| {
+            let failed: Vec<&str> = report
+                .cases
+                .iter()
+                .filter(|case| case.required && case.status != CaseStatus::Pass)
+                .map(|case| case.id.as_str())
+                .collect();
+            format!("object-store contract failed: {}", failed.join(", "))
+        }),
+        measurements,
+        hard_gates,
+        budget_units: bounded_count(request_count),
+        artifact_refs: vec![format!(
+            "okv-object-conformance://{}/{}/{}/{}",
+            report.backend.id,
+            profile,
+            report.backend.driver_version,
+            report.backend.server_version
+        )],
+        secondary_metrics: BTreeMap::from([
+            (
+                "object_store.conformance_failures".to_owned(),
+                bounded_count(report.failure_count),
+            ),
+            (
+                "object_store.request_count".to_owned(),
+                bounded_count(request_count),
+            ),
+            (
+                "object_store.request_bytes".to_owned(),
+                bounded_count(request_bytes),
+            ),
+            (
+                "object_store.response_bytes".to_owned(),
+                bounded_count(response_bytes),
+            ),
+        ]),
+    }
+}
+
+fn bounded_count(value: u64) -> f64 {
+    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
 }
 
 fn execution_from_result(result: Result<(), String>) -> WorkloadExecution {
@@ -604,6 +828,11 @@ fn contract_hash(loaded: &LoadedSuite) -> Result<String, Box<dyn Error>> {
     let schema_bytes = fs::read(&loaded.result_schema_path)?;
     let mut hasher = Sha256::new();
     for bytes in [&loaded.suite_bytes, &registry_bytes, &schema_bytes] {
+        hasher.update(u64::try_from(bytes.len())?.to_be_bytes());
+        hasher.update(bytes);
+    }
+    for path in &loaded.contract_paths {
+        let bytes = fs::read(path)?;
         hasher.update(u64::try_from(bytes.len())?.to_be_bytes());
         hasher.update(bytes);
     }

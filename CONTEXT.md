@@ -36,7 +36,8 @@ This file defines vocabulary and current facts. Behavioral policy lives in
 
 - `[EXISTS]` The repository contains a Rust workspace, an in-memory reference
   model, a pinned SlateDB adapter spike, a configurable eval runner, an OTel
-  path, an exact seeded generation-fencing probe, and planning/RFC scaffolding.
+  path, an exact seeded generation-fencing probe, an object-store conformance
+  runner, and planning/RFC scaffolding.
 - `[EXISTS]` The SlateDB spike can apply externally assigned versions and reject
   conflicting replay. It cannot yet expose an explicit public read version.
 - `[EXISTS]` The `objectKV-dev` Terraform configuration validates locally.
@@ -46,6 +47,11 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   canonical traces across synced control state, crash/restart, network
   partition/repair, generation change, and stale-publication rejection. The
   deliberate stale-publication bug fails its oracle.
+- `[EXISTS]` Memory passes the `authority` object-store profile, filesystem
+  passes only the `segment` profile, and pinned MinIO
+  `RELEASE.2025-09-07T16-13-09Z` passes the local `authority` profile through
+  Apache `object_store 0.14.1`. GCS has not run because cloud authentication is
+  unavailable.
 - `[ACTIVE-WORK]` The actual Google Cloud project and GCS bucket await interactive
   gcloud reauthentication and exact organization/billing verification.
 - `[EXISTS]` `Doss-com/objectKV` did not exist when this scaffold was created.

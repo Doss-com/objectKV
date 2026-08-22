@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/object-store-conformance.schema.json",
+  "title": "objectKV object-store conformance report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "profile",
+    "backend",
+    "capabilities",
+    "cases",
+    "stats",
+    "verdict",
+    "failure_count"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "contract": { "const": "okv-object-store-v1" },
+    "profile": { "enum": ["segment", "authority"] },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "driver",
+        "driver_version",
+        "server_version",
+        "conditional_primitive",
+        "guarded_delete",
+        "delete_strategy"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "driver": { "type": "string", "minLength": 1 },
+        "driver_version": { "type": "string", "minLength": 1 },
+        "server_version": { "type": "string", "minLength": 1 },
+        "conditional_primitive": { "type": "string", "minLength": 1 },
+        "guarded_delete": { "type": "boolean" },
+        "delete_strategy": { "type": "string", "minLength": 1 }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "supported", "evidence_case"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "supported": { "type": "boolean" },
+          "evidence_case": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "required", "status", "detail"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" },
+          "status": { "enum": ["pass", "fail", "unsupported"] },
+          "detail": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests"],
+      "properties": {
+        "requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "api",
+              "result",
+              "count",
+              "request_bytes",
+              "response_bytes",
+              "elapsed_micros"
+            ],
+            "properties": {
+              "api": { "type": "string", "minLength": 1 },
+              "result": { "type": "string", "minLength": 1 },
+              "count": { "type": "integer", "minimum": 1 },
+              "request_bytes": { "type": "integer", "minimum": 0 },
+              "response_bytes": { "type": "integer", "minimum": 0 },
+              "elapsed_micros": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "verdict": { "enum": ["pass", "fail"] },
+    "failure_count": { "type": "integer", "minimum": 0 }
+  }
+}

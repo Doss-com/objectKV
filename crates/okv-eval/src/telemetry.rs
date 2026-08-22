@@ -99,6 +99,7 @@ impl Telemetry {
             .from_env_lossy();
         let fmt_layer = fmt::layer()
             .json()
+            .with_writer(std::io::stderr)
             .with_target(true)
             .with_filter(fmt_filter);
 

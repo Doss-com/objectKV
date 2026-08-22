@@ -1,0 +1,90 @@
+schema_version = 1
+id = "object-store-conformance-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = ["../schema/object-store-conformance.schema.json"]
+dataset_generator = "named-object-fixtures-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-authority"]
+
+[dataset.dev]
+logical_bytes = 1048576
+key_count = 32
+seeds = [1103]
+
+[profiles.memory-authority]
+budget_kind = "operations"
+budget_limit = 1000
+repeats = 1
+backend = "memory"
+
+[profiles.filesystem-segment]
+budget_kind = "operations"
+budget_limit = 1000
+repeats = 1
+backend = "filesystem"
+
+[profiles.minio-authority]
+budget_kind = "operations"
+budget_limit = 1000
+repeats = 1
+backend = "minio"
+docker_image = "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+
+[profiles.gcs-authority]
+budget_kind = "operations"
+budget_limit = 1000
+repeats = 1
+backend = "gcs"
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+
+[[lanes]]
+id = "object-store-segment-contract"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "object-store-authority-contract"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "named-object-segment-contract"
+lane = "object-store-segment-contract"
+operation = "object_store_conformance"
+contract_profile = "segment"
+
+[[workloads]]
+id = "named-object-authority-contract"
+lane = "object-store-authority-contract"
+operation = "object_store_conformance"
+contract_profile = "authority"
+
+[hard_gates]
+correctness_anomalies = 0
+backend_contract_must_pass = true
+schema_valid = true
+budget_must_hold = true
