@@ -31,6 +31,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/commit-contract.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/persisted-wal.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-storage.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-cluster.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
       - name: Verify generated MVCC histories and negative control
         run: |
@@ -106,6 +107,18 @@ jobs:
             output="/tmp/${workload}.json"
             cargo run --quiet -p okv-eval -- run evals/suites/raft-storage.toml --profile local-fs --workload "$workload" --backend local-fs --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "raft_storage.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify three-node OpenRaft failover and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/raft-cluster.toml --profile local-fs --workload openraft-three-node-failover --backend turmoil-local-fs --output /tmp/okv-openraft-cluster.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "raft_cluster.contract_agreement").status == "pass")' /tmp/okv-openraft-cluster.json
+          for workload in \
+            openraft-cluster-ack-before-quorum \
+            openraft-cluster-skip-successor-election \
+            openraft-cluster-skip-restart-catchup; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/raft-cluster.toml --profile local-fs --workload "$workload" --backend turmoil-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "raft_cluster.contract_agreement").status == "fail")' "$output"
           done
       - name: Verify local object-store capability profiles
         run: |

@@ -227,11 +227,15 @@ become one GitHub issue.
   OpenRaft `0.9.25` and passes its upstream storage conformance suite over an
   objectKV per-node journal. The `openraft-storage-contract-v1` gate reopens
   vote, committed index, append, truncate, purge, torn-tail, and corruption
-  state and discards six negative subjects.
-- Remaining: run three OpenRaft nodes through Turmoil with a coordinator,
-  add real process-crash boundaries, define
+  state and discards six negative subjects. The `openraft-cluster-contract-v1`
+  gate now runs three actual nodes over a seeded Turmoil TCP network. It proves
+  quorum commit through two leader changes, isolated-leader non-acknowledgement,
+  stale-suffix replacement after repair, simulated process crash and bounce,
+  and exact restarted-node catchup. Three unsafe cluster subjects discard.
+- Remaining: add real process-crash boundaries, integrate durable request
+  outcomes and generation takeover, define
   retained-outcome expiry and compaction, and prove disk-full, replica repair,
-  generation takeover, and replacement recovery.
+  independent-disk failure, and replacement recovery.
 
 ## Opens after Gate 1
 

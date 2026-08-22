@@ -30,6 +30,12 @@ The `zebradb-htap-contract-v1` suite checks base-plus-tail exactness across one
 query version, unequal partition and table watermarks, schema normalization,
 row movement, leases, independent tail retention, and certified writes. Five
 negative subjects each break one of those contracts.
+The `openraft-cluster-contract-v1` suite runs three actual OpenRaft nodes over a
+seeded Turmoil TCP network and real per-node journals. It covers quorum commit,
+leader isolation, explicit successor election, stale-suffix replacement,
+simulated process crash and bounce, and restarted-node catchup. Three negative
+subjects expose early acknowledgement, missing successor election, and missing
+restart catchup.
 
 ## Executable configuration
 
@@ -173,9 +179,33 @@ journal fixture. It requires byte-stable logical replay across five seeds and
 real fresh opens of durable vote, committed position, entries, conflict
 truncate, purge marker, torn-tail repair, and complete-corruption rejection.
 `cargo test -p okv-consensus` also runs OpenRaft `0.9.25`'s upstream storage
-conformance suite. Six negative subjects must discard. Network quorum,
-election, generation takeover, real process crash, and throughput remain
-proposed.
+conformance suite. Six negative subjects must discard. The separate cluster
+gate below exercises network quorum and election. Generation takeover, real OS
+process crash, independent-disk failure, and throughput remain proposed.
+
+## OpenRaft three-node failover gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/raft-cluster.toml \
+  --profile local-fs \
+  --workload openraft-three-node-failover \
+  --backend turmoil-local-fs
+```
+
+The suite freezes the durability, recovery-generation, and cell-topology RFCs.
+Automatic elections and heartbeats are disabled. The recorded controller
+initializes membership, elects node 1, commits `A`, partitions node 1, elects
+node 2, rejects a stale isolated write acknowledgement, commits `B`, repairs the
+partition, and verifies the stale suffix is replaced. It then crashes node 2 in
+the simulator, elects node 3, commits `C`, bounces node 2 with the same journal,
+and requires every state machine to contain exactly `A, B, C`.
+
+Turmoil drops the node runtime and recreates its host future. This is a
+deterministic simulated process crash, not an OS process kill. The per-node
+journal uses the real local filesystem, so the gate proves reopen and replay of
+synced state across a simulated bounce, not unsynced-disk loss. Exact
+fresh-process replay, real process kill, generation takeover, and durable
+request-outcome integration remain separate gates.
 
 ## MVCC semantic gate
 

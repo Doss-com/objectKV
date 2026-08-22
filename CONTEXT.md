@@ -50,7 +50,8 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   model, a pinned SlateDB adapter spike, a configurable eval runner, an OTel
   path, an exact seeded generation-fencing probe, an object-store conformance
   runner, local persisted-WAL contracts, a pinned OpenRaft per-node storage
-  adapter, and planning/RFC scaffolding.
+  adapter, a deterministic three-node OpenRaft failover contract, and
+  planning/RFC scaffolding.
 - `[EXISTS]` The SlateDB spike can apply externally assigned versions and reject
   conflicting replay. It stores the complete logical latest-version record and
   rejects unsupported generations and range clears explicitly. It cannot yet
@@ -71,9 +72,15 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   complete corruption leaves no quorum. The six negative subjects cover
   RAM-only deduplication, early acknowledgement, single-copy trust, torn-tail
   promotion, skipped chain checks, and ignored corruption.
-- `[PROPOSED]` Consensus, network replication, process election, generation
-  recovery, disk repair, and independent failure-domain placement remain ahead
-  of this local stable-storage proof.
+- `[EXISTS]` Three OpenRaft nodes communicate through a length-framed JSON TCP
+  protocol in Turmoil. Across three fixed seeds the cluster gate commits on a
+  quorum, isolates the first leader, elects two successors, replaces an
+  uncommitted stale suffix, survives a simulated node crash and bounce with the
+  real per-node journal, and catches every node up to the same applied payloads.
+  Three unsafe subjects are rejected.
+- `[PROPOSED]` Real OS process crash, unsynced-disk loss, generation takeover,
+  durable request-outcome integration, disk repair, and independent
+  failure-domain placement remain ahead of this cluster contract.
 - `[EXISTS]` The pure ZebraDB HTAP contract model compares base-plus-tail output
   with a logical row oracle at one target version. It covers pushdown
   invalidation, schema and partition movement, analytical-tail retention,

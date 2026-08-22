@@ -80,6 +80,9 @@ cargo run -p okv-eval -- run evals/suites/commit-contract.toml \
   --profile sim-dev --workload cell-commit-envelope --backend sim-model
 cargo run -p okv-eval -- run evals/suites/persisted-wal.toml \
   --profile local-fs --workload persisted-wal-reopen --backend local-fs
+cargo run -p okv-eval -- run evals/suites/raft-cluster.toml \
+  --profile local-fs --workload openraft-three-node-failover \
+  --backend turmoil-local-fs
 cargo run -p okv-eval -- run evals/suites/htap-contract.toml \
   --profile model-dev --workload zebradb-base-plus-tail --backend model
 ```
@@ -96,6 +99,11 @@ a checksummed frame to three local files, synchronizes each selected file,
 reopens the topology, and reconstructs only matching quorum copies. It proves a
 stable-storage seam on one machine, not Raft, replication transport, leader
 election, independent failure domains, or a complete transaction cell.
+The OpenRaft cluster runner adds deterministic three-node TCP replication,
+explicit election, quorum failover, partition repair, stale-suffix replacement,
+and journal replay after a simulated process bounce. It does not yet prove a
+real OS process kill, unsynced-disk loss, generation takeover, durable request
+deduplication, throughput, or a complete transaction cell.
 The HTAP-contract runner proves exact model semantics, not a DataFusion physical
 operator or Parquet/Vortex performance.
 

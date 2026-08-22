@@ -11,7 +11,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{fmt, EnvFilter, Layer as _};
@@ -94,9 +93,7 @@ impl Telemetry {
         let logger_provider = logger_builder.build();
         let tracer = tracer_provider.tracer("okv-eval");
 
-        let fmt_filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy();
+        let fmt_filter = eval_log_filter();
         let fmt_layer = fmt::layer()
             .json()
             .with_writer(std::io::stderr)
@@ -104,7 +101,7 @@ impl Telemetry {
             .with_filter(fmt_filter);
 
         let trace_layer = enabled.then(|| tracing_opentelemetry::layer().with_tracer(tracer));
-        let log_filter = EnvFilter::new("info")
+        let log_filter = eval_log_filter()
             .add_directive("hyper=off".parse()?)
             .add_directive("opentelemetry=off".parse()?)
             .add_directive("reqwest=off".parse()?);
@@ -143,6 +140,14 @@ impl Telemetry {
         let _ = self.meter_provider.shutdown();
         let _ = self.tracer_provider.shutdown();
         let _ = self.logger_provider.shutdown();
+    }
+}
+
+fn eval_log_filter() -> EnvFilter {
+    if env::var_os("RUST_LOG").is_some() {
+        EnvFilter::from_default_env()
+    } else {
+        EnvFilter::new("warn,okv_eval=info,openraft=off,turmoil=off")
     }
 }
 

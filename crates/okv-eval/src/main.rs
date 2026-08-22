@@ -1,6 +1,8 @@
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use okv_consensus::{run_raft_storage_contract, RaftStorageMode};
+use okv_consensus::{
+    run_raft_cluster_contract, run_raft_storage_contract, RaftClusterMode, RaftStorageMode,
+};
 use okv_eval::config::{load_suite, BudgetKind, LoadedSuite, WorkloadConfig};
 use okv_eval::result::{
     median, median_absolute_deviation, validate_result, BudgetResult, EvalResult, GateStatus,
@@ -471,6 +473,7 @@ fn execute_workload(
         "commit_envelope_contract" => run_commit_envelope_contract(workload, seeds),
         "persisted_wal_contract" => run_persisted_wal(workload, seeds, backend),
         "raft_storage_contract" => run_raft_storage(workload, seeds, backend),
+        "raft_cluster_contract" => run_raft_cluster(workload, seeds, backend),
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
@@ -909,6 +912,214 @@ fn run_raft_storage(workload: &WorkloadConfig, seeds: &[u64], backend: &str) -> 
             (
                 "raft_storage.physical_bytes".to_owned(),
                 bounded_count(physical_bytes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_raft_cluster(workload: &WorkloadConfig, seeds: &[u64], backend: &str) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "Raft cluster workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => RaftClusterMode::Correct,
+        Some("acknowledge_before_quorum") => RaftClusterMode::AcknowledgeBeforeQuorum,
+        Some("skip_successor_election") => RaftClusterMode::SkipSuccessorElection,
+        Some("skip_restart_catchup") => RaftClusterMode::SkipRestartCatchup,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown Raft cluster negative control {other}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut check_count = 0_u64;
+    let mut committed_writes = 0_u64;
+    let mut elections = 0_u64;
+    let mut stale_write_attempts = 0_u64;
+    let mut stale_write_acks = 0_u64;
+    let mut partitions = 0_u64;
+    let mut repairs = 0_u64;
+    let mut simulated_crashes = 0_u64;
+    let mut simulated_bounces = 0_u64;
+    let mut caught_up_nodes = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+    for seed in seeds {
+        let first = match run_raft_cluster_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_raft_cluster_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        check_count = check_count.saturating_add(first.executed_checks);
+        committed_writes = committed_writes.saturating_add(first.committed_writes);
+        elections = elections.saturating_add(first.elections);
+        stale_write_attempts = stale_write_attempts.saturating_add(first.stale_write_attempts);
+        stale_write_acks = stale_write_acks.saturating_add(first.stale_write_acks);
+        partitions = partitions.saturating_add(first.partitions);
+        repairs = repairs.saturating_add(first.repairs);
+        simulated_crashes = simulated_crashes.saturating_add(first.simulated_crashes);
+        simulated_bounces = simulated_bounces.saturating_add(first.simulated_bounces);
+        caught_up_nodes = caught_up_nodes.saturating_add(first.caught_up_nodes);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, check {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "openraft-cluster-contract-v1"),
+                    ("anomaly.class", if exact { "none" } else { "raft_cluster" }),
+                ]),
+            },
+            Measurement {
+                metric: "transaction.commits",
+                value: bounded_count(first.committed_writes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("isolation", "openraft-cell-v0"),
+                    ("result", if exact { "quorum-applied" } else { "rejected" }),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "leader-failover-and-bounce"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-openraft-cluster://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let seed_count = u64::try_from(seeds.len()).unwrap_or(u64::MAX);
+    let semantic_operations_exercised = check_count == seed_count.saturating_mul(8)
+        && partitions == seed_count.saturating_mul(2)
+        && repairs == seed_count.saturating_mul(2)
+        && simulated_crashes == seed_count
+        && simulated_bounces == seed_count
+        && stale_write_attempts == seed_count;
+    let expected_success_path = mode != RaftClusterMode::Correct
+        || (committed_writes == seed_count.saturating_mul(3)
+            && elections == seed_count.saturating_mul(3)
+            && stale_write_acks == 0
+            && caught_up_nodes == seed_count.saturating_mul(3));
+    let passed = anomaly_count == 0
+        && exact_replay
+        && semantic_operations_exercised
+        && expected_success_path;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "Raft cluster gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}, expected_success_path={expected_success_path}; {detail}",
+            mode.id()
+        )
+    });
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "raft_cluster.exact_seed_replay".to_owned(),
+                status: if exact_replay {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: None,
+            },
+            HardGateResult {
+                id: "raft_cluster.semantic_operations_exercised".to_owned(),
+                status: if semantic_operations_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(format!(
+                    "checks={check_count}, commits={committed_writes}, elections={elections}, stale_attempts={stale_write_attempts}, stale_acks={stale_write_acks}, partitions={partitions}, repairs={repairs}, crashes={simulated_crashes}, bounces={simulated_bounces}, caught_up={caught_up_nodes}"
+                )),
+            },
+            HardGateResult {
+                id: "raft_cluster.contract_agreement".to_owned(),
+                status: if anomaly_count == 0 && expected_success_path {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(check_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            ("raft_cluster.checks".to_owned(), bounded_count(check_count)),
+            (
+                "raft_cluster.committed_writes".to_owned(),
+                bounded_count(committed_writes),
+            ),
+            (
+                "raft_cluster.elections".to_owned(),
+                bounded_count(elections),
+            ),
+            (
+                "raft_cluster.stale_write_attempts".to_owned(),
+                bounded_count(stale_write_attempts),
+            ),
+            (
+                "raft_cluster.stale_write_acks".to_owned(),
+                bounded_count(stale_write_acks),
+            ),
+            (
+                "raft_cluster.partitions".to_owned(),
+                bounded_count(partitions),
+            ),
+            ("raft_cluster.repairs".to_owned(), bounded_count(repairs)),
+            (
+                "raft_cluster.simulated_crashes".to_owned(),
+                bounded_count(simulated_crashes),
+            ),
+            (
+                "raft_cluster.simulated_bounces".to_owned(),
+                bounded_count(simulated_bounces),
+            ),
+            (
+                "raft_cluster.caught_up_nodes".to_owned(),
+                bounded_count(caught_up_nodes),
             ),
         ]),
     }

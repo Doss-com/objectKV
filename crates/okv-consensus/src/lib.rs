@@ -6,9 +6,12 @@
 //! request bytes and a per-node stable journal. Network transport and cluster
 //! orchestration are deliberately separate from this storage admission gate.
 
+mod cluster_contract;
 mod contract;
+mod sim_network;
 mod state_machine;
 
+pub use cluster_contract::{run_raft_cluster_contract, RaftClusterMode, RaftClusterReport};
 pub use contract::{run_raft_storage_contract, RaftStorageMode, RaftStorageReport};
 pub use state_machine::{ApplyResponse, StateMachineStore};
 

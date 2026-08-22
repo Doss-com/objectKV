@@ -56,6 +56,12 @@ The result JSON is the only stdout payload. Structured local logs use stderr and
 OTLP, so shell pipelines and the autonomous research loop can parse one result
 without discarding telemetry.
 
+The default log filter retains `okv_eval=info`, warnings from other targets, and
+turns off OpenRaft and Turmoil internals. A partition workload can otherwise
+emit megabytes of expected retry messages and distort both the run and its
+telemetry cost. Set `RUST_LOG` explicitly to opt into protocol-level detail for
+a bounded diagnostic replay.
+
 ## Signal roles
 
 | Signal | Use | Retention posture |
