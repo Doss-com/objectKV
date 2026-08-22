@@ -20,7 +20,7 @@ become one GitHub issue.
 - Done when: a deliberately incorrect engine fails with a minimized seed.
 - Dependency: T1 for semantics beyond the current point model.
 
-### T3. Inventory SlateDB adaptation seams
+### T3. Inventory SlateDB adaptation seams `[COMPLETE]`
 
 - Scope: locate sequence assignment, transaction visibility, SST builder/reader,
   manifest publication, cache, compaction, checkpoint, and GC boundaries in the
@@ -28,6 +28,7 @@ become one GitHub issue.
 - Done when: an evidence table classifies each seam as public API, internal reuse,
   upstream change, fork, or rewrite, with file/line links.
 - Dependency: none. Read-only research.
+- Evidence: `docs/research/slatedb-seams-e016197.md`.
 
 ### T4. Implement object-store conformance fixtures
 
@@ -37,13 +38,17 @@ become one GitHub issue.
   negative store implementation fails.
 - Dependency: RFC-0004 draft.
 
-### T5. Build the Phase 0 benchmark runner
+### T5. Build the Phase 0 benchmark runner `[ACTIVE-WORK]`
 
 - Scope: parse `evals/suites/phase0.toml`, pin seeds/profile, emit schema-valid
   JSON, repeat runs, and calculate median/MAD without choosing a champion.
 - Done when: an in-memory fake produces a reproducible result and profile drift
   invalidates comparison.
 - Dependency: result schema and E0 smoke, both present.
+- Exists: configuration validation, dynamic metric instruments, OTel export,
+  schema-valid smoke results, median, and MAD.
+- Remaining: repeat orchestration, incumbent pairing, noise verdicts, and Phase
+  0 workload executors.
 
 ### T6. Establish the SlateDB baseline
 
@@ -61,9 +66,74 @@ become one GitHub issue.
   surface are documented with source links and a boot sequence.
 - Dependency: none. Read-only research.
 
+### T8. Define the Redis semantic subset
+
+- Scope: classify RESP commands by single-key, multi-key, temporal, blocking,
+  streaming, scripting, pub/sub, eviction, and cluster semantics.
+- Done when: every accepted command has a model invariant and every deferred
+  command has a named missing kernel primitive or operational reason.
+- Dependency: RFC-0002 for version and time semantics. Read-only research can
+  start immediately.
+
+### T9. Specify versioned inverted-index segments
+
+- Scope: term dictionary, postings, document values, deletes, merge generations,
+  and snapshot visibility over immutable objects.
+- Done when: a deterministic oracle covers update, delete, concurrent query,
+  merge, crash, and skewed-term histories with one explicit freshness contract.
+- Dependency: RFC-0002 and RFC-0003 drafts.
+
+### T10. Review FoundationDB pattern transfer
+
+- Scope: map read versions, conflict ranges, resolvers, proxies, storage ranges,
+  recruitment, failure generations, and deterministic simulation onto the
+  objectKV shape.
+- Done when: each pattern is marked transfer, adapt, reject, or defer with one
+  primary source and one falsifiable experiment.
+- Dependency: none. Independent expert review is preferred.
+
+### T11. Draft the physical segment capability contract
+
+- Scope: separate the transactional segment contract from the analytical
+  artifact contract. Define their shared sorted versioned-entry stream and
+  fenced publication protocol, then locate tombstones, range deletes, merge
+  operands, statistics, pruning, and compaction planning explicitly.
+- Done when: a row-block transactional segment preserves the full MVCC algebra;
+  Parquet and Vortex artifacts preserve covered-through visibility without
+  adding schemas to the kernel; an intentionally collapsed one-trait design
+  fails a written capability case.
+- Dependency: RFC-0003. Design only, no format implementation yet.
+
+### T12. Build serving-model eval oracles
+
+- Scope: differential Redis subset histories, inverted-index result histories,
+  PostgreSQL regression manifests, and version-aligned DataFusion delta checks.
+- Done when: each suite contains a deliberate semantic break that its hard gate
+  rejects.
+- Dependency: T8, T9, and the PostgreSQL bridge inventory.
+
+### T13. Build the exact deterministic simulation substrate
+
+- Scope: single logical thread, seeded random source, virtual time, deterministic
+  network, durable log, object store, and crash/restart scheduling. Evaluate
+  madsim and turmoil before adding a local scheduler.
+- Done when: a deliberately injected generation-recovery bug fails under one
+  seed, minimizes, and replays exactly in CI with the same event trace.
+- Dependency: RFC-0002 generation/version position. This blocks replicated WAL
+  implementation.
+
+### T14. Specify acknowledgement, RPO, and lag backpressure
+
+- Scope: `COMMITTED`, `commit_unknown`, WAL topology and placement, regional
+  loss model, `C` and `O`, retained-WAL bounds, ratekeeper thresholds, refusal,
+  repair, and operator-visible telemetry.
+- Done when: a 30-minute object PUT brownout has one bounded state transition
+  table and one falsifiable `fault-recovery` suite configuration.
+- Dependency: RFC-0005 and RFC-0007. Design can start immediately.
+
 ## Opens after Gate 1
 
-- Implement the externally versioned SlateDB adapter.
+- Promote the externally versioned SlateDB spike into the stable engine contract.
 - Add immutable segment compatibility fixtures.
 - Add the manifest inspection CLI.
 - Start the PostgreSQL bridge prototype against the stable versioned engine.

@@ -2,13 +2,14 @@
 members = [
     "crates/okv-eval",
     "crates/okv-model",
+    "crates/okv-slate",
 ]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
-rust-version = "1.82"
+rust-version = "1.88"
 version = "0.0.0"
 
 [workspace.lints.rust]
@@ -17,3 +18,23 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = "deny"
 pedantic = "warn"
+
+[workspace.dependencies]
+chrono = { version = "0.4.41", features = ["serde"] }
+clap = { version = "4.5.44", features = ["derive"] }
+jsonschema = { version = "0.50.1", default-features = false }
+okv-model = { path = "crates/okv-model" }
+opentelemetry = { version = "0.32.0", features = ["logs", "metrics", "trace"] }
+opentelemetry-appender-tracing = "0.32.0"
+opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "logs", "metrics", "trace"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["logs", "metrics", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+slatedb = { git = "https://github.com/slatedb/slatedb.git", rev = "e0161973d8d7ffdede7c44725729838811674e99", default-features = false }
+tokio = { version = "1.47.1", features = ["macros", "rt"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-opentelemetry = "0.33.0"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+uuid = { version = "1.18.0", features = ["v4"] }

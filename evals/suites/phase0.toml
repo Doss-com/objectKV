@@ -1,7 +1,15 @@
 schema_version = 1
 id = "phase0-object-economics-v1"
 status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
 dataset_generator = "seeded-kv-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
 
 [dataset.dev]
 logical_bytes = 67108864
@@ -23,6 +31,92 @@ budget_kind = "operations"
 budget_limit = 1000000
 repeats = 5
 docker_image = "minio/minio:REPLACE_WITH_PINNED_DIGEST"
+
+[profiles.gcs-dev]
+budget_kind = "operations"
+budget_limit = 1000000
+repeats = 5
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+
+[[lanes]]
+id = "objectify"
+primary_metric = "objectification.lag"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "hot-point"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.03
+
+[[lanes.constraints]]
+metric = "object_store.requests"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "cold-point"
+primary_metric = "object_store.requests"
+statistic = "per_operation"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "range-read"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "compaction"
+primary_metric = "compaction.write_amplification"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "reopen"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
 
 [[workloads]]
 id = "uniform-write"

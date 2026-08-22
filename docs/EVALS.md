@@ -1,7 +1,23 @@
 # objectKV eval system
 
-Status: `[ACTIVE-WORK]` the smoke correctness eval exists. Performance, object
-store, fault, and PostgreSQL suites are proposed and not implemented.
+Status: `[ACTIVE-WORK]` the configurable runner, metric registry, schema-checked
+smoke execution, OTel logs, metrics, and traces export, and proposed Phase 0,
+serving-model, and fault-recovery suites exist. Phase 0 workload executors,
+object-store implementations, distributed fault injection, and PostgreSQL
+oracles remain proposed.
+
+## Executable configuration
+
+- `evals/metrics.toml` owns instruments, units, histogram boundaries, attributes,
+  and cardinality limits.
+- Each suite owns profiles, workloads, lanes, practical thresholds, constraints,
+  and telemetry requirements.
+- `okv-eval validate-suite` validates the suite, registry, and result schema as
+  one contract.
+- `okv-eval run` executes registered workloads, records OTel signals, and refuses
+  to emit a result that fails the JSON Schema. It also refuses a dirty source
+  tree unless `--allow-dirty` marks the run as diagnostic and non-comparable.
+- `infra/otel/` is the pinned local OTLP and Prometheus path.
 
 ## Design rule
 
@@ -37,6 +53,7 @@ are not interchangeable.
 | E5 | distributed invariants | WAL quorum, fencing, range move, OCC histories |
 | E6 | PostgreSQL compatibility | `pg_regress` subsets plus crash/restart scenarios |
 | E7 | HTAP version alignment | columnar coverage version plus OLTP delta checks |
+| E8 | serving-model semantics | Redis subset, inverted-index snapshots, PostgreSQL behavior |
 
 ## Research lanes
 
@@ -53,6 +70,15 @@ Each lane owns one champion. Champions are not blended automatically.
 | `commit` | durable commit p99 | every acknowledged commit survives allowed faults |
 | `range-move` | durable database bytes copied | zero impossible reads; bounded cutover time |
 | `serializable` | committed transactions per second | every history accepted by the oracle |
+| `redis` | p99 command latency | declared Redis subset has zero semantic mismatches |
+| `search` | top-k queries per second | version-aligned postings/deletes; recall and freshness gates |
+| `pg-compat` | passed PostgreSQL cases per fixed budget | zero acknowledged-loss or impossible recovery histories |
+| `htap-freshness` | covered-through lag | exact results with no missed or double-applied delta |
+| `generation-recovery` | anomaly count under exact seeded replay | zero acknowledged loss, version reuse, or stale publication |
+| `object-brownout` | p99 objectification lag | bounded retained WAL and zero acknowledged loss |
+| `commit-failover` | durable commit p99 | zero acknowledged loss across leader, disk, and lost-ack faults |
+| `takeover` | time to first correct read | stale owner fenced and no durable dataset copy |
+| `gc-snapshot-race` | anomaly count | no reachable object reclaimed under snapshot, branch, backup, or CDC interleavings |
 
 ## Frozen surfaces
 
@@ -119,7 +145,7 @@ older rows.
 Required identity:
 
 - candidate and parent commit;
-- suite and suite hash;
+- suite and contract hash over the suite, metric registry, and result schema;
 - machine/profile and backend;
 - Rust and dependency lockfile identity;
 - seed set;
@@ -139,3 +165,6 @@ Do not begin an open-ended autoresearch run until:
 5. the incumbent can reproduce within its declared noise band;
 6. one intentionally broken candidate fails the correctness gate;
 7. one intentionally slower candidate does not become champion.
+
+See `docs/TELEMETRY.md` for signal roles, metric extension, and the local
+collector path.

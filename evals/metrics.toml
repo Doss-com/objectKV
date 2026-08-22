@@ -1,0 +1,256 @@
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]
+
+[[metrics]]
+id = "correctness.failures"
+otel_name = "okv.eval.correctness.failures"
+kind = "counter"
+unit = "{failure}"
+description = "Correctness assertions that failed during one evaluation run"
+attributes = ["lane", "workload", "failure.class"]
+required_attributes = ["lane", "workload"]
+
+[[metrics]]
+id = "operation.duration"
+otel_name = "okv.eval.operation.duration"
+kind = "histogram"
+unit = "s"
+description = "End-to-end latency of a logical evaluation operation"
+attributes = ["lane", "workload", "operation", "backend", "cache.state", "result"]
+required_attributes = ["lane", "workload", "operation", "backend", "result"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "operation.throughput"
+otel_name = "okv.eval.operation.throughput"
+kind = "gauge"
+unit = "{operation}/s"
+description = "Completed logical operations per second"
+attributes = ["lane", "workload", "operation", "backend"]
+required_attributes = ["lane", "workload", "operation", "backend"]
+
+[[metrics]]
+id = "object_store.requests"
+otel_name = "okv.eval.object_store.requests"
+kind = "counter"
+unit = "{request}"
+description = "Object-store API requests made by a workload"
+attributes = ["lane", "workload", "backend", "store", "api", "result"]
+required_attributes = ["lane", "workload", "backend", "store", "api", "result"]
+
+[[metrics]]
+id = "object_store.bytes"
+otel_name = "okv.eval.object_store.bytes"
+kind = "counter"
+unit = "By"
+description = "Bytes transferred through object-store APIs"
+attributes = ["lane", "workload", "backend", "store", "direction", "api"]
+required_attributes = ["lane", "workload", "backend", "direction"]
+
+[[metrics]]
+id = "cache.hit_ratio"
+otel_name = "okv.eval.cache.hit_ratio"
+kind = "gauge"
+unit = "1"
+description = "Fraction of logical reads satisfied by the selected cache"
+attributes = ["lane", "workload", "cache.tier", "backend"]
+required_attributes = ["lane", "workload", "cache.tier", "backend"]
+
+[[metrics]]
+id = "compaction.write_amplification"
+otel_name = "okv.eval.compaction.write_amplification"
+kind = "gauge"
+unit = "1"
+description = "Object bytes written per logical byte ingested"
+attributes = ["lane", "workload", "backend", "compaction.kind"]
+required_attributes = ["lane", "workload", "backend"]
+
+[[metrics]]
+id = "objectification.lag"
+otel_name = "okv.eval.objectification.lag"
+kind = "histogram"
+unit = "s"
+description = "Time from committed WAL visibility to object-durable visibility"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
+
+[[metrics]]
+id = "commit.durable_duration"
+otel_name = "okv.eval.commit.durable_duration"
+kind = "histogram"
+unit = "s"
+description = "Time until an acknowledged commit satisfies its declared durability policy"
+attributes = ["lane", "workload", "durability", "topology", "result"]
+required_attributes = ["lane", "workload", "durability", "result"]
+boundaries = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+
+[[metrics]]
+id = "recovery.first_correct_read_duration"
+otel_name = "okv.eval.recovery.first_correct_read_duration"
+kind = "histogram"
+unit = "s"
+description = "Time from empty-cache process start to the first correct read"
+attributes = ["lane", "workload", "backend", "dataset.class", "result"]
+required_attributes = ["lane", "workload", "backend", "dataset.class", "result"]
+boundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
+
+[[metrics]]
+id = "range_move.durable_bytes_copied"
+otel_name = "okv.eval.range_move.durable_bytes_copied"
+kind = "counter"
+unit = "By"
+description = "Durable database bytes copied to move or split a logical range"
+attributes = ["lane", "workload", "backend", "move.kind"]
+required_attributes = ["lane", "workload", "backend", "move.kind"]
+
+[[metrics]]
+id = "transaction.commits"
+otel_name = "okv.eval.transaction.commits"
+kind = "counter"
+unit = "{transaction}"
+description = "Transactions committed by the workload"
+attributes = ["lane", "workload", "isolation", "result"]
+required_attributes = ["lane", "workload", "isolation", "result"]
+
+[[metrics]]
+id = "transaction.conflicts"
+otel_name = "okv.eval.transaction.conflicts"
+kind = "counter"
+unit = "{transaction}"
+description = "Transactions rejected for a declared conflict"
+attributes = ["lane", "workload", "isolation", "conflict.kind"]
+required_attributes = ["lane", "workload", "isolation", "conflict.kind"]
+
+[[metrics]]
+id = "telemetry.dropped"
+otel_name = "okv.eval.telemetry.dropped"
+kind = "counter"
+unit = "{measurement}"
+description = "Measurements rejected or dropped by the eval telemetry path"
+attributes = ["signal", "reason"]
+required_attributes = ["signal", "reason"]
+
+[[metrics]]
+id = "correctness.anomalies"
+otel_name = "okv.eval.correctness.anomalies"
+kind = "counter"
+unit = "{anomaly}"
+description = "Histories or results rejected by the serving-model correctness oracle"
+attributes = ["lane", "workload", "oracle", "anomaly.class"]
+required_attributes = ["lane", "workload", "oracle", "anomaly.class"]
+
+[[metrics]]
+id = "object_store.estimated_cost"
+otel_name = "okv.eval.object_store.estimated_cost"
+kind = "counter"
+unit = "USD"
+description = "Estimated object API and transfer cost under a pinned price snapshot"
+attributes = ["lane", "workload", "backend", "price.snapshot"]
+required_attributes = ["lane", "workload", "backend", "price.snapshot"]
+
+[[metrics]]
+id = "storage.amplification"
+otel_name = "okv.eval.storage.amplification"
+kind = "gauge"
+unit = "1"
+description = "Durable physical bytes divided by live logical bytes"
+attributes = ["lane", "workload", "backend", "format"]
+required_attributes = ["lane", "workload", "backend", "format"]
+
+[[metrics]]
+id = "wal.retained_bytes"
+otel_name = "okv.eval.wal.retained_bytes"
+kind = "gauge"
+unit = "By"
+description = "Committed WAL bytes retained above the object durable watermark"
+attributes = ["lane", "workload", "topology", "fault"]
+required_attributes = ["lane", "workload", "topology"]
+
+[[metrics]]
+id = "availability.success_ratio"
+otel_name = "okv.eval.availability.success_ratio"
+kind = "gauge"
+unit = "1"
+description = "Fraction of attempted operations that complete within the declared contract"
+attributes = ["lane", "workload", "operation", "fault", "backend"]
+required_attributes = ["lane", "workload", "operation", "backend"]
+
+[[metrics]]
+id = "query.result_recall"
+otel_name = "okv.eval.query.result_recall"
+kind = "gauge"
+unit = "1"
+description = "Fraction of oracle result identities returned by a query"
+attributes = ["lane", "workload", "query.class", "backend"]
+required_attributes = ["lane", "workload", "query.class", "backend"]
+
+[[metrics]]
+id = "snapshot.freshness_lag"
+otel_name = "okv.eval.snapshot.freshness_lag"
+kind = "histogram"
+unit = "s"
+description = "Time between the latest committed version and the query-visible covered version"
+attributes = ["lane", "workload", "consumer", "format", "result"]
+required_attributes = ["lane", "workload", "consumer", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 300.0]
+
+[[metrics]]
+id = "format.pruning_ratio"
+otel_name = "okv.eval.format.pruning_ratio"
+kind = "gauge"
+unit = "1"
+description = "Fraction of physical blocks or row groups skipped by metadata pruning"
+attributes = ["lane", "workload", "format", "predicate.class"]
+required_attributes = ["lane", "workload", "format", "predicate.class"]
+
+[[metrics]]
+id = "compatibility.cases"
+otel_name = "okv.eval.compatibility.cases"
+kind = "counter"
+unit = "{case}"
+description = "Compatibility cases completed by declared suite, feature class, and status"
+attributes = ["lane", "workload", "compat.suite", "feature.class", "status"]
+required_attributes = ["lane", "workload", "compat.suite", "feature.class", "status"]
+
+[[metrics]]
+id = "telemetry.export_bytes"
+otel_name = "okv.eval.telemetry.export_bytes"
+kind = "counter"
+unit = "By"
+description = "Encoded telemetry bytes exported by signal"
+attributes = ["signal", "exporter", "result"]
+required_attributes = ["signal", "exporter", "result"]
+
+[[metrics]]
+id = "range.hotspot_ratio"
+otel_name = "okv.eval.range.hotspot_ratio"
+kind = "gauge"
+unit = "1"
+description = "Busiest logical range operations divided by mean range operations"
+attributes = ["lane", "workload", "topology", "distribution"]
+required_attributes = ["lane", "workload", "topology", "distribution"]

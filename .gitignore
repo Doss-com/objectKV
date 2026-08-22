@@ -9,3 +9,12 @@
 # Local object-store and benchmark state.
 /.okv/
 /run.log
+
+# Terraform working state and local inputs. Shared state must use an explicitly
+# configured remote backend before more than one operator applies this project.
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
+**/crash.log

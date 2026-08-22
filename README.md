@@ -5,21 +5,25 @@ The object-native transactional kernel for building databases.
 Status: `[ACTIVE-WORK]` repository bootstrap. No durability, distribution, or
 PostgreSQL compatibility claim exists yet.
 
-objectKV is intended to become an ordered, versioned key-value kernel whose
-permanent bytes live in object storage. A short-lived replicated log will make
-commits fast. RAM and NVMe will be disposable serving caches. ZebraDB is the
-first intended database built on the kernel, not part of the kernel itself. The
-project and repository are named `objectKV`; CLI commands, Rust packages/modules,
-configuration prefixes, and day-to-day shorthand use `okv`.
+objectKV is intended to become a FoundationDB-inspired ordered, transactional
+key-value kernel whose permanent bytes live in object storage. A short-lived
+replicated log will make commits fast. RAM and NVMe will be disposable serving
+caches. The first pressure-test consumers are distributed Redis semantics,
+distributed inverted search, and, most importantly, upstream PostgreSQL compute.
+DataFusion over version-aligned analytical objects is the ZebraDB HTAP path.
+These are consumers of the kernel, not protocol-specific kernel modes.
+
+The project and repository are named `objectKV`; CLI commands, Rust packages and
+modules, configuration prefixes, and day-to-day shorthand use `okv`.
 
 ```text
-PostgreSQL / ZebraDB / other database layers
-                    |
-          transactional ordered KV
-                    |
-       immutable versioned object segments
-                    |
-             S3 / GCS / Blob
+Redis / search / PostgreSQL / DataFusion
+                  |
+    FoundationDB-inspired ordered transactions
+                  |
+ transactional row segments + analytical artifacts
+                  |
+      S3-compatible object API / GCS / Blob
 ```
 
 ## First proof
@@ -40,9 +44,12 @@ and HTAP materialization follow only after the prior gate passes.
 
 ```text
 crates/okv-model/   executable reference model and correctness oracle
-crates/okv-eval/    eval entrypoint, currently a deterministic smoke suite
+crates/okv-eval/    configurable eval runner and OTel instrumentation
+crates/okv-slate/   pinned SlateDB adaptation and external-version spike
 docs/               decisions, staged plan, eval design, PostgreSQL path
 evals/              frozen suite definitions and result contract
+infra/gcp/          guarded objectKV-dev project and GCS configuration
+infra/otel/         pinned local OTel collector
 experiments/        append-only research ledger conventions
 rfcs/                architecture decisions before implementation hardens them
 program.md          autonomous research operating loop
@@ -53,6 +60,9 @@ program.md          autonomous research operating loop
 ```bash
 cargo test --workspace
 cargo run -p okv-eval -- smoke
+cargo run -p okv-eval -- validate-suite evals/suites/phase0.toml
+cargo run -p okv-eval -- run evals/suites/smoke.toml \
+  --profile dev --workload model-smoke --backend model
 ```
 
 The smoke command tests the versioned in-memory model. It is not a storage or
@@ -60,17 +70,23 @@ performance benchmark.
 
 ## Project principles
 
-- Object storage is authoritative.
+- Object storage is the permanent tier; the retained WAL suffix is authoritative
+  for committed versions not yet objectified.
 - Serving storage is disposable.
-- The transaction layer is independent of physical storage.
+- The transaction layer is independent of transactional segment encoding.
 - Published object bytes are immutable; transactional references are mutable.
 - Object storage is not a coordination system.
 - Correctness gates performance.
 - OLTP and OLAP may use different physical layouts but share one logical history.
 - objectKV is not ZebraDB.
 
-Start with [the bootstrap plan](docs/BOOTSTRAP-PLAN.md), then choose one open RFC
-or eval lane from [the contributor board](docs/CONTRIBUTOR-BOARD.md).
+Start with [the system shape](docs/SYSTEM-SHAPE.md) and
+[the bootstrap plan](docs/BOOTSTRAP-PLAN.md), then choose one open RFC or eval
+lane from [the contributor board](docs/CONTRIBUTOR-BOARD.md).
+The [independent review synthesis](docs/research/EXPERT-REVIEW-SYNTHESIS.md)
+tracks completed and pending adversarial reviews without implying consensus.
+The active project slice is registered in the
+[local project-tracking playground](docs/PROJECT-TRACKING.md).
 
 ## License
 

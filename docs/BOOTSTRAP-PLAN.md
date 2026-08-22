@@ -5,7 +5,8 @@
 Launch objectKV as a contributor-ready open-source project, then use an eval-led
 research program to progress from a versioned object engine to an object-native
 transaction kernel, full PostgreSQL compute, and ZebraDB HTAP over one logical
-history.
+history. Distributed Redis semantics and inverted search are earlier serving
+models that pressure-test the kernel without replacing the PostgreSQL north star.
 
 ## Workstreams, Level 1
 
@@ -24,7 +25,7 @@ history.
 - W7. Eval and research system: freeze oracles, budgets, suites, result records,
   and keep/discard rules.
 - W8. PostgreSQL and HTAP path: preserve PostgreSQL behavior, then connect one
-  commit/version history to OLTP and columnar execution.
+  commit/version history to OLTP and DataFusion columnar execution.
 - W9. OSS operations: establish naming, license, RFCs, governance, contributor
   tasks, release contracts, and public claims.
 
@@ -37,8 +38,9 @@ history.
   segment publication.
 - First files: `crates/okv-segment`, `crates/okv-object`,
   `evals/suites/phase0.toml`.
-- Open question: how can externally assigned versions be introduced without
-  inheriting SlateDB writer ownership and manifest authority?
+- Finding: the pinned SlateDB revision publicly accepts externally assigned
+  sequence numbers and custom WAL traits. Explicit public read-at-version and
+  standalone segment-building seams remain upstream questions.
 - Failure mode: the engine looks fast when warm but cold point reads or
   compaction generate uneconomic object requests and bytes.
 - Rough scope: medium, 1 to 2 weeks for a comparable baseline, 2 to 4 weeks for
@@ -62,6 +64,8 @@ history.
   asynchronous materialization, and conservative global watermarking.
 - First files: future `crates/okv-wal-api`, `crates/okv-wal-raft`, RFC-0005,
   RFC-0007, RFC-0009.
+- Entry gate: exact seeded simulation of generation recovery, virtual time, and
+  injected log, network, clock, and object-store failures exists before WAL code.
 - Open question: which persisted state surrounds `raft-rs`, and how are commit
   versions fenced across generation recovery?
 - Failure mode: an acknowledged commit exists in neither reconstructable object
@@ -115,10 +119,11 @@ history.
 
 ### W8. PostgreSQL and HTAP path
 
-- Mechanism: first prototype PostgreSQL page/storage bridging over objectKV;
-  later decide whether to deepen that fork or move logical relations/indexes
-  directly onto objectKV. Materialize version-aligned Parquet before evaluating
-  Vortex.
+- Mechanism: use narrow Redis and inverted-index adapters as early pressure
+  tests; first prototype PostgreSQL page/storage bridging over objectKV; later
+  decide whether to deepen that fork or move logical relations/indexes directly
+  onto objectKV. Materialize version-aligned Parquet for DataFusion before
+  evaluating Vortex.
 - First files: `docs/POSTGRES-PATH.md`, RFC-0010, a future isolated bridge crate
   or PostgreSQL fork repository.
 - Open question: which PostgreSQL durability and MVCC responsibilities remain in
@@ -199,11 +204,15 @@ Exit: Gate 1 re-runs against the objectKV adapter with no correctness failures.
 
 Status: `[PROPOSED]`.
 
-Add one ordered replicated WAL, acknowledge after quorum durability, consume it
-into immutable objects, and advance the conservative object durable watermark.
+First build the exact deterministic scheduler and generation-recovery harness.
+Then add one ordered replicated WAL, acknowledge after quorum durability,
+consume it into immutable objects, and advance the conservative object durable
+watermark. Ratekeep and eventually refuse commits at declared `C - O` and
+retained-WAL bounds.
 
-Gate 2: low-millisecond local-region commit is demonstrated while kill/restart
-scenarios preserve every acknowledged commit.
+Gate 2: every failing seed replays exactly; low-millisecond local-region commit
+is demonstrated; brownout, kill/restart, disk-full, and lost-ack scenarios
+preserve every acknowledged commit within the published RPO contract.
 
 ### S4. Make serving disposable
 
@@ -241,8 +250,8 @@ Status: `[FUTURE]`.
 
 Map records and indexes to atomic objectKV transactions. Materialize Parquet from
 the authoritative commit history with explicit coverage versions. Query a
-columnar base plus bounded OLTP delta, or wait for a declared analytical
-watermark.
+columnar base through DataFusion plus bounded OLTP delta, or wait for a declared
+analytical watermark.
 
 Gate 6B: a representative ZebraDB workload is simpler or materially better than
 the current dual-system path enough to justify owning the substrate.

@@ -1,0 +1,18 @@
+[package]
+name = "okv-slate"
+description = "Pinned SlateDB adaptation layer for objectKV"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+okv-model.workspace = true
+slatedb.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

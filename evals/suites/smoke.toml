@@ -1,0 +1,44 @@
+schema_version = 1
+id = "objectkv-smoke-v1"
+status = "active"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.dev]
+logical_bytes = 1024
+key_count = 1
+seeds = [1103]
+
+[profiles.dev]
+budget_kind = "operations"
+budget_limit = 10
+repeats = 1
+
+[[lanes]]
+id = "correctness"
+primary_metric = "correctness.failures"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "model-smoke"
+lane = "correctness"
+operation = "model_smoke"
+
+[hard_gates]
+correctness_failures = 0
+schema_valid = true
+budget_must_hold = true
