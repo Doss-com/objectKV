@@ -43,7 +43,7 @@ and HTAP materialization follow only after the prior gate passes.
 ## Repository map
 
 ```text
-crates/okv-model/   executable reference model and correctness oracle
+crates/okv-model/   executable MVCC and ZebraDB HTAP reference oracles
 crates/okv-eval/    configurable eval runner and OTel instrumentation
 crates/okv-object/  named-object correctness boundary and conformance runner
 crates/okv-sim/     exact seeded crash, network, and fencing replay probe
@@ -76,6 +76,8 @@ cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \
   --profile sim-dev --workload overlapping-generation-failures --backend turmoil
 cargo run -p okv-eval -- run evals/suites/commit-contract.toml \
   --profile sim-dev --workload cell-commit-envelope --backend sim-model
+cargo run -p okv-eval -- run evals/suites/htap-contract.toml \
+  --profile model-dev --workload zebradb-base-plus-tail --backend model
 ```
 
 The model smoke is not a storage or performance benchmark. The simulator probe
@@ -86,6 +88,8 @@ version. A passing `segment` profile is not evidence that the backend can host
 mutable authority metadata.
 The commit-contract runner proves a deterministic envelope and failure oracle,
 not replicated-log durability or production consensus.
+The HTAP-contract runner proves exact model semantics, not a DataFusion physical
+operator or Parquet/Vortex performance.
 
 ## Project principles
 

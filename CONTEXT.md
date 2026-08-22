@@ -62,6 +62,11 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   and mutation payloads, request identity, resolver and log-tag coverage,
   generation fencing, quorum acknowledgement, durable outcome reconstruction,
   and six negative controls. It is not a production WAL or consensus system.
+- `[EXISTS]` The pure ZebraDB HTAP contract model compares base-plus-tail output
+  with a logical row oracle at one target version. It covers pushdown
+  invalidation, schema and partition movement, analytical-tail retention,
+  snapshot-lease GC, certificate races, unequal table watermarks, and five
+  negative controls. It is not a DataFusion or Parquet implementation.
 - `[EXISTS]` The `objectKV-dev` Terraform configuration validates locally.
 - `[EXISTS]` The objectKV workstream is registered as `OKV-BOOTSTRAP` in the
   local DOSSBOT project tracker and its dedicated playground port is documented.

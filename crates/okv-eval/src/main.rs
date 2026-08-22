@@ -7,8 +7,8 @@ use okv_eval::result::{
 };
 use okv_eval::telemetry::{RunResource, Telemetry};
 use okv_model::{
-    run_differential_history, ApplyOutcome, CommitBatch, CommitIdentity, DifferentialMode, Model,
-    Mutation, Version,
+    run_differential_history, run_htap_contract, ApplyOutcome, CommitBatch, CommitIdentity,
+    DifferentialMode, HtapContractMode, Model, Mutation, Version,
 };
 use okv_object::{
     filesystem_backend, gcs_backend_from_env, memory_backend, minio_backend_from_env,
@@ -465,11 +465,220 @@ fn execute_workload(
             run_generation_recovery(workload, candidate_commit, seeds)
         }
         "commit_envelope_contract" => run_commit_envelope_contract(workload, seeds),
+        "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
         operation => execution_from_result(Err(format!(
             "operation {operation} is declared but has no runner implementation"
         ))),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_htap_exactness_contract(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "HTAP exactness workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => HtapContractMode::Correct,
+        Some("pushdown_poison") => HtapContractMode::PushdownPoison,
+        Some("schema_partition_move") => HtapContractMode::SchemaPartitionMove,
+        Some("wal_pop_conflation") => HtapContractMode::WalPopConflation,
+        Some("lease_gc_race") => HtapContractMode::LeaseGcRace,
+        Some("certificate_toctou") => HtapContractMode::CertificateToctou,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown HTAP exactness negative control {other}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut event_count = 0_u64;
+    let mut exact_checks = 0_u64;
+    let mut tail_rows = 0_u64;
+    let mut tail_bytes = 0_u64;
+    let mut peak_memory_bytes = 0_u64;
+    let mut spill_bytes = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+    for seed in seeds {
+        let first = run_htap_contract(*seed, mode);
+        let second = run_htap_contract(*seed, mode);
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        event_count = event_count.saturating_add(first.executed_steps);
+        exact_checks = exact_checks.saturating_add(first.exact_checks);
+        tail_rows = tail_rows.saturating_add(first.tail_rows);
+        tail_bytes = tail_bytes.saturating_add(first.tail_bytes);
+        peak_memory_bytes = peak_memory_bytes.max(first.peak_memory_bytes);
+        spill_bytes = spill_bytes.saturating_add(first.spill_bytes);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, step {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "okv-htap-row-oracle-v1"),
+                    (
+                        "anomaly.class",
+                        if exact { "none" } else { "htap_exactness" },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "query.result_exact",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "base_plus_tail_contract"),
+                    ("backend", backend),
+                    ("oracle", "okv-htap-row-oracle-v1"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.tail_rows",
+                value: bounded_count(first.tail_rows),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "base_plus_tail_contract"),
+                    ("backend", backend),
+                    ("base.format", "model-row"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.tail_bytes",
+                value: bounded_count(first.tail_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "base_plus_tail_contract"),
+                    ("backend", backend),
+                    ("base.format", "model-row"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.peak_memory",
+                value: bounded_count(first.peak_memory_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "base_plus_tail_contract"),
+                    ("backend", backend),
+                    ("merge.kind", "ordered-model"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.spill_bytes",
+                value: bounded_count(first.spill_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "base_plus_tail_contract"),
+                    ("backend", backend),
+                    ("merge.kind", "ordered-model"),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-htap-contract://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let expected_events = u64::try_from(seeds.len())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(6);
+    let semantic_operations_exercised = event_count == expected_events
+        && exact_checks > 0
+        && tail_rows > 0
+        && tail_bytes > 0
+        && peak_memory_bytes > 0;
+    let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "HTAP exactness gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "htap.exact_seed_replay".to_owned(),
+                status: if exact_replay {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap.semantic_operations_exercised".to_owned(),
+                status: if semantic_operations_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(format!(
+                    "events={event_count}, exact_checks={exact_checks}, tail_rows={tail_rows}, tail_bytes={tail_bytes}, peak_memory_bytes={peak_memory_bytes}, spill_bytes={spill_bytes}"
+                )),
+            },
+            HardGateResult {
+                id: "htap.exact_result".to_owned(),
+                status: if anomaly_count == 0 {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            ("htap.contract.events".to_owned(), bounded_count(event_count)),
+            (
+                "htap.contract.exact_checks".to_owned(),
+                bounded_count(exact_checks),
+            ),
+            ("htap.tail_rows".to_owned(), bounded_count(tail_rows)),
+            ("htap.tail_bytes".to_owned(), bounded_count(tail_bytes)),
+            (
+                "htap.peak_memory_bytes".to_owned(),
+                bounded_count(peak_memory_bytes),
+            ),
+            ("htap.spill_bytes".to_owned(), bounded_count(spill_bytes)),
+        ]),
     }
 }
 

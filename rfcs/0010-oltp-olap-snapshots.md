@@ -160,6 +160,29 @@ Correctness and cost are separate measurements. The suite records exact result
 equality as a hard gate, then tail rows, tail bytes, peak memory, spill bytes,
 and latency as `T - W_p` grows. Freshness lag is not a proxy for overlay cost.
 
+## Executable contract model
+
+`[EXISTS]` `crates/okv-model/src/htap.rs` and
+`evals/suites/htap-contract.toml` make the exactness rules executable before a
+DataFusion operator exists. Five deterministic seeds cover:
+
+- invalidation before predicate, projection, ordering, and limit;
+- schema normalization plus a cross-partition move at unequal watermarks;
+- analytical-tail retention after recovery-WAL pop;
+- active snapshot closure during a base-publication and GC race;
+- atomic dependency-token validation and write conflict;
+- two independently lagging table bases combined at one target version.
+
+Five negative subjects each violate one rule and must receive a `discard`
+verdict at a bounded step. The runner emits exact-result, anomaly, tail-row,
+tail-byte, peak-memory, spill, replay, and trace evidence through the shared
+result and OTel path.
+
+`[PROPOSED]` This model does not claim a DataFusion `TableProvider`, Arrow
+stream, Parquet reader, snapshot-manifest protocol, or production certificate
+implementation. Those implementations must pass the same row oracle before
+their latency or memory curves are admitted.
+
 ## Questions to resolve
 
 - Complete columnar snapshot-manifest and analytical-coverage encodings.

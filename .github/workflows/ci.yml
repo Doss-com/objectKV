@@ -29,6 +29,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/object-store.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/model-history.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/commit-contract.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
       - name: Verify generated MVCC histories and negative control
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history --backend model --output /tmp/okv-model-history.json
@@ -59,6 +60,20 @@ jobs:
             output="/tmp/${workload}.json"
             cargo run --quiet -p okv-eval -- run evals/suites/commit-contract.toml --profile sim-dev --workload "$workload" --backend sim-model --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "commit.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify ZebraDB HTAP exactness and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/htap-contract.toml --profile model-dev --workload zebradb-base-plus-tail --backend model --output /tmp/okv-htap-contract.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "htap.exact_result").status == "pass")' /tmp/okv-htap-contract.json
+          for workload in \
+            zebradb-pushdown-poison \
+            zebradb-schema-partition-move \
+            zebradb-wal-pop-conflation \
+            zebradb-lease-gc-race \
+            zebradb-certificate-toctou; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/htap-contract.toml --profile model-dev --workload "$workload" --backend model --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap.exact_result").status == "fail")' "$output"
           done
       - name: Verify local object-store capability profiles
         run: |

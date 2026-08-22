@@ -21,6 +21,10 @@ The `cell-commit-contract-v1` suite checks a replayable Cell v0 envelope and
 durable retry outcome across five seeds. Six negative subjects break durable
 deduplication, request identity, complete resolver acceptance, complete log
 tagging, generation fencing, and quorum acknowledgement.
+The `zebradb-htap-contract-v1` suite checks base-plus-tail exactness across one
+query version, unequal partition and table watermarks, schema normalization,
+row movement, leases, independent tail retention, and certified writes. Five
+negative subjects each break one of those contracts.
 
 ## Executable configuration
 
@@ -115,6 +119,21 @@ The suite freezes RFC-0005, RFC-0008, and RFC-0009 into its contract hash. It
 records exact seed replay, semantic step coverage, recovered outcomes, retry
 count, leader-only attempts, trace digests, and correctness anomalies. CI
 requires the correct subject to keep and all six negative subjects to discard.
+
+## ZebraDB HTAP exactness gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/htap-contract.toml \
+  --profile model-dev \
+  --workload zebradb-base-plus-tail \
+  --backend model
+```
+
+The suite freezes RFC-0010 into its contract hash. The correctness lane uses
+anomaly count as its admission metric and requires `query.result_exact = 1`.
+Tail rows, tail bytes, peak memory, spill bytes, and operation duration remain
+separate measurements. They are not freshness proxies and are not yet
+DataFusion performance evidence.
 
 ## MVCC semantic gate
 

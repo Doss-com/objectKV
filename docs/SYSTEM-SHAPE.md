@@ -44,7 +44,7 @@ exist.
 
 | Module or caller | State | Owns now | Intended downstream caller |
 |---|---|---|---|
-| `okv-model` | `[EXISTS]` | cell-scoped versions, canonical batches, point/range MVCC, exact reads, retention, differential oracle | transaction and storage adapters use it as semantic reference, never as production authority |
+| `okv-model` | `[EXISTS]` | cell-scoped versions, canonical batches, point/range MVCC, exact reads, retention, differential oracle, and ZebraDB base-plus-tail exactness oracle | transaction, storage, and analytical adapters use it as semantic reference, never as production authority |
 | `okv-slate` | `[EXISTS]` spike | externally versioned point mutations and durable logical-version metadata over pinned SlateDB | cell substrate storage adapter after range-clear and historical-read seams exist |
 | `okv-object` | `[EXISTS]` | named-object, conditional-publication, fault, request, byte, and provider-conformance boundary | segment builders, manifest authority, materializers, and evals |
 | `okv-sim` | `[EXISTS]` contract models | exact seeded generation fencing, canonical replay, and the Cell v0 commit envelope, quorum, recovery, retry, resolver, tag, and generation contract | generation authority, WAL, resolvers, materializers, and recovery protocol |

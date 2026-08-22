@@ -176,7 +176,7 @@ become one GitHub issue.
 - Remaining: one external database reviewer, alternative-topology comparison,
   and executable commit, frontier, resolver-partition, and tenant-move models.
 
-### T16. Prototype exact DataFusion base-plus-tail semantics
+### T16. Prototype exact DataFusion base-plus-tail semantics `[ACTIVE-WORK]`
 
 - Scope: RFC-0010 `TableProvider`, ordered `SnapshotOverlayExec`, insert/update/
   delete and row-move tail, per-partition watermarks, and predicate invalidation.
@@ -189,7 +189,12 @@ become one GitHub issue.
   the distributed transaction implementation.
 - Exists: the internal review and five minimal negative controls are recorded in
   `docs/research/reviews/codex-htap-overlay-2026-08-22.md`. The configured hard
-  gate now requires exact canonical results rather than recall.
+  gate requires exact canonical results rather than recall. The pure
+  `okv-model` contract executes all five controls plus one multi-table,
+  single-version case through `zebradb-htap-contract-v1` and OTel.
+- Remaining: implement the DataFusion `TableProvider` and ordered physical
+  operator, replace model rows with Arrow and Parquet fixtures, and measure the
+  cost curve as `T - W_p` grows.
 
 ### T17. Specify analytical dependency certificates
 

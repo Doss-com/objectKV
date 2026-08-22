@@ -4,8 +4,10 @@
 //! are compared against it; optimization experiments must not modify it.
 
 mod history;
+mod htap;
 
 pub use history::{run_differential_history, DifferentialMode, DifferentialReport};
+pub use htap::{run_htap_contract, HtapContractMode, HtapContractReport};
 
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
