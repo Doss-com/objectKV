@@ -2,6 +2,7 @@
 members = [
     "crates/okv-eval",
     "crates/okv-model",
+    "crates/okv-sim",
     "crates/okv-slate",
 ]
 resolver = "2"
@@ -14,6 +15,7 @@ version = "0.0.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
 [workspace.lints.clippy]
 all = "deny"
@@ -32,9 +34,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 slatedb = { git = "https://github.com/slatedb/slatedb.git", rev = "e0161973d8d7ffdede7c44725729838811674e99", default-features = false }
-tokio = { version = "1.47.1", features = ["macros", "rt"] }
+tokio = { version = "1.47.1", features = ["io-util", "macros", "rt", "sync", "time"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-opentelemetry = "0.33.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+turmoil = { version = "=0.7.2", features = ["unstable-fs"] }
 uuid = { version = "1.18.0", features = ["v4"] }

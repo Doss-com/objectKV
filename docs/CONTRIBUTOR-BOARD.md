@@ -112,7 +112,7 @@ become one GitHub issue.
   rejects.
 - Dependency: T8, T9, and the PostgreSQL bridge inventory.
 
-### T13. Build the exact deterministic simulation substrate
+### T13. Build the exact deterministic simulation substrate `[ACTIVE-WORK]`
 
 - Scope: single logical thread, seeded random source, virtual time, deterministic
   network, durable log, object store, and crash/restart scheduling. Evaluate
@@ -121,8 +121,14 @@ become one GitHub issue.
   seed, minimizes, and replays exactly in CI with the same event trace.
 - Dependency: RFC-0002 generation/version position. This blocks replicated WAL
   implementation.
+- Exists: Turmoil 0.7.2 is pinned behind `okv-sim`; the build fails closed
+  without Tokio runtime RNG seeding; two local fresh processes produced
+  byte-identical canonical traces; CI is configured to repeat that comparison;
+  and a stale-publication negative control fails.
+- Remaining: seed minimization, deterministic object API, WAL and coordinator
+  seams, overlapping role failures, and a retained corpus.
 
-### T14. Specify acknowledgement, RPO, and lag backpressure
+### T14. Specify acknowledgement, RPO, and lag backpressure `[COMPLETE]`
 
 - Scope: `COMMITTED`, `commit_unknown`, WAL topology and placement, regional
   loss model, `C` and `O`, retained-WAL bounds, ratekeeper thresholds, refusal,
@@ -130,6 +136,10 @@ become one GitHub issue.
 - Done when: a 30-minute object PUT brownout has one bounded state transition
   table and one falsifiable `fault-recovery` suite configuration.
 - Dependency: RFC-0005 and RFC-0007. Design can start immediately.
+- Evidence: RFC-0005 defines `COMMITTED`, single-region RPO, `C/O`, and the
+  normal, rate-limited, commit-refused, and recovery-only states;
+  `evals/suites/fault-recovery.toml` owns the brownout lane. The workload
+  executor remains gated on WAL and objectification components.
 
 ## Opens after Gate 1
 

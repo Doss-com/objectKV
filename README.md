@@ -45,6 +45,7 @@ and HTAP materialization follow only after the prior gate passes.
 ```text
 crates/okv-model/   executable reference model and correctness oracle
 crates/okv-eval/    configurable eval runner and OTel instrumentation
+crates/okv-sim/     exact seeded crash, network, and fencing replay probe
 crates/okv-slate/   pinned SlateDB adaptation and external-version spike
 docs/               decisions, staged plan, eval design, PostgreSQL path
 evals/              frozen suite definitions and result contract
@@ -63,10 +64,14 @@ cargo run -p okv-eval -- smoke
 cargo run -p okv-eval -- validate-suite evals/suites/phase0.toml
 cargo run -p okv-eval -- run evals/suites/smoke.toml \
   --profile dev --workload model-smoke --backend model
+cargo run -p okv-sim -- replay --seed 1103
+cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \
+  --profile sim-dev --workload overlapping-generation-failures --backend turmoil
 ```
 
-The smoke command tests the versioned in-memory model. It is not a storage or
-performance benchmark.
+The model smoke is not a storage or performance benchmark. The simulator probe
+exercises one control-authority crash, restart, partition, repair, generation
+change, and stale-publication oracle. It is not yet a replicated WAL simulator.
 
 ## Project principles
 

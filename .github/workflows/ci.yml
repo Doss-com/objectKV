@@ -17,6 +17,7 @@ jobs:
         with:
           toolchain: 1.88.0
           components: rustfmt, clippy
+          rustflags: ""
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -25,3 +26,12 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/phase0.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/serving-models.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/fault-recovery.toml
+      - run: cargo run -p okv-eval -- run evals/suites/fault-recovery.toml --profile sim-dev --workload overlapping-generation-failures --backend turmoil
+      - name: Verify deterministic simulation replay and negative control
+        run: |
+          cargo run --quiet -p okv-sim -- replay --seed 1103 > /tmp/okv-sim-a.json
+          cargo run --quiet -p okv-sim -- replay --seed 1103 > /tmp/okv-sim-b.json
+          cmp /tmp/okv-sim-a.json /tmp/okv-sim-b.json
+          if cargo run --quiet -p okv-sim -- replay --seed 1103 --inject-stale-publication-bug > /tmp/okv-sim-negative.json; then
+            exit 1
+          fi

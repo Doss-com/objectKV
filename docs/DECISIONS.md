@@ -175,7 +175,7 @@ workload-specific materialization and compatibility proof.
 
 ## D14. Deterministic simulation order
 
-Status: `[PROPOSED]` after the first independent review.
+Status: `[ACTIVE-WORK]` after the first independent review.
 
 Decision: build an exact, seeded, virtual-time simulation harness before the
 replicated WAL. Every distributed component must run under it, and a failing
@@ -186,6 +186,11 @@ failures before they become multi-process incidents.
 
 Gives up: shipping the happy-path WAL first. This adds an earlier systems-test
 investment but removes a larger late recovery retrofit.
+
+Evidence: `okv-sim` pins Turmoil 0.7.2, fails closed without Tokio RNG seeding,
+produces byte-identical local fresh-process traces, configures CI to repeat the
+comparison, and detects a deliberate stale-generation publication bug. The
+probe is not yet evidence for replicated-WAL recovery.
 
 ## D15. Acknowledgement and lag contract
 

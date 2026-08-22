@@ -3,8 +3,10 @@
 Status: `[ACTIVE-WORK]` the configurable runner, metric registry, schema-checked
 smoke execution, OTel logs, metrics, and traces export, and proposed Phase 0,
 serving-model, and fault-recovery suites exist. Phase 0 workload executors,
-object-store implementations, distributed fault injection, and PostgreSQL
-oracles remain proposed.
+object-store implementations, replicated-WAL fault injection, and PostgreSQL
+oracles remain proposed. The first generation-fencing fault workload runs
+through `okv-sim` and records its anomaly count, event budget, trace digest, and
+exact-replay gate through the shared result and OTel path.
 
 ## Executable configuration
 
@@ -79,6 +81,16 @@ Each lane owns one champion. Champions are not blended automatically.
 | `commit-failover` | durable commit p99 | zero acknowledged loss across leader, disk, and lost-ack faults |
 | `takeover` | time to first correct read | stale owner fenced and no durable dataset copy |
 | `gc-snapshot-race` | anomaly count | no reachable object reclaimed under snapshot, branch, backup, or CDC interleavings |
+
+`generation-recovery` has one executable bootstrap probe. The other fault lanes
+remain configuration contracts until their owning components exist.
+
+```bash
+cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \
+  --profile sim-dev \
+  --workload overlapping-generation-failures \
+  --backend turmoil
+```
 
 ## Frozen surfaces
 

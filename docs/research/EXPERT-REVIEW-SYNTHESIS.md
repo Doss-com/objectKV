@@ -54,6 +54,10 @@ must stay outside the repository and review artifacts.
 - `[PROPOSED]` D16 forces a bootstrap authority decision before distribution.
 - `[PROPOSED]` `evals/suites/fault-recovery.toml` turns brownout, takeover,
   generation recovery, GC, and range movement into configurable eval lanes.
+- `[EXISTS]` The first `okv-sim` generation-fencing probe executes crash,
+  restart, partition, repair, generation activation, stale publication, exact
+  fresh-process replay, and a failing negative control. Replicated WAL and
+  objectification faults remain proposed.
 
 ## What can falsify this synthesis
 

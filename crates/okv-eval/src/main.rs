@@ -7,6 +7,7 @@ use okv_eval::result::{
 };
 use okv_eval::telemetry::{RunResource, Telemetry};
 use okv_model::{ApplyOutcome, CommitBatch, Model, Mutation, Version};
+use okv_sim::run_generation_fencing;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -17,6 +18,27 @@ use std::process::{Command, ExitCode};
 use std::time::Instant;
 use tracing::{info, info_span};
 use uuid::Uuid;
+
+struct Measurement {
+    metric: &'static str,
+    value: f64,
+    attributes: BTreeMap<String, String>,
+}
+
+struct WorkloadExecution {
+    error: Option<String>,
+    measurements: Vec<Measurement>,
+    hard_gates: Vec<HardGateResult>,
+    budget_units: f64,
+    artifact_refs: Vec<String>,
+    secondary_metrics: BTreeMap<String, f64>,
+}
+
+impl WorkloadExecution {
+    fn passed(&self) -> bool {
+        self.error.is_none()
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(name = "okv-eval", about = "objectKV evaluation runner")]
@@ -249,10 +271,18 @@ fn run_suite(
         "evaluation started"
     );
 
+    let seeds = dataset_seeds(&loaded, profile_id);
     let started = Instant::now();
-    let workload_result = execute_workload(workload);
+    let workload_execution = execute_workload(workload, &candidate_commit, &seeds);
     let elapsed = started.elapsed().as_secs_f64();
-    let failures = f64::from(workload_result.is_err());
+    for measurement in &workload_execution.measurements {
+        recorder.record(
+            measurement.metric,
+            measurement.value,
+            measurement.attributes.clone(),
+        )?;
+    }
+    let failures = f64::from(!workload_execution.passed());
     recorder.record(
         "operation.duration",
         elapsed,
@@ -286,10 +316,10 @@ fn run_suite(
     let sample_median = median(&samples);
     let budget_observed = match profile.budget_kind {
         BudgetKind::Seconds => elapsed,
-        BudgetKind::Events | BudgetKind::Operations => 1.0,
+        BudgetKind::Events | BudgetKind::Operations => workload_execution.budget_units,
     };
     let budget_passed = budget_observed <= profile.budget_limit;
-    let correctness_passed = workload_result.is_ok();
+    let correctness_passed = workload_execution.passed();
     let verdict = if !correctness_passed || !budget_passed {
         Verdict::Discard
     } else if source_dirty {
@@ -297,7 +327,7 @@ fn run_suite(
     } else {
         Verdict::Keep
     };
-    let reason = workload_result.err().unwrap_or_else(|| {
+    let reason = workload_execution.error.unwrap_or_else(|| {
         if source_dirty {
             "diagnostic dirty-tree run; hard gates passed but the result is not comparable"
                 .to_owned()
@@ -327,37 +357,41 @@ fn run_suite(
         candidate_commit,
         parent_commit,
         backend: backend.to_owned(),
-        seeds: dataset_seeds(&loaded, profile_id),
+        seeds,
         budget: BudgetResult {
             kind: profile.budget_kind,
             limit: profile.budget_limit,
             observed: budget_observed,
         },
-        hard_gates: vec![
-            HardGateResult {
-                id: "correctness_failures".to_owned(),
-                status: if correctness_passed {
-                    GateStatus::Pass
-                } else {
-                    GateStatus::Fail
+        hard_gates: {
+            let mut gates = vec![
+                HardGateResult {
+                    id: "correctness_failures".to_owned(),
+                    status: if correctness_passed {
+                        GateStatus::Pass
+                    } else {
+                        GateStatus::Fail
+                    },
+                    detail: None,
                 },
-                detail: None,
-            },
-            HardGateResult {
-                id: "budget_must_hold".to_owned(),
-                status: if budget_passed {
-                    GateStatus::Pass
-                } else {
-                    GateStatus::Fail
+                HardGateResult {
+                    id: "budget_must_hold".to_owned(),
+                    status: if budget_passed {
+                        GateStatus::Pass
+                    } else {
+                        GateStatus::Fail
+                    },
+                    detail: None,
                 },
-                detail: None,
-            },
-            HardGateResult {
-                id: "schema_valid".to_owned(),
-                status: GateStatus::Pass,
-                detail: None,
-            },
-        ],
+                HardGateResult {
+                    id: "schema_valid".to_owned(),
+                    status: GateStatus::Pass,
+                    detail: None,
+                },
+            ];
+            gates.extend(workload_execution.hard_gates);
+            gates
+        },
         primary_metric: PrimaryMetricResult {
             name: primary_definition.otel_name.clone(),
             unit: primary_definition.unit.clone(),
@@ -367,12 +401,20 @@ fn run_suite(
             samples,
             incumbent_median: None,
         },
-        secondary_metrics: BTreeMap::from([("operation.duration.median".to_owned(), elapsed)]),
+        secondary_metrics: {
+            let mut metrics = workload_execution.secondary_metrics;
+            metrics.insert("operation.duration.median".to_owned(), elapsed);
+            metrics
+        },
         verdict,
         reason,
-        artifact_refs: output
-            .map(|path| vec![path.display().to_string()])
-            .unwrap_or_default(),
+        artifact_refs: {
+            let mut refs = workload_execution.artifact_refs;
+            if let Some(path) = output {
+                refs.push(path.display().to_string());
+            }
+            refs
+        },
     };
     let value = serde_json::to_value(&result)?;
     validate_result(&loaded.result_schema_path, &value)?;
@@ -391,12 +433,119 @@ fn run_suite(
     Ok(())
 }
 
-fn execute_workload(workload: &WorkloadConfig) -> Result<(), String> {
+fn execute_workload(
+    workload: &WorkloadConfig,
+    candidate_commit: &str,
+    seeds: &[u64],
+) -> WorkloadExecution {
     match workload.operation.as_str() {
-        "model_smoke" => run_model_smoke(),
-        operation => Err(format!(
+        "model_smoke" => execution_from_result(run_model_smoke()),
+        "deterministic_generation_recovery" => {
+            run_generation_recovery(workload, candidate_commit, seeds)
+        }
+        operation => execution_from_result(Err(format!(
             "operation {operation} is declared but has no runner implementation"
-        )),
+        ))),
+    }
+}
+
+fn execution_from_result(result: Result<(), String>) -> WorkloadExecution {
+    WorkloadExecution {
+        error: result.err(),
+        measurements: Vec::new(),
+        hard_gates: Vec::new(),
+        budget_units: 1.0,
+        artifact_refs: Vec::new(),
+        secondary_metrics: BTreeMap::new(),
+    }
+}
+
+fn run_generation_recovery(
+    workload: &WorkloadConfig,
+    candidate_commit: &str,
+    seeds: &[u64],
+) -> WorkloadExecution {
+    let Some(seed) = seeds.first().copied() else {
+        return execution_from_result(Err(
+            "deterministic generation recovery requires at least one dataset seed".to_owned(),
+        ));
+    };
+    let first = run_generation_fencing(seed, candidate_commit, false);
+    let second = run_generation_fencing(seed, candidate_commit, false);
+
+    match (first, second) {
+        (Ok(first), Ok(second)) => {
+            let exact_replay = first == second;
+            let Ok(anomaly_count) = u32::try_from(first.invariant_failures.len()) else {
+                return execution_from_result(Err(
+                    "simulation anomaly count exceeds the result contract".to_owned(),
+                ));
+            };
+            let Ok(event_count) = u32::try_from(first.events.len()) else {
+                return execution_from_result(Err(
+                    "simulation event count exceeds the result contract".to_owned(),
+                ));
+            };
+            let anomaly_count = f64::from(anomaly_count);
+            let event_count = f64::from(event_count);
+            let mut errors = Vec::new();
+            if !exact_replay {
+                errors.push("same-seed simulation traces diverged".to_owned());
+            }
+            errors.extend(first.invariant_failures.clone());
+            WorkloadExecution {
+                error: (!errors.is_empty()).then(|| errors.join("; ")),
+                measurements: vec![Measurement {
+                    metric: "correctness.anomalies",
+                    value: anomaly_count + f64::from(!exact_replay),
+                    attributes: attributes(&[
+                        ("lane", &workload.lane),
+                        ("workload", &workload.id),
+                        ("oracle", "generation-fencing-v1"),
+                        (
+                            "anomaly.class",
+                            if exact_replay && anomaly_count == 0.0 {
+                                "none"
+                            } else {
+                                "simulation_invariant"
+                            },
+                        ),
+                    ]),
+                }],
+                hard_gates: vec![
+                    HardGateResult {
+                        id: "exact_seed_replay".to_owned(),
+                        status: if exact_replay {
+                            GateStatus::Pass
+                        } else {
+                            GateStatus::Fail
+                        },
+                        detail: Some(first.trace_sha256.clone()),
+                    },
+                    HardGateResult {
+                        id: "stale_generation_fenced".to_owned(),
+                        status: if anomaly_count == 0.0 {
+                            GateStatus::Pass
+                        } else {
+                            GateStatus::Fail
+                        },
+                        detail: None,
+                    },
+                ],
+                budget_units: event_count,
+                artifact_refs: vec![format!(
+                    "okv-sim://generation-fencing-v1/{seed}/{}",
+                    first.trace_sha256
+                )],
+                secondary_metrics: BTreeMap::from([("simulation.events".to_owned(), event_count)]),
+            }
+        }
+        (Err(first), Err(second)) => execution_from_result(Err(format!(
+            "both simulation replays failed: first={first}; second={second}"
+        ))),
+        (Err(error), _) | (_, Err(error)) => {
+            execution_from_result(Err(format!("simulation replay failed: {error}")))
+        }
     }
 }
 

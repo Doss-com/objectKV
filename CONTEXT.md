@@ -36,12 +36,16 @@ This file defines vocabulary and current facts. Behavioral policy lives in
 
 - `[EXISTS]` The repository contains a Rust workspace, an in-memory reference
   model, a pinned SlateDB adapter spike, a configurable eval runner, an OTel
-  path, and planning/RFC scaffolding.
+  path, an exact seeded generation-fencing probe, and planning/RFC scaffolding.
 - `[EXISTS]` The SlateDB spike can apply externally assigned versions and reject
   conflicting replay. It cannot yet expose an explicit public read version.
 - `[EXISTS]` The `objectKV-dev` Terraform configuration validates locally.
 - `[EXISTS]` The objectKV workstream is registered as `OKV-BOOTSTRAP` in the
   local DOSSBOT project tracker and its dedicated playground port is documented.
+- `[EXISTS]` Two fresh `okv-sim` processes at seed 1103 emit byte-identical
+  canonical traces across synced control state, crash/restart, network
+  partition/repair, generation change, and stale-publication rejection. The
+  deliberate stale-publication bug fails its oracle.
 - `[ACTIVE-WORK]` The actual Google Cloud project and GCS bucket await interactive
   gcloud reauthentication and exact organization/billing verification.
 - `[EXISTS]` `Doss-com/objectKV` did not exist when this scaffold was created.

@@ -202,13 +202,15 @@ Exit: Gate 1 re-runs against the objectKV adapter with no correctness failures.
 
 ### S3. Add the fast durability tier
 
-Status: `[PROPOSED]`.
+Status: `[ACTIVE-WORK]` simulator prerequisite; WAL remains `[PROPOSED]`.
 
-First build the exact deterministic scheduler and generation-recovery harness.
-Then add one ordered replicated WAL, acknowledge after quorum durability,
-consume it into immutable objects, and advance the conservative object durable
-watermark. Ratekeep and eventually refuse commits at declared `C - O` and
-retained-WAL bounds.
+The first exact replay probe now preserves synced control authority across
+crash/restart and rejects a stale generation after partition/repair. Extend that
+harness to the coordinator, durable log, object store, and recovery state
+machine. Then add one ordered replicated WAL, acknowledge after quorum
+durability, consume it into immutable objects, and advance the conservative
+object durable watermark. Ratekeep and eventually refuse commits at declared
+`C - O` and retained-WAL bounds.
 
 Gate 2: every failing seed replays exactly; low-millisecond local-region commit
 is demonstrated; brownout, kill/restart, disk-full, and lost-ack scenarios

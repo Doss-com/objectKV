@@ -31,6 +31,11 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
   cargo run -p okv-eval -- run evals/suites/smoke.toml \
   --profile dev --workload model-smoke --backend model --allow-dirty
 curl http://127.0.0.1:8889/metrics
+
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+  cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \
+  --profile sim-dev --workload overlapping-generation-failures \
+  --backend turmoil --allow-dirty
 ```
 
 The developer profile permits local JSON-only execution when no endpoint is
