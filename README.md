@@ -74,6 +74,8 @@ cargo run -p okv-eval -- run evals/suites/smoke.toml \
 cargo run -p okv-sim -- replay --seed 1103
 cargo run -p okv-eval -- run evals/suites/fault-recovery.toml \
   --profile sim-dev --workload overlapping-generation-failures --backend turmoil
+cargo run -p okv-eval -- run evals/suites/commit-contract.toml \
+  --profile sim-dev --workload cell-commit-envelope --backend sim-model
 ```
 
 The model smoke is not a storage or performance benchmark. The simulator probe
@@ -82,6 +84,8 @@ change, and stale-publication oracle. It is not yet a replicated WAL simulator.
 The object-store runner proves named-object semantics for one exact backend and
 version. A passing `segment` profile is not evidence that the backend can host
 mutable authority metadata.
+The commit-contract runner proves a deterministic envelope and failure oracle,
+not replicated-log durability or production consensus.
 
 ## Project principles
 

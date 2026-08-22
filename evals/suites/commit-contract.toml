@@ -1,0 +1,90 @@
+schema_version = 1
+id = "cell-commit-contract-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+]
+dataset_generator = "deterministic-cell-commit-scenario-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.sim-dev]
+logical_bytes = 0
+key_count = 0
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.sim-dev]
+budget_kind = "events"
+budget_limit = 40
+repeats = 1
+backend = "sim-model"
+
+[[lanes]]
+id = "commit-contract"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-commit-envelope"
+lane = "commit-contract"
+operation = "commit_envelope_contract"
+
+[[workloads]]
+id = "cell-commit-ram-only-dedup"
+lane = "commit-contract"
+operation = "commit_envelope_contract"
+negative_control = "ram_only_dedup"
+
+[[workloads]]
+id = "cell-commit-accept-conflicting-retry"
+lane = "commit-contract"
+operation = "commit_envelope_contract"
+negative_control = "accept_conflicting_retry"
+
+[[workloads]]
+id = "cell-commit-accept-partial-resolver"
+lane = "commit-contract"
+operation = "commit_envelope_contract"
+negative_control = "accept_partial_resolver"
+
+[[workloads]]
+id = "cell-commit-omit-required-log-tag"
+lane = "commit-contract"
+operation = "commit_envelope_contract"
+negative_control = "omit_required_log_tag"
+
+[[workloads]]
+id = "cell-commit-accept-stale-generation"
+lane = "commit-contract"
+operation = "commit_envelope_contract"
+negative_control = "accept_stale_generation"
+
+[[workloads]]
+id = "cell-commit-ack-before-quorum"
+lane = "commit-contract"
+operation = "commit_envelope_contract"
+negative_control = "ack_before_quorum"
+
+[hard_gates]
+correctness_anomalies = 0
+acknowledged_commit_loss = 0
+exact_seed_replay = true
+semantic_operations_exercised = true
+schema_valid = true
+budget_must_hold = true

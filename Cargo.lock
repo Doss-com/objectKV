@@ -1667,6 +1667,7 @@ name = "okv-sim"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "okv-model",
  "serde",
  "serde_json",
  "sha2",

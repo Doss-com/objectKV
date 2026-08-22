@@ -56,8 +56,12 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   expose an explicit public read version.
 - `[EXISTS]` The generation-aware reference model and `mvcc-semantics-v1` eval
   cover canonical replay, range clears, scans, retention errors,
-  read-your-writes, exact seeded replay, and an ignore-range-clears negative
-  control.
+  read-your-writes, exact seeded replay, and seven independently detectable
+  negative subjects.
+- `[EXISTS]` The pure Cell v0 commit contract model freezes replayable conflict
+  and mutation payloads, request identity, resolver and log-tag coverage,
+  generation fencing, quorum acknowledgement, durable outcome reconstruction,
+  and six negative controls. It is not a production WAL or consensus system.
 - `[EXISTS]` The `objectKV-dev` Terraform configuration validates locally.
 - `[EXISTS]` The objectKV workstream is registered as `OKV-BOOTSTRAP` in the
   local DOSSBOT project tracker and its dedicated playground port is documented.

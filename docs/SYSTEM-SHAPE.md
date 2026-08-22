@@ -1,7 +1,7 @@
 # objectKV system shape and constraint map
 
-Status: `[PROPOSED]` architecture thesis for expert review. Only the in-memory
-model, pinned SlateDB adapter spike, eval runner, and OTel path currently exist.
+Status: `[ACTIVE-WORK]` architecture thesis for expert review. The executable
+surfaces are enumerated below; the complete distributed cell remains proposed.
 
 ## Target shape
 
@@ -47,7 +47,7 @@ exist.
 | `okv-model` | `[EXISTS]` | cell-scoped versions, canonical batches, point/range MVCC, exact reads, retention, differential oracle | transaction and storage adapters use it as semantic reference, never as production authority |
 | `okv-slate` | `[EXISTS]` spike | externally versioned point mutations and durable logical-version metadata over pinned SlateDB | cell substrate storage adapter after range-clear and historical-read seams exist |
 | `okv-object` | `[EXISTS]` | named-object, conditional-publication, fault, request, byte, and provider-conformance boundary | segment builders, manifest authority, materializers, and evals |
-| `okv-sim` | `[EXISTS]` probe | exact seeded generation fencing and canonical replay | generation authority, WAL, resolvers, materializers, and recovery protocol |
+| `okv-sim` | `[EXISTS]` contract models | exact seeded generation fencing, canonical replay, and the Cell v0 commit envelope, quorum, recovery, retry, resolver, tag, and generation contract | generation authority, WAL, resolvers, materializers, and recovery protocol |
 | `okv-eval` | `[EXISTS]` | suite configuration, semantic runners, hard gates, receipts, and OTel signals | CI, contributor experiments, and the autonomous research loop |
 | cell substrate | `[ACTIVE-WORK]` | versioned storage and object publication contracts | first replicated WAL and bounded recovery root |
 | `GenerationAuthority` plus `DurableLog` | `[PROPOSED]` | per-cell generation, membership, ordered quorum durability, and recovery root | read-version and commit proxies, recovery, ratekeeper |

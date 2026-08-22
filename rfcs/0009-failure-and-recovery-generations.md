@@ -143,6 +143,10 @@ insufficient evidence.
 
 - CI runs a fixed seed corpus plus two fresh-process executions of one canonical
   replay probe and compares trace bytes.
+- The deterministic `cell-commit-contract-v1` model rebuilds client outcomes
+  from quorum-certified envelopes after restart and rejects stale generations,
+  partial resolver acceptance, incomplete log tagging, conflicting retry, and
+  leader-only durability.
 - A deliberate stale-publication bug must be found by a recorded seed and replay
   identically.
 - The `fault-recovery` suite grows from the probe to overlapping sequencer,

@@ -1,6 +1,6 @@
 # objectKV contributor board
 
-Status: `[PROPOSED]` initial tasks. Each item is intentionally bounded enough to
+Status: `[ACTIVE-WORK]` initial tasks. Each item is intentionally bounded enough to
 become one GitHub issue.
 
 ## Ready now
@@ -202,6 +202,23 @@ become one GitHub issue.
   tenant, snapshot, schema, plan rules, and phantom-safe dependency tokens;
   validation and write occur in one serializable transaction. Model work can
   begin independently.
+
+### T18. Freeze and implement the Cell v0 commit envelope `[ACTIVE-WORK]`
+
+- Scope: canonical conflict and mutation bytes, request identity, resolver-set
+  acceptance, log tagging, generation fencing, quorum evidence, durable outcome
+  recovery, and exact retry behavior.
+- Done when: the pure contract model and a real replicated-log implementation
+  pass the same normal and negative suite, including process crash between
+  quorum commit and client reply.
+- Dependency: RFC-0005, RFC-0008, and RFC-0009.
+- Exists: `okv-sim` has a checksummed, length-delimited model envelope and
+  reconstructs retained request outcomes from quorum-certified records. The
+  `cell-commit-contract-v1` suite runs five seeds and six bounded negative
+  controls through the shared result and OTel path.
+- Remaining: run the contract through Turmoil with a real coordinator and Raft
+  persistence seam, define retained-outcome expiry and compaction, and prove
+  recovery across partial writes and replica replacement.
 
 ## Opens after Gate 1
 

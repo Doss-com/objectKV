@@ -28,6 +28,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/fault-recovery.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/object-store.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/model-history.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/commit-contract.toml
       - name: Verify generated MVCC histories and negative control
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history --backend model --output /tmp/okv-model-history.json
@@ -43,6 +44,21 @@ jobs:
             output="/tmp/${workload}.json"
             cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload "$workload" --backend model --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "model.oracle_agreement").status == "fail")' "$output"
+          done
+      - name: Verify Cell v0 commit contract and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/commit-contract.toml --profile sim-dev --workload cell-commit-envelope --backend sim-model --output /tmp/okv-commit-contract.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0' /tmp/okv-commit-contract.json
+          for workload in \
+            cell-commit-ram-only-dedup \
+            cell-commit-accept-conflicting-retry \
+            cell-commit-accept-partial-resolver \
+            cell-commit-omit-required-log-tag \
+            cell-commit-accept-stale-generation \
+            cell-commit-ack-before-quorum; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/commit-contract.toml --profile sim-dev --workload "$workload" --backend sim-model --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "commit.contract_agreement").status == "fail")' "$output"
           done
       - name: Verify local object-store capability profiles
         run: |

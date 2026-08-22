@@ -3,6 +3,12 @@
 #[cfg(not(tokio_unstable))]
 compile_error!("okv-sim requires --cfg tokio_unstable to seed Tokio runtime scheduling");
 
+mod commit;
+
+pub use commit::{
+    run_commit_contract, CommitCodecError, CommitContractMode, CommitContractReport, CommitEnvelope,
+};
+
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::io;

@@ -79,6 +79,40 @@ accepted and every required log set has made the same envelope durable. Resolver
 partitions may keep conservative conflict state after a transaction is rejected,
 but no subset can publish a transaction outcome.
 
+### Executable Cell v0 contract
+
+`[EXISTS]` `crates/okv-sim/src/commit.rs` freezes a deterministic contract-model
+encoding named `OKVC` at codec version 1. The byte order is:
+
+```text
+magic, codec_version, total_envelope_length,
+cell_id, tenant_id, generation, commit_version, log_index,
+client_id, request_id, resolver_set_id, logical_fingerprint,
+length-prefixed read conflicts,
+length-prefixed write conflicts,
+length-prefixed canonical mutations,
+required resolver IDs, required log tags,
+previous log-chain digest, envelope checksum
+```
+
+The fingerprint binds the cell, tenant, generation, client request identity,
+and exact conflict and mutation payloads. Decode rejects truncation, length or
+checksum disagreement, generation/version disagreement, unsorted or empty
+required sets, fingerprint disagreement, and trailing bytes. A durable record
+combines this envelope with quorum acknowledgement evidence. Recovery rebuilds
+the retained client outcome from quorum-certified records before accepting a
+retry.
+
+`[EXISTS]` The `cell-commit-contract-v1` eval exercises quorum acknowledge,
+lost-reply recovery, conflicting retry, complete resolver acceptance, complete
+log-tag routing, generation fencing, and leader-only fsync. Six negative
+controls each fail at one bounded step.
+
+`[PROPOSED]` This is not a production WAL format, consensus protocol, signature
+scheme, or stable external compatibility promise. It freezes the information
+and rejection rules that a Raft-backed implementation must preserve while its
+framing and certificate representation remain replaceable.
+
 ## Durability and RPO statement
 
 - Loss of one WAL replica or one failure domain does not lose acknowledged
@@ -137,8 +171,10 @@ versions already reconstructable may continue while commits are refused.
 
 ## Eval plan
 
-`evals/suites/fault-recovery.toml` owns leader kill, follower disk-full, lost
-ack, object PUT brownout, stale publisher, and range-materializer stall lanes.
+`evals/suites/commit-contract.toml` owns the pre-WAL envelope, retry, resolver,
+tag, generation, and quorum contract. `evals/suites/fault-recovery.toml` owns
+leader kill, follower disk-full, lost ack, object PUT brownout, stale publisher,
+and range-materializer stall lanes.
 Hard gates are zero acknowledged loss, exact seed replay, bounded retained WAL,
 no watermark overstatement, and recovery to a serving state. Metrics include
 commit p50/p99, `C_cell - O_cell`, retained bytes, admission rate, refusal time, election

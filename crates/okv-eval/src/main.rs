@@ -15,7 +15,7 @@ use okv_object::{
     run_conformance, validate_conformance_report, CaseStatus, ConformanceOptions,
     ConformanceProfile,
 };
-use okv_sim::run_generation_fencing;
+use okv_sim::{run_commit_contract, run_generation_fencing, CommitContractMode};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -464,11 +464,165 @@ fn execute_workload(
         "deterministic_generation_recovery" => {
             run_generation_recovery(workload, candidate_commit, seeds)
         }
+        "commit_envelope_contract" => run_commit_envelope_contract(workload, seeds),
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
         operation => execution_from_result(Err(format!(
             "operation {operation} is declared but has no runner implementation"
         ))),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_commit_envelope_contract(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "commit envelope workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => CommitContractMode::Correct,
+        Some("ram_only_dedup") => CommitContractMode::RamOnlyDedup,
+        Some("accept_conflicting_retry") => CommitContractMode::AcceptConflictingRetry,
+        Some("accept_partial_resolver") => CommitContractMode::AcceptPartialResolver,
+        Some("omit_required_log_tag") => CommitContractMode::OmitRequiredLogTag,
+        Some("accept_stale_generation") => CommitContractMode::AcceptStaleGeneration,
+        Some("ack_before_quorum") => CommitContractMode::AckBeforeQuorum,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown commit contract negative control {other}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut event_count = 0_u64;
+    let mut acknowledged_commits = 0_u64;
+    let mut recovered_commits = 0_u64;
+    let mut retry_count = 0_u64;
+    let mut leader_only_attempts = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+    for seed in seeds {
+        let first = run_commit_contract(*seed, mode);
+        let second = run_commit_contract(*seed, mode);
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        event_count = event_count.saturating_add(first.executed_steps);
+        acknowledged_commits = acknowledged_commits.saturating_add(first.acknowledged_commits);
+        recovered_commits = recovered_commits.saturating_add(first.recovered_commits);
+        retry_count = retry_count.saturating_add(first.retry_count);
+        leader_only_attempts = leader_only_attempts.saturating_add(first.leader_only_attempts);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, step {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        measurements.push(Measurement {
+            metric: "correctness.anomalies",
+            value: bounded_count(first.anomaly_count),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("oracle", "okv-cell-commit-contract-v1"),
+                (
+                    "anomaly.class",
+                    if first.anomaly_count == 0 {
+                        "none"
+                    } else {
+                        "commit_contract"
+                    },
+                ),
+            ]),
+        });
+        artifact_refs.push(format!(
+            "okv-commit-contract://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let semantic_operations_exercised = acknowledged_commits > 0
+        && recovered_commits > 0
+        && retry_count > 0
+        && leader_only_attempts > 0;
+    let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "commit contract gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "commit.exact_seed_replay".to_owned(),
+                status: if exact_replay {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: None,
+            },
+            HardGateResult {
+                id: "commit.semantic_operations_exercised".to_owned(),
+                status: if semantic_operations_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(format!(
+                    "acknowledged={acknowledged_commits}, recovered={recovered_commits}, retries={retry_count}, leader_only={leader_only_attempts}"
+                )),
+            },
+            HardGateResult {
+                id: "commit.contract_agreement".to_owned(),
+                status: if anomaly_count == 0 {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            (
+                "commit.contract.events".to_owned(),
+                bounded_count(event_count),
+            ),
+            (
+                "commit.contract.acknowledged".to_owned(),
+                bounded_count(acknowledged_commits),
+            ),
+            (
+                "commit.contract.recovered".to_owned(),
+                bounded_count(recovered_commits),
+            ),
+            (
+                "commit.contract.retries".to_owned(),
+                bounded_count(retry_count),
+            ),
+            (
+                "commit.contract.leader_only_attempts".to_owned(),
+                bounded_count(leader_only_attempts),
+            ),
+        ]),
     }
 }
 

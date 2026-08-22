@@ -2,7 +2,8 @@
 
 Status: `[ACTIVE-WORK]` the configurable runner, metric registry, schema-checked
 smoke execution, OTel logs, metrics, and traces export, and proposed Phase 0,
-serving-model, and fault-recovery suites exist. Phase 0 workload executors,
+serving-model, fault-recovery, and commit-contract suites exist. Phase 0
+workload executors,
 object-store implementations, replicated-WAL fault injection, and PostgreSQL
 oracles remain proposed. The first generation-fencing fault workload runs
 through `okv-sim` and records its anomaly count, event budget, trace digest, and
@@ -16,6 +17,10 @@ against an independently normalized full-snapshot oracle. Seven negative
 subjects break range clears, replay ordering, conflict rejection, future-read
 availability, inclusive retention, expired-read rejection, and stale-generation
 fencing. They receive `discard` verdicts at deterministic steps 2 through 9.
+The `cell-commit-contract-v1` suite checks a replayable Cell v0 envelope and
+durable retry outcome across five seeds. Six negative subjects break durable
+deduplication, request identity, complete resolver acceptance, complete log
+tagging, generation fencing, and quorum acknowledgement.
 
 ## Executable configuration
 
@@ -92,11 +97,24 @@ Each lane owns one champion. Champions are not blended automatically.
 | `gc-snapshot-race` | anomaly count | no reachable object reclaimed under snapshot, branch, backup, or CDC interleavings |
 | `cell-scale` | committed transactions per second | strict serializability and bounded recovery as roles partition |
 | `tenant-move` | unavailable time and durable bytes copied | one writable routing epoch and exact snapshot plus tail |
-| `htap-overlay` | p99 exact-snapshot latency | exact row oracle, predicate invalidation, one query version; report tail rows/bytes, peak memory, and spill separately |
 | `certified-write` | validation retry rate | no write commits from an invalid analytical dependency certificate |
 
 `generation-recovery` has one executable bootstrap probe. The other fault lanes
 remain configuration contracts until their owning components exist.
+
+## Cell commit contract gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/commit-contract.toml \
+  --profile sim-dev \
+  --workload cell-commit-envelope \
+  --backend sim-model
+```
+
+The suite freezes RFC-0005, RFC-0008, and RFC-0009 into its contract hash. It
+records exact seed replay, semantic step coverage, recovered outcomes, retry
+count, leader-only attempts, trace digests, and correctness anomalies. CI
+requires the correct subject to keep and all six negative subjects to discard.
 
 ## MVCC semantic gate
 
