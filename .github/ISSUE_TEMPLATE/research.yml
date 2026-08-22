@@ -1,0 +1,40 @@
+name: Research question
+description: Close one objectKV architecture uncertainty with evidence.
+title: "research: "
+labels: [research]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: How question
+      description: Frame the uncertainty as a concrete how question.
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision this can change
+      description: Name the RFC, gate, or implementation choice this evidence informs.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence plan
+      description: List source links, prototype, oracle, negative control, and fixed eval.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: State the bounded artifact or result that closes this issue.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoff
+    attributes:
+      label: Tradeoff
+      description: What does the likely choice optimize, and what might it give up?
+    validations:
+      required: true

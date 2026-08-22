@@ -1,0 +1,82 @@
+schema_version = 1
+id = "phase0-object-economics-v1"
+status = "proposed"
+dataset_generator = "seeded-kv-v1"
+
+[dataset.dev]
+logical_bytes = 67108864
+key_count = 100000
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[dataset.comparable]
+logical_bytes = 10737418240
+key_count = 10000000
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.dev]
+budget_kind = "operations"
+budget_limit = 100000
+repeats = 1
+
+[profiles.minio]
+budget_kind = "operations"
+budget_limit = 1000000
+repeats = 5
+docker_image = "minio/minio:REPLACE_WITH_PINNED_DIGEST"
+
+[[workloads]]
+id = "uniform-write"
+lane = "objectify"
+operation = "set"
+distribution = "uniform"
+value_bytes = [128, 1024, 16384]
+
+[[workloads]]
+id = "hot-point"
+lane = "hot-point"
+operation = "get"
+distribution = "zipf"
+warm_cache = true
+
+[[workloads]]
+id = "cold-point"
+lane = "cold-point"
+operation = "get"
+distribution = "uniform"
+warm_cache = false
+
+[[workloads]]
+id = "scan-10"
+lane = "range-read"
+operation = "scan"
+row_count = 10
+
+[[workloads]]
+id = "scan-100"
+lane = "range-read"
+operation = "scan"
+row_count = 100
+
+[[workloads]]
+id = "scan-10000"
+lane = "range-read"
+operation = "scan"
+row_count = 10000
+
+[[workloads]]
+id = "overwrite-compaction"
+lane = "compaction"
+operation = "overwrite_then_compact"
+overwrite_fraction = 0.5
+
+[[workloads]]
+id = "empty-cache-reopen"
+lane = "reopen"
+operation = "reopen_then_get"
+delete_local_cache = true
+
+[hard_gates]
+correctness_failures = 0
+schema_valid = true
+budget_must_hold = true
+backend_contract_must_pass = true
