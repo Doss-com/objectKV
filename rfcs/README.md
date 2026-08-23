@@ -19,5 +19,6 @@ not harden until their RFC is accepted.
 | 0009 | failure and recovery generations | proposed | fencing and recovery |
 | 0010 | OLTP/OLAP snapshot semantics | proposed | HTAP materialization |
 | 0011 | cell and tenant topology | draft | bounded distributed cell and metacluster |
+| 0012 | DataFusion snapshot overlay implementation | proposed | physical HTAP source and operator |
 
 Use `0000-template.md` for new proposals.

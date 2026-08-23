@@ -1,0 +1,83 @@
+schema_version = 1
+id = "zebradb-datafusion-overlay-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0010-oltp-olap-snapshots.md",
+  "../../rfcs/0012-datafusion-overlay-implementation.md",
+]
+dataset_generator = "deterministic-arrow-parquet-overlay-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 4
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 24
+repeats = 1
+backend = "datafusion-local-fs"
+datafusion = "54.0.0"
+arrow = "58.3.0"
+parquet = "58.3.0"
+
+[[lanes]]
+id = "htap-physical-exactness"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "query.result_exact"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[workloads]]
+id = "zebradb-arrow-parquet-overlay"
+lane = "htap-physical-exactness"
+operation = "htap_physical_contract"
+
+[[workloads]]
+id = "zebradb-physical-pushdown-poison"
+lane = "htap-physical-exactness"
+operation = "htap_physical_contract"
+negative_control = "pushdown_before_invalidation"
+
+[[workloads]]
+id = "zebradb-physical-partition-move"
+lane = "htap-physical-exactness"
+operation = "htap_physical_contract"
+negative_control = "partition_local_reduction"
+
+[[workloads]]
+id = "zebradb-physical-projection-poison"
+lane = "htap-physical-exactness"
+operation = "htap_physical_contract"
+negative_control = "project_primary_key_early"
+
+[hard_gates]
+correctness_anomalies = 0
+parquet_round_trip = true
+arrow_tail_complete = true
+invalidation_precedes_filter = true
+partition_move_is_logical_identity = true
+hidden_primary_key_survives_projection = true
+fresh_process_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true
