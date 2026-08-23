@@ -31,13 +31,15 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 94 points at admitted generation-takeover receipt
-`839c0cd8f48ea4d830c59e5ac06440bd920b1621`. Candidate
-`42d01507d0d2b7fd77933caf4253b11f164440b3` passed clean run
-`d9dac2f8-dc5a-4d94-b177-2275c17fe462` with zero anomalies across three seeds
-and 48 real-process checks. The gate rejected 12 prohibited commit attempts,
-survived three authority-leader kills, changed membership three times, and
-caught up all nine G2 voter observations. Four unsafe subjects discarded with
-exact replay. The next critical path authenticates data-quorum fence and
-recovery certificates, then advances the independent Arrow, Parquet, and
-DataFusion overlay implementation against the frozen row oracle.
+`[ACTIVE-WORK]` Tracker revision 95 points at admitted recovery-certificate
+receipt `17d6622ea1ff6c8b79cb29b3ea8ff5704e3e9dfd`. Candidate
+`6bad3f85f7a51d0ee5844c73de362f47d7477a91` passed clean run
+`6a2989a1-6444-4c87-97ad-e77f16a92475` with zero anomalies across three seeds
+and 48 real-process checks. Each seed used three fence signers, three recovery
+signers, and rejected five invalid certificates. All five unsafe subjects
+discarded with exact replay. OTel run
+`e4638e21-f6a0-45b3-abc1-f5aba3467f20` exported the bounded Prometheus series.
+The next independent critical path implements Arrow and Parquet fixtures plus
+the DataFusion exact-snapshot overlay against the frozen row oracle. Recovery
+continues separately with control-root reconciliation and production key
+custody.
