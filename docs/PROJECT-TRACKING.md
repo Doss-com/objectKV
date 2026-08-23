@@ -31,12 +31,13 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 92 advances through the deterministic
-three-node replication and failover receipt. Candidate
-`d77b7b548a30cdc7534f966cd1f0621e977b1561` passed clean run
-`ce63ffd2-502b-4418-88c0-f9e7dd6e1599` with zero anomalies across three seeds,
-nine quorum commits, nine elections, six partitions, six repairs, three
-simulated process crashes, three bounces, and nine caught-up nodes. Three unsafe
-subjects discarded. The next critical path is a real process-kill and durable
-request-outcome gate, followed by generation takeover and the Arrow, Parquet,
-and DataFusion implementation against the frozen row oracle.
+`[ACTIVE-WORK]` Tracker revision 94 points at admitted generation-takeover receipt
+`839c0cd8f48ea4d830c59e5ac06440bd920b1621`. Candidate
+`42d01507d0d2b7fd77933caf4253b11f164440b3` passed clean run
+`d9dac2f8-dc5a-4d94-b177-2275c17fe462` with zero anomalies across three seeds
+and 48 real-process checks. The gate rejected 12 prohibited commit attempts,
+survived three authority-leader kills, changed membership three times, and
+caught up all nine G2 voter observations. Four unsafe subjects discarded with
+exact replay. The next critical path authenticates data-quorum fence and
+recovery certificates, then advances the independent Arrow, Parquet, and
+DataFusion overlay implementation against the frozen row oracle.
