@@ -23,5 +23,6 @@ not harden until their RFC is accepted.
 | 0013 | Streaming DataFusion snapshot overlay | proposed | bounded ordered HTAP merge |
 | 0014 | Real object publication adapter | proposed | physical publication and guarded sweep |
 | 0015 | Replicated publication authority | proposed | fenced root, pin, intent, and deletion-reservation state |
+| 0016 | Publication worker recovery and object-effect fencing | proposed | crash-safe publisher, sweeper, and generation handoff |
 
 Use `0000-template.md` for new proposals.
