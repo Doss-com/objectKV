@@ -24,6 +24,7 @@ static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const JOB_FORMAT_VERSION: u32 = 1;
 const EXPECTED_CHECKS: u64 = 10;
 const PUT_RECOVERY_EXPECTED_CHECKS: u64 = 12;
+const MANIFEST_RECOVERY_EXPECTED_CHECKS: u64 = 13;
 
 /// Deliberately unsafe publisher behavior used by the frozen negative control.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -135,6 +136,67 @@ pub struct PublisherPutRecoveryReport {
     pub trace_sha256: String,
 }
 
+/// Deliberately unsafe manifest-recovery behavior used by RFC-0019.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublisherManifestRecoveryMode {
+    Correct,
+    TrustManifestWithoutClosure,
+}
+
+impl PublisherManifestRecoveryMode {
+    /// Stable mode identifier used by suite and trace receipts.
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Correct => "correct",
+            Self::TrustManifestWithoutClosure => "trust_manifest_without_closure",
+        }
+    }
+}
+
+/// Process phase for the two RFC-0019 publisher children.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublisherManifestRecoveryPhase {
+    ManifestPutUnknown,
+    Replacement,
+}
+
+/// Configuration passed to one ambiguous-manifest publisher child process.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PublisherManifestRecoveryProcessConfig {
+    pub seed: u64,
+    pub mode: PublisherManifestRecoveryMode,
+    pub phase: PublisherManifestRecoveryPhase,
+    pub authority_endpoints: Vec<String>,
+    pub object_root: PathBuf,
+    pub scratch_root: PathBuf,
+}
+
+/// Canonical semantic report for one ambiguous manifest, kill, and restart.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PublisherManifestRecoveryReport {
+    pub seed: u64,
+    pub mode: PublisherManifestRecoveryMode,
+    pub executed_checks: u64,
+    pub anomaly_count: u64,
+    pub first_mismatch_step: Option<u64>,
+    pub first_mismatch: Option<String>,
+    pub authority_process_starts: u64,
+    pub publisher_process_starts: u64,
+    pub process_kills: u64,
+    pub put_attempts: u64,
+    pub object_effects: u64,
+    pub injected_unknown_responses: u64,
+    pub existing_object_recoveries: u64,
+    pub named_verification_reads: u64,
+    pub publication_command_attempts: u64,
+    pub empty_scratch_restarts: u64,
+    pub checks: BTreeMap<String, bool>,
+    pub trace_sha256: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct PublisherJob {
     format_version: u32,
@@ -175,6 +237,18 @@ struct PublisherPutRecoveryReceipt {
     first_outcome: String,
     remaining_created: u64,
     manifest_created: bool,
+    closure_verified: bool,
+    root_installed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct PublisherManifestRecoveryReceipt {
+    kind: String,
+    job_sha256: String,
+    prepare_identity: RequestIdentity,
+    publish_identity: RequestIdentity,
+    existing_data_objects: u64,
+    manifest_outcome: String,
     closure_verified: bool,
     root_installed: bool,
 }
@@ -392,6 +466,121 @@ pub async fn run_publication_publisher_put_recovery_node(
                 first_outcome: put_outcome_id(first_outcome).to_owned(),
                 remaining_created,
                 manifest_created: manifest_outcome == PutOutcome::Created,
+                closure_verified: true,
+                root_installed,
+            })?;
+            Ok(())
+        }
+    }
+}
+
+/// Execute one RFC-0019 publisher child until its fault barrier or completion.
+///
+/// # Errors
+///
+/// Returns an error when replicated intent differs from the immutable job, the
+/// manifest effect does not produce an ambiguous response, or replacement
+/// publication cannot follow the selected recovery protocol.
+#[allow(clippy::too_many_lines)]
+pub async fn run_publication_publisher_manifest_recovery_node(
+    config: PublisherManifestRecoveryProcessConfig,
+) -> Result<(), String> {
+    require_empty_directory(&config.scratch_root)?;
+    let job = PublisherJob::for_seed(config.seed)?;
+    let job_sha256 = job.digest()?;
+    let prepare_identity = job.request_identity("prepare")?;
+    let publish_identity = job.request_identity("publish")?;
+    let client = PublicationClient::new(config.authority_endpoints)?;
+    recover_exact_prepare(&client, &job, prepare_identity).await?;
+    let object_client = ObjectClient::new(
+        filesystem_backend(&config.object_root).map_err(|error| error.to_string())?,
+    );
+
+    match config.phase {
+        PublisherManifestRecoveryPhase::ManifestPutUnknown => {
+            let data_limit = if config.mode == PublisherManifestRecoveryMode::Correct {
+                job.objects.len()
+            } else {
+                1
+            };
+            for object in job.objects.iter().take(data_limit) {
+                object_client
+                    .put_if_absent(&object.reference.key, Bytes::from(object.bytes.clone()))
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+            let backend =
+                filesystem_backend(&config.object_root).map_err(|error| error.to_string())?;
+            let fault = Arc::new(FaultBackend::new(backend));
+            fault.lose_next_put_response();
+            let result = fault
+                .put(
+                    &job.manifest.reference.key,
+                    Bytes::from(job.manifest.bytes.clone()),
+                    WriteCondition::Create,
+                )
+                .await;
+            if !result.is_err_and(|error| error.class == ErrorClass::RetryableUnknown) {
+                return Err(
+                    "publisher did not observe the injected unknown manifest response".to_owned(),
+                );
+            }
+            emit_barrier(&PublisherBarrier {
+                kind: "manifest_put_response_unknown".to_owned(),
+                job_sha256,
+                prepare_identity,
+            })?;
+            park_until_killed();
+        }
+        PublisherManifestRecoveryPhase::Replacement => {
+            if config.mode == PublisherManifestRecoveryMode::TrustManifestWithoutClosure {
+                let (manifest_outcome, _) = object_client
+                    .put_if_absent(
+                        &job.manifest.reference.key,
+                        Bytes::from(job.manifest.bytes.clone()),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let root_installed = publish_job(&client, &job, publish_identity).await?;
+                emit_manifest_recovery_receipt(&PublisherManifestRecoveryReceipt {
+                    kind: "manifest_trusted_without_closure".to_owned(),
+                    job_sha256,
+                    prepare_identity,
+                    publish_identity,
+                    existing_data_objects: 0,
+                    manifest_outcome: put_outcome_id(manifest_outcome).to_owned(),
+                    closure_verified: false,
+                    root_installed,
+                })?;
+                return Ok(());
+            }
+
+            let mut existing_data_objects = 0_u64;
+            for object in &job.objects {
+                let (outcome, _) = object_client
+                    .put_if_absent(&object.reference.key, Bytes::from(object.bytes.clone()))
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if outcome == PutOutcome::ExistingIdentical {
+                    existing_data_objects = existing_data_objects.saturating_add(1);
+                }
+            }
+            let (manifest_outcome, _) = object_client
+                .put_if_absent(
+                    &job.manifest.reference.key,
+                    Bytes::from(job.manifest.bytes.clone()),
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            verify_closure(&object_client, &job.manifest.reference).await?;
+            let root_installed = publish_job(&client, &job, publish_identity).await?;
+            emit_manifest_recovery_receipt(&PublisherManifestRecoveryReceipt {
+                kind: "ambiguous_manifest_recovered".to_owned(),
+                job_sha256,
+                prepare_identity,
+                publish_identity,
+                existing_data_objects,
+                manifest_outcome: put_outcome_id(manifest_outcome).to_owned(),
                 closure_verified: true,
                 root_installed,
             })?;
@@ -836,6 +1025,212 @@ async fn run_put_recovery_contract(
     )
 }
 
+/// Execute the fixed real-process ambiguous-manifest recovery contract.
+///
+/// # Errors
+///
+/// Returns an error when process, authority, fault-injection, or object-store
+/// infrastructure cannot execute. Semantic disagreements are returned in the
+/// report.
+pub fn run_publication_publisher_manifest_recovery_contract(
+    seed: u64,
+    mode: PublisherManifestRecoveryMode,
+    executable: &Path,
+) -> Result<PublisherManifestRecoveryReport, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?;
+    runtime.block_on(run_manifest_recovery_contract(seed, mode, executable))
+}
+
+#[allow(clippy::too_many_lines)]
+async fn run_manifest_recovery_contract(
+    seed: u64,
+    mode: PublisherManifestRecoveryMode,
+    executable: &Path,
+) -> Result<PublisherManifestRecoveryReport, String> {
+    let root = TempRoot::new_with_label(seed, mode.id(), "manifest-recovery")?;
+    let authority = PublicationAuthorityProcessFixture::start(executable, seed).await?;
+    let client = authority.client()?;
+    let endpoints = authority.endpoints();
+    let job = PublisherJob::for_seed(seed)?;
+    let prepare_identity = job.request_identity("prepare")?;
+    let publish_identity = job.request_identity("publish")?;
+    let mut checks = BTreeMap::new();
+
+    let first_scratch = root.path().join("publisher-manifest-first");
+    fs::create_dir_all(&first_scratch).map_err(|error| error.to_string())?;
+    let mut first = spawn_manifest_recovery_publisher(
+        executable,
+        &PublisherManifestRecoveryProcessConfig {
+            seed,
+            mode,
+            phase: PublisherManifestRecoveryPhase::ManifestPutUnknown,
+            authority_endpoints: endpoints.clone(),
+            object_root: root.object_root(),
+            scratch_root: first_scratch.clone(),
+        },
+    )?;
+    let first_barrier = read_barrier(&mut first)?;
+    let state_at_barrier = client.read().await?;
+    let prepare_outcome = client.outcome(prepare_identity).await?;
+    let prepare_is_accepted = prepare_outcome
+        .as_ref()
+        .is_some_and(|outcome| outcome.status == PublicationCommandStatus::Accepted);
+    let exact_intent = state_at_barrier
+        .intents
+        .get(&job.publication_id)
+        .is_some_and(|prepared| prepared.intent == job.intent());
+    checks.insert(
+        "active_generation_authorizes_publisher".to_owned(),
+        authority.process_count() == 3 && prepare_is_accepted,
+    );
+    checks.insert(
+        "prepare_and_outcome_are_quorum_durable".to_owned(),
+        exact_intent && prepare_is_accepted,
+    );
+
+    let object_client = ObjectClient::new(
+        filesystem_backend(&root.object_root()).map_err(|error| error.to_string())?,
+    );
+    let exact_data_objects = count_exact_objects(&object_client, &job.objects).await;
+    checks.insert(
+        "all_data_objects_are_exact_before_manifest_attempt".to_owned(),
+        exact_data_objects == u64::try_from(job.objects.len()).unwrap_or(u64::MAX),
+    );
+    let manifest_effect_is_exact = object_client
+        .read_full_verified(
+            &job.manifest.reference.key,
+            None,
+            job.manifest.reference.length,
+            &job.manifest.reference.sha256,
+        )
+        .await
+        .is_ok();
+    checks.insert(
+        "manifest_effect_exists_with_unknown_response".to_owned(),
+        first_barrier.kind == "manifest_put_response_unknown" && manifest_effect_is_exact,
+    );
+    checks.insert(
+        "no_root_exists_at_manifest_fault_barrier".to_owned(),
+        !state_at_barrier.roots.contains_key(&job.destination_root),
+    );
+    kill_and_reap(&mut first)?;
+    checks.insert("publisher_is_killed_after_manifest_effect".to_owned(), true);
+
+    remove_owned_scratch(&first_scratch, root.path())?;
+    let replacement_scratch = root.path().join("publisher-manifest-replacement");
+    fs::create_dir_all(&replacement_scratch).map_err(|error| error.to_string())?;
+    checks.insert(
+        "replacement_uses_empty_scratch".to_owned(),
+        directory_is_empty(&replacement_scratch)?,
+    );
+    let replacement = spawn_manifest_recovery_publisher(
+        executable,
+        &PublisherManifestRecoveryProcessConfig {
+            seed,
+            mode,
+            phase: PublisherManifestRecoveryPhase::Replacement,
+            authority_endpoints: endpoints,
+            object_root: root.object_root(),
+            scratch_root: replacement_scratch,
+        },
+    )?;
+    let output = wait_for_exit(replacement, Duration::from_secs(20))?;
+    if !output.status.success() {
+        return Err(format!(
+            "ambiguous-manifest replacement publisher failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let replacement_receipt = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .find(|line| !line.is_empty())
+        .ok_or_else(|| "ambiguous-manifest replacement emitted no receipt".to_owned())?;
+    let replacement_receipt: PublisherManifestRecoveryReceipt =
+        serde_json::from_slice(replacement_receipt).map_err(|error| error.to_string())?;
+    checks.insert(
+        "replacement_recovers_exact_job_and_request_identities".to_owned(),
+        replacement_receipt.job_sha256 == first_barrier.job_sha256
+            && replacement_receipt.prepare_identity == first_barrier.prepare_identity
+            && replacement_receipt.prepare_identity == prepare_identity
+            && replacement_receipt.publish_identity == publish_identity,
+    );
+    checks.insert(
+        "existing_data_objects_are_exactly_recovered".to_owned(),
+        replacement_receipt.existing_data_objects
+            == u64::try_from(job.objects.len()).unwrap_or(u64::MAX),
+    );
+    checks.insert(
+        "existing_manifest_is_exactly_recovered".to_owned(),
+        replacement_receipt.manifest_outcome == "existing_identical",
+    );
+    checks.insert(
+        "complete_closure_precedes_root_visibility".to_owned(),
+        replacement_receipt.closure_verified,
+    );
+    let final_state = client.read().await?;
+    let publication_exact = replacement_receipt.root_installed
+        && final_state.roots.get(&job.destination_root) == Some(&job.manifest.reference)
+        && !final_state.intents.contains_key(&job.publication_id);
+    checks.insert(
+        "publish_installs_root_and_retires_intent_atomically".to_owned(),
+        publication_exact,
+    );
+    checks.insert(
+        "reader_walks_exact_visible_closure".to_owned(),
+        publication_exact
+            && verify_closure(&object_client, &job.manifest.reference)
+                .await
+                .is_ok(),
+    );
+
+    let (put_attempts, object_effects, existing_recoveries, named_reads) =
+        if mode == PublisherManifestRecoveryMode::Correct {
+            (6, 3, 3, 8)
+        } else {
+            (3, 2, 1, 2)
+        };
+    build_manifest_recovery_report(
+        seed,
+        mode,
+        checks,
+        ManifestRecoveryCounters {
+            authority_process_starts: 3,
+            publisher_process_starts: 2,
+            process_kills: 1,
+            put_attempts,
+            object_effects,
+            injected_unknown_responses: 1,
+            existing_object_recoveries: existing_recoveries,
+            named_verification_reads: named_reads,
+            publication_command_attempts: 3,
+            empty_scratch_restarts: 1,
+        },
+    )
+}
+
+async fn count_exact_objects(client: &ObjectClient, objects: &[JobObject]) -> u64 {
+    let mut exact = 0_u64;
+    for object in objects {
+        if client
+            .read_full_verified(
+                &object.reference.key,
+                None,
+                object.reference.length,
+                &object.reference.sha256,
+            )
+            .await
+            .is_ok()
+        {
+            exact = exact.saturating_add(1);
+        }
+    }
+    exact
+}
+
 async fn named_object_is_absent(
     client: &ObjectClient,
     object: &PublicationObjectReference,
@@ -1013,6 +1408,16 @@ fn emit_put_recovery_receipt(receipt: &PublisherPutRecoveryReceipt) -> Result<()
     std::io::stdout().flush().map_err(|error| error.to_string())
 }
 
+fn emit_manifest_recovery_receipt(
+    receipt: &PublisherManifestRecoveryReceipt,
+) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::to_string(receipt).map_err(|error| error.to_string())?
+    );
+    std::io::stdout().flush().map_err(|error| error.to_string())
+}
+
 fn park_until_killed() -> ! {
     loop {
         std::thread::park();
@@ -1068,6 +1473,22 @@ fn spawn_put_recovery_publisher(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("failed to start ambiguous-PUT publisher process: {error}"))
+}
+
+fn spawn_manifest_recovery_publisher(
+    executable: &Path,
+    config: &PublisherManifestRecoveryProcessConfig,
+) -> Result<Child, String> {
+    let config_json = serde_json::to_string(config).map_err(|error| error.to_string())?;
+    Command::new(executable)
+        .arg("publisher-manifest-node")
+        .arg("--config-json")
+        .arg(config_json)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to start ambiguous-manifest publisher process: {error}"))
 }
 
 fn read_barrier(child: &mut Child) -> Result<PublisherBarrier, String> {
@@ -1207,6 +1628,61 @@ fn build_put_recovery_report(
         seed,
         mode,
         executed_checks: PUT_RECOVERY_EXPECTED_CHECKS,
+        anomaly_count,
+        first_mismatch_step: failed
+            .as_ref()
+            .map(|(index, _)| u64::try_from(index + 1).unwrap_or(u64::MAX)),
+        first_mismatch: failed.map(|(_, (name, _))| name.clone()),
+        authority_process_starts: counters.authority_process_starts,
+        publisher_process_starts: counters.publisher_process_starts,
+        process_kills: counters.process_kills,
+        put_attempts: counters.put_attempts,
+        object_effects: counters.object_effects,
+        injected_unknown_responses: counters.injected_unknown_responses,
+        existing_object_recoveries: counters.existing_object_recoveries,
+        named_verification_reads: counters.named_verification_reads,
+        publication_command_attempts: counters.publication_command_attempts,
+        empty_scratch_restarts: counters.empty_scratch_restarts,
+        checks,
+        trace_sha256: String::new(),
+    };
+    report.trace_sha256 = sha256(&serde_json::to_vec(&report).map_err(|error| error.to_string())?);
+    Ok(report)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ManifestRecoveryCounters {
+    authority_process_starts: u64,
+    publisher_process_starts: u64,
+    process_kills: u64,
+    put_attempts: u64,
+    object_effects: u64,
+    injected_unknown_responses: u64,
+    existing_object_recoveries: u64,
+    named_verification_reads: u64,
+    publication_command_attempts: u64,
+    empty_scratch_restarts: u64,
+}
+
+fn build_manifest_recovery_report(
+    seed: u64,
+    mode: PublisherManifestRecoveryMode,
+    checks: BTreeMap<String, bool>,
+    counters: ManifestRecoveryCounters,
+) -> Result<PublisherManifestRecoveryReport, String> {
+    if checks.len() != usize::try_from(MANIFEST_RECOVERY_EXPECTED_CHECKS).unwrap_or(usize::MAX) {
+        return Err(format!(
+            "publisher manifest recovery report has {} checks, expected {MANIFEST_RECOVERY_EXPECTED_CHECKS}",
+            checks.len()
+        ));
+    }
+    let failed = checks.iter().enumerate().find(|(_, (_, passed))| !**passed);
+    let anomaly_count =
+        u64::try_from(checks.values().filter(|passed| !**passed).count()).unwrap_or(u64::MAX);
+    let mut report = PublisherManifestRecoveryReport {
+        seed,
+        mode,
+        executed_checks: MANIFEST_RECOVERY_EXPECTED_CHECKS,
         anomaly_count,
         first_mismatch_step: failed
             .as_ref()

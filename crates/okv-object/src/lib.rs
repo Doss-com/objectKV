@@ -33,8 +33,11 @@ pub use publication_adapter::{
     run_publication_adapter_contract, PublicationAdapterMode, PublicationAdapterReport,
 };
 pub use publisher_process::{
-    run_publication_publisher_process_contract, run_publication_publisher_process_node,
-    run_publication_publisher_put_recovery_contract, run_publication_publisher_put_recovery_node,
+    run_publication_publisher_manifest_recovery_contract,
+    run_publication_publisher_manifest_recovery_node, run_publication_publisher_process_contract,
+    run_publication_publisher_process_node, run_publication_publisher_put_recovery_contract,
+    run_publication_publisher_put_recovery_node, PublisherManifestRecoveryMode,
+    PublisherManifestRecoveryProcessConfig, PublisherManifestRecoveryReport,
     PublisherProcessConfig, PublisherProcessMode, PublisherProcessReport, PublisherPutRecoveryMode,
     PublisherPutRecoveryProcessConfig, PublisherPutRecoveryReport,
 };
