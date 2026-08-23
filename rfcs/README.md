@@ -26,5 +26,6 @@ not harden until their RFC is accepted.
 | 0016 | Publication worker recovery and object-effect fencing | proposed | crash-safe publisher, sweeper, and generation handoff |
 | 0017 | Publisher process recovery after prepare | proposed | first disposable object-effect worker boundary |
 | 0018 | Publisher recovery after ambiguous object PUT | proposed, implementation active | partial upload and lost-response recovery |
+| 0019 | Publisher recovery after ambiguous manifest PUT | proposed, implementation active | closure verification after manifest ambiguity |
 
 Use `0000-template.md` for new proposals.
