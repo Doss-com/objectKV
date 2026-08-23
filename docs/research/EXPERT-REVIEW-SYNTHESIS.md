@@ -67,7 +67,10 @@ must stay outside the repository and review artifacts.
     bytes behind transactional metadata, version-addressed caches, and atomic
     work intent. It does not validate objectKV's replacement of FoundationDB.
     Its published failures add cache resurrection, short-transaction
-    continuation, and ground-truth GC as explicit eval obligations.
+    continuation, and ground-truth GC as explicit eval obligations. Its public
+    consistency scripts measure eventual ETag and body convergence rather than
+    acknowledgement-aligned serial histories, so provider convergence and
+    objectKV correctness remain separate evidence lanes.
 
 ## Changes applied to the plan
 

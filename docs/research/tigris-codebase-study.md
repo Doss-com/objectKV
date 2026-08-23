@@ -1,6 +1,7 @@
 # Tigris codebase study and objectKV feasibility read
 
-Status: `[EXISTS]` primary-source study completed on 2026-08-22.
+Status: `[EXISTS]` primary-source study completed on 2026-08-22 and current
+public source heads revalidated on 2026-08-23.
 
 ## Answer
 
@@ -40,6 +41,7 @@ module proxy.
 | Tigris Acceleration Gateway, TAG | `40414b783b5143adc9b886a4c9a39993d3b2e8e6` | Public caching proxy, not authoritative object storage |
 | OCache | `9f7dd99e584339285d9d4945ae53021350c991c5` | Public local and distributed cache implementation |
 | TigrisFS | `d3e466141a3154b8199f8d6d32a7759d66605331` | Public FUSE client for S3-compatible storage |
+| Tigris consistency probes | `0d6666ff8eb941139d93c84167272c0b2278b113` | Public polling scripts, not a linearizability or durability checker |
 
 The current authoritative Tigris object-storage data plane was not present in
 the public repositories inspected. Findings about it below are limited to
@@ -64,6 +66,28 @@ Primary pins:
 - [TAG architecture](https://github.com/tigrisdata/tag/blob/40414b783b5143adc9b886a4c9a39993d3b2e8e6/docs/architecture.md)
 - [OCache RFC index](https://github.com/tigrisdata/ocache/tree/9f7dd99e584339285d9d4945ae53021350c991c5/docs/rfcs)
 - [TigrisFS limitations](https://github.com/tigrisdata/tigrisfs/blob/d3e466141a3154b8199f8d6d32a7759d66605331/README.md)
+- [Public consistency probes](https://github.com/tigrisdata/consistency-tests/tree/0d6666ff8eb941139d93c84167272c0b2278b113)
+
+### 2026-08-23 source revalidation
+
+The original `v1.0.0-beta.122` module downloaded again with the exact recorded
+SHA-256 `5ebc674a6fb61de01326030c8c35c6b2abe8e84d59fb9b2e73e5754e450483d0`.
+The current public repository heads were:
+
+- architecture docs `a17638c555027bb626ddb9a3ced78837a8bc3425`;
+- engineering blog `e298dadb3396176ceaae6be02f04c2ab2ad41ca1`;
+- storage SDK and CLI `45e866102b64e7fc6ae61475c39b49af6f662f1e`;
+- TAG `ac8c7f9ce0472ea6bb95fe342875efd742cac989`;
+- OCache `9f7dd99e584339285d9d4945ae53021350c991c5`;
+- TigrisFS `d3e466141a3154b8199f8d6d32a7759d66605331`.
+
+The architecture file has no change from the inspected pin to the current docs
+head. TAG's `cache/cache.go`, ETag fixture, and architecture file have no change
+from the inspected pin to its current head. The intervening TAG changes are
+deployment documentation only. The public organization inventory still exposes
+SDKs, gateways, caches, tests, and operator tools, but no authoritative metadata
+or block-store data-plane implementation. The evidence boundary above therefore
+still holds.
 
 ## What the code and current architecture establish
 
@@ -261,6 +285,32 @@ objectKV implication:
 - local NVMe can be a cache, but durable ordering, conflict handling, and crash
   recovery stay in the database protocol.
 
+### 9. Convergence probes are not transaction correctness evidence
+
+`[EXISTS]` Tigris publishes client scripts for same-region and cross-region
+write, overwrite, delete, and concurrent-write cases. Most scripts poll HEAD or
+GET until ETags and bodies converge. The concurrent-write scripts pass when two
+regions eventually agree on either submitted body. They do not record invocation
+and completion histories, validate response codes against durable outcomes,
+exercise conditional writes, or check serializability.
+
+The strict-consistency header coverage is also bounded. Same-region scripts use
+`X-Tigris-Consistent: true`; the README says a proper cross-region test must be
+split between VMs, and the current cross-region region selection in `main9.py`
+is commented out.
+
+objectKV implication:
+
+- eventual agreement is a useful replication metric, not a correctness oracle;
+- every eval must relate client acknowledgement or retryable-unknown to one
+  durable request outcome and one reader-visible version;
+- concurrent-write histories need an explicit serial order or documented weaker
+  contract, not merely one eventual winner;
+- provider conformance must keep same-region, cross-region, conditional-write,
+  and transactional-kernel claims separate.
+
+Source: [Tigris consistency probes](https://github.com/tigrisdata/consistency-tests/tree/0d6666ff8eb941139d93c84167272c0b2278b113).
+
 ## Feasibility by product layer
 
 | Layer | Read after Tigris study | Missing proof |
@@ -315,6 +365,15 @@ and a deliberately unsafe negative control.
    - strong profiles reject stale reads and stale conditional writes;
    - eventual profiles measure bounded replication lag without calling it
      serializable.
+7. **Acknowledgement-aligned consistency history**
+   - record invocation, physical effect, replicated apply, client response,
+     retry, and reader observation as separate events;
+   - a successful response resolves to exactly one durable visible version;
+   - a retryable-unknown response resolves through stable request identity;
+   - two concurrent writes produce one legal serial history, not just eventual
+     ETag convergence;
+   - a convergence-only checker must pass the poisoned subject while the real
+     correctness oracle rejects it.
 
 ## Implementation plan changes
 
@@ -323,12 +382,16 @@ and a deliberately unsafe negative control.
 1. Finish generation recovery and quorum-authenticated takeover. `[EXISTS]`
 2. Add an ordered, versionstamped durable task record to the kernel model and
    simulator. `[PROPOSED]`
-3. Prove block-before-pointer publication, ambiguous object-write recovery, and
-   ground-truth orphan collection. `[PROPOSED]`
+3. Finish block-before-pointer publication and ground-truth orphan collection.
+   `[ACTIVE-WORK]` Local process gates now admit ambiguous data and manifest
+   PUT recovery; lost replicated `Publish` replies, sweeper process recovery,
+   independent failure domains, and cloud receipts remain.
 4. Finish the exact DataFusion physical overlay and continuation contract.
    `[ACTIVE-WORK]`
 5. Add cache-resurrection workloads to deterministic simulation before direct
    storage reads are called complete. `[PROPOSED]`
+6. Require acknowledgement-aligned histories before any provider or
+   cross-region consistency claim. `[PROPOSED]`
 
 ### P1, after the first cell is credible
 

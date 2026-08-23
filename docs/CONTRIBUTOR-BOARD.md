@@ -276,7 +276,11 @@ become one GitHub issue.
   Tigris does not prove, records limitations, and turns findings into bounded
   eval and implementation work.
 - Dependency: none. Read-only research.
-- Evidence: `docs/research/tigris-codebase-study.md`.
+- Evidence: `docs/research/tigris-codebase-study.md`. Current public heads were
+  revalidated on 2026-08-23. The follow-up found that Tigris's public
+  consistency scripts poll for convergence but do not prove serializability,
+  acknowledgement durability, or exact retry outcomes. Those are separate
+  objectKV gates.
 
 ### T20. Prove block-before-pointer publication and ground-truth GC `[EXISTS]`
 
