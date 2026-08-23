@@ -35,11 +35,14 @@ pub use publication_adapter::{
 pub use publisher_process::{
     run_publication_publisher_manifest_recovery_contract,
     run_publication_publisher_manifest_recovery_node, run_publication_publisher_process_contract,
-    run_publication_publisher_process_node, run_publication_publisher_put_recovery_contract,
-    run_publication_publisher_put_recovery_node, PublisherManifestRecoveryMode,
-    PublisherManifestRecoveryProcessConfig, PublisherManifestRecoveryReport,
-    PublisherProcessConfig, PublisherProcessMode, PublisherProcessReport, PublisherPutRecoveryMode,
-    PublisherPutRecoveryProcessConfig, PublisherPutRecoveryReport,
+    run_publication_publisher_process_node, run_publication_publisher_publish_recovery_contract,
+    run_publication_publisher_publish_recovery_node,
+    run_publication_publisher_put_recovery_contract, run_publication_publisher_put_recovery_node,
+    PublisherManifestRecoveryMode, PublisherManifestRecoveryProcessConfig,
+    PublisherManifestRecoveryReport, PublisherProcessConfig, PublisherProcessMode,
+    PublisherProcessReport, PublisherPublishRecoveryMode, PublisherPublishRecoveryProcessConfig,
+    PublisherPublishRecoveryReport, PublisherPutRecoveryMode, PublisherPutRecoveryProcessConfig,
+    PublisherPutRecoveryReport,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

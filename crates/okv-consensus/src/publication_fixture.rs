@@ -4,7 +4,8 @@ use crate::rpc::{
 use crate::{
     recovery_public_key, ConsensusProcessRole, GenerationAction, GenerationApplyResponse,
     GenerationAuthorityFaults, GenerationCommand, GenerationCommandStatus, GenerationFenceFaults,
-    NodeId, ProcessNodeConfig, ProcessNodePolicy, PublicationClient, RequestIdentity,
+    NodeId, ProcessNodeConfig, ProcessNodePolicy, PublicationAuthorityFaults, PublicationClient,
+    RequestIdentity,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -27,6 +28,8 @@ pub struct PublicationAuthorityProcessFixture {
     root: PathBuf,
     addresses: BTreeMap<NodeId, String>,
     children: BTreeMap<NodeId, Child>,
+    deduplicate_requests: bool,
+    publication_authority_faults: PublicationAuthorityFaults,
 }
 
 impl PublicationAuthorityProcessFixture {
@@ -37,6 +40,29 @@ impl PublicationAuthorityProcessFixture {
     /// Returns an error when processes, stable storage, election, or generation
     /// bootstrap cannot complete.
     pub async fn start(executable: &Path, seed: u64) -> Result<Self, String> {
+        Self::start_with_faults(
+            executable,
+            seed,
+            true,
+            PublicationAuthorityFaults::default(),
+        )
+        .await
+    }
+
+    /// Start with bounded unsafe authority behavior for a frozen negative
+    /// control.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when processes, stable storage, election, or generation
+    /// bootstrap cannot complete.
+    #[doc(hidden)]
+    pub async fn start_with_faults(
+        executable: &Path,
+        seed: u64,
+        deduplicate_requests: bool,
+        publication_authority_faults: PublicationAuthorityFaults,
+    ) -> Result<Self, String> {
         if !executable.is_file() {
             return Err(format!(
                 "publication authority executable does not exist: {}",
@@ -54,6 +80,8 @@ impl PublicationAuthorityProcessFixture {
             root,
             addresses,
             children: BTreeMap::new(),
+            deduplicate_requests,
+            publication_authority_faults,
         };
         for node_id in AUTHORITY_NODES {
             fixture.start_node(executable, node_id)?;
@@ -112,12 +140,32 @@ impl PublicationAuthorityProcessFixture {
         self.children.len()
     }
 
+    /// Kill the initial leader and elect node 102 from the surviving quorum.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the leader is absent, cannot be reaped, or no
+    /// successor can be elected.
+    #[doc(hidden)]
+    pub async fn kill_initial_leader_and_elect_successor(&mut self) -> Result<(), String> {
+        let mut child = self
+            .children
+            .remove(&101)
+            .ok_or_else(|| "initial publication leader process is absent".to_owned())?;
+        child.kill().map_err(|error| error.to_string())?;
+        child.wait().map_err(|error| error.to_string())?;
+        if !elect_until_leader(self.address(102)?, 102).await {
+            return Err("publication authority successor election failed".to_owned());
+        }
+        Ok(())
+    }
+
     fn start_node(&mut self, executable: &Path, node_id: NodeId) -> Result<(), String> {
         let config = ProcessNodeConfig {
             node_id,
             root: self.root.join(format!("node-{node_id}")),
             nodes: self.addresses.clone(),
-            deduplicate_requests: true,
+            deduplicate_requests: self.deduplicate_requests,
             acknowledge_before_quorum: false,
             policy: ProcessNodePolicy {
                 role: ConsensusProcessRole::GenerationAuthority,
@@ -126,6 +174,7 @@ impl PublicationAuthorityProcessFixture {
                     allow_preauthorized_test_write: true,
                     ..GenerationFenceFaults::default()
                 },
+                publication_authority_faults: self.publication_authority_faults,
                 ..ProcessNodePolicy::default()
             },
         };

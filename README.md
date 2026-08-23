@@ -91,6 +91,11 @@ cargo run -p okv-eval -- run \
   --profile local-fs \
   --workload publisher-manifest-put-unknown-restart \
   --backend object-store-local-fs+process-openraft
+cargo run -p okv-eval -- run \
+  evals/suites/object-publication-publisher-publish-recovery.toml \
+  --profile local-fs \
+  --workload publisher-publish-unknown-restart \
+  --backend object-store-local-fs+process-openraft
 cargo run -p okv-eval -- run evals/suites/smoke.toml \
   --profile dev --workload model-smoke --backend model
 cargo run -p okv-sim -- replay --seed 1103

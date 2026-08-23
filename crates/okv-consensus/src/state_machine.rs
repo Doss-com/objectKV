@@ -357,12 +357,14 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
                                 state: state.publication_authority.clone(),
                                 applied_log_position: log_position,
                             });
-                            state
-                                .request_fingerprints
-                                .insert(command.identity, fingerprint);
-                            state
-                                .durable_outcomes
-                                .insert(command.identity, response.clone());
+                            if self.deduplicate_requests {
+                                state
+                                    .request_fingerprints
+                                    .insert(command.identity, fingerprint);
+                                state
+                                    .durable_outcomes
+                                    .insert(command.identity, response.clone());
+                            }
                         }
                     } else if let Some(command) = ClientCommand::decode(&payload)
                         .map_err(|error| StorageIOError::read_state_machine(&error))?

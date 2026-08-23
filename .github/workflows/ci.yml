@@ -34,6 +34,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-publisher-process.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-publisher-put-recovery.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-publisher-manifest-recovery.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-publisher-publish-recovery.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/model-history.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/commit-contract.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/persisted-wal.toml
@@ -200,6 +201,16 @@ jobs:
           jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 39 and .budget.observed == 39 and (.hard_gates[] | select(.id == "publisher_manifest_recovery.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_manifest_recovery.contract_agreement").status == "pass") and (.hard_gates[] | select(.id == "complete_closure_precedes_root_visibility").status == "pass")' /tmp/okv-publisher-manifest-recovery.json
           cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-manifest-recovery.toml --profile local-fs --workload publisher-manifest-unknown-skip-closure --backend "$backend" --output /tmp/okv-publisher-manifest-recovery-negative.json
           jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 39 and .budget.observed == 39 and (.hard_gates[] | select(.id == "publisher_manifest_recovery.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "all_data_objects_are_exact_before_manifest_attempt").status == "fail") and (.hard_gates[] | select(.id == "reader_walks_exact_visible_closure").status == "fail")' /tmp/okv-publisher-manifest-recovery-negative.json
+      - name: Verify publisher lost Publish response recovery and negative control
+        run: |
+          backend="object-store-local-fs+process-openraft"
+          cargo run --quiet -p okv-eval -- publication-publisher-publish-recovery-trace --seed 1103 > /tmp/okv-publisher-publish-recovery-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-publisher-publish-recovery-trace --seed 1103 > /tmp/okv-publisher-publish-recovery-trace-b.json
+          cmp /tmp/okv-publisher-publish-recovery-trace-a.json /tmp/okv-publisher-publish-recovery-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-publish-recovery.toml --profile local-fs --workload publisher-publish-unknown-restart --backend "$backend" --output /tmp/okv-publisher-publish-recovery.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 42 and .budget.observed == 42 and (.hard_gates[] | select(.id == "publisher_publish_recovery.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_publish_recovery.contract_agreement").status == "pass") and (.hard_gates[] | select(.id == "publication_transition_applies_exactly_once").status == "pass")' /tmp/okv-publisher-publish-recovery.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-publish-recovery.toml --profile local-fs --workload publisher-publish-unknown-convergence-only --backend "$backend" --output /tmp/okv-publisher-publish-recovery-negative.json
+          jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 42 and .budget.observed == 42 and (.hard_gates[] | select(.id == "publisher_publish_recovery.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "original_publish_outcome_is_quorum_durable").status == "fail") and (.hard_gates[] | select(.id == "publication_transition_applies_exactly_once").status == "fail") and (.hard_gates[] | select(.id == "reader_walks_exact_visible_closure").status == "pass")' /tmp/okv-publisher-publish-recovery-negative.json
       - name: Verify persisted WAL reopen contract and negative controls
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload persisted-wal-reopen --backend local-fs --output /tmp/okv-persisted-wal.json

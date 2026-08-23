@@ -45,7 +45,7 @@ impl PublicationClient {
         let mut last = String::new();
         for attempt in 0..RETRY_ATTEMPTS {
             let endpoint = self.endpoint(attempt);
-            match publication_write(endpoint, command).await {
+            match publication_write(endpoint, command, false).await {
                 Ok(ack) => match publication_response(ack) {
                     Ok(response) => return Ok(response),
                     Err(error) => last = error,
@@ -62,6 +62,26 @@ impl PublicationClient {
         Err(format!(
             "publication command could not be committed or resolved: {last}"
         ))
+    }
+
+    /// Send one command to the first configured endpoint and ask the eval RPC
+    /// boundary to drop a successful reply after quorum apply.
+    ///
+    /// Production callers use [`Self::commit`], which resolves unknown outcomes
+    /// internally. This method exists only so crash-recovery evals can expose
+    /// the physical unknown-response boundary to a disposable worker process.
+    ///
+    /// # Errors
+    ///
+    /// Returns the expected transport error when the response is dropped, or a
+    /// protocol error if the server returns a non-committed response.
+    #[doc(hidden)]
+    pub async fn commit_with_dropped_reply_for_eval(
+        &self,
+        command: &PublicationCommand,
+    ) -> Result<PublicationApplyResponse, String> {
+        let ack = publication_write(self.endpoint(0), command, true).await?;
+        publication_response(ack)
     }
 
     /// Read publication state after a linearizability barrier.
@@ -162,13 +182,14 @@ fn publication_outcome(
 async fn publication_write(
     endpoint: &str,
     command: &PublicationCommand,
+    drop_reply_after_commit: bool,
 ) -> Result<WriteAck, String> {
     control(
         endpoint,
         PUBLICATION_WRITE,
         &PublicationWriteRequest {
             command: command.clone(),
-            drop_reply_after_commit: false,
+            drop_reply_after_commit,
         },
     )
     .await
