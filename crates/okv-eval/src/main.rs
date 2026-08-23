@@ -22,8 +22,8 @@ use okv_model::{
 };
 use okv_object::{
     filesystem_backend, gcs_backend_from_env, memory_backend, minio_backend_from_env,
-    run_conformance, validate_conformance_report, CaseStatus, ConformanceOptions,
-    ConformanceProfile,
+    run_conformance, run_publication_adapter_contract, validate_conformance_report, CaseStatus,
+    ConformanceOptions, ConformanceProfile, PublicationAdapterMode,
 };
 use okv_sim::{
     run_commit_contract, run_generation_fencing, run_persisted_wal_contract, CommitContractMode,
@@ -527,6 +527,9 @@ fn execute_workload(
         "htap_streaming_contract" => run_htap_streaming_contract(workload, seeds, backend),
         "object_publication_gc_contract" => {
             run_object_publication_gc_contract(workload, seeds, backend)
+        }
+        "object_publication_adapter_contract" => {
+            run_object_publication_adapter_contract(workload, seeds, backend)
         }
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
@@ -2444,6 +2447,317 @@ fn run_htap_streaming_contract(
             (
                 "htap_streaming.spill_bytes".to_owned(),
                 bounded_count(spill_bytes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_object_publication_adapter_contract(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "object publication adapter workload requires at least one seed".to_owned(),
+        ));
+    }
+    if backend != "object-store-local-fs+authority-quorum-fs" {
+        return execution_from_result(Err(format!(
+            "object publication adapter requires object-store-local-fs+authority-quorum-fs, got {backend}"
+        )));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => PublicationAdapterMode::Correct,
+        Some("publish_root_before_verify") => PublicationAdapterMode::PublishRootBeforeVerify,
+        Some("omit_durable_intent") => PublicationAdapterMode::OmitDurableIntent,
+        Some("forget_unknown_object_outcome") => PublicationAdapterMode::ForgetUnknownObjectOutcome,
+        Some("ram_only_authority") => PublicationAdapterMode::RamOnlyAuthority,
+        Some("trust_list_for_liveness") => PublicationAdapterMode::TrustListForLiveness,
+        Some("delete_without_revalidation") => PublicationAdapterMode::DeleteWithoutRevalidation,
+        Some("delete_without_reservation") => PublicationAdapterMode::DeleteWithoutReservation,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown object publication adapter negative control {other}"
+            )));
+        }
+    };
+
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            return execution_from_result(Err(format!(
+                "failed to create publication adapter runtime: {error}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut check_count = 0_u64;
+    let mut publication_intents = 0_u64;
+    let mut published_roots = 0_u64;
+    let mut authority_reopens = 0_u64;
+    let mut authority_records = 0_u64;
+    let mut unknown_object_outcomes = 0_u64;
+    let mut unknown_authority_outcomes = 0_u64;
+    let mut unknown_delete_outcomes = 0_u64;
+    let mut complete_marks = 0_u64;
+    let mut incomplete_marks = 0_u64;
+    let mut deferred_deletes = 0_u64;
+    let mut delete_reservations = 0_u64;
+    let mut blocked_publications = 0_u64;
+    let mut reclaimed_objects = 0_u64;
+    let mut recreated_objects = 0_u64;
+    let mut object_requests = 0_u64;
+    let mut object_bytes_written = 0_u64;
+    let mut object_bytes_read = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+
+    for seed in seeds {
+        let first_root = std::env::temp_dir().join(format!(
+            "okv-publication-adapter-eval-first-{seed}-{}",
+            Uuid::new_v4()
+        ));
+        let second_root = std::env::temp_dir().join(format!(
+            "okv-publication-adapter-eval-second-{seed}-{}",
+            Uuid::new_v4()
+        ));
+        let first = runtime.block_on(run_publication_adapter_contract(&first_root, *seed, mode));
+        let second = runtime.block_on(run_publication_adapter_contract(&second_root, *seed, mode));
+        let _ = fs::remove_dir_all(&first_root);
+        let _ = fs::remove_dir_all(&second_root);
+
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        check_count = check_count.saturating_add(first.executed_checks);
+        publication_intents = publication_intents.saturating_add(first.publication_intents);
+        published_roots = published_roots.saturating_add(first.published_roots);
+        authority_reopens = authority_reopens.saturating_add(first.authority_reopens);
+        authority_records = authority_records.saturating_add(first.authority_records);
+        unknown_object_outcomes =
+            unknown_object_outcomes.saturating_add(first.verified_unknown_object_outcomes);
+        unknown_authority_outcomes =
+            unknown_authority_outcomes.saturating_add(first.verified_unknown_authority_outcomes);
+        unknown_delete_outcomes =
+            unknown_delete_outcomes.saturating_add(first.verified_unknown_delete_outcomes);
+        complete_marks = complete_marks.saturating_add(first.complete_marks);
+        incomplete_marks = incomplete_marks.saturating_add(first.incomplete_marks);
+        deferred_deletes = deferred_deletes.saturating_add(first.deferred_deletes);
+        delete_reservations = delete_reservations.saturating_add(first.delete_reservations);
+        blocked_publications = blocked_publications.saturating_add(first.blocked_publications);
+        reclaimed_objects = reclaimed_objects.saturating_add(first.reclaimed_objects);
+        recreated_objects = recreated_objects.saturating_add(first.recreated_objects);
+        object_requests = object_requests.saturating_add(first.object_requests);
+        object_bytes_written = object_bytes_written.saturating_add(first.object_bytes_written);
+        object_bytes_read = object_bytes_read.saturating_add(first.object_bytes_read);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, step {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "object-publication-adapter-v1"),
+                    (
+                        "anomaly.class",
+                        if exact { "none" } else { "publication_adapter" },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "object_store.requests",
+                value: bounded_count(first.object_requests),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend),
+                    ("store", "apache-object-store-local-fs"),
+                    ("api", "publication-adapter"),
+                    ("result", if exact { "pass" } else { "fail" }),
+                ]),
+            },
+            Measurement {
+                metric: "object_store.bytes",
+                value: bounded_count(first.object_bytes_written),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend),
+                    ("store", "apache-object-store-local-fs"),
+                    ("direction", "write"),
+                    ("api", "publication-adapter"),
+                ]),
+            },
+            Measurement {
+                metric: "object_store.bytes",
+                value: bounded_count(first.object_bytes_read),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend),
+                    ("store", "apache-object-store-local-fs"),
+                    ("direction", "read"),
+                    ("api", "publication-adapter"),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "publish-mark-reserve-delete"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-publication-adapter://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let expected_checks = u64::try_from(seeds.len())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(16);
+    let physical_boundaries_exercised = check_count == expected_checks
+        && publication_intents > 0
+        && published_roots > 0
+        && authority_reopens > 0
+        && complete_marks > 0
+        && incomplete_marks > 0
+        && object_requests > 0
+        && object_bytes_written > 0
+        && object_bytes_read > 0;
+    let passed = anomaly_count == 0 && exact_replay && physical_boundaries_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "object publication adapter gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, physical_boundaries_exercised={physical_boundaries_exercised}; {detail}",
+            mode.id()
+        )
+    });
+
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "publication_adapter.exact_seed_replay".to_owned(),
+                status: gate_status(exact_replay),
+                detail: None,
+            },
+            HardGateResult {
+                id: "publication_adapter.physical_boundaries_exercised".to_owned(),
+                status: gate_status(physical_boundaries_exercised),
+                detail: Some(format!(
+                    "checks={check_count}, intents={publication_intents}, roots={published_roots}, authority_reopens={authority_reopens}, authority_records={authority_records}, object_unknown={unknown_object_outcomes}, authority_unknown={unknown_authority_outcomes}, delete_unknown={unknown_delete_outcomes}, complete_marks={complete_marks}, incomplete_marks={incomplete_marks}, deferred={deferred_deletes}, reservations={delete_reservations}, blocked={blocked_publications}, reclaimed={reclaimed_objects}, recreated={recreated_objects}, requests={object_requests}"
+                )),
+            },
+            HardGateResult {
+                id: "publication_adapter.contract_agreement".to_owned(),
+                status: gate_status(anomaly_count == 0),
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(check_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            (
+                "publication_adapter.checks".to_owned(),
+                bounded_count(check_count),
+            ),
+            (
+                "publication_adapter.publication_intents".to_owned(),
+                bounded_count(publication_intents),
+            ),
+            (
+                "publication_adapter.published_roots".to_owned(),
+                bounded_count(published_roots),
+            ),
+            (
+                "publication_adapter.authority_reopens".to_owned(),
+                bounded_count(authority_reopens),
+            ),
+            (
+                "publication_adapter.authority_records".to_owned(),
+                bounded_count(authority_records),
+            ),
+            (
+                "publication_adapter.verified_unknown_object_outcomes".to_owned(),
+                bounded_count(unknown_object_outcomes),
+            ),
+            (
+                "publication_adapter.verified_unknown_authority_outcomes".to_owned(),
+                bounded_count(unknown_authority_outcomes),
+            ),
+            (
+                "publication_adapter.verified_unknown_delete_outcomes".to_owned(),
+                bounded_count(unknown_delete_outcomes),
+            ),
+            (
+                "publication_adapter.complete_marks".to_owned(),
+                bounded_count(complete_marks),
+            ),
+            (
+                "publication_adapter.incomplete_marks".to_owned(),
+                bounded_count(incomplete_marks),
+            ),
+            (
+                "publication_adapter.deferred_deletes".to_owned(),
+                bounded_count(deferred_deletes),
+            ),
+            (
+                "publication_adapter.delete_reservations".to_owned(),
+                bounded_count(delete_reservations),
+            ),
+            (
+                "publication_adapter.blocked_publications".to_owned(),
+                bounded_count(blocked_publications),
+            ),
+            (
+                "publication_adapter.reclaimed_objects".to_owned(),
+                bounded_count(reclaimed_objects),
+            ),
+            (
+                "publication_adapter.recreated_objects".to_owned(),
+                bounded_count(recreated_objects),
+            ),
+            (
+                "publication_adapter.object_requests".to_owned(),
+                bounded_count(object_requests),
+            ),
+            (
+                "publication_adapter.object_bytes_written".to_owned(),
+                bounded_count(object_bytes_written),
+            ),
+            (
+                "publication_adapter.object_bytes_read".to_owned(),
+                bounded_count(object_bytes_read),
             ),
         ]),
     }

@@ -126,6 +126,23 @@ jobs:
             cargo run --quiet -p okv-eval -- run evals/suites/object-publication-gc.toml --profile model-dev --workload "$workload" --backend publication-gc-model --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_gc.contract_agreement").status == "fail")' "$output"
           done
+      - name: Verify real object publication adapter and negative controls
+        run: |
+          backend="object-store-local-fs+authority-quorum-fs"
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-adapter.toml --profile local-fs --workload object-publication-real-adapter --backend "$backend" --output /tmp/okv-publication-adapter.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "publication_adapter.contract_agreement").status == "pass") and (.hard_gates[] | select(.id == "publication_adapter.physical_boundaries_exercised").status == "pass")' /tmp/okv-publication-adapter.json
+          for workload in \
+            object-publication-adapter-root-before-verify \
+            object-publication-adapter-omit-intent \
+            object-publication-adapter-forget-object-outcome \
+            object-publication-adapter-ram-authority \
+            object-publication-adapter-trust-list \
+            object-publication-adapter-skip-revalidation \
+            object-publication-adapter-skip-reservation; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/object-publication-adapter.toml --profile local-fs --workload "$workload" --backend "$backend" --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_adapter.contract_agreement").status == "fail")' "$output"
+          done
       - name: Verify persisted WAL reopen contract and negative controls
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload persisted-wal-reopen --backend local-fs --output /tmp/okv-persisted-wal.json

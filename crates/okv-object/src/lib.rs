@@ -12,7 +12,7 @@ use object_store::{
     Error as ObjectStoreError, GetOptions, ObjectStore, ObjectStoreExt, PutMode, PutOptions,
     UpdateVersion,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::env;
@@ -25,6 +25,12 @@ use std::time::Instant;
 use uuid::Uuid;
 
 pub const OBJECT_STORE_DRIVER_VERSION: &str = "0.14.1";
+
+mod publication_adapter;
+
+pub use publication_adapter::{
+    run_publication_adapter_contract, PublicationAdapterMode, PublicationAdapterReport,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,7 +65,7 @@ pub struct ConformanceOptions {
     pub inject_list_authority_bug: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RevisionToken {
     pub e_tag: Option<String>,
     pub version: Option<String>,
@@ -81,7 +87,7 @@ impl RevisionToken {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ObjectIdentity {
     pub revision: RevisionToken,
     pub length: u64,
@@ -462,6 +468,7 @@ impl Backend for ObservedBackend {
 pub struct FaultBackend {
     inner: Arc<dyn Backend>,
     lose_next_put_response: AtomicBool,
+    lose_next_delete_response: AtomicBool,
     corrupt_next_get: AtomicBool,
     shorten_next_get: AtomicBool,
     stale_next_list: AtomicBool,
@@ -474,6 +481,7 @@ impl FaultBackend {
         Self {
             inner,
             lose_next_put_response: AtomicBool::new(false),
+            lose_next_delete_response: AtomicBool::new(false),
             corrupt_next_get: AtomicBool::new(false),
             shorten_next_get: AtomicBool::new(false),
             stale_next_list: AtomicBool::new(false),
@@ -483,6 +491,10 @@ impl FaultBackend {
 
     pub fn lose_next_put_response(&self) {
         self.lose_next_put_response.store(true, Ordering::SeqCst);
+    }
+
+    pub fn lose_next_delete_response(&self) {
+        self.lose_next_delete_response.store(true, Ordering::SeqCst);
     }
 
     pub fn corrupt_next_get(&self) {
@@ -545,7 +557,15 @@ impl Backend for FaultBackend {
     }
 
     async fn delete(&self, key: &str, expected: Option<&RevisionToken>) -> Result<(), StoreError> {
-        self.inner.delete(key, expected).await
+        self.inner.delete(key, expected).await?;
+        if self.lose_next_delete_response.swap(false, Ordering::SeqCst) {
+            Err(StoreError::new(
+                ErrorClass::RetryableUnknown,
+                "injected lost successful delete response",
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     async fn list(&self, prefix: &str) -> Result<Vec<String>, StoreError> {
@@ -611,6 +631,52 @@ pub enum UpdateOutcome {
     LostResponseRecovered,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeleteOutcome {
+    Deleted,
+    LostResponseRecovered,
+    AlreadyAbsent,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeletePermit {
+    key: String,
+    identity: ObjectIdentity,
+    plan_id: String,
+    authority_revision: u64,
+}
+
+impl DeletePermit {
+    fn new(
+        key: impl Into<String>,
+        identity: ObjectIdentity,
+        plan_id: impl Into<String>,
+        authority_revision: u64,
+    ) -> Self {
+        Self {
+            key: key.into(),
+            identity,
+            plan_id: plan_id.into(),
+            authority_revision,
+        }
+    }
+
+    #[must_use]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    #[must_use]
+    pub fn plan_id(&self) -> &str {
+        &self.plan_id
+    }
+
+    #[must_use]
+    pub const fn authority_revision(&self) -> u64 {
+        self.authority_revision
+    }
+}
+
 #[derive(Debug)]
 pub struct ObjectClient {
     backend: Arc<dyn Backend>,
@@ -620,6 +686,78 @@ impl ObjectClient {
     #[must_use]
     pub fn new(backend: Arc<dyn Backend>) -> Self {
         Self { backend }
+    }
+
+    #[must_use]
+    pub fn descriptor(&self) -> BackendDescriptor {
+        self.backend.descriptor()
+    }
+
+    /// Discover candidate names. Callers must never interpret this as liveness.
+    ///
+    /// # Errors
+    ///
+    /// Returns a classified backend error.
+    pub async fn list_candidates(&self, prefix: &str) -> Result<Vec<String>, StoreError> {
+        self.backend.list(prefix).await
+    }
+
+    /// Delete an immutable object while an authority-owned reservation remains live.
+    ///
+    /// # Errors
+    ///
+    /// Returns a classified identity, delete, or unknown-outcome error.
+    pub async fn delete_reserved(
+        &self,
+        permit: &DeletePermit,
+    ) -> Result<DeleteOutcome, StoreError> {
+        let guarded = self.backend.descriptor().guarded_delete;
+        if !guarded {
+            self.get_full_verified(
+                &permit.key,
+                Some(&permit.identity.revision),
+                permit.identity.length,
+                &permit.identity.sha256,
+            )
+            .await?;
+        }
+
+        let expected = guarded.then_some(&permit.identity.revision);
+        match self.backend.delete(&permit.key, expected).await {
+            Ok(()) => Ok(DeleteOutcome::Deleted),
+            Err(error) if error.class == ErrorClass::NotFound => Ok(DeleteOutcome::AlreadyAbsent),
+            Err(error) if error.class == ErrorClass::RetryableUnknown => {
+                match self.backend.get(&permit.key, None, None).await {
+                    Err(read_error) if read_error.class == ErrorClass::NotFound => {
+                        Ok(DeleteOutcome::LostResponseRecovered)
+                    }
+                    Ok(read) => {
+                        if read.object_length == permit.identity.length
+                            && byte_len(&read.bytes) == permit.identity.length
+                            && sha256(&read.bytes) == permit.identity.sha256
+                        {
+                            Err(StoreError::new(
+                                ErrorClass::RetryableUnknown,
+                                "delete outcome remains unresolved while exact object exists",
+                            ))
+                        } else {
+                            Err(StoreError::new(
+                                ErrorClass::Corrupt,
+                                "delete outcome read found a different immutable identity",
+                            ))
+                        }
+                    }
+                    Err(read_error) => Err(read_error),
+                }
+            }
+            Err(error) if guarded && error.class == ErrorClass::Unsupported => {
+                Err(StoreError::new(
+                    ErrorClass::Unsupported,
+                    "backend declared guarded delete but rejected the operation",
+                ))
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Create one immutable object or resolve an identical retry.
@@ -714,6 +852,23 @@ impl ObjectClient {
         expected_length: u64,
         expected_digest: &str,
     ) -> Result<ObjectIdentity, StoreError> {
+        self.read_full_verified(key, expected_revision, expected_length, expected_digest)
+            .await
+            .map(|(_, identity)| identity)
+    }
+
+    /// Read and return exact bytes plus their verified identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a classified read or corruption error.
+    pub async fn read_full_verified(
+        &self,
+        key: &str,
+        expected_revision: Option<&RevisionToken>,
+        expected_length: u64,
+        expected_digest: &str,
+    ) -> Result<(Bytes, ObjectIdentity), StoreError> {
         let read = self.backend.get(key, None, expected_revision).await?;
         if read.returned_range != (0..expected_length)
             || read.object_length != expected_length
@@ -733,11 +888,12 @@ impl ObjectClient {
                 ));
             }
         }
-        Ok(ObjectIdentity {
+        let identity = ObjectIdentity {
             revision: read.revision,
             length: read.object_length,
             sha256: expected_digest.to_owned(),
-        })
+        };
+        Ok((read.bytes, identity))
     }
 
     /// Read and verify one byte range at an exact object revision.
