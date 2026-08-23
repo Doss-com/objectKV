@@ -191,11 +191,17 @@ become one GitHub issue.
   `docs/research/reviews/codex-htap-overlay-2026-08-22.md`. The configured hard
   gate requires exact canonical results rather than recall. The pure
   `okv-model` contract executes all five controls plus one multi-table,
-  single-version case through `zebradb-htap-contract-v1` and OTel.
-- Remaining: implement the DataFusion `TableProvider` and ordered physical
-  operator, replace model rows with Arrow and Parquet fixtures, force a
-  continuation across short physical transactions at one target `T`, and
-  measure the cost curve as `T - W_p` grows.
+  single-version case through `zebradb-htap-contract-v1` and OTel. Candidate
+  `4eddce5` adds a real DataFusion 54 `TableProvider` and custom
+  `SnapshotOverlayExec`, reads a schema-v1 Parquet base, overlays a schema-v2
+  Arrow tail, preserves hidden keys below SQL projection and filtering, and
+  normalizes a cross-partition move. Run `2b487a75` kept all physical gates at
+  zero anomalies; three poisoned subjects discarded; OTel run `4cf2f747`
+  exported the result, tail, materialization, spill, and duration series.
+- Remaining: replace the bounded materializing correctness adapter with an
+  ordered streaming merge, prove independently lagging physical partitions,
+  force continuation across short physical transactions at one target `T`,
+  add lease and manifest inputs, and measure the cost curve as `T - W_p` grows.
 
 ### T17. Specify analytical dependency certificates
 
