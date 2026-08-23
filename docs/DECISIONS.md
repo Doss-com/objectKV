@@ -423,3 +423,21 @@ gates.
 
 Evidence: RFC-0018, candidate `a6dfeed`, clean run `a4a1aec5`, poisoned run
 `fa9d729b`, and OTel run `b57f141f`.
+
+## D27. Manifest identity does not prove object closure
+
+Status: `[DECIDED]` for the ambiguous-manifest publisher gate, 2026-08-23.
+
+Decision: an exact immutable manifest authenticates only the manifest bytes. A
+replacement publisher recovering an ambiguous manifest PUT must replay and
+verify every named data object, verify the manifest itself, and walk the
+complete decoded closure before requesting root visibility.
+
+Optimizes for: recovery that remains safe when a manifest exists but one of its
+children is missing, corrupt, or was never created.
+
+Gives up: treating one manifest identity read as a transitive proof of child
+availability. Recovery performs a complete named walk before `Publish`.
+
+Evidence: RFC-0019, candidate `57e28d4`, clean run `2660e09d`, poisoned run
+`7ace2812`, and OTel run `5fd6240e`.

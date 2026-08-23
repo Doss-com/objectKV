@@ -123,9 +123,15 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   with empty scratch. The replacement recovers the canonical job from the
   replicated intent, identifies the first immutable object as exact through a
   named read, completes and verifies the closure, and atomically publishes the
-  root. A partial-closure publisher is rejected deterministically. Lost manifest
-  and `Publish` replies, multipart residue, abandoned intents, sweeper recovery,
-  and generation-bound object-effect fencing are not admitted.
+  root. A partial-closure publisher is rejected deterministically.
+- `[EXISTS]` The ambiguous-manifest gate retains the successful immutable
+  manifest effect while replacing its response with retryable-unknown, kills
+  that publisher, and starts a replacement with empty scratch. The replacement
+  replays every data identity, verifies the existing manifest, and walks the
+  complete named closure before root visibility. A manifest-only replacement
+  that omits a child is rejected deterministically. Lost `Publish` replies,
+  multipart residue, repeated unknown responses, abandoned intents, sweeper
+  recovery, and generation-bound object-effect fencing are not admitted.
 - `[ACTIVE-WORK]` The actual Google Cloud project and GCS bucket await interactive
   gcloud reauthentication and exact organization/billing verification.
 - `[EXISTS]` `Doss-com/objectKV` did not exist when this scaffold was created.

@@ -31,20 +31,20 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 103 points at ambiguous-PUT recovery candidate
-`a6dfeed13af06d56c30d494d751866bfbdf03a27`. Clean run
-`a4a1aec5-cca9-46e7-864e-de48a7e2c30b` passed 36 checks with zero anomalies
-across three deterministic seeds. It retained a successful first immutable PUT
-while replacing its response with retryable-unknown, killed that publisher,
-removed its scratch directory, and recovered the canonical job from replicated
-intent in a replacement with empty scratch. The replacement verified the
-existing object by exact named identity before completing the closure and
-publishing the root. Negative run `fa9d729b-c861-444a-9989-7127f026058c`
-discarded partial-closure publication with four anomalies per seed. OTel run
-`b57f141f-fd8d-4108-b053-da1c2cc9a63d` exported two log records, one trace
+`[ACTIVE-WORK]` Tracker revision 104 points at ambiguous-manifest recovery
+candidate `57e28d4e58b1ed2aebebd87e2d3504dbe4ded090`. Clean run
+`2660e09d-e2f3-4482-a123-68024779de1a` passed 39 checks with zero anomalies
+across three deterministic seeds. It retained a successful immutable manifest
+PUT while replacing its response with retryable-unknown, killed that publisher,
+and recovered the canonical job from replicated intent in a replacement with
+empty scratch. The replacement replayed all data identities, verified the
+existing manifest, and walked the complete named closure before publishing the
+root. Negative run `7ace2812-aab0-44be-bacc-9f4f992d014c` discarded
+manifest-only recovery with four anomalies per seed. OTel run
+`5fd6240e-17e8-4fca-b632-c594170a233c` exported two log records, one trace
 span, eight metrics, and eight data points with correctness anomalies at zero
-and availability ratio at one. The next storage critical path covers lost
-manifest and `Publish` replies, multipart residue, repeated unknown-response
+and availability ratio at one. The next storage critical path covers a lost
+replicated `Publish` reply, multipart residue, repeated unknown-response
 budgets, complete `MarkReceipt`, sweeper effect fencing, G1/G2 reservation
 handoff, and independent empty-disk recovery. The independent HTAP path adds
 version-bound manifests and leases, multiple execution ranges, safe pruning,

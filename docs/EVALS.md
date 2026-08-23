@@ -245,6 +245,37 @@ empty-scratch replay. It does not admit a lost manifest response, a lost
 budgets, abandoned-intent reassignment, sweeper recovery, generation-bound
 effect grants, independent-disk loss, or cloud economics.
 
+## Publisher ambiguous-manifest recovery gate
+
+```bash
+cargo run -p okv-eval -- run \
+  evals/suites/object-publication-publisher-manifest-recovery.toml \
+  --profile local-fs \
+  --workload publisher-manifest-put-unknown-restart \
+  --backend object-store-local-fs+process-openraft
+```
+
+The suite freezes RFC-0019 and uses three seeds for thirteen semantic checks
+each. Candidate `57e28d4` kept in run
+`2660e09d-e2f3-4482-a123-68024779de1a` with zero anomalies at the exact
+39-event budget. It started nine authority processes and six publisher
+processes, issued three real process kills, made eighteen PUT attempts with
+nine physical effects, injected three successful manifest effects with unknown
+responses, recovered nine existing immutable objects, and performed twenty-four
+named verification reads. Two fresh seed-1103 controllers emitted
+byte-identical semantic receipts. The manifest-only subject discarded in run
+`7ace2812-aab0-44be-bacc-9f4f992d014c` with four anomalies per seed. OTel run
+`5fd6240e-17e8-4fca-b632-c594170a233c` exported two log records, one trace
+span, eight metrics, and eight metric data points. Prometheus exposed
+correctness anomalies at zero, availability ratio at one, and operation
+duration at 1.4893435 seconds.
+
+This admits one ambiguous manifest PUT followed by real process death and
+empty-scratch replay through a complete named closure walk. It does not admit a
+lost replicated `Publish` response, repeated unknown-response budgets,
+multipart residue cleanup, abandoned-intent reassignment, sweeper recovery,
+generation-bound effect grants, independent-disk loss, or cloud economics.
+
 ## ZebraDB HTAP exactness gate
 
 ```bash

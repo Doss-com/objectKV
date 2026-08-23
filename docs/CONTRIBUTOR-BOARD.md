@@ -322,8 +322,15 @@ become one GitHub issue.
   object identity in a replacement with empty scratch. It kept 36 checks at
   zero anomalies. Partial-closure run `fa9d729b` discarded with four anomalies
   per seed; OTel run `b57f141f` exported logs, metrics, and traces.
-- Remaining: lose the manifest PUT response and the replicated `Publish` reply,
-  model partial multipart residue and repeated unknown responses, then kill the
+  Candidate `57e28d4` crosses the manifest-effect boundary. Run `2660e09d`
+  retained the successful manifest PUT while replacing its response with
+  unknown, killed the publisher, and made an empty-scratch replacement replay
+  all data identities, recover the exact manifest, and walk the complete named
+  closure before publishing. It kept 39 checks at zero anomalies.
+  Manifest-only run `7ace2812` discarded with four anomalies per seed; OTel run
+  `5fd6240e` exported logs, metrics, and traces.
+- Remaining: lose the replicated `Publish` reply, model partial multipart
+  residue and repeated unknown responses, then kill the
   sweeper around complete mark receipt, delete reservation, object effect, and
   retirement. Prove effect-grant fencing, generation handoff, old-root
   deletion, and independent empty-disk recovery; add cloud-native
