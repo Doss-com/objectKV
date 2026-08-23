@@ -304,11 +304,16 @@ become one GitHub issue.
   deferred three stale delete plans, and blocked three publications behind
   durable deletion reservations. Seven physical boundary violations discarded;
   OTel run `beaa7904` exported logs, metrics, and traces.
-- Remaining: run the same command/state contract through the replicated
-  transaction authority, kill the publication and sweeper processes at each
-  durable boundary, prove independent-disk recovery, add cloud-native guarded
-  delete adapters and receipts, partition reservations, and measure the
-  publication and reclamation cost curves.
+  Candidate `b530321` then moved intents, roots, pins, reservations, and durable
+  outcomes into the three-node OpenRaft generation authority. Run `550e5585`
+  passed 72 process checks across three seeds with two leader losses per seed,
+  exact fresh-process replay, and zero anomalies. Ten unsafe authority subjects
+  discarded; OTel run `8071bc8a` exported logs, metrics, and traces.
+- Remaining: kill dedicated publisher and sweeper processes at each object and
+  authority boundary, require a complete mark receipt, prove generation handoff
+  with old-root deletion and empty-disk recovery, add cloud-native guarded
+  delete receipts, partition reservations, and measure publication and
+  reclamation cost curves.
 
 ### T21. Specify a transactional task stream
 

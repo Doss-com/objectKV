@@ -31,13 +31,15 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 100 points at admitted object publication head
-`77029f843e3c8d2b4bae5357b54e89b74991da60`. Candidate
-`602b3174ca35f4dd1d897767e4aed71d8b111fcd` passed clean run
-`e83eeb60-29ab-447d-950c-7b533672cc43` with zero anomalies across three seeds
-and 48 physical boundary checks. Seven unsafe subjects discarded. OTel run
-`beaa7904-f2bd-48a8-93e4-3529cb95f98b` exported logs, metrics, and traces. The
-next storage critical path binds the same publication command contract to
-replicated authority and kills publisher and sweeper processes at every durable
-boundary. The independent HTAP path adds version-bound manifests and leases,
-multiple execution ranges, safe pruning, and the `T - W_p` cost curve.
+`[ACTIVE-WORK]` Tracker revision 101 points at replicated publication-authority
+candidate `b530321d114728d92741ca9bdfd7b7a637148e75`. Clean run
+`550e5585-bf9d-4bc9-b96f-d38aaca9eb49` passed 72 checks with zero anomalies
+across three deterministic seeds, including six leader failovers, 18 process
+kills, and 69 publication writes. All ten unsafe subjects discarded. OTel run
+`8071bc8a-8a4d-4a29-9118-5a11e22b5e3b` exported logs, metrics, and traces with
+correctness anomalies at zero and availability ratio at one. The next storage
+critical path kills dedicated publisher and sweeper processes at each durable
+object and authority boundary, completes `MarkReceipt` plus G1/G2 handoff, and
+proves old-root deletion plus independent empty-disk recovery. The independent
+HTAP path adds version-bound manifests and leases, multiple execution ranges,
+safe pruning, and the `T - W_p` cost curve.

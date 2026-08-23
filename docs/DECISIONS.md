@@ -361,3 +361,24 @@ authority transitions and can temporarily block publication of the same digest.
 
 Evidence: RFC-0007, RFC-0014, candidate `602b317`, and
 `object-publication-adapter-v1`.
+
+## D24. Replicate publication state in the cell authority
+
+Status: `[DECIDED]` for the bootstrap cell, 2026-08-23.
+
+Decision: keep publication intents, reader-visible roots, snapshot and query
+pins, deletion reservations, request fingerprints, and durable outcomes as a
+separate state domain inside the existing OpenRaft generation-authority state
+machine. Publication does not receive a second consensus group until measured
+authority throughput requires partitioning.
+
+Optimizes for: atomic generation fencing, root compare-and-swap, exact retry
+resolution, and one recovery snapshot without adding a cross-consensus commit
+boundary.
+
+Gives up: independently scaling publication control throughput during the
+bootstrap phase. A homogeneous authority binary upgrade is required because
+unknown objectKV command versions fail closed.
+
+Evidence: RFC-0015, candidate `b530321`, clean run `550e5585`, ten discarded
+negative subjects, and OTel run `8071bc8a`.

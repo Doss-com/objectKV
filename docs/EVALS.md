@@ -17,6 +17,13 @@ operations with a separately reopened three-file authority. It verifies
 intent-before-upload, exact closure-before-root, unknown PUT, authority, and
 DELETE recovery, complete marks, epoch revalidation, and deletion reservations.
 Seven negative subjects bypass one physical boundary each.
+The `object-publication-authority-process-v1` suite moves the same logical
+publication state into the existing three-node OpenRaft generation authority.
+It drives two real leader deaths, a lost reply, exact retry and conflicting
+identity, root and pin compare-and-swap, deletion reservation and retirement,
+a legitimate generation transition, an isolated stale-read probe, a
+quorumless acknowledgement probe, and exact restarted-node comparison. Ten
+negative subjects each disable one authority invariant.
 The `mvcc-semantics-v1` suite runs five deterministic 1,000-event histories
 against an independently normalized full-snapshot oracle. Seven negative
 subjects break range clears, replay ordering, conflict rejection, future-read
@@ -163,6 +170,25 @@ opens. Correctness anomalies are the only primary metric. Object request and
 byte counts, authority records, reservations, deferrals, and operation duration
 are secondary evidence. This gate does not measure cloud economics or claim
 distributed authority durability.
+
+## Replicated publication authority gate
+
+```bash
+cargo run -p okv-eval -- run \
+  evals/suites/object-publication-authority-process.toml \
+  --profile local-fs \
+  --workload publication-authority-failover \
+  --backend process-local-fs
+```
+
+The suite freezes RFC-0015 and uses three seeds for 24 semantic checks each.
+Candidate `b530321` kept in run
+`550e5585-bf9d-4bc9-b96f-d38aaca9eb49` with zero anomalies at the exact
+72-event budget. All ten unsafe subjects discarded. OTel run
+`8071bc8a-8a4d-4a29-9118-5a11e22b5e3b` exported logs, metrics, and traces.
+This admits replicated authority state and real authority-process failover. It
+does not yet admit publisher or sweeper process recovery around object-store
+operations, independent-disk loss, outcome expiry, or cloud economics.
 
 ## ZebraDB HTAP exactness gate
 
