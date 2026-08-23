@@ -7,10 +7,10 @@ row does not permit the backend to host mutable authority metadata.
 
 | Backend | Exact implementation | Segment | Authority | Conditional primitive | End-to-end digest | Guarded delete |
 |---|---|---:|---:|---|---:|---:|
-| Memory | Apache `object_store 0.14.1`, in-process | pass | pass | ETag | SHA-256 pass | no, horizon fallback |
-| Filesystem | Apache `object_store 0.14.1`, local filesystem | pass | fail as expected | unsupported | SHA-256 pass | no, horizon fallback |
-| MinIO | `RELEASE.2025-09-07T16-13-09Z`, Apache `object_store 0.14.1` | pass | pass | `If-Match` ETag | SHA-256 pass | no, horizon fallback |
-| GCS dev | `[PROPOSED]` protected `objectKV-dev` bucket | not run | not run | generation match | not run | adapter exists, live receipt pending |
+| Memory | Apache `object_store 0.14.1`, in-process | pass | pass | ETag | SHA-256 pass | no, reservation plus horizon fallback |
+| Filesystem | Apache `object_store 0.14.1`, local filesystem | pass | fail as expected | unsupported | SHA-256 pass | no, reservation plus horizon fallback |
+| MinIO | `RELEASE.2025-09-07T16-13-09Z`, Apache `object_store 0.14.1` | pass | pass | `If-Match` ETag | SHA-256 pass | no, reservation plus horizon fallback |
+| GCS dev | `[PROPOSED]` protected `objectKV-dev` bucket | not run | not run | generation match | not run | not implemented; live receipt pending |
 
 ## Accepted local receipts
 
@@ -49,3 +49,17 @@ aggregate request latency. Keys, values, credentials, and request identities
 are excluded from metric attributes.
 
 Run commands live in `infra/minio/README.md` and `docs/EVALS.md`.
+
+## Physical publication receipt
+
+Candidate `602b3174ca35f4dd1d897767e4aed71d8b111fcd` ran
+`object-publication-adapter-v1` against the local filesystem object client and a
+separate checksummed three-file authority prototype. Clean run
+`e83eeb60-29ab-447d-950c-7b533672cc43` passed 48 checks with zero anomalies.
+Seven unsafe subjects discarded. OTel run
+`beaa7904-f2bd-48a8-93e4-3529cb95f98b` exported all three signals and recorded
+147 object requests, 3,054 write bytes, 15,939 read bytes, and success ratio 1.
+
+This receipt proves the reservation-based fallback on one local machine. It
+does not upgrade filesystem authority support, prove native conditional delete,
+or provide GCS, S3, Azure, independent-disk, or multi-process evidence.

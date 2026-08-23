@@ -72,6 +72,10 @@ cargo run -p okv-eval -- run evals/suites/object-store.toml \
   --profile memory-authority \
   --workload named-object-authority-contract \
   --backend memory
+cargo run -p okv-eval -- run evals/suites/object-publication-adapter.toml \
+  --profile local-fs \
+  --workload object-publication-real-adapter \
+  --backend object-store-local-fs+authority-quorum-fs
 cargo run -p okv-eval -- run evals/suites/smoke.toml \
   --profile dev --workload model-smoke --backend model
 cargo run -p okv-sim -- replay --seed 1103
@@ -100,6 +104,12 @@ change, and stale-publication oracle. It is not yet a replicated WAL simulator.
 The object-store runner proves named-object semantics for one exact backend and
 version. A passing `segment` profile is not evidence that the backend can host
 mutable authority metadata.
+The physical publication adapter writes immutable bytes through Apache
+`object_store`, reopens publication authority from a synchronized three-file
+local quorum, and serializes unguarded deletion against publication with a
+durable per-object reservation. It is a single-process, single-machine recovery
+proof. It is not a production distributed authority, independent-disk
+durability result, cloud receipt, or throughput result.
 The commit-contract runner proves a deterministic envelope and failure oracle,
 not production consensus. The persisted-WAL runner writes that envelope through
 a checksummed frame to three local files, synchronizes each selected file,

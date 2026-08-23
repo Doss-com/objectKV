@@ -106,6 +106,13 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   `RELEASE.2025-09-07T16-13-09Z` passes the local `authority` profile through
   Apache `object_store 0.14.1`. GCS has not run because cloud authentication is
   unavailable.
+- `[EXISTS]` The physical publication adapter writes digest-addressed bytes
+  through Apache `object_store` on local filesystem, reopens publication
+  authority from a checksummed three-file synchronized quorum, resolves lost
+  PUT, authority, and DELETE responses, walks exact manifests, and holds a
+  durable per-object deletion reservation across unguarded delete. This is a
+  same-machine adapter proof, not production authority consensus or cloud
+  evidence.
 - `[ACTIVE-WORK]` The actual Google Cloud project and GCS bucket await interactive
   gcloud reauthentication and exact organization/billing verification.
 - `[EXISTS]` `Doss-com/objectKV` did not exist when this scaffold was created.

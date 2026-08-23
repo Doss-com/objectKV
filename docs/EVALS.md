@@ -12,6 +12,11 @@ The `object-store` suite also executes segment and authority capability profiles
 against memory, filesystem, MinIO, and GCS adapters. Memory and pinned MinIO
 have local authority receipts; filesystem has a segment receipt and an expected
 authority failure; GCS awaits authentication.
+The `object-publication-adapter-v1` suite composes real local filesystem object
+operations with a separately reopened three-file authority. It verifies
+intent-before-upload, exact closure-before-root, unknown PUT, authority, and
+DELETE recovery, complete marks, epoch revalidation, and deletion reservations.
+Seven negative subjects bypass one physical boundary each.
 The `mvcc-semantics-v1` suite runs five deterministic 1,000-event histories
 against an independently normalized full-snapshot oracle. Seven negative
 subjects break range clears, replay ordering, conflict rejection, future-read
@@ -142,6 +147,22 @@ The suite freezes RFC-0005, RFC-0008, and RFC-0009 into its contract hash. It
 records exact seed replay, semantic step coverage, recovered outcomes, retry
 count, leader-only attempts, trace digests, and correctness anomalies. CI
 requires the correct subject to keep and all six negative subjects to discard.
+
+## Real publication adapter gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/object-publication-adapter.toml \
+  --profile local-fs \
+  --workload object-publication-real-adapter \
+  --backend object-store-local-fs+authority-quorum-fs
+```
+
+The suite freezes RFC-0003, RFC-0004, RFC-0007, and RFC-0014. Three seeds each
+execute 16 semantic checks through Apache `object_store` and fresh authority
+opens. Correctness anomalies are the only primary metric. Object request and
+byte counts, authority records, reservations, deferrals, and operation duration
+are secondary evidence. This gate does not measure cloud economics or claim
+distributed authority durability.
 
 ## ZebraDB HTAP exactness gate
 

@@ -340,3 +340,24 @@ Gives up: the lower-level protocol and driver control offered by `raft-rs`.
 The choice remains reversible because the `OKVC` commit envelope and `OKVR`
 per-node journal are objectKV formats rather than OpenRaft compatibility
 promises.
+
+## D23. Reserve digest deletion in transactional authority
+
+Status: `[DECIDED]` for the bootstrap fallback, 2026-08-23.
+
+Decision: immediately before deleting an unreachable digest object, install a
+durable per-object deletion reservation in the same serializable authority
+transition that revalidates the mark epoch. Publication preparation for an
+intersecting object is rejected until deletion is resolved and the reservation
+is retired. Backends with native revision-guarded delete still use the exact
+object identity; backends without it additionally require the reservation,
+immutable digest key, quarantine, and named outcome recovery.
+
+Optimizes for: closing the publication-versus-unguarded-delete TOCTOU window
+without requiring every object API to expose conditional delete.
+
+Gives up: a read-only revalidation fast path. Each fallback delete adds two
+authority transitions and can temporarily block publication of the same digest.
+
+Evidence: RFC-0007, RFC-0014, candidate `602b317`, and
+`object-publication-adapter-v1`.

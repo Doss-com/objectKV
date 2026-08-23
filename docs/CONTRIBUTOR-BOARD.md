@@ -297,9 +297,18 @@ become one GitHub issue.
   `ed897a5f-02c4-4abe-997a-a06ea63bbb8e` with zero anomalies, all six unsafe
   subjects discarded exactly, and OTel logs, metrics, and traces verified in
   run `09e4760d-c125-41da-bf98-adb816385629`.
-- Remaining: adapt the admitted model to the real object client, durable
-  transactional authority, independent process failure, and guarded-delete
-  capability profiles.
+  Candidate `602b317` then executes the protocol through Apache `object_store`
+  filesystem bytes and a checksummed, quorum-fsynced local authority. Run
+  `e83eeb60` passed 48 checks at zero anomalies across three seeds. It recovered
+  lost PUT, authority, and DELETE responses, reopened authority nine times,
+  deferred three stale delete plans, and blocked three publications behind
+  durable deletion reservations. Seven physical boundary violations discarded;
+  OTel run `beaa7904` exported logs, metrics, and traces.
+- Remaining: run the same command/state contract through the replicated
+  transaction authority, kill the publication and sweeper processes at each
+  durable boundary, prove independent-disk recovery, add cloud-native guarded
+  delete adapters and receipts, partition reservations, and measure the
+  publication and reclamation cost curves.
 
 ### T21. Specify a transactional task stream
 
