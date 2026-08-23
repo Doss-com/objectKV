@@ -2147,6 +2147,7 @@ fn run_object_publication_gc_contract(
     let mut deferred_deletes = 0_u64;
     let mut reclaimed_objects = 0_u64;
     let mut object_requests = 0_u64;
+    let mut object_bytes_written = 0_u64;
     let mut physical_bytes = 0_u64;
     let mut live_bytes = 0_u64;
     let mut exact_replay = true;
@@ -2173,6 +2174,7 @@ fn run_object_publication_gc_contract(
         deferred_deletes = deferred_deletes.saturating_add(first.deferred_deletes);
         reclaimed_objects = reclaimed_objects.saturating_add(first.reclaimed_objects);
         object_requests = object_requests.saturating_add(first.object_requests);
+        object_bytes_written = object_bytes_written.saturating_add(first.object_bytes_written);
         physical_bytes = physical_bytes.saturating_add(first.physical_bytes);
         live_bytes = live_bytes.saturating_add(first.live_bytes);
         if let Some(detail) = &first.first_mismatch {
@@ -2215,13 +2217,13 @@ fn run_object_publication_gc_contract(
             },
             Measurement {
                 metric: "object_store.bytes",
-                value: bounded_count(first.physical_bytes),
+                value: bounded_count(first.object_bytes_written),
                 attributes: attributes(&[
                     ("lane", &workload.lane),
                     ("workload", &workload.id),
                     ("backend", backend),
                     ("store", "deterministic-model"),
-                    ("direction", "resident"),
+                    ("direction", "write"),
                     ("api", "publication-gc"),
                 ]),
             },
@@ -2267,6 +2269,7 @@ fn run_object_publication_gc_contract(
         && drifted_counters > 0
         && stale_list_observations > 0
         && object_requests > 0
+        && object_bytes_written > 0
         && physical_bytes > 0;
     let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
     let error = (!passed).then(|| {
@@ -2338,6 +2341,10 @@ fn run_object_publication_gc_contract(
             (
                 "publication_gc.object_requests".to_owned(),
                 bounded_count(object_requests),
+            ),
+            (
+                "publication_gc.object_bytes_written".to_owned(),
+                bounded_count(object_bytes_written),
             ),
             (
                 "publication_gc.physical_bytes".to_owned(),

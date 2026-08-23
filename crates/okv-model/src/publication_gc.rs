@@ -57,6 +57,7 @@ pub struct PublicationGcReport {
     pub deferred_deletes: u64,
     pub reclaimed_objects: u64,
     pub object_requests: u64,
+    pub object_bytes_written: u64,
     pub physical_bytes: u64,
     pub live_bytes: u64,
     pub trace_sha256: String,
@@ -73,11 +74,13 @@ struct StoredObject {
 struct ObjectModel {
     objects: BTreeMap<String, StoredObject>,
     requests: u64,
+    bytes_written: u64,
 }
 
 impl ObjectModel {
     fn put(&mut self, id: &str, bytes: u64, children: &[&str]) {
         self.requests = self.requests.saturating_add(1);
+        self.bytes_written = self.bytes_written.saturating_add(bytes);
         self.objects.insert(
             id.to_owned(),
             StoredObject {
@@ -214,6 +217,7 @@ impl Scenario {
             deferred_deletes: self.deferred_deletes,
             reclaimed_objects: self.reclaimed_objects,
             object_requests: self.store.requests,
+            object_bytes_written: self.store.bytes_written,
             physical_bytes: self.store.physical_bytes(),
             live_bytes,
             trace_sha256: digest_hex(self.trace),
