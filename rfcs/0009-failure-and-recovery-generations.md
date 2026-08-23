@@ -74,6 +74,44 @@ latest root through LIST.
    an explicit version ceiling, and each lazily opened range must verify its
    manifest closure before serving.
 
+## Data-quorum recovery certificates
+
+The generation authority accepts a fence or recovered position only through a
+versioned quorum certificate. The recovery controller transports certificates
+but is not trusted to invent their contents.
+
+Each certificate statement binds:
+
+- certificate purpose, `fence` or `recovered`;
+- cell, next generation, and recovery identity;
+- active and pending transaction-system identities;
+- the exact Raft term and index observed by the signing data node;
+- a digest of the authority-pinned voter identity and public-key map.
+
+Every attestation is an Ed25519 signature by one pinned data voter over the
+canonical statement bytes. The authority deterministically rejects unknown or
+duplicate signers, bad signatures, a membership-digest mismatch, a stale
+recovery identity, a zero position, and fewer than a majority of distinct
+configured voters.
+
+A data node signs a `fence` statement only when the statement position equals
+the exact applied generation-fence barrier in its state machine. It signs a
+`recovered` statement only when the position equals the applied voter-set
+transition and its local generation mirror is still `Recovering`. Merely having
+applied some later index is not sufficient.
+
+The active voter key map is installed at bootstrap. `Prepare` pins the pending
+transaction-system voter key map before any certificate can be collected.
+`Reserve` verifies a fence certificate against the active map. `Activate`
+verifies a recovered certificate against the pending map and requires its log
+position to follow the certified fence position.
+
+This protects against a faulty or compromised recovery controller and fewer
+than a quorum of compromised data signers. It does not protect against a
+compromised authority quorum, a compromised data quorum, unsafe private-key
+provisioning, or a signer implementation that violates the local observation
+contract. Production key custody and rotation remain separate work.
+
 No rollback reactivates an older generation. Failed recovery attempts allocate
 another generation or continue the same reserved attempt under one quorum-owned
 recovery identity.
@@ -173,8 +211,8 @@ through seams that the simulator can replace.
 ## Unresolved questions
 
 - Coordinator implementation and membership-change protocol.
-- Quorum-authenticated fence and recovered-log certificates. A bare
-  controller-reported log index is insufficient for production activation.
+- Production data-voter key provisioning, rotation, revocation, and custody.
+- Automatic recovery detection and the evidence needed before `Prepare`.
 - Bounded range-index representation, active recovery set, and maximum root
   size before a second index level is required.
 - Whether upstream Turmoil closes all runtime entropy for the eventual WAL and
