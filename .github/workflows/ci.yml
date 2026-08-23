@@ -144,6 +144,28 @@ jobs:
             cargo run --quiet -p okv-eval -- run evals/suites/object-publication-adapter.toml --profile local-fs --workload "$workload" --backend "$backend" --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_adapter.contract_agreement").status == "fail")' "$output"
           done
+      - name: Verify replicated publication authority and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- publication-process-trace --seed 1103 > /tmp/okv-publication-process-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-process-trace --seed 1103 > /tmp/okv-publication-process-trace-b.json
+          cmp /tmp/okv-publication-process-trace-a.json /tmp/okv-publication-process-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-authority-process.toml --profile local-fs --workload publication-authority-failover --backend process-local-fs --output /tmp/okv-publication-process.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "publication_process.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publication_process.contract_agreement").status == "pass")' /tmp/okv-publication-process.json
+          for workload in \
+            publication-authority-bypass-generation-fence \
+            publication-authority-publish-without-intent \
+            publication-authority-ignore-root-epoch \
+            publication-authority-ignore-delete-reservation \
+            publication-authority-disable-dedup \
+            publication-authority-ack-before-quorum \
+            publication-authority-stale-expected-root \
+            publication-authority-local-stale-outcome-read \
+            publication-authority-cross-generation-intent \
+            publication-authority-retire-by-plan-key; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/object-publication-authority-process.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_process.contract_agreement").status == "fail")' "$output"
+          done
       - name: Verify persisted WAL reopen contract and negative controls
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload persisted-wal-reopen --backend local-fs --output /tmp/okv-persisted-wal.json

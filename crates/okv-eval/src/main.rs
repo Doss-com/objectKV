@@ -1,9 +1,10 @@
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use okv_consensus::{
-    run_generation_process_contract, run_process_node, run_raft_cluster_contract,
-    run_raft_process_contract, run_raft_storage_contract, GenerationProcessMode, ProcessNodeConfig,
-    RaftClusterMode, RaftProcessMode, RaftStorageMode,
+    run_generation_process_contract, run_process_node, run_publication_process_contract,
+    run_raft_cluster_contract, run_raft_process_contract, run_raft_storage_contract,
+    GenerationProcessMode, ProcessNodeConfig, PublicationProcessMode, RaftClusterMode,
+    RaftProcessMode, RaftStorageMode,
 };
 use okv_eval::config::{load_suite, BudgetKind, LoadedSuite, WorkloadConfig};
 use okv_eval::result::{
@@ -119,6 +120,13 @@ enum Commands {
         #[arg(long, default_value = "correct")]
         mode: String,
     },
+    /// Emit one canonical publication-authority process trace without suite orchestration.
+    PublicationProcessTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "correct")]
+        mode: String,
+    },
     /// Internal entrypoint used by the real-process consensus controller.
     #[command(hide = true)]
     ConsensusNode {
@@ -181,6 +189,12 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let mode = parse_generation_process_mode(&mode).map_err(std::io::Error::other)?;
             let executable = std::env::current_exe()?;
             let report = run_generation_process_contract(seed, mode, &executable)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::PublicationProcessTrace { seed, mode } => {
+            let mode = parse_publication_process_mode(&mode).map_err(std::io::Error::other)?;
+            let executable = std::env::current_exe()?;
+            let report = run_publication_process_contract(seed, mode, &executable)?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Commands::ConsensusNode { config_json } => {
@@ -522,6 +536,9 @@ fn execute_workload(
         "raft_cluster_contract" => run_raft_cluster(workload, seeds, backend),
         "raft_process_contract" => run_raft_process(workload, seeds, backend),
         "generation_process_contract" => run_generation_process(workload, seeds, backend),
+        "publication_authority_process_contract" => {
+            run_publication_process(workload, seeds, backend)
+        }
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "htap_physical_contract" => run_htap_physical_contract(workload, seeds, backend),
         "htap_streaming_contract" => run_htap_streaming_contract(workload, seeds, backend),
@@ -1215,6 +1232,25 @@ fn parse_generation_process_mode(value: &str) -> Result<GenerationProcessMode, S
     }
 }
 
+fn parse_publication_process_mode(value: &str) -> Result<PublicationProcessMode, String> {
+    match value {
+        "correct" | "none" => Ok(PublicationProcessMode::Correct),
+        "bypass_generation_fence" => Ok(PublicationProcessMode::BypassGenerationFence),
+        "publish_without_intent" => Ok(PublicationProcessMode::PublishWithoutIntent),
+        "ignore_root_epoch" => Ok(PublicationProcessMode::IgnoreRootEpoch),
+        "ignore_delete_reservation" => Ok(PublicationProcessMode::IgnoreDeleteReservation),
+        "disable_request_dedup" => Ok(PublicationProcessMode::DisableRequestDedup),
+        "acknowledge_before_quorum" => Ok(PublicationProcessMode::AcknowledgeBeforeQuorum),
+        "stale_expected_root" => Ok(PublicationProcessMode::StaleExpectedRoot),
+        "local_stale_outcome_read" => Ok(PublicationProcessMode::LocalStaleOutcomeRead),
+        "cross_generation_intent_publish" => {
+            Ok(PublicationProcessMode::CrossGenerationIntentPublish)
+        }
+        "retire_by_plan_key_only" => Ok(PublicationProcessMode::RetireByPlanKeyOnly),
+        other => Err(format!("unknown publication process mode {other}")),
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn run_generation_process(
     workload: &WorkloadConfig,
@@ -1435,6 +1471,219 @@ fn run_generation_process(
             (
                 "generation_process.caught_up_nodes".to_owned(),
                 bounded_count(caught_up_nodes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_publication_process(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "publication process workload requires at least one seed".to_owned(),
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("none");
+    let mode = match parse_publication_process_mode(control) {
+        Ok(mode) => mode,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut check_count = 0_u64;
+    let mut authority_process_starts = 0_u64;
+    let mut process_kills = 0_u64;
+    let mut authority_failovers = 0_u64;
+    let mut publication_writes = 0_u64;
+    let mut generation_transitions = 0_u64;
+    let mut dropped_replies = 0_u64;
+    let mut recovered_outcomes = 0_u64;
+    let mut duplicate_retries = 0_u64;
+    let mut deletion_reservations = 0_u64;
+    let mut restarted_nodes = 0_u64;
+    let mut exact_replay = true;
+    let mut aggregate_checks = BTreeMap::<String, bool>::new();
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+
+    for seed in seeds {
+        let first = match run_publication_process_contract(*seed, mode, &executable) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_publication_process_contract(*seed, mode, &executable) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        check_count = check_count.saturating_add(first.executed_checks);
+        authority_process_starts =
+            authority_process_starts.saturating_add(first.authority_process_starts);
+        process_kills = process_kills.saturating_add(first.process_kills);
+        authority_failovers = authority_failovers.saturating_add(first.authority_failovers);
+        publication_writes = publication_writes.saturating_add(first.publication_writes);
+        generation_transitions =
+            generation_transitions.saturating_add(first.generation_transitions);
+        dropped_replies = dropped_replies.saturating_add(first.dropped_replies);
+        recovered_outcomes = recovered_outcomes.saturating_add(first.recovered_outcomes);
+        duplicate_retries = duplicate_retries.saturating_add(first.duplicate_retries);
+        deletion_reservations = deletion_reservations.saturating_add(first.deletion_reservations);
+        restarted_nodes = restarted_nodes.saturating_add(first.restarted_nodes);
+        for (check, passed) in &first.checks {
+            aggregate_checks
+                .entry(check.clone())
+                .and_modify(|aggregate| *aggregate &= *passed)
+                .or_insert(*passed);
+        }
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, check {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "publication-authority-process-v1"),
+                    (
+                        "anomaly.class",
+                        if exact {
+                            "none"
+                        } else {
+                            "publication_authority"
+                        },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "publication-authority-failover"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-publication-process://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let seed_count = u64::try_from(seeds.len()).unwrap_or(u64::MAX);
+    let semantic_operations_exercised = check_count == seed_count.saturating_mul(24)
+        && authority_process_starts >= seed_count.saturating_mul(9)
+        && process_kills >= seed_count.saturating_mul(6)
+        && authority_failovers == seed_count.saturating_mul(2)
+        && publication_writes == seed_count.saturating_mul(23)
+        && generation_transitions == seed_count
+        && dropped_replies == seed_count
+        && recovered_outcomes == seed_count
+        && duplicate_retries == seed_count
+        && deletion_reservations == seed_count
+        && restarted_nodes >= seed_count.saturating_mul(5);
+    let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "publication authority gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+    let mut hard_gates = vec![
+        HardGateResult {
+            id: "publication_process.exact_fresh_process_replay".to_owned(),
+            status: if exact_replay {
+                GateStatus::Pass
+            } else {
+                GateStatus::Fail
+            },
+            detail: None,
+        },
+        HardGateResult {
+            id: "publication_process.semantic_operations_exercised".to_owned(),
+            status: if semantic_operations_exercised {
+                GateStatus::Pass
+            } else {
+                GateStatus::Fail
+            },
+            detail: Some(format!(
+                "checks={check_count}, authority_starts={authority_process_starts}, kills={process_kills}, failovers={authority_failovers}, publication_writes={publication_writes}, generation_transitions={generation_transitions}, dropped_replies={dropped_replies}, recovered_outcomes={recovered_outcomes}, duplicate_retries={duplicate_retries}, delete_reservations={deletion_reservations}, restarted_nodes={restarted_nodes}"
+            )),
+        },
+        HardGateResult {
+            id: "publication_process.contract_agreement".to_owned(),
+            status: if anomaly_count == 0 {
+                GateStatus::Pass
+            } else {
+                GateStatus::Fail
+            },
+            detail: mismatch_details.first().cloned(),
+        },
+    ];
+    hard_gates.extend(aggregate_checks.iter().map(|(id, passed)| HardGateResult {
+        id: id.clone(),
+        status: if *passed {
+            GateStatus::Pass
+        } else {
+            GateStatus::Fail
+        },
+        detail: None,
+    }));
+
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates,
+        budget_units: bounded_count(check_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            (
+                "publication_process.checks".to_owned(),
+                bounded_count(check_count),
+            ),
+            (
+                "publication_process.failovers".to_owned(),
+                bounded_count(authority_failovers),
+            ),
+            (
+                "publication_process.process_kills".to_owned(),
+                bounded_count(process_kills),
+            ),
+            (
+                "publication_process.publication_writes".to_owned(),
+                bounded_count(publication_writes),
+            ),
+            (
+                "publication_process.restarted_nodes".to_owned(),
+                bounded_count(restarted_nodes),
             ),
         ]),
     }

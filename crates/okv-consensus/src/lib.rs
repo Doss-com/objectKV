@@ -13,6 +13,7 @@ mod generation_process_contract;
 mod process_contract;
 mod process_node;
 mod publication;
+mod publication_process_contract;
 mod rpc;
 mod sim_network;
 mod state_machine;
@@ -39,6 +40,9 @@ pub use publication::{
     PublicationCommand, PublicationCommandStatus, PublicationFenceFaults, PublicationIntent,
     PublicationObjectKind, PublicationObjectReference, PublicationOutcome,
     RevisionToken as PublicationRevisionToken,
+};
+pub use publication_process_contract::{
+    run_publication_process_contract, PublicationProcessMode, PublicationProcessReport,
 };
 pub use state_machine::{
     ApplyError, ApplyResponse, ClientCommand, RequestIdentity, StateMachineStore,
