@@ -168,6 +168,16 @@ jobs:
             cargo run --quiet -p okv-eval -- run evals/suites/object-publication-authority-process.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_process.contract_agreement").status == "fail")' "$output"
           done
+      - name: Verify publisher prepare recovery and negative control
+        run: |
+          backend="object-store-local-fs+process-openraft"
+          cargo run --quiet -p okv-eval -- publication-publisher-process-trace --seed 1103 > /tmp/okv-publisher-process-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-publisher-process-trace --seed 1103 > /tmp/okv-publisher-process-trace-b.json
+          cmp /tmp/okv-publisher-process-trace-a.json /tmp/okv-publisher-process-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-process.toml --profile local-fs --workload publisher-prepare-restart --backend "$backend" --output /tmp/okv-publisher-process.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 30 and .budget.observed == 30 and (.hard_gates[] | select(.id == "publisher_process.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_process.contract_agreement").status == "pass")' /tmp/okv-publisher-process.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-process.toml --profile local-fs --workload publisher-upload-before-prepare-ack --backend "$backend" --output /tmp/okv-publisher-process-negative.json
+          jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 30 and .budget.observed == 30 and (.hard_gates[] | select(.id == "publisher_process.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "no_object_exists_before_prepare_barrier").status == "fail")' /tmp/okv-publisher-process-negative.json
       - name: Verify persisted WAL reopen contract and negative controls
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload persisted-wal-reopen --backend local-fs --output /tmp/okv-persisted-wal.json
