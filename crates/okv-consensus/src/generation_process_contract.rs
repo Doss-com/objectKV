@@ -1,14 +1,16 @@
 use crate::rpc::{
     read_response, write_request, AddLearnerRequest, ChangeMembershipRequest, ControlWrite,
     NodeStatus, WriteAck, ADD_LEARNER, CHANGE_MEMBERSHIP, CLIENT_WRITE, DATA_GENERATION_WRITE,
-    ELECT, GENERATION_READ, GENERATION_WRITE, INITIALIZE, LINEARIZABLE_STATUS,
-    PREAUTHORIZED_CLIENT_WRITE, STATUS,
+    ELECT, GENERATION_READ, GENERATION_WRITE, INITIALIZE, PREAUTHORIZED_CLIENT_WRITE,
+    RECOVERY_ATTEST, STATUS,
 };
 use crate::{
-    ClientCommand, ConsensusProcessRole, GenerationAction, GenerationApplyResponse,
-    GenerationAuthorityFaults, GenerationAuthorityState, GenerationCommand,
-    GenerationCommandStatus, GenerationCredential, GenerationFenceConfig, GenerationFenceFaults,
-    GenerationPhase, NodeId, ProcessNodeConfig, ProcessNodePolicy, RequestIdentity,
+    recovery_public_key, ClientCommand, ConsensusProcessRole, GenerationAction,
+    GenerationApplyResponse, GenerationAuthorityFaults, GenerationAuthorityState,
+    GenerationCommand, GenerationCommandStatus, GenerationCredential, GenerationFenceConfig,
+    GenerationFenceFaults, GenerationPhase, NodeId, ProcessNodeConfig, ProcessNodePolicy,
+    RecoveryCertificate, RecoveryCertificateKind, RecoveryCertificateStatement,
+    RecoverySignerConfig, RequestIdentity,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -41,6 +43,11 @@ pub enum GenerationProcessMode {
     AcceptWriteDuringRecovery,
     AcceptCompetingRecovery,
     ActivateWithoutRecoveryProof,
+    AcceptSingleSignerFence,
+    AcceptTamperedFencePosition,
+    AcceptDuplicateRecoverySigner,
+    AcceptStaleRecoveryCertificate,
+    AcceptWrongRecoveryMembership,
 }
 
 impl GenerationProcessMode {
@@ -53,8 +60,35 @@ impl GenerationProcessMode {
             Self::AcceptWriteDuringRecovery => "accept_write_during_recovery",
             Self::AcceptCompetingRecovery => "accept_competing_recovery",
             Self::ActivateWithoutRecoveryProof => "activate_without_recovery_proof",
+            Self::AcceptSingleSignerFence => "accept_single_signer_fence",
+            Self::AcceptTamperedFencePosition => "accept_tampered_fence_position",
+            Self::AcceptDuplicateRecoverySigner => "accept_duplicate_recovery_signer",
+            Self::AcceptStaleRecoveryCertificate => "accept_stale_recovery_certificate",
+            Self::AcceptWrongRecoveryMembership => "accept_wrong_recovery_membership",
         }
     }
+
+    const fn certificate_probe(self) -> Option<CertificateProbe> {
+        match self {
+            Self::AcceptSingleSignerFence => Some(CertificateProbe::SingleSignerFence),
+            Self::AcceptTamperedFencePosition => Some(CertificateProbe::TamperedFencePosition),
+            Self::AcceptDuplicateRecoverySigner => Some(CertificateProbe::DuplicateRecoverySigner),
+            Self::AcceptStaleRecoveryCertificate => {
+                Some(CertificateProbe::StaleRecoveryCertificate)
+            }
+            Self::AcceptWrongRecoveryMembership => Some(CertificateProbe::WrongRecoveryMembership),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CertificateProbe {
+    SingleSignerFence,
+    TamperedFencePosition,
+    DuplicateRecoverySigner,
+    StaleRecoveryCertificate,
+    WrongRecoveryMembership,
 }
 
 /// Canonical semantic report for one coordinator-backed generation handoff.
@@ -79,6 +113,9 @@ pub struct GenerationProcessReport {
     pub fenced_commit_attempts: u64,
     pub fenced_commit_rejections: u64,
     pub caught_up_generation_two_nodes: u64,
+    pub fence_certificate_signers: u64,
+    pub recovery_certificate_signers: u64,
+    pub invalid_certificate_rejections: u64,
     pub trace_sha256: String,
 }
 
@@ -116,6 +153,8 @@ struct Observations {
     generation_two_leader_ready: bool,
     write_during_recovery_rejected: bool,
     activation_without_proof_rejected: bool,
+    invalid_fence_certificates_rejected: bool,
+    invalid_recovery_certificates_rejected: bool,
     generation_two_activated: bool,
     generation_two_continued_exactly: bool,
     removed_generation_remained_fenced: bool,
@@ -132,6 +171,9 @@ struct Observations {
     fenced_commit_attempts: u64,
     fenced_commit_rejections: u64,
     caught_up_generation_two_nodes: u64,
+    fence_certificate_signers: u64,
+    recovery_certificate_signers: u64,
+    invalid_certificate_rejections: u64,
     final_authority: Option<GenerationAuthorityState>,
     final_payloads: BTreeMap<NodeId, Vec<Vec<u8>>>,
 }
@@ -178,6 +220,8 @@ impl<'a> GenerationScenario<'a> {
 
     #[allow(clippy::too_many_lines)]
     async fn run(mut self) -> Result<GenerationProcessReport, String> {
+        let generation_one_members = generation_members(&GENERATION_ONE_NODES)?;
+        let generation_two_members = generation_members(&GENERATION_TWO_NODES)?;
         self.start_authority().await?;
         self.start_generation_one().await?;
         self.start_generation_two_learners().await?;
@@ -192,6 +236,7 @@ impl<'a> GenerationScenario<'a> {
                     expected_control_root_version: 1,
                     recovery_id: RECOVERY_ID,
                     next_transaction_system_id: "tx-g2".to_owned(),
+                    next_transaction_system_members: generation_two_members.clone(),
                 },
             )
             .await?;
@@ -208,6 +253,7 @@ impl<'a> GenerationScenario<'a> {
                     expected_control_root_version: 1,
                     recovery_id: COMPETING_RECOVERY_ID,
                     next_transaction_system_id: "tx-g2".to_owned(),
+                    next_transaction_system_members: generation_two_members.clone(),
                 },
             )
             .await?;
@@ -231,14 +277,34 @@ impl<'a> GenerationScenario<'a> {
                     expected_control_root_version: 1,
                     recovery_id: effective_recovery_id,
                     next_transaction_system_id: "tx-g2".to_owned(),
+                    next_transaction_system_members: generation_two_members.clone(),
                 },
             )
             .await?;
-        let fenced_log_index = data_prepare.applied_log_index;
+        let fenced_log_position = data_prepare.applied_log_position;
         self.observations.data_log_fence_committed = data_prepare.status
             == GenerationCommandStatus::Accepted
             && data_prepare.state.phase == GenerationPhase::Fencing
-            && fenced_log_index != 0;
+            && fenced_log_position.index != 0;
+
+        let fence_statement = RecoveryCertificateStatement::new(
+            RecoveryCertificateKind::Fence,
+            &data_prepare.state,
+            fenced_log_position,
+            &generation_one_members,
+        );
+        let fence_certificate = self
+            .collect_certificate(&GENERATION_ONE_NODES, fence_statement)
+            .await?;
+        self.observations.fence_certificate_signers =
+            u64::try_from(fence_certificate.attestations.len()).unwrap_or(u64::MAX);
+        if !self
+            .reject_invalid_fence_certificates(&fence_certificate, effective_recovery_id)
+            .await?
+        {
+            self.capture_final().await;
+            return Ok(build_report(self.seed, self.mode, &self.observations));
+        }
 
         self.observations.fenced_commit_attempts += 1;
         let inflight = self
@@ -257,7 +323,7 @@ impl<'a> GenerationScenario<'a> {
                     recovery_id: effective_recovery_id,
                     transaction_system_id: "tx-g2".to_owned(),
                     expected_control_root_version: 1,
-                    fenced_log_index,
+                    certificate: Some(fence_certificate.clone()),
                 },
             )
             .await?;
@@ -265,7 +331,7 @@ impl<'a> GenerationScenario<'a> {
             == GenerationCommandStatus::Accepted
             && reserve.state.phase == GenerationPhase::Recovering
             && reserve.state.generation == GENERATION_TWO
-            && reserve.state.fenced_log_index == fenced_log_index;
+            && reserve.state.fenced_log_position == Some(fenced_log_position);
         self.observations.generation_reservations +=
             u64::from(reserve.status == GenerationCommandStatus::Accepted);
         let data_reserve = self
@@ -277,7 +343,7 @@ impl<'a> GenerationScenario<'a> {
                     recovery_id: effective_recovery_id,
                     transaction_system_id: "tx-g2".to_owned(),
                     expected_control_root_version: 1,
-                    fenced_log_index,
+                    certificate: Some(fence_certificate),
                 },
             )
             .await?;
@@ -312,7 +378,7 @@ impl<'a> GenerationScenario<'a> {
         .await;
         self.observations.membership_handoff_committed = membership
             .as_ref()
-            .is_ok_and(|ack| ack.committed && ack.log_index.is_some());
+            .is_ok_and(|ack| ack.committed && ack.log_position.is_some());
         self.observations.membership_changes =
             u64::from(self.observations.membership_handoff_committed);
 
@@ -327,8 +393,28 @@ impl<'a> GenerationScenario<'a> {
         self.observations.write_during_recovery_rejected = early.is_err();
         self.observations.fenced_commit_rejections += u64::from(early.is_err());
 
-        let proof = retry_linearizable_status(self.generation_two_address(301)?).await?;
-        let recovered_log_index = proof.last_applied_index.unwrap_or_default();
+        let membership = membership?;
+        let recovered_log_position = membership
+            .log_position
+            .ok_or_else(|| "membership handoff did not return an exact log position".to_owned())?;
+        let recovered_statement = RecoveryCertificateStatement::new(
+            RecoveryCertificateKind::Recovered,
+            &data_reserve.state,
+            recovered_log_position,
+            &generation_two_members,
+        );
+        let recovery_certificate = self
+            .collect_certificate(&GENERATION_TWO_NODES, recovered_statement)
+            .await?;
+        self.observations.recovery_certificate_signers =
+            u64::try_from(recovery_certificate.attestations.len()).unwrap_or(u64::MAX);
+        if !self
+            .reject_invalid_recovery_certificates(&recovery_certificate, effective_recovery_id)
+            .await?
+        {
+            self.capture_final().await;
+            return Ok(build_report(self.seed, self.mode, &self.observations));
+        }
         let invalid_activation_action = GenerationAction::Activate {
             generation: GENERATION_TWO,
             recovery_id: effective_recovery_id,
@@ -336,7 +422,7 @@ impl<'a> GenerationScenario<'a> {
             wal_root: "wal-g2".to_owned(),
             expected_control_root_version: 1,
             next_control_root_version: 2,
-            recovered_log_index: 0,
+            certificate: None,
         };
         let invalid_activation = self
             .write_generation(102, 5, invalid_activation_action.clone())
@@ -355,14 +441,14 @@ impl<'a> GenerationScenario<'a> {
                     wal_root: "wal-g2".to_owned(),
                     expected_control_root_version: 1,
                     next_control_root_version: 2,
-                    recovered_log_index,
+                    certificate: Some(recovery_certificate.clone()),
                 };
                 (self.write_generation(102, 6, action.clone()).await?, action)
             };
         self.observations.generation_two_activated = activation.status
             == GenerationCommandStatus::Accepted
             && activation.state.authorizes(GENERATION_TWO, "tx-g2")
-            && activation.state.recovered_log_index == recovered_log_index;
+            && activation.state.recovered_log_position == Some(recovered_log_position);
         self.observations.generation_activations =
             u64::from(activation.status == GenerationCommandStatus::Accepted);
         let data_activation = self
@@ -409,6 +495,10 @@ impl<'a> GenerationScenario<'a> {
                             == GenerationProcessMode::AcceptCompetingRecovery,
                         activate_without_recovery_proof: self.mode
                             == GenerationProcessMode::ActivateWithoutRecoveryProof,
+                        accept_invalid_recovery_certificate: self
+                            .mode
+                            .certificate_probe()
+                            .is_some(),
                     },
                     ..ProcessNodePolicy::default()
                 },
@@ -428,6 +518,7 @@ impl<'a> GenerationScenario<'a> {
                     cell_id: CELL_ID,
                     generation: GENERATION_ONE,
                     transaction_system_id: "tx-g1".to_owned(),
+                    transaction_system_members: generation_members(&GENERATION_ONE_NODES)?,
                     wal_root: "wal-g1".to_owned(),
                     control_root_version: 1,
                 },
@@ -455,6 +546,10 @@ impl<'a> GenerationScenario<'a> {
                     generation_authority_faults: GenerationAuthorityFaults {
                         activate_without_recovery_proof: self.mode
                             == GenerationProcessMode::ActivateWithoutRecoveryProof,
+                        accept_invalid_recovery_certificate: self
+                            .mode
+                            .certificate_probe()
+                            .is_some(),
                         ..GenerationAuthorityFaults::default()
                     },
                     generation_fence_faults: GenerationFenceFaults {
@@ -467,6 +562,7 @@ impl<'a> GenerationScenario<'a> {
                         accept_recovering_commits: false,
                         allow_preauthorized_test_write: true,
                     },
+                    recovery_signer: Some(recovery_signer(node_id)),
                 },
             )?;
             self.observations.data_process_starts += 1;
@@ -484,6 +580,7 @@ impl<'a> GenerationScenario<'a> {
                     cell_id: CELL_ID,
                     generation: GENERATION_ONE,
                     transaction_system_id: "tx-g1".to_owned(),
+                    transaction_system_members: generation_members(&GENERATION_ONE_NODES)?,
                     wal_root: "wal-g1".to_owned(),
                     control_root_version: 1,
                 },
@@ -525,6 +622,10 @@ impl<'a> GenerationScenario<'a> {
                     generation_authority_faults: GenerationAuthorityFaults {
                         activate_without_recovery_proof: self.mode
                             == GenerationProcessMode::ActivateWithoutRecoveryProof,
+                        accept_invalid_recovery_certificate: self
+                            .mode
+                            .certificate_probe()
+                            .is_some(),
                         ..GenerationAuthorityFaults::default()
                     },
                     generation_fence_faults: GenerationFenceFaults {
@@ -537,6 +638,7 @@ impl<'a> GenerationScenario<'a> {
                             == GenerationProcessMode::AcceptWriteDuringRecovery,
                         allow_preauthorized_test_write: false,
                     },
+                    recovery_signer: Some(recovery_signer(node_id)),
                 },
             )?;
             self.observations.data_process_starts += 1;
@@ -676,6 +778,124 @@ impl<'a> GenerationScenario<'a> {
         .await
     }
 
+    async fn collect_certificate(
+        &self,
+        node_ids: &[NodeId],
+        statement: RecoveryCertificateStatement,
+    ) -> Result<RecoveryCertificate, String> {
+        let mut attestations = Vec::with_capacity(node_ids.len());
+        for node_id in node_ids {
+            attestations
+                .push(retry_recovery_attestation(self.address(*node_id)?, &statement).await?);
+        }
+        Ok(RecoveryCertificate {
+            statement,
+            attestations,
+        })
+    }
+
+    async fn reject_invalid_fence_certificates(
+        &mut self,
+        valid: &RecoveryCertificate,
+        recovery_id: u64,
+    ) -> Result<bool, String> {
+        let selected = self.mode.certificate_probe();
+        let probes = match selected {
+            Some(CertificateProbe::SingleSignerFence) => {
+                vec![CertificateProbe::SingleSignerFence]
+            }
+            Some(CertificateProbe::TamperedFencePosition) => {
+                vec![CertificateProbe::TamperedFencePosition]
+            }
+            Some(_) => Vec::new(),
+            None => vec![
+                CertificateProbe::SingleSignerFence,
+                CertificateProbe::TamperedFencePosition,
+            ],
+        };
+        let mut all_rejected = true;
+        for (offset, probe) in probes.into_iter().enumerate() {
+            let certificate = invalid_certificate(valid, probe);
+            let response = self
+                .write_generation(
+                    101,
+                    100 + u64::try_from(offset).unwrap_or(u64::MAX),
+                    GenerationAction::Reserve {
+                        generation: GENERATION_TWO,
+                        recovery_id,
+                        transaction_system_id: "tx-g2".to_owned(),
+                        expected_control_root_version: 1,
+                        certificate: Some(certificate),
+                    },
+                )
+                .await?;
+            let rejected = response.status == GenerationCommandStatus::InvalidRecoveryProof;
+            self.observations.invalid_certificate_rejections += u64::from(rejected);
+            self.observations.generation_reservations +=
+                u64::from(response.status == GenerationCommandStatus::Accepted);
+            all_rejected &= rejected;
+            if !rejected {
+                break;
+            }
+        }
+        self.observations.invalid_fence_certificates_rejected = all_rejected;
+        Ok(all_rejected)
+    }
+
+    async fn reject_invalid_recovery_certificates(
+        &mut self,
+        valid: &RecoveryCertificate,
+        recovery_id: u64,
+    ) -> Result<bool, String> {
+        let selected = self.mode.certificate_probe();
+        let probes = match selected {
+            Some(CertificateProbe::DuplicateRecoverySigner) => {
+                vec![CertificateProbe::DuplicateRecoverySigner]
+            }
+            Some(CertificateProbe::StaleRecoveryCertificate) => {
+                vec![CertificateProbe::StaleRecoveryCertificate]
+            }
+            Some(CertificateProbe::WrongRecoveryMembership) => {
+                vec![CertificateProbe::WrongRecoveryMembership]
+            }
+            Some(_) => Vec::new(),
+            None => vec![
+                CertificateProbe::DuplicateRecoverySigner,
+                CertificateProbe::StaleRecoveryCertificate,
+                CertificateProbe::WrongRecoveryMembership,
+            ],
+        };
+        let mut all_rejected = true;
+        for (offset, probe) in probes.into_iter().enumerate() {
+            let certificate = invalid_certificate(valid, probe);
+            let response = self
+                .write_generation(
+                    102,
+                    200 + u64::try_from(offset).unwrap_or(u64::MAX),
+                    GenerationAction::Activate {
+                        generation: GENERATION_TWO,
+                        recovery_id,
+                        transaction_system_id: "tx-g2".to_owned(),
+                        wal_root: "wal-g2".to_owned(),
+                        expected_control_root_version: 1,
+                        next_control_root_version: 2,
+                        certificate: Some(certificate),
+                    },
+                )
+                .await?;
+            let rejected = response.status == GenerationCommandStatus::InvalidRecoveryProof;
+            self.observations.invalid_certificate_rejections += u64::from(rejected);
+            self.observations.generation_activations +=
+                u64::from(response.status == GenerationCommandStatus::Accepted);
+            all_rejected &= rejected;
+            if !rejected {
+                break;
+            }
+        }
+        self.observations.invalid_recovery_certificates_rejected = all_rejected;
+        Ok(all_rejected)
+    }
+
     async fn capture_final(&mut self) {
         self.observations.final_authority =
             retry_generation_read(self.authority_address(102).unwrap_or_default())
@@ -735,8 +955,10 @@ fn build_report(
             observations.generation_two_learners_caught_up,
         ),
         (
-            "data_log_fence_committed",
-            observations.data_log_fence_committed,
+            "quorum_fence_certificate_committed",
+            observations.data_log_fence_committed
+                && observations.invalid_fence_certificates_rejected
+                && observations.fence_certificate_signers >= 2,
         ),
         (
             "inflight_commit_rejected_by_data_fence",
@@ -768,8 +990,10 @@ fn build_report(
             observations.write_during_recovery_rejected,
         ),
         (
-            "activation_without_proof_rejected",
-            observations.activation_without_proof_rejected,
+            "quorum_recovery_certificate_required",
+            observations.activation_without_proof_rejected
+                && observations.invalid_recovery_certificates_rejected
+                && observations.recovery_certificate_signers >= 2,
         ),
         (
             "generation_two_activated",
@@ -790,7 +1014,7 @@ fn build_report(
     let first_mismatch = first.map(|(_, (name, _))| (*name).to_owned());
 
     let mut trace = Sha256::new();
-    trace.update(b"okv-generation-process-contract-v2");
+    trace.update(b"okv-generation-process-contract-v3");
     trace.update(seed.to_be_bytes());
     trace.update(mode.id().as_bytes());
     for (name, passed) in checks {
@@ -828,6 +1052,9 @@ fn build_report(
         fenced_commit_attempts: observations.fenced_commit_attempts,
         fenced_commit_rejections: observations.fenced_commit_rejections,
         caught_up_generation_two_nodes: observations.caught_up_generation_two_nodes,
+        fence_certificate_signers: observations.fence_certificate_signers,
+        recovery_certificate_signers: observations.recovery_certificate_signers,
+        invalid_certificate_rejections: observations.invalid_certificate_rejections,
         trace_sha256: format!("{:x}", trace.finalize()),
     }
 }
@@ -837,6 +1064,55 @@ fn credential(generation: u64, transaction_system_id: &str) -> GenerationCredent
         generation,
         transaction_system_id: transaction_system_id.to_owned(),
     }
+}
+
+fn invalid_certificate(
+    valid: &RecoveryCertificate,
+    probe: CertificateProbe,
+) -> RecoveryCertificate {
+    let mut certificate = valid.clone();
+    match probe {
+        CertificateProbe::SingleSignerFence => certificate.attestations.truncate(1),
+        CertificateProbe::TamperedFencePosition => {
+            certificate.statement.log_position.index =
+                certificate.statement.log_position.index.saturating_add(1);
+        }
+        CertificateProbe::DuplicateRecoverySigner => {
+            if let Some(first) = certificate.attestations.first().cloned() {
+                certificate.attestations.push(first);
+            }
+        }
+        CertificateProbe::StaleRecoveryCertificate => {
+            certificate.statement.recovery_id = certificate.statement.recovery_id.saturating_sub(1);
+        }
+        CertificateProbe::WrongRecoveryMembership => {
+            certificate.statement.membership_sha256[0] ^= 0xff;
+        }
+    }
+    certificate
+}
+
+fn recovery_signing_seed(node_id: NodeId) -> Vec<u8> {
+    let mut digest = Sha256::new();
+    digest.update(b"OKV-GENERATION-PROCESS-TEST-SIGNER-V1\0");
+    digest.update(node_id.to_be_bytes());
+    digest.finalize().to_vec()
+}
+
+fn recovery_signer(node_id: NodeId) -> RecoverySignerConfig {
+    RecoverySignerConfig {
+        private_key_seed: recovery_signing_seed(node_id),
+    }
+}
+
+fn generation_members(node_ids: &[NodeId]) -> Result<BTreeMap<NodeId, Vec<u8>>, String> {
+    node_ids
+        .iter()
+        .map(|node_id| {
+            recovery_public_key(&recovery_signing_seed(*node_id))
+                .map(|public_key| (*node_id, public_key))
+        })
+        .collect()
 }
 
 fn client_command(
@@ -960,16 +1236,19 @@ async fn retry_generation_read(address: &str) -> Result<GenerationAuthorityState
     Err(format!("generation read failed at {address}: {last}"))
 }
 
-async fn retry_linearizable_status(address: &str) -> Result<NodeStatus, String> {
+async fn retry_recovery_attestation(
+    address: &str,
+    statement: &RecoveryCertificateStatement,
+) -> Result<crate::RecoveryAttestation, String> {
     let mut last = String::new();
     for _ in 0..RETRY_ATTEMPTS {
-        match control(address, LINEARIZABLE_STATUS, &()).await {
+        match control(address, RECOVERY_ATTEST, statement).await {
             Ok(response) => return Ok(response),
             Err(error) => last = error,
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    Err(format!("linearizable status failed at {address}: {last}"))
+    Err(format!("recovery attestation failed at {address}: {last}"))
 }
 
 async fn retry_write_data(

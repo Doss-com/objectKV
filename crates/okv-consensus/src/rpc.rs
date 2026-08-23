@@ -1,7 +1,9 @@
 use crate::{
-    ApplyError, ApplyResponse, ClientCommand, ConsensusProcessRole, GenerationAction,
-    GenerationApplyResponse, GenerationAuthorityState, GenerationCommand, GenerationCredential,
-    GenerationFenceConfig, GenerationFenceFaults, NodeId, Raft, RequestIdentity, StateMachineStore,
+    recovery_public_key, sign_recovery_statement, ApplyError, ApplyResponse, ClientCommand,
+    ConsensusProcessRole, GenerationAction, GenerationApplyResponse, GenerationAuthorityState,
+    GenerationCommand, GenerationCredential, GenerationFenceConfig, GenerationFenceFaults,
+    GenerationPhase, NodeId, Raft, RecoveryAttestation, RecoveryCertificateKind,
+    RecoveryCertificateStatement, RecoverySignerConfig, RequestIdentity, StateMachineStore,
     TypeConfig,
 };
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
@@ -33,6 +35,7 @@ pub(crate) const GENERATION_WRITE: u8 = 19;
 pub(crate) const GENERATION_READ: u8 = 20;
 pub(crate) const DATA_GENERATION_WRITE: u8 = 21;
 pub(crate) const PREAUTHORIZED_CLIENT_WRITE: u8 = 22;
+pub(crate) const RECOVERY_ATTEST: u8 = 23;
 
 pub(crate) type WireResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -43,10 +46,12 @@ pub(crate) struct ServerFaults {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ServerPolicy {
+    pub node_id: NodeId,
     pub faults: ServerFaults,
     pub role: ConsensusProcessRole,
     pub generation_fence: Option<GenerationFenceConfig>,
     pub generation_fence_faults: GenerationFenceFaults,
+    pub recovery_signer: Option<RecoverySignerConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -84,6 +89,7 @@ pub(crate) struct NodeStatus {
 pub(crate) struct WriteAck {
     pub committed: bool,
     pub log_index: Option<u64>,
+    pub log_position: Option<crate::RecoveryLogPosition>,
     pub response: Option<ApplyResponse>,
 }
 
@@ -208,6 +214,14 @@ where
             )
             .await?;
         }
+        RECOVERY_ATTEST => {
+            let statement = serde_json::from_slice::<RecoveryCertificateStatement>(&body)?;
+            write_response(
+                &mut stream,
+                &recovery_attest(&state_machine, &policy, &statement).await,
+            )
+            .await?;
+        }
         _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown wire kind").into()),
     }
     Ok(())
@@ -240,6 +254,7 @@ async fn client_write_after_authorization(
         return Some(Ok(WriteAck {
             committed: true,
             log_index: None,
+            log_position: None,
             response: None,
         }));
     }
@@ -346,11 +361,13 @@ fn authority_matches_data_transition(
             cell_id,
             generation,
             transaction_system_id,
+            transaction_system_members,
             wal_root,
             control_root_version,
         } => {
             authority.cell_id == *cell_id
                 && authority.authorizes(*generation, transaction_system_id)
+                && authority.transaction_system_members == *transaction_system_members
                 && authority.wal_root.as_deref() == Some(wal_root)
                 && authority.control_root_version == *control_root_version
         }
@@ -358,30 +375,86 @@ fn authority_matches_data_transition(
             next_generation,
             recovery_id,
             next_transaction_system_id,
+            next_transaction_system_members,
             ..
         } => {
             authority.authorizes_fencing(*next_generation, *recovery_id, next_transaction_system_id)
+                && authority.pending_transaction_system_members == *next_transaction_system_members
         }
         GenerationAction::Reserve {
             generation,
             recovery_id,
             transaction_system_id,
-            fenced_log_index,
+            certificate,
             ..
         } => {
             authority.authorizes_recovery(*generation, *recovery_id, transaction_system_id)
-                && authority.fenced_log_index == *fenced_log_index
+                && certificate.as_ref().is_some_and(|certificate| {
+                    authority.fenced_log_position == Some(certificate.statement.log_position)
+                })
         }
         GenerationAction::Activate {
             generation,
             transaction_system_id,
-            recovered_log_index,
+            certificate,
             ..
         } => {
             authority.authorizes(*generation, transaction_system_id)
-                && authority.recovered_log_index == *recovered_log_index
+                && certificate.as_ref().map_or_else(
+                    || {
+                        authority.recovered_log_position.is_none()
+                            && authority.recovered_log_index == 0
+                    },
+                    |certificate| {
+                        authority.recovered_log_position == Some(certificate.statement.log_position)
+                    },
+                )
         }
     }
+}
+
+async fn recovery_attest(
+    state_machine: &StateMachineStore,
+    policy: &ServerPolicy,
+    statement: &RecoveryCertificateStatement,
+) -> Result<RecoveryAttestation, String> {
+    if policy.role != ConsensusProcessRole::Data {
+        return Err("generation authority cannot attest a data-log position".to_owned());
+    }
+    let signer = policy
+        .recovery_signer
+        .as_ref()
+        .ok_or_else(|| "data node has no recovery signing key".to_owned())?;
+    let state = state_machine.generation_authority().await;
+    let (expected_phase, expected_position, members) = match statement.kind {
+        RecoveryCertificateKind::Fence => (
+            GenerationPhase::Fencing,
+            state_machine.generation_transition_position().await,
+            &state.transaction_system_members,
+        ),
+        RecoveryCertificateKind::Recovered => (
+            GenerationPhase::Recovering,
+            state_machine.membership_position().await,
+            &state.pending_transaction_system_members,
+        ),
+    };
+    if state.phase != expected_phase {
+        return Err(format!(
+            "data node cannot attest {:?} while generation phase is {:?}",
+            statement.kind, state.phase
+        ));
+    }
+    let position = expected_position
+        .ok_or_else(|| "data node has not applied the required log transition".to_owned())?;
+    let expected = RecoveryCertificateStatement::new(statement.kind, &state, position, members);
+    if statement != &expected {
+        return Err("certificate statement does not match the exact local observation".to_owned());
+    }
+    let public_key = recovery_public_key(&signer.private_key_seed)?;
+    if members.get(&policy.node_id) != Some(&public_key) {
+        return Err("node signing key is not pinned in the certified voter set".to_owned());
+    }
+    sign_recovery_statement(policy.node_id, &signer.private_key_seed, statement)
 }
 
 async fn generation_read(
@@ -402,6 +475,7 @@ fn write_ack(response: openraft::raft::ClientWriteResponse<TypeConfig>) -> Write
     WriteAck {
         committed: true,
         log_index: Some(response.log_id.index),
+        log_position: Some(crate::RecoveryLogPosition::from_log_id(response.log_id)),
         response: Some(response.data),
     }
 }

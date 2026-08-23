@@ -1187,6 +1187,17 @@ fn parse_generation_process_mode(value: &str) -> Result<GenerationProcessMode, S
         "activate_without_recovery_proof" => {
             Ok(GenerationProcessMode::ActivateWithoutRecoveryProof)
         }
+        "accept_single_signer_fence" => Ok(GenerationProcessMode::AcceptSingleSignerFence),
+        "accept_tampered_fence_position" => Ok(GenerationProcessMode::AcceptTamperedFencePosition),
+        "accept_duplicate_recovery_signer" => {
+            Ok(GenerationProcessMode::AcceptDuplicateRecoverySigner)
+        }
+        "accept_stale_recovery_certificate" => {
+            Ok(GenerationProcessMode::AcceptStaleRecoveryCertificate)
+        }
+        "accept_wrong_recovery_membership" => {
+            Ok(GenerationProcessMode::AcceptWrongRecoveryMembership)
+        }
         other => Err(format!("unknown generation process mode {other}")),
     }
 }

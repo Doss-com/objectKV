@@ -19,9 +19,12 @@ mod state_machine;
 pub use cluster_contract::{run_raft_cluster_contract, RaftClusterMode, RaftClusterReport};
 pub use contract::{run_raft_storage_contract, RaftStorageMode, RaftStorageReport};
 pub use generation::{
-    ConsensusProcessRole, GenerationAction, GenerationApplyResponse, GenerationAuthorityFaults,
-    GenerationAuthorityState, GenerationCommand, GenerationCommandStatus, GenerationCredential,
-    GenerationFenceConfig, GenerationFenceFaults, GenerationPhase,
+    recovery_membership_digest, recovery_public_key, sign_recovery_statement, ConsensusProcessRole,
+    GenerationAction, GenerationApplyResponse, GenerationAuthorityFaults, GenerationAuthorityState,
+    GenerationCommand, GenerationCommandStatus, GenerationCredential, GenerationFenceConfig,
+    GenerationFenceFaults, GenerationPhase, RecoveryAttestation, RecoveryCertificate,
+    RecoveryCertificateKind, RecoveryCertificateStatement, RecoveryLogPosition,
+    RecoverySignerConfig,
 };
 pub use generation_process_contract::{
     run_generation_process_contract, GenerationProcessMode, GenerationProcessReport,

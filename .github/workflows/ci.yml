@@ -34,6 +34,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-cluster.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-process.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/generation-process.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/generation-certificates.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
       - name: Verify generated MVCC histories and negative control
         run: |
@@ -151,6 +152,20 @@ jobs:
             generation-takeover-activate-without-proof; do
             output="/tmp/${workload}.json"
             cargo run --quiet -p okv-eval -- run evals/suites/generation-process.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "generation_process.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify data-quorum recovery certificates and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/generation-certificates.toml --profile local-fs --workload generation-certificate-handoff --backend process-local-fs --output /tmp/okv-generation-certificates.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "generation_process.contract_agreement").status == "pass")' /tmp/okv-generation-certificates.json
+          for workload in \
+            generation-certificate-single-signer-fence \
+            generation-certificate-tampered-fence-position \
+            generation-certificate-duplicate-recovery-signer \
+            generation-certificate-stale-recovery-id \
+            generation-certificate-wrong-membership; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/generation-certificates.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "generation_process.contract_agreement").status == "fail")' "$output"
           done
       - name: Verify local object-store capability profiles

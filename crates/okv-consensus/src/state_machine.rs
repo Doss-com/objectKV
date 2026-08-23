@@ -1,7 +1,7 @@
 use crate::{
     GenerationApplyResponse, GenerationAuthorityFaults, GenerationAuthorityState,
     GenerationCommand, GenerationCredential, GenerationFenceFaults, GenerationPhase, NodeId,
-    TypeConfig,
+    RecoveryLogPosition, TypeConfig,
 };
 use openraft::storage::{RaftStateMachine, Snapshot};
 use openraft::{
@@ -78,6 +78,7 @@ struct StateMachineData {
     durable_outcomes: BTreeMap<RequestIdentity, ApplyResponse>,
     request_fingerprints: BTreeMap<RequestIdentity, [u8; 32]>,
     generation_authority: GenerationAuthorityState,
+    last_generation_transition_log: Option<LogId<NodeId>>,
 }
 
 #[derive(Clone, Debug)]
@@ -150,6 +151,25 @@ impl StateMachineStore {
     /// Current coordinator authority state at this node's applied position.
     pub async fn generation_authority(&self) -> GenerationAuthorityState {
         self.data.read().await.generation_authority.clone()
+    }
+
+    /// Exact applied position of the most recent generation transition.
+    pub async fn generation_transition_position(&self) -> Option<RecoveryLogPosition> {
+        self.data
+            .read()
+            .await
+            .last_generation_transition_log
+            .map(RecoveryLogPosition::from_log_id)
+    }
+
+    /// Exact applied position of the current voter-set transition.
+    pub async fn membership_position(&self) -> Option<RecoveryLogPosition> {
+        self.data
+            .read()
+            .await
+            .last_membership
+            .log_id()
+            .map(RecoveryLogPosition::from_log_id)
     }
 }
 
@@ -226,11 +246,17 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
                             let status = state
                                 .generation_authority
                                 .apply(&command.action, self.generation_faults);
+                            if status == crate::GenerationCommandStatus::Accepted {
+                                state.last_generation_transition_log = Some(entry.log_id);
+                            }
                             response.identity = Some(command.identity);
                             response.generation = Some(GenerationApplyResponse {
                                 status,
                                 state: state.generation_authority.clone(),
                                 applied_log_index: entry.log_id.index,
+                                applied_log_position: RecoveryLogPosition::from_log_id(
+                                    entry.log_id,
+                                ),
                             });
                             state
                                 .request_fingerprints

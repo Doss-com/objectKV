@@ -4,7 +4,7 @@ use crate::rpc::{
 };
 use crate::{
     ConsensusProcessRole, GenerationAuthorityFaults, GenerationFenceConfig, GenerationFenceFaults,
-    NodeId, OpenRaftLogStore, Raft, StateMachineStore, TypeConfig,
+    NodeId, OpenRaftLogStore, Raft, RecoverySignerConfig, StateMachineStore, TypeConfig,
 };
 use openraft::error::{RPCError, RaftError, RemoteError, Unreachable};
 use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
@@ -39,6 +39,7 @@ pub struct ProcessNodePolicy {
     pub generation_fence: Option<GenerationFenceConfig>,
     pub generation_authority_faults: GenerationAuthorityFaults,
     pub generation_fence_faults: GenerationFenceFaults,
+    pub recovery_signer: Option<RecoverySignerConfig>,
 }
 
 #[derive(Clone, Debug)]
@@ -158,15 +159,20 @@ pub async fn run_process_node(config: ProcessNodeConfig) -> Result<(), String> {
         let state_machine = state_machine.clone();
         let nodes = nodes.clone();
         let policy = ServerPolicy {
+            node_id: config.node_id,
             faults: ServerFaults {
                 acknowledge_before_quorum: config.acknowledge_before_quorum,
             },
             role: config.policy.role,
             generation_fence: config.policy.generation_fence.clone(),
             generation_fence_faults: config.policy.generation_fence_faults,
+            recovery_signer: config.policy.recovery_signer.clone(),
         };
         tokio::spawn(async move {
-            let _ = handle_connection(stream, raft, state_machine, nodes, policy).await;
+            if let Err(error) = handle_connection(stream, raft, state_machine, nodes, policy).await
+            {
+                eprintln!("consensus control connection failed: {error}");
+            }
         });
     }
 }
