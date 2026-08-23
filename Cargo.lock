@@ -3007,6 +3007,7 @@ dependencies = [
  "futures-util",
  "jsonschema",
  "object_store 0.14.1",
+ "okv-consensus",
  "okv-wal",
  "serde",
  "serde_json",

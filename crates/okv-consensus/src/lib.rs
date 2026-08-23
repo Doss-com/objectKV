@@ -13,6 +13,8 @@ mod generation_process_contract;
 mod process_contract;
 mod process_node;
 mod publication;
+mod publication_client;
+mod publication_fixture;
 mod publication_process_contract;
 mod rpc;
 mod sim_network;
@@ -41,6 +43,9 @@ pub use publication::{
     PublicationObjectKind, PublicationObjectReference, PublicationOutcome,
     RevisionToken as PublicationRevisionToken,
 };
+pub use publication_client::PublicationClient;
+#[doc(hidden)]
+pub use publication_fixture::PublicationAuthorityProcessFixture;
 pub use publication_process_contract::{
     run_publication_process_contract, PublicationProcessMode, PublicationProcessReport,
 };

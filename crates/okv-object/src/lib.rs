@@ -27,9 +27,14 @@ use uuid::Uuid;
 pub const OBJECT_STORE_DRIVER_VERSION: &str = "0.14.1";
 
 mod publication_adapter;
+mod publisher_process;
 
 pub use publication_adapter::{
     run_publication_adapter_contract, PublicationAdapterMode, PublicationAdapterReport,
+};
+pub use publisher_process::{
+    run_publication_publisher_process_contract, run_publication_publisher_process_node,
+    PublisherProcessConfig, PublisherProcessMode, PublisherProcessReport,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

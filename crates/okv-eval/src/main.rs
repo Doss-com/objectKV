@@ -23,8 +23,10 @@ use okv_model::{
 };
 use okv_object::{
     filesystem_backend, gcs_backend_from_env, memory_backend, minio_backend_from_env,
-    run_conformance, run_publication_adapter_contract, validate_conformance_report, CaseStatus,
-    ConformanceOptions, ConformanceProfile, PublicationAdapterMode,
+    run_conformance, run_publication_adapter_contract, run_publication_publisher_process_contract,
+    run_publication_publisher_process_node, validate_conformance_report, CaseStatus,
+    ConformanceOptions, ConformanceProfile, PublicationAdapterMode, PublisherProcessConfig,
+    PublisherProcessMode,
 };
 use okv_sim::{
     run_commit_contract, run_generation_fencing, run_persisted_wal_contract, CommitContractMode,
@@ -127,9 +129,22 @@ enum Commands {
         #[arg(long, default_value = "correct")]
         mode: String,
     },
+    /// Emit one canonical publisher prepare/restart trace without suite orchestration.
+    PublicationPublisherProcessTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "correct")]
+        mode: String,
+    },
     /// Internal entrypoint used by the real-process consensus controller.
     #[command(hide = true)]
     ConsensusNode {
+        #[arg(long)]
+        config_json: String,
+    },
+    /// Internal entrypoint used by the dedicated publisher controller.
+    #[command(hide = true)]
+    PublisherNode {
         #[arg(long)]
         config_json: String,
     },
@@ -197,12 +212,25 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let report = run_publication_process_contract(seed, mode, &executable)?;
             println!("{}", serde_json::to_string(&report)?);
         }
+        Commands::PublicationPublisherProcessTrace { seed, mode } => {
+            let mode = parse_publisher_process_mode(&mode).map_err(std::io::Error::other)?;
+            let executable = std::env::current_exe()?;
+            let report = run_publication_publisher_process_contract(seed, mode, &executable)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
         Commands::ConsensusNode { config_json } => {
             let config = serde_json::from_str::<ProcessNodeConfig>(&config_json)?;
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
             runtime.block_on(run_process_node(config))?;
+        }
+        Commands::PublisherNode { config_json } => {
+            let config = serde_json::from_str::<PublisherProcessConfig>(&config_json)?;
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            runtime.block_on(run_publication_publisher_process_node(config))?;
         }
     }
     Ok(())
@@ -538,6 +566,9 @@ fn execute_workload(
         "generation_process_contract" => run_generation_process(workload, seeds, backend),
         "publication_authority_process_contract" => {
             run_publication_process(workload, seeds, backend)
+        }
+        "publication_publisher_process_contract" => {
+            run_publication_publisher_process(workload, seeds, backend)
         }
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "htap_physical_contract" => run_htap_physical_contract(workload, seeds, backend),
@@ -1251,6 +1282,14 @@ fn parse_publication_process_mode(value: &str) -> Result<PublicationProcessMode,
     }
 }
 
+fn parse_publisher_process_mode(value: &str) -> Result<PublisherProcessMode, String> {
+    match value {
+        "correct" | "none" => Ok(PublisherProcessMode::Correct),
+        "upload_before_prepare_ack" => Ok(PublisherProcessMode::UploadBeforePrepareAck),
+        other => Err(format!("unknown publisher process mode {other}")),
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn run_generation_process(
     workload: &WorkloadConfig,
@@ -1471,6 +1510,212 @@ fn run_generation_process(
             (
                 "generation_process.caught_up_nodes".to_owned(),
                 bounded_count(caught_up_nodes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_publication_publisher_process(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "publisher process workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("none");
+    let mode = match parse_publisher_process_mode(control) {
+        Ok(mode) => mode,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut check_count = 0_u64;
+    let mut authority_process_starts = 0_u64;
+    let mut publisher_process_starts = 0_u64;
+    let mut process_kills = 0_u64;
+    let mut object_puts = 0_u64;
+    let mut publication_writes = 0_u64;
+    let mut empty_scratch_restarts = 0_u64;
+    let mut exact_replay = true;
+    let mut aggregate_checks = BTreeMap::<String, bool>::new();
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+
+    for seed in seeds {
+        let first = match run_publication_publisher_process_contract(*seed, mode, &executable) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_publication_publisher_process_contract(*seed, mode, &executable) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        check_count = check_count.saturating_add(first.executed_checks);
+        authority_process_starts =
+            authority_process_starts.saturating_add(first.authority_process_starts);
+        publisher_process_starts =
+            publisher_process_starts.saturating_add(first.publisher_process_starts);
+        process_kills = process_kills.saturating_add(first.process_kills);
+        object_puts = object_puts.saturating_add(first.object_puts);
+        publication_writes = publication_writes.saturating_add(first.publication_writes);
+        empty_scratch_restarts =
+            empty_scratch_restarts.saturating_add(first.empty_scratch_restarts);
+        for (check, passed) in &first.checks {
+            aggregate_checks
+                .entry(check.clone())
+                .and_modify(|aggregate| *aggregate &= *passed)
+                .or_insert(*passed);
+        }
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, check {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "publisher-prepare-restart-v1"),
+                    (
+                        "anomaly.class",
+                        if exact { "none" } else { "publisher_ordering" },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "publisher-prepare-restart"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-publisher-process://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let seed_count = u64::try_from(seeds.len()).unwrap_or(u64::MAX);
+    let semantic_operations_exercised = check_count == seed_count.saturating_mul(10)
+        && authority_process_starts == seed_count.saturating_mul(3)
+        && if mode == PublisherProcessMode::Correct {
+            publisher_process_starts == seed_count.saturating_mul(2)
+                && process_kills == seed_count
+                && object_puts == seed_count.saturating_mul(3)
+                && publication_writes == seed_count.saturating_mul(3)
+                && empty_scratch_restarts == seed_count
+        } else {
+            publisher_process_starts == seed_count
+                && process_kills == seed_count
+                && object_puts == seed_count
+                && publication_writes == 0
+                && empty_scratch_restarts == 0
+        };
+    let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "publisher process gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+    let mut hard_gates = vec![
+        HardGateResult {
+            id: "publisher_process.exact_fresh_process_replay".to_owned(),
+            status: if exact_replay {
+                GateStatus::Pass
+            } else {
+                GateStatus::Fail
+            },
+            detail: None,
+        },
+        HardGateResult {
+            id: "publisher_process.semantic_operations_exercised".to_owned(),
+            status: if semantic_operations_exercised {
+                GateStatus::Pass
+            } else {
+                GateStatus::Fail
+            },
+            detail: Some(format!(
+                "checks={check_count}, authority_starts={authority_process_starts}, publisher_starts={publisher_process_starts}, kills={process_kills}, object_puts={object_puts}, publication_writes={publication_writes}, empty_scratch_restarts={empty_scratch_restarts}"
+            )),
+        },
+        HardGateResult {
+            id: "publisher_process.contract_agreement".to_owned(),
+            status: if anomaly_count == 0 {
+                GateStatus::Pass
+            } else {
+                GateStatus::Fail
+            },
+            detail: mismatch_details.first().cloned(),
+        },
+    ];
+    hard_gates.extend(aggregate_checks.iter().map(|(id, passed)| HardGateResult {
+        id: id.clone(),
+        status: if *passed {
+            GateStatus::Pass
+        } else {
+            GateStatus::Fail
+        },
+        detail: None,
+    }));
+
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates,
+        budget_units: bounded_count(check_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            (
+                "publisher_process.checks".to_owned(),
+                bounded_count(check_count),
+            ),
+            (
+                "publisher_process.authority_starts".to_owned(),
+                bounded_count(authority_process_starts),
+            ),
+            (
+                "publisher_process.publisher_starts".to_owned(),
+                bounded_count(publisher_process_starts),
+            ),
+            (
+                "publisher_process.process_kills".to_owned(),
+                bounded_count(process_kills),
+            ),
+            (
+                "publisher_process.object_puts".to_owned(),
+                bounded_count(object_puts),
             ),
         ]),
     }
