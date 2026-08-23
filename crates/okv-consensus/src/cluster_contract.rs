@@ -1,6 +1,5 @@
-use crate::sim_network::{
-    elect, heartbeat, initialize, run_node, status, write, NodeStatus, WriteAck,
-};
+use crate::rpc::{NodeStatus, WriteAck};
+use crate::sim_network::{elect, heartbeat, initialize, run_node, status, write};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::future::Future;

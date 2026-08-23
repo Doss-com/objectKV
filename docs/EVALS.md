@@ -36,6 +36,13 @@ leader isolation, explicit successor election, stale-suffix replacement,
 simulated process crash and bounce, and restarted-node catchup. Three negative
 subjects expose early acknowledgement, missing successor election, and missing
 restart catchup.
+The `openraft-process-contract-v1` suite runs three OpenRaft nodes as separate
+OS processes over normal Tokio TCP. It commits a versioned request, drops the
+reply only after apply, kills the leader process, elects a successor, retries
+the same request identity, restarts the killed node from its retained log, and
+requires one logical effect plus the original outcome on every node. Three
+negative subjects disable deduplication, acknowledge without quorum, and omit
+the killed-node restart.
 
 ## Executable configuration
 
@@ -204,8 +211,37 @@ Turmoil drops the node runtime and recreates its host future. This is a
 deterministic simulated process crash, not an OS process kill. The per-node
 journal uses the real local filesystem, so the gate proves reopen and replay of
 synced state across a simulated bounce, not unsynced-disk loss. Exact
-fresh-process replay, real process kill, generation takeover, and durable
-request-outcome integration remain separate gates.
+fresh-process replay, real process kill, and retained request-outcome recovery
+are exercised by the separate gate below. Generation takeover remains a
+separate gate.
+
+## OpenRaft real-process lost-reply gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/raft-process.toml \
+  --profile local-fs \
+  --workload openraft-process-lost-reply \
+  --backend process-local-fs
+```
+
+The controller starts three child processes over normal localhost TCP, commits
+`A`, then submits a versioned `X` request whose server connection closes only
+after OpenRaft applies the committed entry. It kills that leader with an OS
+process signal, explicitly elects node 2, recovers the request outcome before
+retry, retries the same identity, and requires the original response with one
+logical `X`. Node 1 then starts with the same journal, rebuilds the outcome by
+replaying the retained Raft log into a fresh in-memory state machine, and all
+nodes continue to exactly `A, X, B`.
+
+The report excludes ports, paths, PIDs, and timestamps. CI invokes a standalone
+trace in two fresh controller processes and requires byte-identical JSON. It
+also requires all three unsafe subjects to discard through the same schema and
+OTel path.
+
+This proves process isolation, normal TCP, retained-log replay, and bounded
+lost-reply semantics. It does not prove separately persisted state-machine
+snapshots, retained-outcome expiry, automatic election, transaction-system
+generation takeover, independent-disk loss, or object-store recovery.
 
 ## MVCC semantic gate
 

@@ -232,10 +232,15 @@ become one GitHub issue.
   quorum commit through two leader changes, isolated-leader non-acknowledgement,
   stale-suffix replacement after repair, simulated process crash and bounce,
   and exact restarted-node catchup. Three unsafe cluster subjects discard.
-- Remaining: add real process-crash boundaries, integrate durable request
-  outcomes and generation takeover, define
-  retained-outcome expiry and compaction, and prove disk-full, replica repair,
-  independent-disk failure, and replacement recovery.
+  The `openraft-process-contract-v1` gate now starts three child processes over
+  normal Tokio TCP, drops one reply after apply, kills the leader process,
+  recovers the request outcome on its successor, retries exactly once, and
+  restarts the killed node from its retained log. CI rejects disabled
+  deduplication, acknowledgement without quorum, and skipped restart/catchup.
+- Remaining: integrate transaction-system generation takeover, separately
+  persist or snapshot retained request outcomes, define retained-outcome expiry
+  and compaction, and prove disk-full, replica repair, independent-disk failure,
+  and replacement recovery.
 
 ## Opens after Gate 1
 

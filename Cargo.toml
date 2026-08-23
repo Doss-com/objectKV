@@ -47,7 +47,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 slatedb = { git = "https://github.com/slatedb/slatedb.git", rev = "e0161973d8d7ffdede7c44725729838811674e99", default-features = false }
-tokio = { version = "1.47.1", features = ["io-util", "macros", "rt", "sync", "time"] }
+tokio = { version = "1.47.1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-opentelemetry = "0.33.0"

@@ -83,6 +83,9 @@ cargo run -p okv-eval -- run evals/suites/persisted-wal.toml \
 cargo run -p okv-eval -- run evals/suites/raft-cluster.toml \
   --profile local-fs --workload openraft-three-node-failover \
   --backend turmoil-local-fs
+cargo run -p okv-eval -- run evals/suites/raft-process.toml \
+  --profile local-fs --workload openraft-process-lost-reply \
+  --backend process-local-fs
 cargo run -p okv-eval -- run evals/suites/htap-contract.toml \
   --profile model-dev --workload zebradb-base-plus-tail --backend model
 ```

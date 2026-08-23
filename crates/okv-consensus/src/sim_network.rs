@@ -1,3 +1,8 @@
+use crate::rpc::{
+    handle_connection, read_response, write_request, ControlWrite, NodeStatus, ServerFaults,
+    WriteAck, APPEND, CLIENT_WRITE, ELECT, HEARTBEAT, INITIALIZE, INSTALL_SNAPSHOT, PORT, STATUS,
+    VOTE,
+};
 use crate::{NodeId, OpenRaftLogStore, Raft, StateMachineStore, TypeConfig};
 use openraft::error::{RPCError, RaftError, RemoteError, Unreachable};
 use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
@@ -5,27 +10,15 @@ use openraft::raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
 };
-use openraft::{BasicNode, Config, ServerState, SnapshotPolicy};
+use openraft::{BasicNode, Config, SnapshotPolicy};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use turmoil::net::{TcpListener, TcpStream};
-
-const PORT: u16 = 24_091;
-const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
-const APPEND: u8 = 1;
-const VOTE: u8 = 2;
-const INSTALL_SNAPSHOT: u8 = 3;
-const INITIALIZE: u8 = 10;
-const ELECT: u8 = 11;
-const HEARTBEAT: u8 = 12;
-const CLIENT_WRITE: u8 = 13;
-const STATUS: u8 = 14;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SimNetworkFactory;
@@ -101,46 +94,6 @@ impl SimConnection {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) struct NodeStatus {
-    pub node_id: NodeId,
-    pub term: u64,
-    pub state: String,
-    pub leader: Option<NodeId>,
-    pub last_log_index: Option<u64>,
-    pub last_applied_index: Option<u64>,
-    pub payloads: Vec<Vec<u8>>,
-}
-
-impl NodeStatus {
-    fn from_parts(raft: &Raft) -> Self {
-        let metrics = raft.metrics();
-        let metrics = metrics.borrow().clone();
-        let state = match metrics.state {
-            ServerState::Learner => "learner",
-            ServerState::Follower => "follower",
-            ServerState::Candidate => "candidate",
-            ServerState::Leader => "leader",
-            ServerState::Shutdown => "shutdown",
-        };
-        Self {
-            node_id: metrics.id,
-            term: metrics.current_term,
-            state: state.to_owned(),
-            leader: metrics.current_leader,
-            last_log_index: metrics.last_log_index,
-            last_applied_index: metrics.last_applied.map(|log_id| log_id.index),
-            payloads: Vec::new(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) struct WriteAck {
-    pub committed: bool,
-    pub log_index: Option<u64>,
-}
-
 pub(crate) async fn run_node(
     node_id: NodeId,
     root: PathBuf,
@@ -156,13 +109,28 @@ pub(crate) async fn run_node(
         state_machine.clone(),
     )
     .await?;
+    let nodes = Arc::new(BTreeMap::from([
+        (1, BasicNode::new("node-1")),
+        (2, BasicNode::new("node-2")),
+        (3, BasicNode::new("node-3")),
+    ]));
     let listener = TcpListener::bind(("0.0.0.0", PORT)).await?;
     loop {
         let (stream, _) = listener.accept().await?;
         let raft = raft.clone();
         let state_machine = state_machine.clone();
+        let nodes = nodes.clone();
         tokio::spawn(async move {
-            let _ = handle_connection(stream, raft, state_machine, acknowledge_before_quorum).await;
+            let _ = handle_connection(
+                stream,
+                raft,
+                state_machine,
+                nodes,
+                ServerFaults {
+                    acknowledge_before_quorum,
+                },
+            )
+            .await;
         });
     }
 }
@@ -180,103 +148,6 @@ fn cluster_config() -> Result<Arc<Config>, openraft::ConfigError> {
     Ok(Arc::new(config))
 }
 
-async fn handle_connection(
-    mut stream: TcpStream,
-    raft: Raft,
-    state_machine: Arc<StateMachineStore>,
-    acknowledge_before_quorum: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let kind = stream.read_u8().await?;
-    let body = read_frame(&mut stream).await?;
-    match kind {
-        APPEND => {
-            let request = serde_json::from_slice::<AppendEntriesRequest<TypeConfig>>(&body)?;
-            write_response(&mut stream, &raft.append_entries(request).await).await?;
-        }
-        VOTE => {
-            let request = serde_json::from_slice::<VoteRequest<NodeId>>(&body)?;
-            write_response(&mut stream, &raft.vote(request).await).await?;
-        }
-        INSTALL_SNAPSHOT => {
-            let request = serde_json::from_slice::<InstallSnapshotRequest<TypeConfig>>(&body)?;
-            write_response(&mut stream, &raft.install_snapshot(request).await).await?;
-        }
-        INITIALIZE => {
-            let _: () = serde_json::from_slice(&body)?;
-            let nodes = BTreeMap::from([
-                (1, BasicNode::new("node-1")),
-                (2, BasicNode::new("node-2")),
-                (3, BasicNode::new("node-3")),
-            ]);
-            write_string_result(&mut stream, raft.initialize(nodes).await).await?;
-        }
-        ELECT => {
-            let _: () = serde_json::from_slice(&body)?;
-            write_string_result(&mut stream, raft.trigger().elect().await).await?;
-        }
-        HEARTBEAT => {
-            let _: () = serde_json::from_slice(&body)?;
-            write_string_result(&mut stream, raft.trigger().heartbeat().await).await?;
-        }
-        CLIENT_WRITE => {
-            let payload = serde_json::from_slice::<Vec<u8>>(&body)?;
-            if acknowledge_before_quorum {
-                let raft = raft.clone();
-                tokio::spawn(async move {
-                    let _: Result<_, openraft::error::RaftError<NodeId, _>> =
-                        raft.client_write(payload).await;
-                });
-                write_response(
-                    &mut stream,
-                    &Ok::<_, String>(WriteAck {
-                        committed: true,
-                        log_index: None,
-                    }),
-                )
-                .await?;
-            } else {
-                let result = raft
-                    .client_write(payload)
-                    .await
-                    .map(|response| WriteAck {
-                        committed: true,
-                        log_index: Some(response.log_id.index),
-                    })
-                    .map_err(|error| error.to_string());
-                write_response(&mut stream, &result).await?;
-            }
-        }
-        STATUS => {
-            let _: () = serde_json::from_slice(&body)?;
-            let mut status = NodeStatus::from_parts(&raft);
-            status.payloads = state_machine.applied_payloads().await;
-            write_response(&mut stream, &Ok::<_, String>(status)).await?;
-        }
-        _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown wire kind").into()),
-    }
-    Ok(())
-}
-
-async fn write_string_result<T, E>(
-    stream: &mut TcpStream,
-    result: Result<T, E>,
-) -> Result<(), Box<dyn std::error::Error>>
-where
-    T: Serialize,
-    E: std::fmt::Display,
-{
-    write_response(stream, &result.map_err(|error| error.to_string())).await
-}
-
-async fn write_response<T: Serialize>(
-    stream: &mut TcpStream,
-    response: &T,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let bytes = serde_json::to_vec(response)?;
-    write_frame(stream, &bytes).await?;
-    Ok(())
-}
-
 pub(crate) async fn initialize(host: &str) -> Result<(), String> {
     control(host, INITIALIZE, &()).await
 }
@@ -290,7 +161,15 @@ pub(crate) async fn heartbeat(host: &str) -> Result<(), String> {
 }
 
 pub(crate) async fn write(host: &str, payload: &[u8]) -> Result<WriteAck, String> {
-    control(host, CLIENT_WRITE, &payload.to_vec()).await
+    control(
+        host,
+        CLIENT_WRITE,
+        &ControlWrite {
+            app_data: payload.to_vec(),
+            drop_reply_after_commit: false,
+        },
+    )
+    .await
 }
 
 pub(crate) async fn status(host: &str) -> Result<NodeStatus, String> {
@@ -313,41 +192,6 @@ where
     Resp: DeserializeOwned,
 {
     let mut stream = TcpStream::connect((host, PORT)).await?;
-    let body = serde_json::to_vec(request).map_err(invalid_data)?;
-    stream.write_u8(kind).await?;
-    write_frame(&mut stream, &body).await?;
-    let response = read_frame(&mut stream).await?;
-    serde_json::from_slice(&response).map_err(invalid_data)
-}
-
-async fn write_frame(stream: &mut TcpStream, body: &[u8]) -> io::Result<()> {
-    let length = u32::try_from(body.len())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame exceeds u32"))?;
-    if body.len() > MAX_FRAME_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "frame exceeds contract limit",
-        ));
-    }
-    stream.write_u32(length).await?;
-    stream.write_all(body).await?;
-    stream.flush().await
-}
-
-async fn read_frame(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
-    let length = usize::try_from(stream.read_u32().await?)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid frame length"))?;
-    if length > MAX_FRAME_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "frame exceeds contract limit",
-        ));
-    }
-    let mut body = vec![0; length];
-    stream.read_exact(&mut body).await?;
-    Ok(body)
-}
-
-fn invalid_data(error: impl std::fmt::Display) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, error.to_string())
+    write_request(&mut stream, kind, request).await?;
+    read_response(&mut stream).await
 }

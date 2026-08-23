@@ -1,0 +1,82 @@
+schema_version = 1
+id = "openraft-process-contract-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+]
+dataset_generator = "deterministic-three-process-openraft-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 0
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 30
+repeats = 1
+backend = "process-local-fs"
+nodes = 3
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+automatic_election = false
+automatic_heartbeat = false
+state_machine_recovery = "retained-log-replay"
+
+[[lanes]]
+id = "commit-failover"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "openraft-process-lost-reply"
+lane = "commit-failover"
+operation = "raft_process_contract"
+
+[[workloads]]
+id = "openraft-process-disable-dedup"
+lane = "commit-failover"
+operation = "raft_process_contract"
+negative_control = "disable_dedup"
+
+[[workloads]]
+id = "openraft-process-ack-before-quorum"
+lane = "commit-failover"
+operation = "raft_process_contract"
+negative_control = "acknowledge_before_quorum"
+
+[[workloads]]
+id = "openraft-process-skip-killed-restart"
+lane = "commit-failover"
+operation = "raft_process_contract"
+negative_control = "skip_killed_node_restart"
+
+[hard_gates]
+correctness_anomalies = 0
+lost_reply_occurs_after_apply = true
+successor_recovers_durable_outcome = true
+duplicate_retry_returns_original_outcome = true
+duplicate_retry_applies_once = true
+killed_node_replays_retained_log = true
+all_nodes_continue_exactly = true
+fresh_process_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true

@@ -32,6 +32,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/persisted-wal.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-storage.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-cluster.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-process.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
       - name: Verify generated MVCC histories and negative control
         run: |
@@ -119,6 +120,21 @@ jobs:
             output="/tmp/${workload}.json"
             cargo run --quiet -p okv-eval -- run evals/suites/raft-cluster.toml --profile local-fs --workload "$workload" --backend turmoil-local-fs --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "raft_cluster.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify real-process OpenRaft lost-reply recovery and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- raft-process-trace --seed 1103 > /tmp/okv-process-trace-a.json
+          cargo run --quiet -p okv-eval -- raft-process-trace --seed 1103 > /tmp/okv-process-trace-b.json
+          cmp /tmp/okv-process-trace-a.json /tmp/okv-process-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/raft-process.toml --profile local-fs --workload openraft-process-lost-reply --backend process-local-fs --output /tmp/okv-openraft-process.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "raft_process.contract_agreement").status == "pass")' /tmp/okv-openraft-process.json
+          for workload in \
+            openraft-process-disable-dedup \
+            openraft-process-ack-before-quorum \
+            openraft-process-skip-killed-restart; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/raft-process.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "raft_process.contract_agreement").status == "fail")' "$output"
           done
       - name: Verify local object-store capability profiles
         run: |

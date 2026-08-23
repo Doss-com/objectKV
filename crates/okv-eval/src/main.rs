@@ -1,7 +1,9 @@
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use okv_consensus::{
-    run_raft_cluster_contract, run_raft_storage_contract, RaftClusterMode, RaftStorageMode,
+    run_process_node, run_raft_cluster_contract, run_raft_process_contract,
+    run_raft_storage_contract, ProcessNodeConfig, RaftClusterMode, RaftProcessMode,
+    RaftStorageMode,
 };
 use okv_eval::config::{load_suite, BudgetKind, LoadedSuite, WorkloadConfig};
 use okv_eval::result::{
@@ -98,6 +100,19 @@ enum Commands {
         #[arg(long)]
         allow_dirty: bool,
     },
+    /// Emit one canonical real-process trace without suite orchestration.
+    RaftProcessTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "correct")]
+        mode: String,
+    },
+    /// Internal entrypoint used by the real-process consensus controller.
+    #[command(hide = true)]
+    ConsensusNode {
+        #[arg(long)]
+        config_json: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -144,6 +159,19 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             output.as_deref(),
             allow_dirty,
         )?,
+        Commands::RaftProcessTrace { seed, mode } => {
+            let mode = parse_raft_process_mode(&mode).map_err(std::io::Error::other)?;
+            let executable = std::env::current_exe()?;
+            let report = run_raft_process_contract(seed, mode, &executable)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::ConsensusNode { config_json } => {
+            let config = serde_json::from_str::<ProcessNodeConfig>(&config_json)?;
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            runtime.block_on(run_process_node(config))?;
+        }
     }
     Ok(())
 }
@@ -474,6 +502,7 @@ fn execute_workload(
         "persisted_wal_contract" => run_persisted_wal(workload, seeds, backend),
         "raft_storage_contract" => run_raft_storage(workload, seeds, backend),
         "raft_cluster_contract" => run_raft_cluster(workload, seeds, backend),
+        "raft_process_contract" => run_raft_process(workload, seeds, backend),
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
@@ -1119,6 +1148,230 @@ fn run_raft_cluster(workload: &WorkloadConfig, seeds: &[u64], backend: &str) -> 
             ),
             (
                 "raft_cluster.caught_up_nodes".to_owned(),
+                bounded_count(caught_up_nodes),
+            ),
+        ]),
+    }
+}
+
+fn parse_raft_process_mode(value: &str) -> Result<RaftProcessMode, String> {
+    match value {
+        "correct" | "none" => Ok(RaftProcessMode::Correct),
+        "disable_dedup" => Ok(RaftProcessMode::DisableDedup),
+        "acknowledge_before_quorum" => Ok(RaftProcessMode::AcknowledgeBeforeQuorum),
+        "skip_killed_node_restart" => Ok(RaftProcessMode::SkipKilledNodeRestart),
+        other => Err(format!("unknown Raft process mode {other}")),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_raft_process(workload: &WorkloadConfig, seeds: &[u64], backend: &str) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "Raft process workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("none");
+    let mode = match parse_raft_process_mode(control) {
+        Ok(mode) => mode,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut check_count = 0_u64;
+    let mut committed_writes = 0_u64;
+    let mut elections = 0_u64;
+    let mut process_starts = 0_u64;
+    let mut process_kills = 0_u64;
+    let mut dropped_replies = 0_u64;
+    let mut duplicate_retries = 0_u64;
+    let mut recovered_outcomes = 0_u64;
+    let mut caught_up_nodes = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+    for seed in seeds {
+        let first = match run_raft_process_contract(*seed, mode, &executable) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_raft_process_contract(*seed, mode, &executable) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        check_count = check_count.saturating_add(first.executed_checks);
+        committed_writes = committed_writes.saturating_add(first.committed_writes);
+        elections = elections.saturating_add(first.elections);
+        process_starts = process_starts.saturating_add(first.process_starts);
+        process_kills = process_kills.saturating_add(first.process_kills);
+        dropped_replies = dropped_replies.saturating_add(first.dropped_replies);
+        duplicate_retries = duplicate_retries.saturating_add(first.duplicate_retries);
+        recovered_outcomes = recovered_outcomes.saturating_add(first.recovered_outcomes);
+        caught_up_nodes = caught_up_nodes.saturating_add(first.caught_up_nodes);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, check {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "openraft-process-contract-v1"),
+                    ("anomaly.class", if exact { "none" } else { "raft_process" }),
+                ]),
+            },
+            Measurement {
+                metric: "transaction.commits",
+                value: bounded_count(first.committed_writes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("isolation", "openraft-cell-v0"),
+                    (
+                        "result",
+                        if exact {
+                            "replay-deduplicated"
+                        } else {
+                            "rejected"
+                        },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "lost-reply-process-failover-restart"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-openraft-process://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let seed_count = u64::try_from(seeds.len()).unwrap_or(u64::MAX);
+    let expected_counts = match mode {
+        RaftProcessMode::Correct | RaftProcessMode::DisableDedup => (4, 1, 1, 1),
+        RaftProcessMode::AcknowledgeBeforeQuorum => (6, 3, 0, 0),
+        RaftProcessMode::SkipKilledNodeRestart => (3, 1, 1, 1),
+    };
+    let semantic_operations_exercised = check_count == seed_count.saturating_mul(8)
+        && process_starts == seed_count.saturating_mul(expected_counts.0)
+        && process_kills == seed_count.saturating_mul(expected_counts.1)
+        && dropped_replies == seed_count.saturating_mul(expected_counts.2)
+        && duplicate_retries == seed_count.saturating_mul(expected_counts.3);
+    let expected_success_path = mode != RaftProcessMode::Correct
+        || (committed_writes == seed_count.saturating_mul(3)
+            && elections == seed_count.saturating_mul(2)
+            && recovered_outcomes == seed_count.saturating_mul(3)
+            && caught_up_nodes == seed_count.saturating_mul(3));
+    let passed = anomaly_count == 0
+        && exact_replay
+        && semantic_operations_exercised
+        && expected_success_path;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "Raft process gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}, expected_success_path={expected_success_path}; {detail}",
+            mode.id()
+        )
+    });
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "raft_process.exact_fresh_process_replay".to_owned(),
+                status: if exact_replay {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: None,
+            },
+            HardGateResult {
+                id: "raft_process.semantic_operations_exercised".to_owned(),
+                status: if semantic_operations_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(format!(
+                    "checks={check_count}, commits={committed_writes}, elections={elections}, starts={process_starts}, kills={process_kills}, dropped_replies={dropped_replies}, retries={duplicate_retries}, recovered_outcomes={recovered_outcomes}, caught_up={caught_up_nodes}"
+                )),
+            },
+            HardGateResult {
+                id: "raft_process.contract_agreement".to_owned(),
+                status: if anomaly_count == 0 && expected_success_path {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(check_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            ("raft_process.checks".to_owned(), bounded_count(check_count)),
+            (
+                "raft_process.committed_writes".to_owned(),
+                bounded_count(committed_writes),
+            ),
+            (
+                "raft_process.elections".to_owned(),
+                bounded_count(elections),
+            ),
+            (
+                "raft_process.process_starts".to_owned(),
+                bounded_count(process_starts),
+            ),
+            (
+                "raft_process.process_kills".to_owned(),
+                bounded_count(process_kills),
+            ),
+            (
+                "raft_process.dropped_replies".to_owned(),
+                bounded_count(dropped_replies),
+            ),
+            (
+                "raft_process.duplicate_retries".to_owned(),
+                bounded_count(duplicate_retries),
+            ),
+            (
+                "raft_process.recovered_outcomes".to_owned(),
+                bounded_count(recovered_outcomes),
+            ),
+            (
+                "raft_process.caught_up_nodes".to_owned(),
                 bounded_count(caught_up_nodes),
             ),
         ]),
