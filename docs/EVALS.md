@@ -276,6 +276,41 @@ lost replicated `Publish` response, repeated unknown-response budgets,
 multipart residue cleanup, abandoned-intent reassignment, sweeper recovery,
 generation-bound effect grants, independent-disk loss, or cloud economics.
 
+## Publisher lost-Publish-response recovery gate
+
+```bash
+cargo run -p okv-eval -- run \
+  evals/suites/object-publication-publisher-publish-recovery.toml \
+  --profile local-fs \
+  --workload publisher-publish-unknown-restart \
+  --backend object-store-local-fs+process-openraft
+```
+
+The suite freezes RFC-0020 and uses three seeds for fourteen semantic checks
+each. Candidate `72df70c` kept in run
+`a544deff-edec-4885-a0bf-b1217d720328` with zero anomalies at the exact
+42-event budget. It started nine authority processes and six publisher
+processes, issued six real process kills and three authority failovers, made
+nine object PUT attempts with nine effects, dropped three successful `Publish`
+replies, recovered three exact outcomes, and replayed them without a second
+transition. The empty-scratch replacements issued no object PUTs and performed
+forty-five named verification reads. Two fresh seed-1103 controllers emitted
+byte-identical semantic receipts. The convergence-only subject reached the same
+final root and closure but discarded in run
+`82698bdb-443d-4ad7-830f-5bef6927b8f8` with four anomalies per seed, two
+`Publish` applications per seed, and no recovered outcomes. OTel run
+`50ad5d86-ee3e-4790-9c19-d81383d68002` exported two log records, one trace
+span, eight metrics, and eight metric data points. Prometheus exposed
+correctness anomalies at zero, availability ratio at one, and operation
+duration at 3.723415042 seconds.
+
+This admits one lost successful `Publish` reply followed by publisher death,
+accepting-leader death, empty-scratch reconstruction, successor outcome
+recovery, and exact retry without a second authority or object effect. It does
+not admit repeated lost replies, outcome expiry or snapshot restoration, a
+later root superseding the publication, generation handoff at this boundary,
+multipart residue cleanup, independent-disk loss, or cloud economics.
+
 ## ZebraDB HTAP exactness gate
 
 ```bash

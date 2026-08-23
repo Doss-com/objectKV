@@ -261,15 +261,17 @@ materialization recovery remain `[PROPOSED]`.
 Separate read/materialization workers from permanent bytes. Start with an empty
 cache and demonstrate bounded logical readiness independent of dataset size.
 
-Three publisher gates now start replacement processes with empty scratch. The
+Four publisher gates now start replacement processes with empty scratch. The
 first recovers after quorum-durable `Prepare` but before object effects. The
 second recovers after the first immutable PUT takes effect and its response is
 lost, using replicated intent plus exact named identity to finish the closure.
 The third recovers after the immutable manifest PUT takes effect and its
 response is lost, then replays and verifies every named child before root
-visibility. Lost `Publish` replies, multipart residue, repeated unknowns,
-abandoned work, sweeper recovery, empty-disk read serving, and bounded readiness
-remain open.
+visibility. The fourth recovers the exact retained `Publish` outcome after its
+reply, publisher, and accepting authority leader are lost, then proves exact
+retry causes no second authority or object effect. Multipart residue, repeated
+unknowns, abandoned work, sweeper recovery, empty-disk read serving, and bounded
+readiness remain open.
 
 Gate 3: complete worker loss does not require durable dataset copy.
 

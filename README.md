@@ -140,7 +140,11 @@ verifies the existing named object before completing and publishing the exact
 closure. The ambiguous-manifest gate then retains the complete manifest effect
 while losing its response. Its empty-scratch replacement replays every data
 identity, verifies the manifest, and walks the complete named closure before
-root visibility. Lost `Publish` replies, multipart residue, repeated unknowns,
+root visibility. The lost-`Publish`-response gate then kills both the publisher
+and accepting authority leader after the root transition applies but its reply
+is dropped. The replacement recovers the retained outcome from the successor,
+retries the exact identity without another transition, issues no object PUTs,
+and walks the visible closure. Multipart residue, repeated unknowns,
 abandoned-intent handling, sweeper recovery, and generation-bound effect
 fencing remain ahead.
 The commit-contract runner proves a deterministic envelope and failure oracle,

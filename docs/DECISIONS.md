@@ -441,3 +441,24 @@ availability. Recovery performs a complete named walk before `Publish`.
 
 Evidence: RFC-0019, candidate `57e28d4`, clean run `2660e09d`, poisoned run
 `7ace2812`, and OTel run `5fd6240e`.
+
+## D28. Current root convergence is not a durable command receipt
+
+Status: `[DECIDED]` for the lost-`Publish`-response gate, 2026-08-23.
+
+Decision: publication authority retains the exact result and command
+fingerprint for every accepted `Publish` identity through the declared retry
+window. A replacement resolves that outcome before treating the current root as
+evidence about the original invocation. Exact retry must return the original
+result and applied position without another authority transition.
+
+Optimizes for: acknowledgement-aligned recovery after both the publisher and
+accepting authority leader die, including cases where the same root remains
+visible but does not identify which invocation produced it.
+
+Gives up: accepting final-state convergence as sufficient recovery evidence.
+Retained outcomes consume authority state and require an explicit future expiry
+and snapshot-restoration contract.
+
+Evidence: RFC-0020, candidate `72df70c`, clean run `a544deff`, convergence-only
+run `82698bdb`, and OTel run `50ad5d86`.

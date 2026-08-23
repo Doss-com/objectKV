@@ -333,8 +333,17 @@ become one GitHub issue.
   closure before publishing. It kept 39 checks at zero anomalies.
   Manifest-only run `7ace2812` discarded with four anomalies per seed; OTel run
   `5fd6240e` exported logs, metrics, and traces.
-- Remaining: lose the replicated `Publish` reply, model partial multipart
-  residue and repeated unknown responses, then kill the
+  Candidate `72df70c` crosses the replicated `Publish` outcome boundary. Run
+  `a544deff` dropped the successful reply after the root transition, killed the
+  publisher and accepting authority leader, and made an empty-scratch
+  replacement recover and exactly replay the retained outcome without another
+  authority transition or object PUT. It kept 42 checks at zero anomalies.
+  Convergence-only run `82698bdb` reached the same root and closure but
+  discarded with four anomalies per seed, two `Publish` applications per seed,
+  and no recovered outcomes. OTel run `50ad5d86` exported logs, metrics, and
+  traces.
+- Remaining: model partial multipart residue and repeated unknown responses,
+  then kill the
   sweeper around complete mark receipt, delete reservation, object effect, and
   retirement. Prove effect-grant fencing, generation handoff, old-root
   deletion, and independent empty-disk recovery; add cloud-native

@@ -31,21 +31,22 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 104 points at ambiguous-manifest recovery
-candidate `57e28d4e58b1ed2aebebd87e2d3504dbe4ded090`. Clean run
-`2660e09d-e2f3-4482-a123-68024779de1a` passed 39 checks with zero anomalies
-across three deterministic seeds. It retained a successful immutable manifest
-PUT while replacing its response with retryable-unknown, killed that publisher,
-and recovered the canonical job from replicated intent in a replacement with
-empty scratch. The replacement replayed all data identities, verified the
-existing manifest, and walked the complete named closure before publishing the
-root. Negative run `7ace2812-aab0-44be-bacc-9f4f992d014c` discarded
-manifest-only recovery with four anomalies per seed. OTel run
-`5fd6240e-17e8-4fca-b632-c594170a233c` exported two log records, one trace
+`[ACTIVE-WORK]` Tracker revision 105 points at lost-`Publish`-response recovery
+candidate `72df70c726797ff3ff7dcd0642a89e2302a7fd7e`. Clean run
+`a544deff-edec-4885-a0bf-b1217d720328` passed 42 checks with zero anomalies
+across three deterministic seeds. It dropped each successful `Publish` reply
+after the replicated root transition, killed the publisher and accepting
+authority leader, and started an empty-scratch replacement. Each replacement
+recovered the original outcome from the successor, retried the same identity
+without a second authority transition or object PUT, and walked the exact
+visible closure. Negative run `82698bdb-443d-4ad7-830f-5bef6927b8f8`
+discarded convergence-only recovery with four anomalies and two `Publish`
+applications per seed while retaining the same final root and closure. OTel run
+`50ad5d86-ee3e-4790-9c19-d81383d68002` exported two log records, one trace
 span, eight metrics, and eight data points with correctness anomalies at zero
-and availability ratio at one. The next storage critical path covers a lost
-replicated `Publish` reply, multipart residue, repeated unknown-response
-budgets, complete `MarkReceipt`, sweeper effect fencing, G1/G2 reservation
-handoff, and independent empty-disk recovery. The independent HTAP path adds
-version-bound manifests and leases, multiple execution ranges, safe pruning,
-and the `T - W_p` cost curve.
+and availability ratio at one. The next storage critical path covers multipart
+residue, repeated unknown-response budgets, complete `MarkReceipt`, sweeper
+effect fencing, G1/G2 reservation handoff, retained-outcome expiry and snapshot
+restore, later-root supersession, and independent empty-disk recovery. The
+independent HTAP path adds version-bound manifests and leases, multiple
+execution ranges, safe pruning, and the `T - W_p` cost curve.

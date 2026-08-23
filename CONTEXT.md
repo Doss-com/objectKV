@@ -129,8 +129,14 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   that publisher, and starts a replacement with empty scratch. The replacement
   replays every data identity, verifies the existing manifest, and walks the
   complete named closure before root visibility. A manifest-only replacement
-  that omits a child is rejected deterministically. Lost `Publish` replies,
-  multipart residue, repeated unknown responses, abandoned intents, sweeper
+  that omits a child is rejected deterministically.
+- `[EXISTS]` The lost-`Publish`-response gate drops a successful reply after the
+  replicated root transition applies, kills the publisher and accepting
+  authority leader, and starts a replacement with empty scratch. The successor
+  returns the retained outcome and exact retry causes no second authority or
+  object effect. A convergence-only authority reaches the same root and closure
+  but is rejected for losing the original outcome and applying `Publish` twice.
+  Multipart residue, repeated unknown responses, abandoned intents, sweeper
   recovery, and generation-bound object-effect fencing are not admitted.
 - `[ACTIVE-WORK]` The actual Google Cloud project and GCS bucket await interactive
   gcloud reauthentication and exact organization/billing verification.
