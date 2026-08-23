@@ -27,6 +27,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/serving-models.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/fault-recovery.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/object-store.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-gc.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/model-history.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/commit-contract.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/persisted-wal.toml

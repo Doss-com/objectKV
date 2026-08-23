@@ -270,7 +270,7 @@ become one GitHub issue.
 - Dependency: none. Read-only research.
 - Evidence: `docs/research/tigris-codebase-study.md`.
 
-### T20. Prove block-before-pointer publication and ground-truth GC
+### T20. Prove block-before-pointer publication and ground-truth GC `[ACTIVE-WORK]`
 
 - Scope: model immutable block upload, authoritative pointer publication,
   ambiguous writes, unreachable objects, retained manifests, snapshot/query
@@ -280,6 +280,14 @@ become one GitHub issue.
   GC unsafe; an incomplete liveness walk fails closed.
 - Dependency: RFC-0003, RFC-0004, and RFC-0007. The model can start before the
   storage-worker implementation.
+- Exists: RFC-0007 now freezes intent-before-upload, block verification before
+  root publication, complete reachability walks, counter and `LIST`
+  non-authority, quarantine, and delete-time root revalidation. The
+  `object-publication-gc-v1` suite declares one correct subject and six bounded
+  unsafe subjects against five deterministic seeds.
+- Remaining: implement the independent authority and object model, prove clean
+  admission plus exact negative-control replay, then adapt the same contract to
+  the real object client and guarded-delete capability profiles.
 
 ### T21. Specify a transactional task stream
 
