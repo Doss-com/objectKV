@@ -8,6 +8,8 @@
 
 mod cluster_contract;
 mod contract;
+mod generation;
+mod generation_process_contract;
 mod process_contract;
 mod process_node;
 mod rpc;
@@ -16,9 +18,19 @@ mod state_machine;
 
 pub use cluster_contract::{run_raft_cluster_contract, RaftClusterMode, RaftClusterReport};
 pub use contract::{run_raft_storage_contract, RaftStorageMode, RaftStorageReport};
+pub use generation::{
+    ConsensusProcessRole, GenerationAction, GenerationApplyResponse, GenerationAuthorityFaults,
+    GenerationAuthorityState, GenerationCommand, GenerationCommandStatus, GenerationCredential,
+    GenerationFenceConfig, GenerationFenceFaults, GenerationPhase,
+};
+pub use generation_process_contract::{
+    run_generation_process_contract, GenerationProcessMode, GenerationProcessReport,
+};
 pub use process_contract::{run_raft_process_contract, RaftProcessMode, RaftProcessReport};
-pub use process_node::{run_process_node, ProcessNodeConfig};
-pub use state_machine::{ApplyResponse, ClientCommand, RequestIdentity, StateMachineStore};
+pub use process_node::{run_process_node, ProcessNodeConfig, ProcessNodePolicy};
+pub use state_machine::{
+    ApplyError, ApplyResponse, ClientCommand, RequestIdentity, StateMachineStore,
+};
 
 use okv_wal::{JournalError, JournalMarker, NodeJournal};
 use openraft::storage::{LogFlushed, RaftLogStorage};

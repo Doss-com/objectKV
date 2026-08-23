@@ -237,10 +237,17 @@ become one GitHub issue.
   recovers the request outcome on its successor, retries exactly once, and
   restarts the killed node from its retained log. CI rejects disabled
   deduplication, acknowledgement without quorum, and skipped restart/catchup.
-- Remaining: integrate transaction-system generation takeover, separately
-  persist or snapshot retained request outcomes, define retained-outcome expiry
-  and compaction, and prove disk-full, replica repair, independent-disk failure,
-  and replacement recovery.
+  The `generation-takeover-process-v1` gate adds a separate three-node authority
+  quorum, G1 voters, and G2 learners. It proves a replicated data-log fence
+  against a preauthorized in-flight write, recovery reservation, authority
+  leader loss, competing-recovery rejection, quiesced voter-set handoff,
+  recovery-phase write rejection, nonzero activation position, and exact G2
+  continuation across nine real processes. Four unsafe subjects discard.
+- Remaining: authenticate the recovery certificate against the data quorum,
+  bind transaction-system membership into authority state, separately persist
+  or snapshot retained request outcomes, define retained-outcome expiry and
+  compaction, and prove disk-full, replica repair, independent-disk failure,
+  object-root reconciliation, and replacement recovery.
 
 ## Opens after Gate 1
 

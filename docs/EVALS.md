@@ -243,6 +243,39 @@ lost-reply semantics. It does not prove separately persisted state-machine
 snapshots, retained-outcome expiry, automatic election, transaction-system
 generation takeover, independent-disk loss, or object-store recovery.
 
+## Cell-generation takeover gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/generation-process.toml \
+  --profile local-fs \
+  --workload generation-takeover-authority-failover \
+  --backend process-local-fs
+```
+
+The controller starts three external generation-authority processes, three G1
+data voters, and three G2 data learners over localhost TCP. G2 catches up the
+same OpenRaft log before the authority enters `Fencing`. The controller commits
+a data-log barrier, proves that even a previously authorized G1 request is
+rejected when applied after the barrier, then reserves generation 2 as
+`Recovering`. It kills the authority leader, proves the reservation through a
+linearizable successor read, changes the data voter set from G1 to G2 while
+commits are quiesced, and rejects G2 writes until activation. After activation,
+G2 commits `B` and all replacement voters contain exactly `A, B`.
+
+Three seeds execute 48 semantic checks. The standalone command emits canonical
+JSON for fresh-process byte comparison. Four negative subjects bypass the stale
+commit fence, admit a write during recovery, accept a competing recovery, or
+activate with a zero recovery position. Each must discard through the same
+schema and OTel path.
+
+This proves one bounded, quiesced voter-set handoff and external authority
+leader loss. It does not prove automatic failure detection, overlapping old and
+new transaction-system traffic, coordinator membership change, object-root
+reconciliation, independent-disk loss, or a quorum-authenticated recovery
+certificate. The current authority requires controller-reported, nonzero data
+fence and recovered log positions; it cannot yet authenticate those reports
+against the data voter set.
+
 ## MVCC semantic gate
 
 ```bash

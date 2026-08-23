@@ -1,7 +1,11 @@
 use crate::rpc::{
-    handle_connection, read_response, write_request, ServerFaults, APPEND, INSTALL_SNAPSHOT, VOTE,
+    handle_connection, read_response, write_request, ServerFaults, ServerPolicy, APPEND,
+    INSTALL_SNAPSHOT, VOTE,
 };
-use crate::{NodeId, OpenRaftLogStore, Raft, StateMachineStore, TypeConfig};
+use crate::{
+    ConsensusProcessRole, GenerationAuthorityFaults, GenerationFenceConfig, GenerationFenceFaults,
+    NodeId, OpenRaftLogStore, Raft, StateMachineStore, TypeConfig,
+};
 use openraft::error::{RPCError, RaftError, RemoteError, Unreachable};
 use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
 use openraft::raft::{
@@ -25,6 +29,16 @@ pub struct ProcessNodeConfig {
     pub nodes: BTreeMap<NodeId, String>,
     pub deduplicate_requests: bool,
     pub acknowledge_before_quorum: bool,
+    pub policy: ProcessNodePolicy,
+}
+
+/// Role and generation policy for one real-process node.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ProcessNodePolicy {
+    pub role: ConsensusProcessRole,
+    pub generation_fence: Option<GenerationFenceConfig>,
+    pub generation_authority_faults: GenerationAuthorityFaults,
+    pub generation_fence_faults: GenerationFenceFaults,
 }
 
 #[derive(Clone, Debug)]
@@ -121,7 +135,11 @@ pub async fn run_process_node(config: ProcessNodeConfig) -> Result<(), String> {
             .collect::<BTreeMap<_, _>>(),
     );
     let log_store = OpenRaftLogStore::open(&config.root).map_err(|error| error.to_string())?;
-    let state_machine = Arc::new(StateMachineStore::new(config.deduplicate_requests));
+    let state_machine = Arc::new(StateMachineStore::new_with_generation_faults(
+        config.deduplicate_requests,
+        config.policy.generation_authority_faults,
+        config.policy.generation_fence_faults,
+    ));
     let raft = Raft::new(
         config.node_id,
         cluster_config().map_err(|error| error.to_string())?,
@@ -139,11 +157,16 @@ pub async fn run_process_node(config: ProcessNodeConfig) -> Result<(), String> {
         let raft = raft.clone();
         let state_machine = state_machine.clone();
         let nodes = nodes.clone();
-        let faults = ServerFaults {
-            acknowledge_before_quorum: config.acknowledge_before_quorum,
+        let policy = ServerPolicy {
+            faults: ServerFaults {
+                acknowledge_before_quorum: config.acknowledge_before_quorum,
+            },
+            role: config.policy.role,
+            generation_fence: config.policy.generation_fence.clone(),
+            generation_fence_faults: config.policy.generation_fence_faults,
         };
         tokio::spawn(async move {
-            let _ = handle_connection(stream, raft, state_machine, nodes, faults).await;
+            let _ = handle_connection(stream, raft, state_machine, nodes, policy).await;
         });
     }
 }

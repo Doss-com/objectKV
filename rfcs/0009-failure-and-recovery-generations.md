@@ -46,21 +46,30 @@ latest root through LIST.
 
 1. Detect loss of the active transaction system through coordinator leases and
    quorum evidence. A single observer cannot start recovery.
-2. Reserve generation `G + 1` durably at the coordinator quorum. Generation `G`
-   can no longer publish or acknowledge.
-3. Read the last accepted root, its bounded range-map and manifest index,
+2. Prepare recovery identity `R` and generation `G + 1` durably at the
+   coordinator quorum. The authority enters `Fencing` and stops issuing new G1
+   commit authorization.
+3. Append a generation-fence barrier to the active data log. The data state
+   machine rejects every generation `G` client command ordered after that
+   barrier, including a request that passed its authority check before step 2.
+   A command ordered before the barrier remains part of the committed recovery
+   prefix even if its reply is delayed.
+4. Reserve generation `G + 1` as `Recovering` only after the authority records a
+   nonzero fence position for `R`. Generation `G` can no longer publish or add
+   a semantically accepted client command to the log.
+5. Read the last accepted root, its bounded range-map and manifest index,
    object-durable watermark `O_cell`, per-consumer durable frontiers, and the
    retained WAL suffix. Reconcile the control root, WAL chain, and every range
    assigned for immediate service before that range serves a read. Recovery
    does not fetch or validate every data object before any range can serve.
-4. Determine the maximum committed WAL index and commit version supported by a
+6. Determine the maximum committed WAL index and commit version supported by a
    quorum. Unknown client outcomes remain unknown until replay resolves them.
-5. Replay the contiguous committed suffix after `O_cell` into clean generation-owned
+7. Replay the contiguous committed suffix after `O_cell` into clean generation-owned
    state. Missing or conflicting committed entries halt recovery.
-6. Recruit sequencer, resolver, WAL, and worker roles for `G + 1`. In-flight
+8. Recruit sequencer, resolver, WAL, and worker roles for `G + 1`. In-flight
    transactions from `G` abort and retry; they never cross generations.
-7. Conditionally publish the new control root through the coordinator quorum.
-8. Activate commits only after the new roles pass the bounded control and active
+9. Conditionally publish the new control root through the coordinator quorum.
+10. Activate commits only after the new roles pass the bounded control and active
    assignment invariant scan. Read-only recovery may precede writes only under
    an explicit version ceiling, and each lazily opened range must verify its
    manifest closure before serving.
@@ -164,6 +173,8 @@ through seams that the simulator can replace.
 ## Unresolved questions
 
 - Coordinator implementation and membership-change protocol.
+- Quorum-authenticated fence and recovered-log certificates. A bare
+  controller-reported log index is insufficient for production activation.
 - Bounded range-index representation, active recovery set, and maximum root
   size before a second index level is required.
 - Whether upstream Turmoil closes all runtime entropy for the eventual WAL and

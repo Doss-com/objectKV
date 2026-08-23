@@ -1,9 +1,9 @@
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use okv_consensus::{
-    run_process_node, run_raft_cluster_contract, run_raft_process_contract,
-    run_raft_storage_contract, ProcessNodeConfig, RaftClusterMode, RaftProcessMode,
-    RaftStorageMode,
+    run_generation_process_contract, run_process_node, run_raft_cluster_contract,
+    run_raft_process_contract, run_raft_storage_contract, GenerationProcessMode, ProcessNodeConfig,
+    RaftClusterMode, RaftProcessMode, RaftStorageMode,
 };
 use okv_eval::config::{load_suite, BudgetKind, LoadedSuite, WorkloadConfig};
 use okv_eval::result::{
@@ -107,6 +107,13 @@ enum Commands {
         #[arg(long, default_value = "correct")]
         mode: String,
     },
+    /// Emit one canonical cell-generation takeover trace without suite orchestration.
+    GenerationProcessTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "correct")]
+        mode: String,
+    },
     /// Internal entrypoint used by the real-process consensus controller.
     #[command(hide = true)]
     ConsensusNode {
@@ -163,6 +170,12 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let mode = parse_raft_process_mode(&mode).map_err(std::io::Error::other)?;
             let executable = std::env::current_exe()?;
             let report = run_raft_process_contract(seed, mode, &executable)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::GenerationProcessTrace { seed, mode } => {
+            let mode = parse_generation_process_mode(&mode).map_err(std::io::Error::other)?;
+            let executable = std::env::current_exe()?;
+            let report = run_generation_process_contract(seed, mode, &executable)?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Commands::ConsensusNode { config_json } => {
@@ -503,6 +516,7 @@ fn execute_workload(
         "raft_storage_contract" => run_raft_storage(workload, seeds, backend),
         "raft_cluster_contract" => run_raft_cluster(workload, seeds, backend),
         "raft_process_contract" => run_raft_process(workload, seeds, backend),
+        "generation_process_contract" => run_generation_process(workload, seeds, backend),
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
@@ -1161,6 +1175,244 @@ fn parse_raft_process_mode(value: &str) -> Result<RaftProcessMode, String> {
         "acknowledge_before_quorum" => Ok(RaftProcessMode::AcknowledgeBeforeQuorum),
         "skip_killed_node_restart" => Ok(RaftProcessMode::SkipKilledNodeRestart),
         other => Err(format!("unknown Raft process mode {other}")),
+    }
+}
+
+fn parse_generation_process_mode(value: &str) -> Result<GenerationProcessMode, String> {
+    match value {
+        "correct" | "none" => Ok(GenerationProcessMode::Correct),
+        "bypass_stale_commit_fence" => Ok(GenerationProcessMode::BypassStaleCommitFence),
+        "accept_write_during_recovery" => Ok(GenerationProcessMode::AcceptWriteDuringRecovery),
+        "accept_competing_recovery" => Ok(GenerationProcessMode::AcceptCompetingRecovery),
+        "activate_without_recovery_proof" => {
+            Ok(GenerationProcessMode::ActivateWithoutRecoveryProof)
+        }
+        other => Err(format!("unknown generation process mode {other}")),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_generation_process(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "generation process workload requires at least one seed".to_owned(),
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("none");
+    let mode = match parse_generation_process_mode(control) {
+        Ok(mode) => mode,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut check_count = 0_u64;
+    let mut authority_process_starts = 0_u64;
+    let mut data_process_starts = 0_u64;
+    let mut process_kills = 0_u64;
+    let mut authority_failovers = 0_u64;
+    let mut learner_additions = 0_u64;
+    let mut membership_changes = 0_u64;
+    let mut generation_preparations = 0_u64;
+    let mut generation_reservations = 0_u64;
+    let mut generation_activations = 0_u64;
+    let mut committed_data_writes = 0_u64;
+    let mut fenced_commit_attempts = 0_u64;
+    let mut fenced_commit_rejections = 0_u64;
+    let mut caught_up_nodes = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+
+    for seed in seeds {
+        let first = match run_generation_process_contract(*seed, mode, &executable) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_generation_process_contract(*seed, mode, &executable) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        check_count = check_count.saturating_add(first.executed_checks);
+        authority_process_starts =
+            authority_process_starts.saturating_add(first.authority_process_starts);
+        data_process_starts = data_process_starts.saturating_add(first.data_process_starts);
+        process_kills = process_kills.saturating_add(first.process_kills);
+        authority_failovers = authority_failovers.saturating_add(first.authority_failovers);
+        learner_additions = learner_additions.saturating_add(first.learner_additions);
+        membership_changes = membership_changes.saturating_add(first.membership_changes);
+        generation_preparations =
+            generation_preparations.saturating_add(first.generation_preparations);
+        generation_reservations =
+            generation_reservations.saturating_add(first.generation_reservations);
+        generation_activations =
+            generation_activations.saturating_add(first.generation_activations);
+        committed_data_writes = committed_data_writes.saturating_add(first.committed_data_writes);
+        fenced_commit_attempts =
+            fenced_commit_attempts.saturating_add(first.fenced_commit_attempts);
+        fenced_commit_rejections =
+            fenced_commit_rejections.saturating_add(first.fenced_commit_rejections);
+        caught_up_nodes = caught_up_nodes.saturating_add(first.caught_up_generation_two_nodes);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, check {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "generation-takeover-process-v1"),
+                    (
+                        "anomaly.class",
+                        if exact { "none" } else { "generation_takeover" },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "transaction.commits",
+                value: bounded_count(first.committed_data_writes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("isolation", "strict-serializable-cell-generation"),
+                    ("result", if exact { "committed" } else { "unsafe-control" }),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "cell-generation-takeover"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-generation-process://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let seed_count = u64::try_from(seeds.len()).unwrap_or(u64::MAX);
+    let expected_preparations = if mode == GenerationProcessMode::AcceptCompetingRecovery {
+        2
+    } else {
+        1
+    };
+    let semantic_operations_exercised = check_count == seed_count.saturating_mul(16)
+        && authority_process_starts == seed_count.saturating_mul(3)
+        && data_process_starts == seed_count.saturating_mul(6)
+        && process_kills == seed_count
+        && authority_failovers == seed_count
+        && learner_additions == seed_count.saturating_mul(3)
+        && membership_changes == seed_count
+        && generation_preparations == seed_count.saturating_mul(expected_preparations)
+        && generation_reservations == seed_count
+        && generation_activations == seed_count
+        && fenced_commit_attempts == seed_count.saturating_mul(4);
+    let expected_success_path = mode != GenerationProcessMode::Correct
+        || (committed_data_writes == seed_count.saturating_mul(2)
+            && fenced_commit_rejections == seed_count.saturating_mul(4)
+            && caught_up_nodes == seed_count.saturating_mul(3));
+    let passed = anomaly_count == 0
+        && exact_replay
+        && semantic_operations_exercised
+        && expected_success_path;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "generation takeover gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}, expected_success_path={expected_success_path}; {detail}",
+            mode.id()
+        )
+    });
+
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "generation_process.exact_fresh_process_replay".to_owned(),
+                status: if exact_replay {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: None,
+            },
+            HardGateResult {
+                id: "generation_process.semantic_operations_exercised".to_owned(),
+                status: if semantic_operations_exercised {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(format!(
+                    "checks={check_count}, authority_starts={authority_process_starts}, data_starts={data_process_starts}, kills={process_kills}, authority_failovers={authority_failovers}, learners={learner_additions}, membership_changes={membership_changes}, preparations={generation_preparations}, reservations={generation_reservations}, activations={generation_activations}, data_commits={committed_data_writes}, fence_attempts={fenced_commit_attempts}, fence_rejections={fenced_commit_rejections}, caught_up={caught_up_nodes}"
+                )),
+            },
+            HardGateResult {
+                id: "generation_process.contract_agreement".to_owned(),
+                status: if anomaly_count == 0 && expected_success_path {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(check_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            ("generation_process.checks".to_owned(), bounded_count(check_count)),
+            (
+                "generation_process.authority_failovers".to_owned(),
+                bounded_count(authority_failovers),
+            ),
+            (
+                "generation_process.membership_changes".to_owned(),
+                bounded_count(membership_changes),
+            ),
+            (
+                "generation_process.committed_data_writes".to_owned(),
+                bounded_count(committed_data_writes),
+            ),
+            (
+                "generation_process.fenced_commit_rejections".to_owned(),
+                bounded_count(fenced_commit_rejections),
+            ),
+            (
+                "generation_process.caught_up_nodes".to_owned(),
+                bounded_count(caught_up_nodes),
+            ),
+        ]),
     }
 }
 

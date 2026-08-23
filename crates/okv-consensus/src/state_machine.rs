@@ -1,10 +1,15 @@
-use crate::{NodeId, TypeConfig};
+use crate::{
+    GenerationApplyResponse, GenerationAuthorityFaults, GenerationAuthorityState,
+    GenerationCommand, GenerationCredential, GenerationFenceFaults, GenerationPhase, NodeId,
+    TypeConfig,
+};
 use openraft::storage::{RaftStateMachine, Snapshot};
 use openraft::{
     BasicNode, Entry, EntryPayload, LogId, RaftSnapshotBuilder, SnapshotMeta, StorageError,
     StorageIOError, StoredMembership,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,6 +29,7 @@ pub struct RequestIdentity {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ClientCommand {
     pub identity: RequestIdentity,
+    pub credential: Option<GenerationCredential>,
     pub payload: Vec<u8>,
 }
 
@@ -39,7 +45,7 @@ impl ClientCommand {
         Ok(encoded)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Option<Self>, serde_json::Error> {
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Option<Self>, serde_json::Error> {
         bytes
             .strip_prefix(COMMAND_MAGIC)
             .map(serde_json::from_slice)
@@ -52,6 +58,16 @@ impl ClientCommand {
 pub struct ApplyResponse {
     pub applied_log_index: u64,
     pub identity: Option<RequestIdentity>,
+    pub error: Option<ApplyError>,
+    pub generation: Option<GenerationApplyResponse>,
+}
+
+/// Application-level rejection reconstructed identically after replay.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyError {
+    ConflictingRequestIdentity,
+    GenerationFenced,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -60,6 +76,8 @@ struct StateMachineData {
     last_membership: StoredMembership<NodeId, BasicNode>,
     applied_payloads: Vec<Vec<u8>>,
     durable_outcomes: BTreeMap<RequestIdentity, ApplyResponse>,
+    request_fingerprints: BTreeMap<RequestIdentity, [u8; 32]>,
+    generation_authority: GenerationAuthorityState,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +93,8 @@ pub struct StateMachineStore {
     snapshot_sequence: AtomicU64,
     current_snapshot: RwLock<Option<StoredSnapshot>>,
     deduplicate_requests: bool,
+    generation_faults: GenerationAuthorityFaults,
+    generation_fence_faults: GenerationFenceFaults,
 }
 
 impl Default for StateMachineStore {
@@ -88,11 +108,27 @@ impl StateMachineStore {
     /// bounded negative control.
     #[must_use]
     pub fn new(deduplicate_requests: bool) -> Self {
+        Self::new_with_generation_faults(
+            deduplicate_requests,
+            GenerationAuthorityFaults::default(),
+            GenerationFenceFaults::default(),
+        )
+    }
+
+    /// Create a state machine with bounded authority faults for negative tests.
+    #[must_use]
+    pub fn new_with_generation_faults(
+        deduplicate_requests: bool,
+        generation_faults: GenerationAuthorityFaults,
+        generation_fence_faults: GenerationFenceFaults,
+    ) -> Self {
         Self {
             data: RwLock::new(StateMachineData::default()),
             snapshot_sequence: AtomicU64::new(0),
             current_snapshot: RwLock::new(None),
             deduplicate_requests,
+            generation_faults,
+            generation_fence_faults,
         }
     }
 
@@ -109,6 +145,11 @@ impl StateMachineStore {
             .durable_outcomes
             .get(&identity)
             .cloned()
+    }
+
+    /// Current coordinator authority state at this node's applied position.
+    pub async fn generation_authority(&self) -> GenerationAuthorityState {
+        self.data.read().await.generation_authority.clone()
     }
 }
 
@@ -149,6 +190,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
         Ok((state.last_applied_log, state.last_membership.clone()))
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn apply<I>(&mut self, entries: I) -> Result<Vec<ApplyResponse>, StorageError<NodeId>>
     where
         I: IntoIterator<Item = Entry<TypeConfig>> + Send,
@@ -161,28 +203,102 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
             let mut response = ApplyResponse {
                 applied_log_index: entry.log_id.index,
                 identity: None,
+                error: None,
+                generation: None,
             };
             match entry.payload {
                 EntryPayload::Blank => {}
                 EntryPayload::Normal(payload) => {
-                    if let Some(command) = ClientCommand::decode(&payload)
+                    if let Some(command) = GenerationCommand::decode(&payload)
                         .map_err(|error| StorageIOError::read_state_machine(&error))?
                     {
+                        let fingerprint = request_fingerprint(&payload);
+                        if let Some(recovered) = state.durable_outcomes.get(&command.identity) {
+                            if state.request_fingerprints.get(&command.identity)
+                                == Some(&fingerprint)
+                            {
+                                response = recovered.clone();
+                            } else {
+                                response.identity = Some(command.identity);
+                                response.error = Some(ApplyError::ConflictingRequestIdentity);
+                            }
+                        } else {
+                            let status = state
+                                .generation_authority
+                                .apply(&command.action, self.generation_faults);
+                            response.identity = Some(command.identity);
+                            response.generation = Some(GenerationApplyResponse {
+                                status,
+                                state: state.generation_authority.clone(),
+                                applied_log_index: entry.log_id.index,
+                            });
+                            state
+                                .request_fingerprints
+                                .insert(command.identity, fingerprint);
+                            state
+                                .durable_outcomes
+                                .insert(command.identity, response.clone());
+                        }
+                    } else if let Some(command) = ClientCommand::decode(&payload)
+                        .map_err(|error| StorageIOError::read_state_machine(&error))?
+                    {
+                        let fingerprint = request_fingerprint(&payload);
+                        let generation_authorized =
+                            command.credential.as_ref().is_some_and(|credential| {
+                                state.generation_authority.authorizes(
+                                    credential.generation,
+                                    &credential.transaction_system_id,
+                                ) || (self.generation_fence_faults.accept_apply_during_recovery
+                                    && state.generation_authority.recovery_id.is_some_and(
+                                        |recovery_id| {
+                                            state.generation_authority.authorizes_recovery(
+                                                credential.generation,
+                                                recovery_id,
+                                                &credential.transaction_system_id,
+                                            )
+                                        },
+                                    ))
+                            });
+                        let generation_fenced = state.generation_authority.phase
+                            != GenerationPhase::Uninitialized
+                            && !self.generation_fence_faults.bypass_apply_fence
+                            && !generation_authorized;
                         if self.deduplicate_requests {
                             if let Some(recovered) =
                                 state.durable_outcomes.get(&command.identity).cloned()
                             {
-                                response = recovered;
+                                if state.request_fingerprints.get(&command.identity)
+                                    == Some(&fingerprint)
+                                {
+                                    response = recovered;
+                                } else {
+                                    response.identity = Some(command.identity);
+                                    response.error = Some(ApplyError::ConflictingRequestIdentity);
+                                }
                             } else {
-                                state.applied_payloads.push(command.payload);
                                 response.identity = Some(command.identity);
+                                if generation_fenced {
+                                    response.error = Some(ApplyError::GenerationFenced);
+                                } else {
+                                    state.applied_payloads.push(command.payload);
+                                }
+                                state
+                                    .request_fingerprints
+                                    .insert(command.identity, fingerprint);
                                 state
                                     .durable_outcomes
                                     .insert(command.identity, response.clone());
                             }
                         } else {
-                            state.applied_payloads.push(command.payload);
                             response.identity = Some(command.identity);
+                            if generation_fenced {
+                                response.error = Some(ApplyError::GenerationFenced);
+                            } else {
+                                state.applied_payloads.push(command.payload);
+                            }
+                            state
+                                .request_fingerprints
+                                .insert(command.identity, fingerprint);
                             state
                                 .durable_outcomes
                                 .insert(command.identity, response.clone());
@@ -241,4 +357,8 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
                 snapshot: Box::new(Cursor::new(stored.data.clone())),
             }))
     }
+}
+
+fn request_fingerprint(payload: &[u8]) -> [u8; 32] {
+    Sha256::digest(payload).into()
 }

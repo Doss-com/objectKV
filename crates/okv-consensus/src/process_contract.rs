@@ -2,7 +2,9 @@ use crate::rpc::{
     read_response, write_request, ControlWrite, NodeStatus, WriteAck, CLIENT_WRITE, ELECT,
     HEARTBEAT, INITIALIZE, OUTCOME, STATUS,
 };
-use crate::{ApplyResponse, ClientCommand, NodeId, ProcessNodeConfig, RequestIdentity};
+use crate::{
+    ApplyResponse, ClientCommand, NodeId, ProcessNodeConfig, ProcessNodePolicy, RequestIdentity,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -171,6 +173,7 @@ impl<'a> ProcessScenario<'a> {
     async fn run_lost_reply_recovery(&mut self) -> Result<(), String> {
         let command = ClientCommand {
             identity: self.identity,
+            credential: None,
             payload: PAYLOAD_X.to_vec(),
         }
         .encode()
@@ -269,6 +272,7 @@ impl<'a> ProcessScenario<'a> {
         self.kill_node(3)?;
         let command = ClientCommand {
             identity: self.identity,
+            credential: None,
             payload: PAYLOAD_X.to_vec(),
         }
         .encode()
@@ -316,6 +320,7 @@ impl<'a> ProcessScenario<'a> {
             deduplicate_requests: self.mode != RaftProcessMode::DisableDedup,
             acknowledge_before_quorum: self.mode == RaftProcessMode::AcknowledgeBeforeQuorum
                 && node_id == 1,
+            policy: ProcessNodePolicy::default(),
         };
         self.children.start(self.executable, &config)?;
         self.observations.process_starts = self.observations.process_starts.saturating_add(1);
@@ -534,6 +539,7 @@ async fn write(
         &ControlWrite {
             app_data,
             drop_reply_after_commit,
+            credential: None,
         },
     )
     .await

@@ -1,0 +1,91 @@
+schema_version = 1
+id = "generation-takeover-process-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+]
+dataset_generator = "deterministic-nine-process-generation-takeover-v2"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 0
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 50
+repeats = 1
+backend = "process-local-fs"
+authority_nodes = 3
+generation_one_voters = 3
+generation_two_learners = 3
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+commit_fence = "linearizable-authority-read"
+membership_handoff = "quiesced-joint-log"
+
+[[lanes]]
+id = "generation-takeover"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "generation-takeover-authority-failover"
+lane = "generation-takeover"
+operation = "generation_process_contract"
+
+[[workloads]]
+id = "generation-takeover-bypass-stale-fence"
+lane = "generation-takeover"
+operation = "generation_process_contract"
+negative_control = "bypass_stale_commit_fence"
+
+[[workloads]]
+id = "generation-takeover-write-during-recovery"
+lane = "generation-takeover"
+operation = "generation_process_contract"
+negative_control = "accept_write_during_recovery"
+
+[[workloads]]
+id = "generation-takeover-competing-recovery"
+lane = "generation-takeover"
+operation = "generation_process_contract"
+negative_control = "accept_competing_recovery"
+
+[[workloads]]
+id = "generation-takeover-activate-without-proof"
+lane = "generation-takeover"
+operation = "generation_process_contract"
+negative_control = "activate_without_recovery_proof"
+
+[hard_gates]
+correctness_anomalies = 0
+reservation_survives_authority_leader_loss = true
+old_generation_is_fenced_on_reservation = true
+preauthorized_inflight_write_is_rejected_after_data_barrier = true
+competing_recovery_is_rejected = true
+write_during_recovery_is_rejected = true
+activation_requires_nonzero_recovery_position = true
+membership_handoff_preserves_exact_log = true
+removed_generation_cannot_commit = true
+fresh_process_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true

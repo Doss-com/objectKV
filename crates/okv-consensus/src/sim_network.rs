@@ -1,7 +1,7 @@
 use crate::rpc::{
     handle_connection, read_response, write_request, ControlWrite, NodeStatus, ServerFaults,
-    WriteAck, APPEND, CLIENT_WRITE, ELECT, HEARTBEAT, INITIALIZE, INSTALL_SNAPSHOT, PORT, STATUS,
-    VOTE,
+    ServerPolicy, WriteAck, APPEND, CLIENT_WRITE, ELECT, HEARTBEAT, INITIALIZE, INSTALL_SNAPSHOT,
+    PORT, STATUS, VOTE,
 };
 use crate::{NodeId, OpenRaftLogStore, Raft, StateMachineStore, TypeConfig};
 use openraft::error::{RPCError, RaftError, RemoteError, Unreachable};
@@ -126,8 +126,11 @@ pub(crate) async fn run_node(
                 raft,
                 state_machine,
                 nodes,
-                ServerFaults {
-                    acknowledge_before_quorum,
+                ServerPolicy {
+                    faults: ServerFaults {
+                        acknowledge_before_quorum,
+                    },
+                    ..ServerPolicy::default()
                 },
             )
             .await;
@@ -167,6 +170,7 @@ pub(crate) async fn write(host: &str, payload: &[u8]) -> Result<WriteAck, String
         &ControlWrite {
             app_data: payload.to_vec(),
             drop_reply_after_commit: false,
+            credential: None,
         },
     )
     .await
