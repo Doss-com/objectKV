@@ -190,6 +190,31 @@ This admits replicated authority state and real authority-process failover. It
 does not yet admit publisher or sweeper process recovery around object-store
 operations, independent-disk loss, outcome expiry, or cloud economics.
 
+## Publisher prepare and restart gate
+
+```bash
+cargo run -p okv-eval -- run \
+  evals/suites/object-publication-publisher-process.toml \
+  --profile local-fs \
+  --workload publisher-prepare-restart \
+  --backend object-store-local-fs+process-openraft
+```
+
+The suite freezes RFC-0017 and uses three seeds for ten semantic checks each.
+Candidate `ffc0c84` kept in run
+`3b5cb41f-8985-47f4-8e87-4797ad9babef` with zero anomalies at the exact
+30-event budget. It started nine authority processes and six publisher
+processes, issued three real process kills, and wrote nine immutable objects.
+The poisoned upload-before-Prepare subject discarded in run
+`26bde1fa-670b-40db-a750-8f363042b10b` with eight anomalies per seed. Two
+fresh seed-1103 controllers emitted byte-identical semantic traces. OTel run
+`ce7692da-7150-4b6a-81c4-9e680c7e2bb6` exported logs, metrics, and traces.
+
+This admits recovery after quorum-durable `Prepare` and before the first object
+PUT. It does not admit partial upload recovery, lost object or `Publish`
+replies, abandoned-intent policy, sweeper recovery, object-effect fencing,
+authority snapshot repair, independent failure domains, or cloud economics.
+
 ## ZebraDB HTAP exactness gate
 
 ```bash

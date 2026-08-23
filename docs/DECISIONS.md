@@ -382,3 +382,23 @@ unknown objectKV command versions fail closed.
 
 Evidence: RFC-0015, candidate `b530321`, clean run `550e5585`, ten discarded
 negative subjects, and OTel run `8071bc8a`.
+
+## D25. Recover publishers from replicated intent, not local scratch
+
+Status: `[DECIDED]` for the first object-effect worker gate, 2026-08-23.
+
+Decision: a publisher job and its transition request identities derive from
+canonical immutable job bytes. `Prepare` must be quorum committed before the
+first object PUT. A replacement publisher starts with empty scratch, replays
+the exact authority outcome, verifies the named object closure, and publishes
+the root through the same replicated cell authority.
+
+Optimizes for: disposable publisher processes whose correctness state survives
+worker loss without a local journal.
+
+Gives up: treating scratch state, PID, wall clock, random identity, or object
+existence as transaction-outcome authority. This first gate also defers partial
+upload, lost object and `Publish` replies, abandoned-intent policy, and sweep.
+
+Evidence: RFC-0017, candidate `ffc0c84`, clean run `3b5cb41f`, poisoned run
+`26bde1fa`, and OTel run `ce7692da`.

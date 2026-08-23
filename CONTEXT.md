@@ -113,6 +113,13 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   durable per-object deletion reservation across unguarded delete. This is a
   same-machine adapter proof, not production authority consensus or cloud
   evidence.
+- `[EXISTS]` The first disposable publisher gate commits `Prepare` through
+  three real OpenRaft authority processes, kills the dedicated publisher before
+  its first object PUT, removes its scratch directory, and completes exact
+  named-object verification plus atomic root publication from a replacement
+  process with empty scratch. Partial uploads, lost object and `Publish`
+  replies, abandoned intents, sweeper recovery, and object-effect fencing are
+  not admitted.
 - `[ACTIVE-WORK]` The actual Google Cloud project and GCS bucket await interactive
   gcloud reauthentication and exact organization/billing verification.
 - `[EXISTS]` `Doss-com/objectKV` did not exist when this scaffold was created.

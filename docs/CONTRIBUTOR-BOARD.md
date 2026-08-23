@@ -309,11 +309,19 @@ become one GitHub issue.
   passed 72 process checks across three seeds with two leader losses per seed,
   exact fresh-process replay, and zero anomalies. Ten unsafe authority subjects
   discarded; OTel run `8071bc8a` exported logs, metrics, and traces.
-- Remaining: kill dedicated publisher and sweeper processes at each object and
-  authority boundary, require a complete mark receipt, prove generation handoff
-  with old-root deletion and empty-disk recovery, add cloud-native guarded
-  delete receipts, partition reservations, and measure publication and
-  reclamation cost curves.
+  Candidate `ffc0c84` then adds the first dedicated publisher boundary. Run
+  `3b5cb41f` committed `Prepare` through three real authority processes, killed
+  the publisher before its first object PUT, removed its scratch directory,
+  and completed exact closure verification plus atomic root publication from a
+  replacement process. It kept 30 checks at zero anomalies. The poisoned
+  upload-before-Prepare run `26bde1fa` discarded with eight anomalies per seed;
+  OTel run `ce7692da` exported logs, metrics, and traces.
+- Remaining: kill the publisher after partial upload, lost PUT reply, closure
+  verification, and lost `Publish` reply. Then kill the sweeper around complete
+  mark receipt, delete reservation, object effect, and retirement; prove
+  effect-grant fencing, generation handoff, old-root deletion, and independent
+  empty-disk recovery; add cloud-native guarded-delete receipts, partition
+  reservations, and publication and reclamation cost curves.
 
 ### T21. Specify a transactional task stream
 

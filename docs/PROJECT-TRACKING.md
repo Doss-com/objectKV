@@ -31,15 +31,18 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 101 points at replicated publication-authority
-candidate `b530321d114728d92741ca9bdfd7b7a637148e75`. Clean run
-`550e5585-bf9d-4bc9-b96f-d38aaca9eb49` passed 72 checks with zero anomalies
-across three deterministic seeds, including six leader failovers, 18 process
-kills, and 69 publication writes. All ten unsafe subjects discarded. OTel run
-`8071bc8a-8a4d-4a29-9118-5a11e22b5e3b` exported logs, metrics, and traces with
+`[ACTIVE-WORK]` Tracker revision 102 points at publisher-recovery candidate
+`ffc0c849879ec5ac9a54fa556a067c43e414fbe5`. Clean run
+`3b5cb41f-8985-47f4-8e87-4797ad9babef` passed 30 checks with zero anomalies
+across three deterministic seeds. It committed `Prepare` through three real
+OpenRaft authority processes, killed the publisher before the first object PUT,
+removed its scratch directory, and completed publication from a replacement
+with empty scratch. Negative run `26bde1fa-670b-40db-a750-8f363042b10b`
+discarded upload-before-Prepare with eight anomalies per seed. OTel run
+`ce7692da-7150-4b6a-81c4-9e680c7e2bb6` exported logs, metrics, and traces with
 correctness anomalies at zero and availability ratio at one. The next storage
-critical path kills dedicated publisher and sweeper processes at each durable
-object and authority boundary, completes `MarkReceipt` plus G1/G2 handoff, and
-proves old-root deletion plus independent empty-disk recovery. The independent
-HTAP path adds version-bound manifests and leases, multiple execution ranges,
-safe pruning, and the `T - W_p` cost curve.
+critical path covers partial upload, lost PUT and `Publish` replies, complete
+`MarkReceipt`, sweeper effect fencing, G1/G2 reservation handoff, and
+independent empty-disk recovery. The independent HTAP path adds version-bound
+manifests and leases, multiple execution ranges, safe pruning, and the
+`T - W_p` cost curve.
