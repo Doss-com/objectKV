@@ -4,7 +4,8 @@ use crate::rpc::{
 };
 use crate::{
     ConsensusProcessRole, GenerationAuthorityFaults, GenerationFenceConfig, GenerationFenceFaults,
-    NodeId, OpenRaftLogStore, Raft, RecoverySignerConfig, StateMachineStore, TypeConfig,
+    NodeId, OpenRaftLogStore, PublicationAuthorityFaults, PublicationFenceFaults, Raft,
+    RecoverySignerConfig, StateMachineStore, TypeConfig,
 };
 use openraft::error::{RPCError, RaftError, RemoteError, Unreachable};
 use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
@@ -39,6 +40,8 @@ pub struct ProcessNodePolicy {
     pub generation_fence: Option<GenerationFenceConfig>,
     pub generation_authority_faults: GenerationAuthorityFaults,
     pub generation_fence_faults: GenerationFenceFaults,
+    pub publication_authority_faults: PublicationAuthorityFaults,
+    pub publication_fence_faults: PublicationFenceFaults,
     pub recovery_signer: Option<RecoverySignerConfig>,
 }
 
@@ -136,10 +139,12 @@ pub async fn run_process_node(config: ProcessNodeConfig) -> Result<(), String> {
             .collect::<BTreeMap<_, _>>(),
     );
     let log_store = OpenRaftLogStore::open(&config.root).map_err(|error| error.to_string())?;
-    let state_machine = Arc::new(StateMachineStore::new_with_generation_faults(
+    let state_machine = Arc::new(StateMachineStore::new_with_authority_faults(
         config.deduplicate_requests,
         config.policy.generation_authority_faults,
         config.policy.generation_fence_faults,
+        config.policy.publication_authority_faults,
+        config.policy.publication_fence_faults,
     ));
     let raft = Raft::new(
         config.node_id,
@@ -166,6 +171,7 @@ pub async fn run_process_node(config: ProcessNodeConfig) -> Result<(), String> {
             role: config.policy.role,
             generation_fence: config.policy.generation_fence.clone(),
             generation_fence_faults: config.policy.generation_fence_faults,
+            publication_fence_faults: config.policy.publication_fence_faults,
             recovery_signer: config.policy.recovery_signer.clone(),
         };
         tokio::spawn(async move {

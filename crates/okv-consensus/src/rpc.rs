@@ -2,9 +2,9 @@ use crate::{
     recovery_public_key, sign_recovery_statement, ApplyError, ApplyResponse, ClientCommand,
     ConsensusProcessRole, GenerationAction, GenerationApplyResponse, GenerationAuthorityState,
     GenerationCommand, GenerationCredential, GenerationFenceConfig, GenerationFenceFaults,
-    GenerationPhase, NodeId, Raft, RecoveryAttestation, RecoveryCertificateKind,
-    RecoveryCertificateStatement, RecoverySignerConfig, RequestIdentity, StateMachineStore,
-    TypeConfig,
+    GenerationPhase, NodeId, PublicationAuthorityState, PublicationCommand, Raft,
+    RecoveryAttestation, RecoveryCertificateKind, RecoveryCertificateStatement,
+    RecoverySignerConfig, RequestIdentity, StateMachineStore, TypeConfig,
 };
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
 use openraft::{BasicNode, ServerState};
@@ -36,6 +36,9 @@ pub(crate) const GENERATION_READ: u8 = 20;
 pub(crate) const DATA_GENERATION_WRITE: u8 = 21;
 pub(crate) const PREAUTHORIZED_CLIENT_WRITE: u8 = 22;
 pub(crate) const RECOVERY_ATTEST: u8 = 23;
+pub(crate) const PUBLICATION_WRITE: u8 = 24;
+pub(crate) const PUBLICATION_READ: u8 = 25;
+pub(crate) const PUBLICATION_OUTCOME: u8 = 26;
 
 pub(crate) type WireResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -51,6 +54,7 @@ pub(crate) struct ServerPolicy {
     pub role: ConsensusProcessRole,
     pub generation_fence: Option<GenerationFenceConfig>,
     pub generation_fence_faults: GenerationFenceFaults,
+    pub publication_fence_faults: crate::PublicationFenceFaults,
     pub recovery_signer: Option<RecoverySignerConfig>,
 }
 
@@ -59,6 +63,12 @@ pub(crate) struct ControlWrite {
     pub app_data: Vec<u8>,
     pub drop_reply_after_commit: bool,
     pub credential: Option<GenerationCredential>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct PublicationWriteRequest {
+    pub command: PublicationCommand,
+    pub drop_reply_after_commit: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -222,6 +232,28 @@ where
             )
             .await?;
         }
+        PUBLICATION_WRITE => {
+            let request = serde_json::from_slice::<PublicationWriteRequest>(&body)?;
+            if let Some(result) = publication_write(&raft, &policy, request).await {
+                write_response(&mut stream, &result).await?;
+            }
+        }
+        PUBLICATION_READ => {
+            let _: () = serde_json::from_slice(&body)?;
+            write_response(
+                &mut stream,
+                &publication_read(&raft, &state_machine, &policy).await,
+            )
+            .await?;
+        }
+        PUBLICATION_OUTCOME => {
+            let identity = serde_json::from_slice::<RequestIdentity>(&body)?;
+            write_response(
+                &mut stream,
+                &publication_outcome(&raft, &state_machine, &policy, identity).await,
+            )
+            .await?;
+        }
         _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown wire kind").into()),
     }
     Ok(())
@@ -323,6 +355,77 @@ async fn generation_write(
         .data
         .generation
         .ok_or_else(|| "generation response missing".to_owned())
+}
+
+async fn publication_write(
+    raft: &Raft,
+    policy: &ServerPolicy,
+    request: PublicationWriteRequest,
+) -> Option<Result<WriteAck, String>> {
+    if policy.role != ConsensusProcessRole::GenerationAuthority {
+        return Some(Err(
+            "data node cannot mutate publication authority".to_owned()
+        ));
+    }
+    let encoded = match request.command.encode() {
+        Ok(encoded) => encoded,
+        Err(error) => return Some(Err(error.to_string())),
+    };
+    if policy.faults.acknowledge_before_quorum {
+        let raft = raft.clone();
+        tokio::spawn(async move {
+            let _: Result<_, openraft::error::RaftError<NodeId, _>> =
+                raft.client_write(encoded).await;
+        });
+        return Some(Ok(WriteAck {
+            committed: true,
+            log_index: None,
+            log_position: None,
+            response: None,
+        }));
+    }
+    let result = raft
+        .client_write(encoded)
+        .await
+        .map(write_ack)
+        .map_err(|error| error.to_string())
+        .and_then(reject_application_error);
+    if request.drop_reply_after_commit && result.is_ok() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+async fn publication_read(
+    raft: &Raft,
+    state_machine: &StateMachineStore,
+    policy: &ServerPolicy,
+) -> Result<PublicationAuthorityState, String> {
+    if policy.role != ConsensusProcessRole::GenerationAuthority {
+        return Err("data node cannot read publication authority".to_owned());
+    }
+    raft.ensure_linearizable()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(state_machine.publication_authority().await)
+}
+
+async fn publication_outcome(
+    raft: &Raft,
+    state_machine: &StateMachineStore,
+    policy: &ServerPolicy,
+    identity: RequestIdentity,
+) -> Result<Option<ApplyResponse>, String> {
+    if policy.role != ConsensusProcessRole::GenerationAuthority {
+        return Err("data node cannot read publication outcomes".to_owned());
+    }
+    if !policy.publication_fence_faults.local_stale_outcome_read {
+        raft.ensure_linearizable()
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(state_machine.durable_outcome(identity).await)
 }
 
 async fn data_generation_write(
@@ -485,6 +588,9 @@ fn reject_application_error(ack: WriteAck) -> Result<WriteAck, String> {
         Some(ApplyError::GenerationFenced) => Err("data generation is fenced".to_owned()),
         Some(ApplyError::ConflictingRequestIdentity) => {
             Err("request identity has conflicting application bytes".to_owned())
+        }
+        Some(ApplyError::UnknownCommandVersion) => {
+            Err("unknown objectKV command version".to_owned())
         }
         None => Ok(ack),
     }

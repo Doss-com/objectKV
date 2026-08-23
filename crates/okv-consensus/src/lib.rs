@@ -12,6 +12,7 @@ mod generation;
 mod generation_process_contract;
 mod process_contract;
 mod process_node;
+mod publication;
 mod rpc;
 mod sim_network;
 mod state_machine;
@@ -31,6 +32,14 @@ pub use generation_process_contract::{
 };
 pub use process_contract::{run_raft_process_contract, RaftProcessMode, RaftProcessReport};
 pub use process_node::{run_process_node, ProcessNodeConfig, ProcessNodePolicy};
+pub use publication::{
+    DeletePermit as PublicationDeletePermit, ObjectIdentity as PublicationObjectIdentity,
+    PreparedPublication, PublicationAction, PublicationApplyResponse, PublicationAuthorityContext,
+    PublicationAuthorityFaults, PublicationAuthorityPosition, PublicationAuthorityState,
+    PublicationCommand, PublicationCommandStatus, PublicationFenceFaults, PublicationIntent,
+    PublicationObjectKind, PublicationObjectReference, PublicationOutcome,
+    RevisionToken as PublicationRevisionToken,
+};
 pub use state_machine::{
     ApplyError, ApplyResponse, ClientCommand, RequestIdentity, StateMachineStore,
 };

@@ -563,6 +563,7 @@ impl<'a> GenerationScenario<'a> {
                         allow_preauthorized_test_write: true,
                     },
                     recovery_signer: Some(recovery_signer(node_id)),
+                    ..ProcessNodePolicy::default()
                 },
             )?;
             self.observations.data_process_starts += 1;
@@ -639,6 +640,7 @@ impl<'a> GenerationScenario<'a> {
                         allow_preauthorized_test_write: false,
                     },
                     recovery_signer: Some(recovery_signer(node_id)),
+                    ..ProcessNodePolicy::default()
                 },
             )?;
             self.observations.data_process_starts += 1;

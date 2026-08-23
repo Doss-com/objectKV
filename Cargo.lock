@@ -2936,6 +2936,7 @@ dependencies = [
 name = "okv-consensus"
 version = "0.0.0"
 dependencies = [
+ "okv-publication",
  "okv-wal",
  "openraft",
  "ring",
@@ -3012,6 +3013,13 @@ dependencies = [
  "sha2",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "okv-publication"
+version = "0.0.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

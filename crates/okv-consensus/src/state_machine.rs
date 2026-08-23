@@ -1,7 +1,9 @@
 use crate::{
     GenerationApplyResponse, GenerationAuthorityFaults, GenerationAuthorityState,
     GenerationCommand, GenerationCredential, GenerationFenceFaults, GenerationPhase, NodeId,
-    RecoveryLogPosition, TypeConfig,
+    PublicationApplyResponse, PublicationAuthorityContext, PublicationAuthorityFaults,
+    PublicationAuthorityPosition, PublicationAuthorityState, PublicationCommand,
+    PublicationCommandStatus, PublicationFenceFaults, RecoveryLogPosition, TypeConfig,
 };
 use openraft::storage::{RaftStateMachine, Snapshot};
 use openraft::{
@@ -60,6 +62,7 @@ pub struct ApplyResponse {
     pub identity: Option<RequestIdentity>,
     pub error: Option<ApplyError>,
     pub generation: Option<GenerationApplyResponse>,
+    pub publication: Option<PublicationApplyResponse>,
 }
 
 /// Application-level rejection reconstructed identically after replay.
@@ -68,6 +71,7 @@ pub struct ApplyResponse {
 pub enum ApplyError {
     ConflictingRequestIdentity,
     GenerationFenced,
+    UnknownCommandVersion,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -78,6 +82,8 @@ struct StateMachineData {
     durable_outcomes: BTreeMap<RequestIdentity, ApplyResponse>,
     request_fingerprints: BTreeMap<RequestIdentity, [u8; 32]>,
     generation_authority: GenerationAuthorityState,
+    #[serde(default)]
+    publication_authority: PublicationAuthorityState,
     last_generation_transition_log: Option<LogId<NodeId>>,
 }
 
@@ -96,6 +102,8 @@ pub struct StateMachineStore {
     deduplicate_requests: bool,
     generation_faults: GenerationAuthorityFaults,
     generation_fence_faults: GenerationFenceFaults,
+    publication_faults: PublicationAuthorityFaults,
+    publication_fence_faults: PublicationFenceFaults,
 }
 
 impl Default for StateMachineStore {
@@ -123,6 +131,24 @@ impl StateMachineStore {
         generation_faults: GenerationAuthorityFaults,
         generation_fence_faults: GenerationFenceFaults,
     ) -> Self {
+        Self::new_with_authority_faults(
+            deduplicate_requests,
+            generation_faults,
+            generation_fence_faults,
+            PublicationAuthorityFaults::default(),
+            PublicationFenceFaults::default(),
+        )
+    }
+
+    /// Create a state machine with bounded generation and publication faults.
+    #[must_use]
+    pub fn new_with_authority_faults(
+        deduplicate_requests: bool,
+        generation_faults: GenerationAuthorityFaults,
+        generation_fence_faults: GenerationFenceFaults,
+        publication_faults: PublicationAuthorityFaults,
+        publication_fence_faults: PublicationFenceFaults,
+    ) -> Self {
         Self {
             data: RwLock::new(StateMachineData::default()),
             snapshot_sequence: AtomicU64::new(0),
@@ -130,6 +156,8 @@ impl StateMachineStore {
             deduplicate_requests,
             generation_faults,
             generation_fence_faults,
+            publication_faults,
+            publication_fence_faults,
         }
     }
 
@@ -151,6 +179,11 @@ impl StateMachineStore {
     /// Current coordinator authority state at this node's applied position.
     pub async fn generation_authority(&self) -> GenerationAuthorityState {
         self.data.read().await.generation_authority.clone()
+    }
+
+    /// Current publication authority state at this node's applied position.
+    pub async fn publication_authority(&self) -> PublicationAuthorityState {
+        self.data.read().await.publication_authority.clone()
     }
 
     /// Exact applied position of the most recent generation transition.
@@ -225,6 +258,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
                 identity: None,
                 error: None,
                 generation: None,
+                publication: None,
             };
             match entry.payload {
                 EntryPayload::Blank => {}
@@ -257,6 +291,71 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
                                 applied_log_position: RecoveryLogPosition::from_log_id(
                                     entry.log_id,
                                 ),
+                            });
+                            state
+                                .request_fingerprints
+                                .insert(command.identity, fingerprint);
+                            state
+                                .durable_outcomes
+                                .insert(command.identity, response.clone());
+                        }
+                    } else if let Some(command) = PublicationCommand::decode(&payload)
+                        .map_err(|error| StorageIOError::read_state_machine(&error))?
+                    {
+                        let fingerprint = request_fingerprint(&payload);
+                        let recovered = self
+                            .deduplicate_requests
+                            .then(|| state.durable_outcomes.get(&command.identity).cloned())
+                            .flatten();
+                        if let Some(recovered) = recovered {
+                            if state.request_fingerprints.get(&command.identity)
+                                == Some(&fingerprint)
+                            {
+                                response = recovered;
+                            } else {
+                                response.identity = Some(command.identity);
+                                response.error = Some(ApplyError::ConflictingRequestIdentity);
+                            }
+                        } else {
+                            let authorized = self.publication_fence_faults.bypass_generation_fence
+                                || state.generation_authority.authorizes(
+                                    command.credential.generation,
+                                    &command.credential.transaction_system_id,
+                                );
+                            let log_position = RecoveryLogPosition::from_log_id(entry.log_id);
+                            let (status, outcome) = if authorized {
+                                let context_generation = if self
+                                    .publication_fence_faults
+                                    .prepare_as_previous_generation
+                                    && matches!(
+                                        &command.action,
+                                        crate::PublicationAction::Prepare { .. }
+                                    ) {
+                                    command.credential.generation.saturating_sub(1)
+                                } else {
+                                    command.credential.generation
+                                };
+                                let transition = state.publication_authority.apply(
+                                    &command.action,
+                                    PublicationAuthorityContext {
+                                        generation: context_generation,
+                                        position: PublicationAuthorityPosition {
+                                            term: log_position.term,
+                                            index: log_position.index,
+                                        },
+                                    },
+                                    self.publication_faults,
+                                );
+                                (transition.status, transition.outcome)
+                            } else {
+                                (PublicationCommandStatus::GenerationFenced, None)
+                            };
+                            response.identity = Some(command.identity);
+                            response.publication = Some(PublicationApplyResponse {
+                                status,
+                                outcome,
+                                state: state.publication_authority.clone(),
+                                applied_log_position: log_position,
                             });
                             state
                                 .request_fingerprints
@@ -329,6 +428,8 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
                                 .durable_outcomes
                                 .insert(command.identity, response.clone());
                         }
+                    } else if payload.starts_with(b"OKV") {
+                        response.error = Some(ApplyError::UnknownCommandVersion);
                     } else {
                         state.applied_payloads.push(payload);
                     }
@@ -387,4 +488,165 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
 
 fn request_fingerprint(payload: &[u8]) -> [u8; 32] {
     Sha256::digest(payload).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        GenerationAction, GenerationCommandStatus, PublicationAction, PublicationIntent,
+        PublicationObjectKind, PublicationObjectReference,
+    };
+    use openraft::CommittedLeaderId;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    async fn active_store(deduplicate_requests: bool) -> Arc<StateMachineStore> {
+        let store = Arc::new(StateMachineStore::new_with_authority_faults(
+            deduplicate_requests,
+            GenerationAuthorityFaults::default(),
+            GenerationFenceFaults::default(),
+            PublicationAuthorityFaults::default(),
+            PublicationFenceFaults::default(),
+        ));
+        let status = store.data.write().await.generation_authority.apply(
+            &GenerationAction::Bootstrap {
+                cell_id: 1,
+                generation: 7,
+                transaction_system_id: "txn-7".to_owned(),
+                transaction_system_members: BTreeMap::from([(1, vec![1; 32])]),
+                wal_root: "wal-7".to_owned(),
+                control_root_version: 1,
+            },
+            GenerationAuthorityFaults::default(),
+        );
+        assert_eq!(GenerationCommandStatus::Accepted, status);
+        store
+    }
+
+    fn publication_command(identity: RequestIdentity) -> PublicationCommand {
+        let manifest = PublicationObjectReference {
+            kind: PublicationObjectKind::Manifest,
+            key: "objects/manifest".to_owned(),
+            length: 10,
+            sha256: "a".repeat(64),
+        };
+        PublicationCommand {
+            identity,
+            credential: GenerationCredential {
+                generation: 7,
+                transaction_system_id: "txn-7".to_owned(),
+            },
+            action: PublicationAction::Prepare {
+                publication_id: "publication-1".to_owned(),
+                intent: PublicationIntent {
+                    object_keys: BTreeSet::from([manifest.key.clone(), "objects/data".to_owned()]),
+                    manifest,
+                    destination_root: "range-1".to_owned(),
+                    expected_prior_root: None,
+                },
+            },
+        }
+    }
+
+    fn normal_entry(index: u64, payload: Vec<u8>) -> Entry<TypeConfig> {
+        Entry {
+            log_id: LogId::new(CommittedLeaderId::new(3, 1), index),
+            payload: EntryPayload::Normal(payload),
+        }
+    }
+
+    #[tokio::test]
+    async fn publication_apply_is_fenced_deduplicated_and_fail_closed() {
+        let identity = RequestIdentity {
+            client_id: 41,
+            request_id: 1,
+        };
+        let command = publication_command(identity);
+        let payload = command.encode().unwrap();
+        let mut store = active_store(true).await;
+        let first = store
+            .apply([normal_entry(2, payload.clone())])
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            Some(PublicationCommandStatus::Accepted),
+            first.publication.as_ref().map(|response| response.status)
+        );
+
+        let retry = store
+            .apply([normal_entry(3, payload)])
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(first, retry);
+
+        let mut conflicting = command.clone();
+        conflicting.action = PublicationAction::Unpin {
+            pin_id: "other".to_owned(),
+            expected: PublicationObjectReference {
+                kind: PublicationObjectKind::Manifest,
+                key: "objects/other".to_owned(),
+                length: 10,
+                sha256: "b".repeat(64),
+            },
+        };
+        let conflict = store
+            .apply([normal_entry(4, conflicting.encode().unwrap())])
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(Some(ApplyError::ConflictingRequestIdentity), conflict.error);
+
+        let mut stale = publication_command(RequestIdentity {
+            client_id: 41,
+            request_id: 2,
+        });
+        stale.credential.generation = 6;
+        let fenced = store
+            .apply([normal_entry(5, stale.encode().unwrap())])
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            Some(PublicationCommandStatus::GenerationFenced),
+            fenced.publication.map(|response| response.status)
+        );
+
+        let unknown = store
+            .apply([normal_entry(6, b"OKVP9{}".to_vec())])
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(Some(ApplyError::UnknownCommandVersion), unknown.error);
+        assert_eq!(1, store.publication_authority().await.intents.len());
+    }
+
+    #[tokio::test]
+    async fn disabled_dedup_reapplies_the_same_publication_request() {
+        let identity = RequestIdentity {
+            client_id: 43,
+            request_id: 1,
+        };
+        let payload = publication_command(identity).encode().unwrap();
+        let mut store = active_store(false).await;
+        let first = store
+            .apply([normal_entry(2, payload.clone())])
+            .await
+            .unwrap()
+            .remove(0);
+        let second = store
+            .apply([normal_entry(3, payload)])
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            Some(PublicationCommandStatus::Accepted),
+            first.publication.map(|response| response.status)
+        );
+        assert_eq!(
+            Some(PublicationCommandStatus::PublicationExists),
+            second.publication.map(|response| response.status)
+        );
+    }
 }
