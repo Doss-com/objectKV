@@ -36,6 +36,7 @@ module proxy.
 | Original Tigris database | `v1.0.0-beta.122`, origin commit `7156e157821b1c1f4b4c337cf3cbbfa876c791d2`, published 2023-06-28 | Full archived Go module, zip SHA-256 `5ebc674a6fb61de01326030c8c35c6b2abe8e84d59fb9b2e73e5754e450483d0` |
 | Current Tigris architecture docs | `ed6bc01ee6ed744ed155db8299d9bc49b56aaebc` | Public product documentation, not the data-plane implementation |
 | Current Tigris engineering blog | `e298dadb3396176ceaae6be02f04c2ab2ad41ca1` | Public architecture and failure-analysis material |
+| Current Tigris storage monorepo | `45e866102b64e7fc6ae61475c39b49af6f662f1e` | Public SDK, CLI, agent, and live-gateway integration code, not the authoritative data plane |
 | Tigris Acceleration Gateway, TAG | `40414b783b5143adc9b886a4c9a39993d3b2e8e6` | Public caching proxy, not authoritative object storage |
 | OCache | `9f7dd99e584339285d9d4945ae53021350c991c5` | Public local and distributed cache implementation |
 | TigrisFS | `d3e466141a3154b8199f8d6d32a7759d66605331` | Public FUSE client for S3-compatible storage |
@@ -46,12 +47,20 @@ official documentation and published engineering reports. No inference about
 why the earlier database product changed direction is used as technical
 evidence.
 
+The public `tigrisdata/storage` monorepo contains TypeScript SDKs, CLI commands,
+agent helpers, and tests against the hosted gateway. Its integration tests
+observe eventually consistent gateway surfaces, but the repository contains no
+FoundationDB metadata service, block-store server, replication worker, or S3
+gateway implementation. It extends the client-semantics evidence boundary; it
+does not expose the authoritative storage implementation.
+
 Primary pins:
 
 - [Original module origin receipt](https://proxy.golang.org/github.com/tigrisdata/tigris/@v/v1.0.0-beta.122.info)
 - [Original module manifest](https://proxy.golang.org/github.com/tigrisdata/tigris/@v/v1.0.0-beta.122.mod)
 - [Current architecture](https://github.com/tigrisdata/tigris-os-docs/blob/ed6bc01ee6ed744ed155db8299d9bc49b56aaebc/docs/concepts/architecture.md)
 - [Current FoundationDB architecture talk](https://github.com/tigrisdata/tigris-blog/blob/e298dadb3396176ceaae6be02f04c2ab2ad41ca1/blog/2026-08-18-fdb-krea-talk/index.mdx)
+- [Current storage SDK and CLI monorepo](https://github.com/tigrisdata/storage/tree/45e866102b64e7fc6ae61475c39b49af6f662f1e)
 - [TAG architecture](https://github.com/tigrisdata/tag/blob/40414b783b5143adc9b886a4c9a39993d3b2e8e6/docs/architecture.md)
 - [OCache RFC index](https://github.com/tigrisdata/ocache/tree/9f7dd99e584339285d9d4945ae53021350c991c5/docs/rfcs)
 - [TigrisFS limitations](https://github.com/tigrisdata/tigrisfs/blob/d3e466141a3154b8199f8d6d32a7759d66605331/README.md)
