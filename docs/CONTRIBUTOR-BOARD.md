@@ -66,8 +66,11 @@ become one GitHub issue.
 - Dependency: result schema and E0 smoke, both present.
 - Exists: configuration validation, dynamic metric instruments, OTel export,
   schema-valid smoke results, median, and MAD.
-- Remaining: repeat orchestration, incumbent pairing, noise verdicts, and Phase
-  0 workload executors.
+- Exists: `phase0-slate-filesystem-v1` executes deterministic ingest, point
+  reads, ordered scans, fresh-instance reopen, per-API request/byte accounting,
+  hard gates, raw report artifacts, and OTel export through pinned SlateDB.
+- Remaining: generic repeat orchestration, incumbent pairing, noise verdicts,
+  and the broader `phase0.toml` workload executors.
 
 ### T6. Establish the SlateDB baseline
 
@@ -76,6 +79,13 @@ become one GitHub issue.
 - Done when: request count, bytes, latency distribution, cache state, compaction,
   and reopen results are captured with exact revision/profile identity.
 - Dependency: T4 and T5.
+- Exists: the first filesystem incumbent at candidate `12df9f8`. Clean run
+  `84410878` kept with zero anomalies across three seeds. OTel run `794c45da`
+  recorded the same logical receipt and bounded physical series. The
+  warm-instance poison `e53a01c4` discarded despite returning the correct value.
+- Remaining: scale and repeated-noise curves, MinIO and GCS profiles, explicit
+  compaction completion and amplification, price snapshots, and named Gate 1
+  ceilings.
 
 ### T7. PostgreSQL bridge surface spike
 

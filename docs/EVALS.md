@@ -516,6 +516,22 @@ resumes.
 
 ## Phase 0 workload
 
+`[EXISTS]` RFC-0021 adds the first executable incumbent:
+
+```bash
+cargo run -p okv-eval -- run evals/suites/phase0-slate-filesystem.toml \
+  --profile local-fs \
+  --workload slatedb-filesystem-baseline \
+  --backend slatedb-local-fs
+```
+
+The local profile writes 8 MiB for each of three seeds through pinned SlateDB,
+checks post-flush and warm point reads, checks one ordered 100-row scan, opens a
+new database instance over the same filesystem objects, and times the first
+verified read. Its `reuse_warm_db_for_reopen` poison must discard even when the
+logical value remains exact. The suite records backend calls and byte ranges,
+but does not yet assign a cloud-price or compaction-cost ceiling.
+
 Use a deterministic 10 GiB logical dataset after the small developer profile is
 working. Keys and values are generated from recorded seeds.
 

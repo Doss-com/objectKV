@@ -462,3 +462,24 @@ and snapshot-restoration contract.
 
 Evidence: RFC-0020, candidate `72df70c`, clean run `a544deff`, convergence-only
 run `82698bdb`, and OTel run `50ad5d86`.
+
+## D29. Treat SlateDB Phase 0 as an incumbent, not a kernel verdict
+
+Status: `[DECIDED]` for the first physical-economics receipt, 2026-08-23.
+
+Decision: use pinned SlateDB over the local filesystem object-store backend to
+establish deterministic ingest, read, scan, reopen, request, and byte evidence.
+Do not treat this receipt as objectKV semantics or as a Gate 1 pass. Compaction,
+remote S3 behavior, GCS, larger datasets, and named cost ceilings remain
+separate falsifying experiments.
+
+Optimizes for: obtaining an executable physical incumbent without coupling the
+kernel contract to SlateDB internals or waiting for the distributed cell.
+
+Gives up: drawing a product-feasibility conclusion from one local backend. Raw
+request totals include expected not-found and conditional-operation probes, so
+provider pricing requires classified request semantics rather than one blended
+count.
+
+Evidence: RFC-0021, candidate `12df9f8`, clean run `84410878`, warm-cache poison
+`e53a01c4`, and OTel run `794c45da`.

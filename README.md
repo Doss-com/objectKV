@@ -28,7 +28,7 @@ Redis / search / PostgreSQL / DataFusion
 
 ## First proof
 
-`[PROPOSED]` The first milestone is intentionally smaller than the end state:
+`[ACTIVE-WORK]` The first milestone is intentionally smaller than the end state:
 
 1. Accept externally assigned commit versions.
 2. Apply and read versioned mutations through a storage-engine boundary.
@@ -36,6 +36,12 @@ Redis / search / PostgreSQL / DataFusion
 4. Measure hot reads, cold reads, request amplification, compaction cost, and
    empty-cache reopen behavior.
 5. Reject the architecture if the physical economics do not clear Gate 1.
+
+The first pinned SlateDB filesystem incumbent now executes deterministic ingest,
+warm and cold point reads, ordered scans, and empty-cache reopen across three
+seeds. It records per-API requests and bytes through the shared OTel path. This
+is an incumbent measurement, not a Gate 1 pass: MinIO, GCS, forced compaction,
+larger datasets, and named workload cost ceilings remain open.
 
 The distributed WAL, disposable serving workers, ranges, OCC, PostgreSQL path,
 and HTAP materialization follow only after the prior gate passes.
@@ -67,6 +73,10 @@ program.md          autonomous research operating loop
 cargo test --workspace
 cargo run -p okv-eval -- smoke
 cargo run -p okv-eval -- validate-suite evals/suites/phase0.toml
+cargo run -p okv-eval -- run evals/suites/phase0-slate-filesystem.toml \
+  --profile local-fs \
+  --workload slatedb-filesystem-baseline \
+  --backend slatedb-local-fs
 cargo run -p okv-object -- --backend memory --profile authority
 cargo run -p okv-eval -- run evals/suites/object-store.toml \
   --profile memory-authority \

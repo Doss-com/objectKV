@@ -189,14 +189,23 @@ the architecture memo.
 
 ### S1. Establish the Phase 0 baseline
 
-Status: `[ACTIVE-WORK]` object-store conformance prerequisite; SlateDB workload
-baseline remains `[PROPOSED]`.
+Status: `[ACTIVE-WORK]`. Object-store conformance and the first SlateDB
+filesystem workload incumbent now execute; MinIO, GCS, compaction, scale curves,
+and target-workload ceilings remain open.
 
 Memory, filesystem, and pinned MinIO now have executable capability-profiled
 conformance evidence. Filesystem is intentionally segment-only because the
 shared Apache `object_store` API does not expose conditional update for its
 local backend. GCS remains unexecuted until `objectKV-dev` authentication and
 provisioning are available.
+
+RFC-0021 and `phase0-slate-filesystem-v1` now run 8 MiB per seed through pinned
+SlateDB at revision `e0161973`. Clean run `84410878` kept with zero anomalies,
+a 129.9 ms median first correct read after fresh reopen, 794 backend calls,
+17,120,801 bytes read, and 53,028,027 bytes written across three seeds. The
+warm-instance poison `e53a01c4` reported an artificial 53.25 microsecond median
+but discarded on the fresh-cache gate. OTel run `794c45da` exported the Phase 0
+request, byte, throughput, correctness, and reopen series.
 
 Implement the same fixed dataset/workloads against:
 
