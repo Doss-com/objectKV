@@ -1022,7 +1022,19 @@ fn build_report(
         trace.update([u8::from(passed)]);
     }
     if let Some(authority) = &observations.final_authority {
-        trace.update(serde_json::to_vec(authority).unwrap_or_default());
+        let mut canonical_authority = authority.clone();
+        // Real TCP scheduling can require a different number of explicit
+        // election retriggers, so Raft terms are not deterministic across
+        // fresh process runs. Certificate verification still binds the exact
+        // observed term, while the semantic trace normalizes terms and retains
+        // the certified indexes.
+        if let Some(position) = canonical_authority.fenced_log_position.as_mut() {
+            position.term = 0;
+        }
+        if let Some(position) = canonical_authority.recovered_log_position.as_mut() {
+            position.term = 0;
+        }
+        trace.update(serde_json::to_vec(&canonical_authority).unwrap_or_default());
     }
     for (node_id, payloads) in &observations.final_payloads {
         trace.update(node_id.to_be_bytes());
