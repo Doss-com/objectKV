@@ -71,6 +71,10 @@ models that pressure-test the kernel without replacing the PostgreSQL north star
   versions fenced across generation recovery?
 - Failure mode: an acknowledged commit exists in neither reconstructable object
   state nor the retained WAL.
+- Tigris-derived constraint: upload immutable bytes before publishing their
+  authoritative pointer; commit data, index intent, and asynchronous task intent
+  together; recover ambiguous uploads by identity; derive deletion safety from
+  retained roots rather than incremental counters alone.
 - Rough scope: large, 3 to 6 weeks after the versioned engine is credible.
 
 ### W4. Disposable serving
@@ -82,6 +86,10 @@ models that pressure-test the kernel without replacing the PostgreSQL north star
 - Open question: how much metadata must be eagerly loaded for bounded time to
   first correct read?
 - Failure mode: logical readiness waits on copying or scanning the full dataset.
+- Tigris-derived constraint: cache entries are version-addressed, bytes or
+  blocks land before visible metadata, and every delayed populate is fenced by
+  a newer invalidation or generation. Cache hits are part of the correctness
+  history, not a performance-only layer.
 - Rough scope: large, 3 to 6 weeks after the WAL path.
 
 ### W5. Logical distribution

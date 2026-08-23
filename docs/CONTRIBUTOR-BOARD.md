@@ -193,8 +193,9 @@ become one GitHub issue.
   `okv-model` contract executes all five controls plus one multi-table,
   single-version case through `zebradb-htap-contract-v1` and OTel.
 - Remaining: implement the DataFusion `TableProvider` and ordered physical
-  operator, replace model rows with Arrow and Parquet fixtures, and measure the
-  cost curve as `T - W_p` grows.
+  operator, replace model rows with Arrow and Parquet fixtures, force a
+  continuation across short physical transactions at one target `T`, and
+  measure the cost curve as `T - W_p` grows.
 
 ### T17. Specify analytical dependency certificates
 
@@ -252,6 +253,46 @@ become one GitHub issue.
   retained-outcome expiry and compaction, and prove disk-full, replica repair,
   independent-disk failure, object-root reconciliation, and replacement
   recovery.
+
+### T19. Audit Tigris architecture and codebase `[COMPLETE]`
+
+- Scope: inspect the original FoundationDB-backed database module, current
+  object-storage architecture, TAG, OCache, and TigrisFS at exact source pins.
+- Done when: the study separates mechanisms that support objectKV from claims
+  Tigris does not prove, records limitations, and turns findings into bounded
+  eval and implementation work.
+- Dependency: none. Read-only research.
+- Evidence: `docs/research/tigris-codebase-study.md`.
+
+### T20. Prove block-before-pointer publication and ground-truth GC
+
+- Scope: model immutable block upload, authoritative pointer publication,
+  ambiguous writes, unreachable objects, retained manifests, snapshot/query
+  leases, and object deletion eligibility.
+- Done when: crash and unknown-outcome histories never expose absent bytes or
+  delete reachable bytes; a deliberately wrong accounting counter cannot make
+  GC unsafe; an incomplete liveness walk fails closed.
+- Dependency: RFC-0003, RFC-0004, and RFC-0007. The model can start before the
+  storage-worker implementation.
+
+### T21. Specify a transactional task stream
+
+- Scope: versionstamped task records committed with data and index intent,
+  worker claims, leases, retry, acknowledgement, and idempotent side effects.
+- Done when: commit, crash-after-effect, duplicate-delivery, lease-expiry, and
+  poison-task histories prove no missed work and no duplicate logical effect.
+- Dependency: RFC-0002 and the Cell v0 commit envelope.
+
+### T22. Build cache visibility and resurrection oracles
+
+- Scope: version-addressed bodies/blocks, metadata-last visibility, stale
+  generation, delayed populate, delete, overwrite, cache loss, and regional
+  fallback.
+- Done when: cache hits participate in the linearizability history; a
+  delete-then-read, overwrite-while-streaming, or expired-barrier resurrection
+  fails deterministically and replays exactly.
+- Dependency: T13 simulation substrate. It blocks a complete direct-read claim,
+  not the first immutable segment builder.
 
 ## Opens after Gate 1
 

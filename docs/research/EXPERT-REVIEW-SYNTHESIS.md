@@ -63,6 +63,11 @@ must stay outside the repository and review artifacts.
 11. Exact HTAP needs a second coverage watermark `A_p`, atomic and complete
     change capture, schema-at-`T` normalization, two-effect partition movement,
     exact-or-error leases, and phantom-safe certificate validation.
+12. Tigris validates the value of an FDB-like transaction substrate, immutable
+    bytes behind transactional metadata, version-addressed caches, and atomic
+    work intent. It does not validate objectKV's replacement of FoundationDB.
+    Its published failures add cache resurrection, short-transaction
+    continuation, and ground-truth GC as explicit eval obligations.
 
 ## Changes applied to the plan
 
@@ -93,6 +98,9 @@ must stay outside the repository and review artifacts.
   deduplication semantics.
 - `[PROPOSED]` The HTAP eval uses exact canonical row equality as a hard gate;
   tail rows, bytes, memory, spill, and latency measure cost separately.
+- `[PROPOSED]` Block-before-pointer publication, transactional task intent,
+  cache resurrection, and ground-truth GC now have separate contributor tasks.
+  See `docs/research/tigris-codebase-study.md`.
 
 ## SlateDB inference follow-up
 
