@@ -25,5 +25,6 @@ not harden until their RFC is accepted.
 | 0015 | Replicated publication authority | proposed | fenced root, pin, intent, and deletion-reservation state |
 | 0016 | Publication worker recovery and object-effect fencing | proposed | crash-safe publisher, sweeper, and generation handoff |
 | 0017 | Publisher process recovery after prepare | proposed | first disposable object-effect worker boundary |
+| 0018 | Publisher recovery after ambiguous object PUT | proposed | partial upload and lost-response recovery |
 
 Use `0000-template.md` for new proposals.
