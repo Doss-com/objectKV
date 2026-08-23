@@ -31,15 +31,13 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 95 points at admitted recovery-certificate
-receipt `17d6622ea1ff6c8b79cb29b3ea8ff5704e3e9dfd`. Candidate
-`6bad3f85f7a51d0ee5844c73de362f47d7477a91` passed clean run
-`6a2989a1-6444-4c87-97ad-e77f16a92475` with zero anomalies across three seeds
-and 48 real-process checks. Each seed used three fence signers, three recovery
-signers, and rejected five invalid certificates. All five unsafe subjects
-discarded with exact replay. OTel run
-`e4638e21-f6a0-45b3-abc1-f5aba3467f20` exported the bounded Prometheus series.
-The next independent critical path implements Arrow and Parquet fixtures plus
-the DataFusion exact-snapshot overlay against the frozen row oracle. Recovery
-continues separately with control-root reconciliation and production key
-custody.
+`[ACTIVE-WORK]` Tracker revision 100 points at admitted object publication head
+`77029f843e3c8d2b4bae5357b54e89b74991da60`. Candidate
+`602b3174ca35f4dd1d897767e4aed71d8b111fcd` passed clean run
+`e83eeb60-29ab-447d-950c-7b533672cc43` with zero anomalies across three seeds
+and 48 physical boundary checks. Seven unsafe subjects discarded. OTel run
+`beaa7904-f2bd-48a8-93e4-3529cb95f98b` exported logs, metrics, and traces. The
+next storage critical path binds the same publication command contract to
+replicated authority and kills publisher and sweeper processes at every durable
+boundary. The independent HTAP path adds version-bound manifests and leases,
+multiple execution ranges, safe pruning, and the `T - W_p` cost curve.
