@@ -229,8 +229,9 @@ Exit: Gate 1 re-runs against the objectKV adapter with no correctness failures.
 
 ### S3. Add the fast durability tier
 
-Status: `[ACTIVE-WORK]` the simulator prerequisite and local stable-storage seam
-exist; distributed consensus and the production WAL remain `[PROPOSED]`.
+Status: `[ACTIVE-WORK]` the simulator, local stable storage, three-node OpenRaft
+replication, real-process retry recovery, and generation handoff gates exist;
+the production WAL remains `[PROPOSED]`.
 
 The first exact replay probe now preserves synced control authority across
 crash/restart and rejects a stale generation after partition/repair. Extend that
@@ -240,12 +241,13 @@ durability, consume it into immutable objects, and advance the conservative
 object durable watermark. Ratekeep and eventually refuse commits at declared
 `C - O` and retained-WAL bounds.
 
-The first persistence slice now frames the frozen commit envelope, synchronizes
-three local replica files, and reconstructs only a contiguous two-copy prefix
-after fresh opens. It detects leader-only suffixes, torn final frames, bad log
-chains, complete corruption without quorum, and lost in-memory retry outcomes.
-The next slice places this seam behind deterministic replication, election, and
-generation recovery. Local file agreement is not consensus evidence.
+The persistence and consensus slices now frame the frozen commit envelope,
+synchronize independent per-node journals, replicate through three OpenRaft
+processes, recover a lost reply after real leader death, and fence a G1 to G2
+generation handoff through signed recovery evidence. Remaining work includes
+snapshot persistence and retained-outcome expiry, disk-full behavior, replica
+repair, independent-disk loss, production timing and placement, object-root
+reconciliation, and sustained throughput and latency curves.
 
 Gate 2: every failing seed replays exactly; low-millisecond local-region commit
 is demonstrated; brownout, kill/restart, disk-full, and lost-ack scenarios
@@ -253,10 +255,18 @@ preserve every acknowledged commit within the published RPO contract.
 
 ### S4. Make serving disposable
 
-Status: `[PROPOSED]`.
+Status: `[ACTIVE-WORK]` for publication workers; read serving and full
+materialization recovery remain `[PROPOSED]`.
 
 Separate read/materialization workers from permanent bytes. Start with an empty
 cache and demonstrate bounded logical readiness independent of dataset size.
+
+Two publisher gates now start replacement processes with empty scratch. The
+first recovers after quorum-durable `Prepare` but before object effects. The
+second recovers after the first immutable PUT takes effect and its response is
+lost, using replicated intent plus exact named identity to finish the closure.
+Lost manifest and `Publish` replies, multipart residue, abandoned work,
+sweeper recovery, empty-disk read serving, and bounded readiness remain open.
 
 Gate 3: complete worker loss does not require durable dataset copy.
 

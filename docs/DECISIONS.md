@@ -402,3 +402,24 @@ upload, lost object and `Publish` replies, abandoned-intent policy, and sweep.
 
 Evidence: RFC-0017, candidate `ffc0c84`, clean run `3b5cb41f`, poisoned run
 `26bde1fa`, and OTel run `ce7692da`.
+
+## D26. Resolve ambiguous immutable PUTs by exact named identity
+
+Status: `[DECIDED]` for the first partial-effect publisher gate, 2026-08-23.
+
+Decision: a retryable-unknown PUT response proves neither success nor failure.
+A replacement publisher reconstructs the same canonical job from the
+quorum-durable intent, retries the same immutable name, and accepts an existing
+object only after exact length and digest verification. It may request root
+publication only after a complete named closure walk succeeds.
+
+Optimizes for: disposable publishers and idempotent object effects without a
+worker-local progress journal or object-store LIST authority.
+
+Gives up: a write-only retry path. Ambiguous recovery adds exact named reads and
+fails closed on conflicting identity. Lost manifest and authority replies,
+multipart residue, abandonment, and sweeper effect fencing remain separate
+gates.
+
+Evidence: RFC-0018, candidate `a6dfeed`, clean run `a4a1aec5`, poisoned run
+`fa9d729b`, and OTel run `b57f141f`.

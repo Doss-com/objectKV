@@ -215,6 +215,36 @@ PUT. It does not admit partial upload recovery, lost object or `Publish`
 replies, abandoned-intent policy, sweeper recovery, object-effect fencing,
 authority snapshot repair, independent failure domains, or cloud economics.
 
+## Publisher ambiguous-PUT recovery gate
+
+```bash
+cargo run -p okv-eval -- run \
+  evals/suites/object-publication-publisher-put-recovery.toml \
+  --profile local-fs \
+  --workload publisher-first-put-unknown-restart \
+  --backend object-store-local-fs+process-openraft
+```
+
+The suite freezes RFC-0018 and uses three seeds for twelve semantic checks
+each. Candidate `a6dfeed` kept in run
+`a4a1aec5-cca9-46e7-864e-de48a7e2c30b` with zero anomalies at the exact
+36-event budget. It started nine authority processes and six publisher
+processes, issued three real process kills, injected three successful object
+effects with unknown responses, recovered three existing immutable objects,
+and performed eighteen named verification reads. Two fresh seed-1103
+controllers emitted byte-identical semantic receipts. The partial-closure
+subject discarded in run `fa9d729b-c861-444a-9989-7127f026058c` with four
+anomalies per seed. OTel run `b57f141f-fd8d-4108-b053-da1c2cc9a63d`
+exported two log records, one trace span, eight metrics, and eight metric data
+points. Prometheus exposed correctness anomalies at zero, availability ratio
+at one, and operation duration at 1.39638825 seconds.
+
+This admits one ambiguous data-object PUT followed by real process death and
+empty-scratch replay. It does not admit a lost manifest response, a lost
+`Publish` response, multipart residue cleanup, repeated unknown-response retry
+budgets, abandoned-intent reassignment, sweeper recovery, generation-bound
+effect grants, independent-disk loss, or cloud economics.
+
 ## ZebraDB HTAP exactness gate
 
 ```bash

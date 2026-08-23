@@ -316,12 +316,19 @@ become one GitHub issue.
   replacement process. It kept 30 checks at zero anomalies. The poisoned
   upload-before-Prepare run `26bde1fa` discarded with eight anomalies per seed;
   OTel run `ce7692da` exported logs, metrics, and traces.
-- Remaining: kill the publisher after partial upload, lost PUT reply, closure
-  verification, and lost `Publish` reply. Then kill the sweeper around complete
-  mark receipt, delete reservation, object effect, and retirement; prove
-  effect-grant fencing, generation handoff, old-root deletion, and independent
-  empty-disk recovery; add cloud-native guarded-delete receipts, partition
-  reservations, and publication and reclamation cost curves.
+  Candidate `a6dfeed` crosses the first object-effect boundary. Run `a4a1aec5`
+  retained the first successful PUT while replacing its response with unknown,
+  killed the publisher, and recovered from replicated intent plus exact named
+  object identity in a replacement with empty scratch. It kept 36 checks at
+  zero anomalies. Partial-closure run `fa9d729b` discarded with four anomalies
+  per seed; OTel run `b57f141f` exported logs, metrics, and traces.
+- Remaining: lose the manifest PUT response and the replicated `Publish` reply,
+  model partial multipart residue and repeated unknown responses, then kill the
+  sweeper around complete mark receipt, delete reservation, object effect, and
+  retirement. Prove effect-grant fencing, generation handoff, old-root
+  deletion, and independent empty-disk recovery; add cloud-native
+  guarded-delete receipts, partition reservations, and publication and
+  reclamation cost curves.
 
 ### T21. Specify a transactional task stream
 

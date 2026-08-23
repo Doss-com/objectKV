@@ -81,6 +81,11 @@ cargo run -p okv-eval -- run \
   --profile local-fs \
   --workload publisher-prepare-restart \
   --backend object-store-local-fs+process-openraft
+cargo run -p okv-eval -- run \
+  evals/suites/object-publication-publisher-put-recovery.toml \
+  --profile local-fs \
+  --workload publisher-first-put-unknown-restart \
+  --backend object-store-local-fs+process-openraft
 cargo run -p okv-eval -- run evals/suites/smoke.toml \
   --profile dev --workload model-smoke --backend model
 cargo run -p okv-sim -- replay --seed 1103
@@ -118,9 +123,13 @@ durability result, cloud receipt, or throughput result.
 The publisher-process gate starts three real OpenRaft authority processes,
 commits an exact publication intent, kills a dedicated publisher before its
 first object PUT, removes its scratch directory, and completes publication from
-a replacement process with empty scratch. It proves this first worker-recovery
-boundary only. Partial uploads, lost object and Publish replies, abandoned
-intent handling, sweeper recovery, and object-effect fencing remain ahead.
+a replacement process with empty scratch. The ambiguous-PUT gate crosses the
+next effect boundary: the first immutable PUT takes effect, its response becomes
+retryable-unknown, the publisher is killed, and an empty-scratch replacement
+verifies the existing named object before completing and publishing the exact
+closure. Lost manifest and `Publish` replies, multipart residue, abandoned
+intent handling, sweeper recovery, and generation-bound effect fencing remain
+ahead.
 The commit-contract runner proves a deterministic envelope and failure oracle,
 not production consensus. The persisted-WAL runner writes that envelope through
 a checksummed frame to three local files, synchronizes each selected file,

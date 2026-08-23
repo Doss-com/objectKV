@@ -117,9 +117,15 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   three real OpenRaft authority processes, kills the dedicated publisher before
   its first object PUT, removes its scratch directory, and completes exact
   named-object verification plus atomic root publication from a replacement
-  process with empty scratch. Partial uploads, lost object and `Publish`
-  replies, abandoned intents, sweeper recovery, and object-effect fencing are
-  not admitted.
+  process with empty scratch.
+- `[EXISTS]` The next publisher gate injects a real first-object effect with a
+  retryable-unknown response, kills that publisher, and starts a replacement
+  with empty scratch. The replacement recovers the canonical job from the
+  replicated intent, identifies the first immutable object as exact through a
+  named read, completes and verifies the closure, and atomically publishes the
+  root. A partial-closure publisher is rejected deterministically. Lost manifest
+  and `Publish` replies, multipart residue, abandoned intents, sweeper recovery,
+  and generation-bound object-effect fencing are not admitted.
 - `[ACTIVE-WORK]` The actual Google Cloud project and GCS bucket await interactive
   gcloud reauthentication and exact organization/billing verification.
 - `[EXISTS]` `Doss-com/objectKV` did not exist when this scaffold was created.

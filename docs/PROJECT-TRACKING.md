@@ -31,18 +31,21 @@ Do not copy the full RFC queue into the playground.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 102 points at publisher-recovery candidate
-`ffc0c849879ec5ac9a54fa556a067c43e414fbe5`. Clean run
-`3b5cb41f-8985-47f4-8e87-4797ad9babef` passed 30 checks with zero anomalies
-across three deterministic seeds. It committed `Prepare` through three real
-OpenRaft authority processes, killed the publisher before the first object PUT,
-removed its scratch directory, and completed publication from a replacement
-with empty scratch. Negative run `26bde1fa-670b-40db-a750-8f363042b10b`
-discarded upload-before-Prepare with eight anomalies per seed. OTel run
-`ce7692da-7150-4b6a-81c4-9e680c7e2bb6` exported logs, metrics, and traces with
-correctness anomalies at zero and availability ratio at one. The next storage
-critical path covers partial upload, lost PUT and `Publish` replies, complete
-`MarkReceipt`, sweeper effect fencing, G1/G2 reservation handoff, and
-independent empty-disk recovery. The independent HTAP path adds version-bound
-manifests and leases, multiple execution ranges, safe pruning, and the
-`T - W_p` cost curve.
+`[ACTIVE-WORK]` Tracker revision 103 points at ambiguous-PUT recovery candidate
+`a6dfeed13af06d56c30d494d751866bfbdf03a27`. Clean run
+`a4a1aec5-cca9-46e7-864e-de48a7e2c30b` passed 36 checks with zero anomalies
+across three deterministic seeds. It retained a successful first immutable PUT
+while replacing its response with retryable-unknown, killed that publisher,
+removed its scratch directory, and recovered the canonical job from replicated
+intent in a replacement with empty scratch. The replacement verified the
+existing object by exact named identity before completing the closure and
+publishing the root. Negative run `fa9d729b-c861-444a-9989-7127f026058c`
+discarded partial-closure publication with four anomalies per seed. OTel run
+`b57f141f-fd8d-4108-b053-da1c2cc9a63d` exported two log records, one trace
+span, eight metrics, and eight data points with correctness anomalies at zero
+and availability ratio at one. The next storage critical path covers lost
+manifest and `Publish` replies, multipart residue, repeated unknown-response
+budgets, complete `MarkReceipt`, sweeper effect fencing, G1/G2 reservation
+handoff, and independent empty-disk recovery. The independent HTAP path adds
+version-bound manifests and leases, multiple execution ranges, safe pruning,
+and the `T - W_p` cost curve.
