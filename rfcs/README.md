@@ -29,5 +29,6 @@ not harden until their RFC is accepted.
 | 0019 | Publisher recovery after ambiguous manifest PUT | proposed, implementation active | closure verification after manifest ambiguity |
 | 0020 | Publisher recovery after lost replicated Publish response | proposed, implementation active | acknowledgement-aligned authority outcome recovery |
 | 0021 | SlateDB Phase 0 filesystem baseline | proposed, implementation active | first executable physical-economics incumbent |
+| 0022 | SlateDB filesystem scale curve | proposed, implementation active | 1 MiB to 64 MiB reopen and object-I/O shape |
 
 Use `0000-template.md` for new proposals.
