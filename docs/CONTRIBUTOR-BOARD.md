@@ -242,12 +242,16 @@ become one GitHub issue.
   against a preauthorized in-flight write, recovery reservation, authority
   leader loss, competing-recovery rejection, quiesced voter-set handoff,
   recovery-phase write rejection, nonzero activation position, and exact G2
-  continuation across nine real processes. Four unsafe subjects discard.
-- Remaining: authenticate the recovery certificate against the data quorum,
-  bind transaction-system membership into authority state, separately persist
-  or snapshot retained request outcomes, define retained-outcome expiry and
-  compaction, and prove disk-full, replica repair, independent-disk failure,
-  object-root reconciliation, and replacement recovery.
+  continuation across nine real processes. Four unsafe subjects discard. The
+  `generation-recovery-certificates-v1` gate pins active and pending data-voter
+  public keys, collects exact-position Ed25519 attestations, verifies a distinct
+  signer majority in replicated authority state, and rejects five certificate
+  defects with exact replay.
+- Remaining: load and rotate signing keys through a production secret boundary,
+  separately persist or snapshot retained request outcomes, define
+  retained-outcome expiry and compaction, and prove disk-full, replica repair,
+  independent-disk failure, object-root reconciliation, and replacement
+  recovery.
 
 ## Opens after Gate 1
 

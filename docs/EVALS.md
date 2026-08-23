@@ -43,6 +43,11 @@ the same request identity, restarts the killed node from its retained log, and
 requires one logical effect plus the original outcome on every node. Three
 negative subjects disable deduplication, acknowledge without quorum, and omit
 the killed-node restart.
+The `generation-recovery-certificates-v1` suite requires the external authority
+to verify Ed25519 quorum certificates for the exact data-log fence and recovered
+voter-set positions. It pins active and pending voter public keys in authority
+state. Five negative subjects admit a single signer, tampered position,
+duplicate signer, stale recovery identity, or wrong membership digest.
 
 ## Executable configuration
 
@@ -269,12 +274,40 @@ activate with a zero recovery position. Each must discard through the same
 schema and OTel path.
 
 This proves one bounded, quiesced voter-set handoff and external authority
-leader loss. It does not prove automatic failure detection, overlapping old and
+leader loss. The data-quorum certificate gate below replaces its bare
+controller-reported positions. Automatic failure detection, overlapping old and
 new transaction-system traffic, coordinator membership change, object-root
-reconciliation, independent-disk loss, or a quorum-authenticated recovery
-certificate. The current authority requires controller-reported, nonzero data
-fence and recovered log positions; it cannot yet authenticate those reports
-against the data voter set.
+reconciliation, and independent-disk loss remain unproven.
+
+## Data-quorum recovery certificate gate
+
+```bash
+cargo run -p okv-eval -- run evals/suites/generation-certificates.toml \
+  --profile local-fs \
+  --workload generation-certificate-handoff \
+  --backend process-local-fs
+```
+
+Every data process owns one Ed25519 signing seed in the process contract. The
+authority pins public keys for the active voters at bootstrap and for pending
+voters at `Prepare`. A G1 voter signs only the exact applied fence-barrier term
+and index. A G2 voter signs only the exact applied voter-set transition while
+its local generation mirror remains `Recovering`. The authority requires a
+majority of distinct pinned voters and verifies canonical statement bytes that
+bind purpose, cell, generation, recovery identity, active and pending
+transaction-system identities, log position, and membership digest.
+
+Three seeds execute 48 takeover checks with zero anomalies and exact
+fresh-process replay. Five negative subjects admit a single-signer fence,
+tampered fence position, duplicate recovery signer, stale recovery identity, or
+wrong membership digest. Each discards through the shared result and OTel path.
+
+This proves certificate construction, local observation, transport, replicated
+authority verification, and authority-leader failover in the bounded process
+contract. It does not prove production key custody or rotation, compromised
+quorum tolerance, automatic recovery initiation, control-root reconciliation,
+or independent-disk recovery. Test signing seeds are passed through process
+configuration and are not a production secret-delivery design.
 
 ## MVCC semantic gate
 
