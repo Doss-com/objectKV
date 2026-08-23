@@ -105,6 +105,8 @@ pub struct Phase0Report {
     pub slatedb_revision: String,
     pub store: String,
     pub mode: String,
+    pub logical_bytes: u64,
+    pub key_count: u64,
     pub receipt_digest: String,
     pub repeated_receipt_digest: String,
     pub seeds: Vec<Phase0SeedReport>,
@@ -213,6 +215,8 @@ pub async fn run_phase0_filesystem_contract(
             Phase0Mode::ReuseWarmDbForReopen => "reuse_warm_db_for_reopen",
         }
         .to_owned(),
+        logical_bytes: config.logical_bytes,
+        key_count: config.key_count,
         receipt_digest,
         repeated_receipt_digest,
         seeds: reports,

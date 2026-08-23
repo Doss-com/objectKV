@@ -783,6 +783,7 @@ fn phase0_execution(
     let mut measurements = Vec::new();
     let mut total_operations = 0_u64;
     let mut total_io = Phase0IoDelta::default();
+    let dataset_class = format!("local-fs-{}-bytes", report.logical_bytes);
     for seed in &report.seeds {
         measurements.push(Measurement {
             metric: "recovery.first_correct_read_duration",
@@ -791,7 +792,7 @@ fn phase0_execution(
                 ("lane", LANE),
                 ("workload", &workload.id),
                 ("backend", backend),
-                ("dataset.class", "local-fs-8mib"),
+                ("dataset.class", &dataset_class),
                 ("result", if report.passed() { "pass" } else { "fail" }),
             ]),
         });
