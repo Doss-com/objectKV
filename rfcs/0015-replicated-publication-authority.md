@@ -84,16 +84,20 @@ is required before public compatibility is claimed.
 
 The authority accepts six versioned publication actions:
 
-1. `Prepare`, naming the complete immutable object closure and manifest.
-2. `Publish`, requiring the matching intent, installing the root, and retiring
-   that intent atomically.
-3. `Pin`, installing a retained manifest root.
-4. `Unpin`, removing one retained manifest root.
+1. `Prepare`, naming the complete immutable object closure, manifest,
+   destination root, expected prior root, and owner generation.
+2. `Publish`, requiring the matching same-generation intent and expected prior
+   root, installing the destination root, and retiring that intent atomically.
+3. `Pin`, installing or replacing a retained manifest root only when the
+   current value matches the command's expected value.
+4. `Unpin`, removing one retained manifest root only when its exact current
+   value matches the command.
 5. `ReserveDelete`, requiring an unchanged mark epoch and no intersecting
    current intent, then issuing an opaque permit bound to the exact object
    identity, plan, generation, and applied authority log position.
-6. `RetireDelete`, requiring the exact plan and object key before removing the
-   reservation.
+6. `RetireDelete`, requiring the complete opaque reservation grant, including
+   object identity, plan, generation, and authority log position, before
+   removing the reservation.
 
 `Prepare`, `Publish`, `Pin`, and `Unpin` advance the root and intent epoch.
 Deletion reservation and retirement do not. A reservation serializes physical
@@ -110,6 +114,8 @@ retained as the request outcome.
   `Fencing`, or `Recovering`.
 - A credential from an older or pending generation cannot mutate publication
   state.
+- An intent is owned by the generation that prepared it. A later generation
+  cannot publish it without a separately specified reconciliation transition.
 - Prepared intents, roots, pins, and deletion reservations survive authority
   leader loss, process restart, and state-machine snapshot recovery.
 - A generation transition does not silently discard a deletion reservation.
@@ -129,7 +135,11 @@ Authority-role nodes expose:
 
 - `publication_write(command, drop_reply_after_commit)`;
 - `publication_read()` after `ensure_linearizable`;
-- the existing `outcome(request_identity)` lookup.
+- `publication_outcome(request_identity)` after `ensure_linearizable`.
+
+The existing generic `outcome(request_identity)` endpoint is a local state
+machine read and is not authoritative for resolving publication outcomes. It
+must not be reused for this protocol.
 
 `drop_reply_after_commit` exists only in the executable contract harness. It
 creates a real unknown outcome after committed apply. Production transport may
@@ -153,6 +163,10 @@ The first gate covers:
 - stale generation credentials;
 - stale mark epochs;
 - publication and deletion-reservation races.
+- stale root and pin compare-and-swap attempts;
+- cross-generation intent publication;
+- exact-grant deletion retirement;
+- fail-closed handling of an unknown publication command during upgrade.
 
 It does not cover:
 
@@ -167,19 +181,21 @@ It does not cover:
 ## Eval plan
 
 `object-publication-authority-process-v1` runs three fixed seeds through three
-real authority processes over Tokio TCP. Eighteen semantic checks per seed must
-fit a 54-event budget. The clean subject must prove:
+real authority processes over Tokio TCP. Twenty-four semantic checks per seed
+must fit a 72-event budget. The clean subject must prove:
 
 - active-generation authorization;
 - durable prepare and exact unknown-outcome recovery;
 - intent survival after authority leader loss;
 - exact retry deduplication and conflicting identity rejection;
-- publish requires a matching intent;
+- outcome recovery uses a linearizable authority read;
+- publish requires a matching same-generation intent and expected prior root;
+- pin and unpin require exact expected values;
 - root installation and intent retirement are atomic;
 - a root or intent epoch change rejects a stale delete plan;
 - a deletion reservation survives leader loss;
 - a reservation rejects intersecting preparation;
-- only the exact delete plan can retire its reservation;
+- only the exact deletion grant can retire its reservation;
 - retirement permits a fresh publication attempt;
 - restarted nodes catch up to byte-equivalent authority state.
 
@@ -190,6 +206,11 @@ The frozen negative subjects are:
 3. `ignore_root_epoch`
 4. `ignore_delete_reservation`
 5. `disable_request_dedup`
+6. `acknowledge_before_quorum`
+7. `stale_expected_root`
+8. `local_stale_outcome_read`
+9. `cross_generation_intent_publish`
+10. `retire_by_plan_key_only`
 
 Each must produce at least one bounded anomaly and a `discard` verdict. Two
 fresh executions of the clean seed `1103` must emit byte-identical semantic
@@ -214,6 +235,10 @@ Publication commands use an objectKV-owned magic prefix and versioned JSON
 payload. The bootstrap wire and snapshot format is unpublished. Any incompatible
 change before public release creates a new suite and trace identity. Public
 compatibility requires a versioned snapshot envelope and migration fixture.
+
+Command activation requires a homogeneous authority-node binary version. An
+older node that does not recognize the publication command prefix must fail
+closed; treating unknown command bytes as generic applied payload is forbidden.
 
 ## Unresolved questions
 

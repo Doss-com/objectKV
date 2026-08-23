@@ -24,7 +24,7 @@ seeds = [1103, 2207, 3301]
 
 [profiles.local-fs]
 budget_kind = "events"
-budget_limit = 54
+budget_limit = 72
 repeats = 1
 backend = "process-local-fs"
 authority_nodes = 3
@@ -81,21 +81,56 @@ lane = "publication-authority"
 operation = "publication_authority_process_contract"
 negative_control = "disable_request_dedup"
 
+[[workloads]]
+id = "publication-authority-ack-before-quorum"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "acknowledge_before_quorum"
+
+[[workloads]]
+id = "publication-authority-stale-expected-root"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "stale_expected_root"
+
+[[workloads]]
+id = "publication-authority-local-stale-outcome-read"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "local_stale_outcome_read"
+
+[[workloads]]
+id = "publication-authority-cross-generation-intent"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "cross_generation_intent_publish"
+
+[[workloads]]
+id = "publication-authority-retire-by-plan-key"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "retire_by_plan_key_only"
+
 [hard_gates]
 correctness_anomalies = 0
 active_generation_authorizes_publication = true
 prepare_survives_authority_leader_loss = true
 unknown_outcome_resolves_by_request_identity = true
+outcome_resolution_is_linearizable = true
 same_request_replays_exact_outcome = true
 conflicting_request_identity_is_rejected = true
 publish_requires_matching_intent = true
+root_publication_requires_expected_prior_root = true
+pin_mutation_requires_expected_value = true
+intent_owner_generation_is_fenced = true
 root_install_retires_intent_atomically = true
 root_epoch_fences_stale_delete_plan = true
 delete_reservation_survives_authority_leader_loss = true
 delete_reservation_blocks_intersecting_prepare = true
-retirement_requires_exact_plan = true
+retirement_requires_exact_grant = true
 retirement_allows_fresh_prepare = true
 restarted_nodes_recover_exact_state = true
+unknown_publication_command_fails_closed = true
 fresh_process_replay_is_byte_exact = true
 schema_valid = true
 budget_must_hold = true
