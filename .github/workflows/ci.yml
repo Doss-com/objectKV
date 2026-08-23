@@ -179,6 +179,16 @@ jobs:
           jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 30 and .budget.observed == 30 and (.hard_gates[] | select(.id == "publisher_process.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_process.contract_agreement").status == "pass")' /tmp/okv-publisher-process.json
           cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-process.toml --profile local-fs --workload publisher-upload-before-prepare-ack --backend "$backend" --output /tmp/okv-publisher-process-negative.json
           jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 30 and .budget.observed == 30 and (.hard_gates[] | select(.id == "publisher_process.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "no_object_exists_before_prepare_barrier").status == "fail")' /tmp/okv-publisher-process-negative.json
+      - name: Verify publisher ambiguous PUT recovery and negative control
+        run: |
+          backend="object-store-local-fs+process-openraft"
+          cargo run --quiet -p okv-eval -- publication-publisher-put-recovery-trace --seed 1103 > /tmp/okv-publisher-put-recovery-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-publisher-put-recovery-trace --seed 1103 > /tmp/okv-publisher-put-recovery-trace-b.json
+          cmp /tmp/okv-publisher-put-recovery-trace-a.json /tmp/okv-publisher-put-recovery-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-put-recovery.toml --profile local-fs --workload publisher-first-put-unknown-restart --backend "$backend" --output /tmp/okv-publisher-put-recovery.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 36 and .budget.observed == 36 and (.hard_gates[] | select(.id == "publisher_put_recovery.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_put_recovery.contract_agreement").status == "pass") and (.hard_gates[] | select(.id == "complete_closure_precedes_root_visibility").status == "pass")' /tmp/okv-publisher-put-recovery.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-put-recovery.toml --profile local-fs --workload publisher-publish-partial-closure --backend "$backend" --output /tmp/okv-publisher-put-recovery-negative.json
+          jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 36 and .budget.observed == 36 and (.hard_gates[] | select(.id == "publisher_put_recovery.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "complete_closure_precedes_root_visibility").status == "fail") and (.hard_gates[] | select(.id == "reader_walks_exact_visible_closure").status == "fail")' /tmp/okv-publisher-put-recovery-negative.json
       - name: Verify persisted WAL reopen contract and negative controls
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload persisted-wal-reopen --backend local-fs --output /tmp/okv-persisted-wal.json

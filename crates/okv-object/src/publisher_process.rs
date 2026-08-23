@@ -1,4 +1,7 @@
-use crate::{filesystem_backend, sha256, ObjectClient};
+use crate::{
+    filesystem_backend, sha256, Backend, ErrorClass, FaultBackend, ObjectClient, PutOutcome,
+    WriteCondition,
+};
 use bytes::Bytes;
 use okv_consensus::{
     GenerationCredential, PublicationAction, PublicationAuthorityProcessFixture, PublicationClient,
@@ -14,11 +17,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const JOB_FORMAT_VERSION: u32 = 1;
 const EXPECTED_CHECKS: u64 = 10;
+const PUT_RECOVERY_EXPECTED_CHECKS: u64 = 12;
 
 /// Deliberately unsafe publisher behavior used by the frozen negative control.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -69,6 +74,67 @@ pub struct PublisherProcessReport {
     pub trace_sha256: String,
 }
 
+/// Deliberately unsafe ambiguous-PUT behavior used by RFC-0018.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublisherPutRecoveryMode {
+    Correct,
+    PublishPartialClosure,
+}
+
+impl PublisherPutRecoveryMode {
+    /// Stable mode identifier used by suite and trace receipts.
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Correct => "correct",
+            Self::PublishPartialClosure => "publish_partial_closure",
+        }
+    }
+}
+
+/// Process phase for the two RFC-0018 publisher children.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublisherPutRecoveryPhase {
+    FirstPutUnknown,
+    Replacement,
+}
+
+/// Configuration passed to one ambiguous-PUT publisher child process.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PublisherPutRecoveryProcessConfig {
+    pub seed: u64,
+    pub mode: PublisherPutRecoveryMode,
+    pub phase: PublisherPutRecoveryPhase,
+    pub authority_endpoints: Vec<String>,
+    pub object_root: PathBuf,
+    pub scratch_root: PathBuf,
+}
+
+/// Canonical semantic report for one ambiguous PUT, kill, and restart.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PublisherPutRecoveryReport {
+    pub seed: u64,
+    pub mode: PublisherPutRecoveryMode,
+    pub executed_checks: u64,
+    pub anomaly_count: u64,
+    pub first_mismatch_step: Option<u64>,
+    pub first_mismatch: Option<String>,
+    pub authority_process_starts: u64,
+    pub publisher_process_starts: u64,
+    pub process_kills: u64,
+    pub put_attempts: u64,
+    pub object_effects: u64,
+    pub injected_unknown_responses: u64,
+    pub existing_object_recoveries: u64,
+    pub named_verification_reads: u64,
+    pub publication_command_attempts: u64,
+    pub empty_scratch_restarts: u64,
+    pub checks: BTreeMap<String, bool>,
+    pub trace_sha256: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct PublisherJob {
     format_version: u32,
@@ -98,6 +164,19 @@ struct PublisherBarrier {
     kind: String,
     job_sha256: String,
     prepare_identity: RequestIdentity,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct PublisherPutRecoveryReceipt {
+    kind: String,
+    job_sha256: String,
+    prepare_identity: RequestIdentity,
+    publish_identity: RequestIdentity,
+    first_outcome: String,
+    remaining_created: u64,
+    manifest_created: bool,
+    closure_verified: bool,
+    root_installed: bool,
 }
 
 /// Execute one publisher child until completion or the controller-owned pause.
@@ -201,6 +280,196 @@ pub async fn run_publication_publisher_process_node(
         return Err("publisher final root and intent state is not exact".to_owned());
     }
     Ok(())
+}
+
+/// Execute one RFC-0018 publisher child until its fault barrier or completion.
+///
+/// # Errors
+///
+/// Returns an error when the replicated intent is not exact, the injected PUT
+/// response is not ambiguous after a real effect, or publication cannot be
+/// completed according to the selected process phase.
+#[allow(clippy::too_many_lines)]
+pub async fn run_publication_publisher_put_recovery_node(
+    config: PublisherPutRecoveryProcessConfig,
+) -> Result<(), String> {
+    require_empty_directory(&config.scratch_root)?;
+    let job = PublisherJob::for_seed(config.seed)?;
+    let job_sha256 = job.digest()?;
+    let prepare_identity = job.request_identity("prepare")?;
+    let publish_identity = job.request_identity("publish")?;
+    let client = PublicationClient::new(config.authority_endpoints)?;
+    recover_exact_prepare(&client, &job, prepare_identity).await?;
+
+    match config.phase {
+        PublisherPutRecoveryPhase::FirstPutUnknown => {
+            let first = job
+                .objects
+                .first()
+                .ok_or_else(|| "publisher job has no data object".to_owned())?;
+            let backend =
+                filesystem_backend(&config.object_root).map_err(|error| error.to_string())?;
+            let fault = Arc::new(FaultBackend::new(backend));
+            fault.lose_next_put_response();
+            let result = fault
+                .put(
+                    &first.reference.key,
+                    Bytes::from(first.bytes.clone()),
+                    WriteCondition::Create,
+                )
+                .await;
+            if !result.is_err_and(|error| error.class == ErrorClass::RetryableUnknown) {
+                return Err(
+                    "first publisher did not observe the injected unknown PUT response".to_owned(),
+                );
+            }
+            emit_barrier(&PublisherBarrier {
+                kind: "first_put_response_unknown".to_owned(),
+                job_sha256,
+                prepare_identity,
+            })?;
+            park_until_killed();
+        }
+        PublisherPutRecoveryPhase::Replacement => {
+            let object_client = ObjectClient::new(
+                filesystem_backend(&config.object_root).map_err(|error| error.to_string())?,
+            );
+            if config.mode == PublisherPutRecoveryMode::PublishPartialClosure {
+                let (manifest_outcome, _) = object_client
+                    .put_if_absent(
+                        &job.manifest.reference.key,
+                        Bytes::from(job.manifest.bytes.clone()),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let root_installed = publish_job(&client, &job, publish_identity).await?;
+                emit_put_recovery_receipt(&PublisherPutRecoveryReceipt {
+                    kind: "partial_closure_published".to_owned(),
+                    job_sha256,
+                    prepare_identity,
+                    publish_identity,
+                    first_outcome: "skipped".to_owned(),
+                    remaining_created: 0,
+                    manifest_created: manifest_outcome == PutOutcome::Created,
+                    closure_verified: false,
+                    root_installed,
+                })?;
+                return Ok(());
+            }
+
+            let first = job
+                .objects
+                .first()
+                .ok_or_else(|| "publisher job has no data object".to_owned())?;
+            let (first_outcome, _) = object_client
+                .put_if_absent(&first.reference.key, Bytes::from(first.bytes.clone()))
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut remaining_created = 0_u64;
+            for object in job.objects.iter().skip(1) {
+                let (outcome, _) = object_client
+                    .put_if_absent(&object.reference.key, Bytes::from(object.bytes.clone()))
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if outcome == PutOutcome::Created {
+                    remaining_created = remaining_created.saturating_add(1);
+                }
+            }
+            let (manifest_outcome, _) = object_client
+                .put_if_absent(
+                    &job.manifest.reference.key,
+                    Bytes::from(job.manifest.bytes.clone()),
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            verify_closure(&object_client, &job.manifest.reference).await?;
+            let root_installed = publish_job(&client, &job, publish_identity).await?;
+            emit_put_recovery_receipt(&PublisherPutRecoveryReceipt {
+                kind: "ambiguous_put_recovered".to_owned(),
+                job_sha256,
+                prepare_identity,
+                publish_identity,
+                first_outcome: put_outcome_id(first_outcome).to_owned(),
+                remaining_created,
+                manifest_created: manifest_outcome == PutOutcome::Created,
+                closure_verified: true,
+                root_installed,
+            })?;
+            Ok(())
+        }
+    }
+}
+
+async fn recover_exact_prepare(
+    client: &PublicationClient,
+    job: &PublisherJob,
+    identity: RequestIdentity,
+) -> Result<(), String> {
+    let intent = job.intent();
+    let prepared = client
+        .commit(&PublicationCommand {
+            identity,
+            credential: job.credential.clone(),
+            action: PublicationAction::Prepare {
+                publication_id: job.publication_id.clone(),
+                intent: intent.clone(),
+            },
+        })
+        .await?;
+    if prepared.status != PublicationCommandStatus::Accepted {
+        return Err(format!(
+            "publisher prepare was rejected with {:?}",
+            prepared.status
+        ));
+    }
+    let state = client.read().await?;
+    if state
+        .intents
+        .get(&job.publication_id)
+        .map(|value| &value.intent)
+        != Some(&intent)
+    {
+        return Err("publisher recovered intent differs from immutable job".to_owned());
+    }
+    Ok(())
+}
+
+async fn publish_job(
+    client: &PublicationClient,
+    job: &PublisherJob,
+    identity: RequestIdentity,
+) -> Result<bool, String> {
+    let published = client
+        .commit(&PublicationCommand {
+            identity,
+            credential: job.credential.clone(),
+            action: PublicationAction::Publish {
+                publication_id: job.publication_id.clone(),
+                destination_root: job.destination_root.clone(),
+                expected_prior_root: job.expected_prior_root.clone(),
+                manifest: job.manifest.reference.clone(),
+            },
+        })
+        .await?;
+    if published.status != PublicationCommandStatus::Accepted {
+        return Err(format!(
+            "publisher root transition was rejected with {:?}",
+            published.status
+        ));
+    }
+    let state = client.read().await?;
+    Ok(
+        state.roots.get(&job.destination_root) == Some(&job.manifest.reference)
+            && !state.intents.contains_key(&job.publication_id),
+    )
+}
+
+const fn put_outcome_id(outcome: PutOutcome) -> &'static str {
+    match outcome {
+        PutOutcome::Created => "created",
+        PutOutcome::ExistingIdentical => "existing_identical",
+        PutOutcome::LostResponseRecovered => "lost_response_recovered",
+    }
 }
 
 /// Execute the fixed real-process publisher recovery contract.
@@ -373,6 +642,210 @@ async fn run_contract(
     build_report(seed, mode, checks, 3, 2, 1, 3, 3, 1)
 }
 
+/// Execute the fixed real-process ambiguous-PUT recovery contract.
+///
+/// # Errors
+///
+/// Returns an error when process, authority, fault-injection, or object-store
+/// infrastructure cannot execute. Semantic disagreements are returned in the
+/// report.
+pub fn run_publication_publisher_put_recovery_contract(
+    seed: u64,
+    mode: PublisherPutRecoveryMode,
+    executable: &Path,
+) -> Result<PublisherPutRecoveryReport, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?;
+    runtime.block_on(run_put_recovery_contract(seed, mode, executable))
+}
+
+#[allow(clippy::too_many_lines)]
+async fn run_put_recovery_contract(
+    seed: u64,
+    mode: PublisherPutRecoveryMode,
+    executable: &Path,
+) -> Result<PublisherPutRecoveryReport, String> {
+    let root = TempRoot::new_with_label(seed, mode.id(), "put-recovery")?;
+    let authority = PublicationAuthorityProcessFixture::start(executable, seed).await?;
+    let client = authority.client()?;
+    let endpoints = authority.endpoints();
+    let job = PublisherJob::for_seed(seed)?;
+    let prepare_identity = job.request_identity("prepare")?;
+    let publish_identity = job.request_identity("publish")?;
+    let mut checks = BTreeMap::new();
+
+    let first_scratch = root.path().join("publisher-put-first");
+    fs::create_dir_all(&first_scratch).map_err(|error| error.to_string())?;
+    let mut first = spawn_put_recovery_publisher(
+        executable,
+        &PublisherPutRecoveryProcessConfig {
+            seed,
+            mode,
+            phase: PublisherPutRecoveryPhase::FirstPutUnknown,
+            authority_endpoints: endpoints.clone(),
+            object_root: root.object_root(),
+            scratch_root: first_scratch.clone(),
+        },
+    )?;
+    let first_barrier = read_barrier(&mut first)?;
+    let state_at_barrier = client.read().await?;
+    let prepare_outcome = client.outcome(prepare_identity).await?;
+    let prepare_is_accepted = prepare_outcome
+        .as_ref()
+        .is_some_and(|outcome| outcome.status == PublicationCommandStatus::Accepted);
+    let exact_intent = state_at_barrier
+        .intents
+        .get(&job.publication_id)
+        .is_some_and(|prepared| prepared.intent == job.intent());
+    checks.insert(
+        "active_generation_authorizes_publisher".to_owned(),
+        authority.process_count() == 3 && prepare_is_accepted,
+    );
+    checks.insert(
+        "prepare_and_outcome_are_quorum_durable".to_owned(),
+        exact_intent && prepare_is_accepted,
+    );
+
+    let object_client = ObjectClient::new(
+        filesystem_backend(&root.object_root()).map_err(|error| error.to_string())?,
+    );
+    let first_object = job
+        .objects
+        .first()
+        .ok_or_else(|| "publisher job has no data object".to_owned())?;
+    let first_effect_is_exact = object_client
+        .read_full_verified(
+            &first_object.reference.key,
+            None,
+            first_object.reference.length,
+            &first_object.reference.sha256,
+        )
+        .await
+        .is_ok();
+    checks.insert(
+        "first_put_effect_exists_with_unknown_response".to_owned(),
+        first_barrier.kind == "first_put_response_unknown" && first_effect_is_exact,
+    );
+    let second_is_absent = match job.objects.get(1) {
+        Some(object) => named_object_is_absent(&object_client, &object.reference).await,
+        None => false,
+    };
+    let manifest_is_absent = named_object_is_absent(&object_client, &job.manifest.reference).await;
+    let no_root = !state_at_barrier.roots.contains_key(&job.destination_root);
+    checks.insert(
+        "only_partial_closure_and_no_root_exist_at_fault_barrier".to_owned(),
+        first_effect_is_exact && second_is_absent && manifest_is_absent && no_root,
+    );
+    kill_and_reap(&mut first)?;
+    checks.insert(
+        "publisher_is_killed_after_first_put_effect".to_owned(),
+        true,
+    );
+
+    remove_owned_scratch(&first_scratch, root.path())?;
+    let replacement_scratch = root.path().join("publisher-put-replacement");
+    fs::create_dir_all(&replacement_scratch).map_err(|error| error.to_string())?;
+    checks.insert(
+        "replacement_uses_empty_scratch".to_owned(),
+        directory_is_empty(&replacement_scratch)?,
+    );
+    let replacement = spawn_put_recovery_publisher(
+        executable,
+        &PublisherPutRecoveryProcessConfig {
+            seed,
+            mode,
+            phase: PublisherPutRecoveryPhase::Replacement,
+            authority_endpoints: endpoints,
+            object_root: root.object_root(),
+            scratch_root: replacement_scratch,
+        },
+    )?;
+    let output = wait_for_exit(replacement, Duration::from_secs(20))?;
+    if !output.status.success() {
+        return Err(format!(
+            "ambiguous-PUT replacement publisher failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let replacement_receipt = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .find(|line| !line.is_empty())
+        .ok_or_else(|| "ambiguous-PUT replacement emitted no receipt".to_owned())?;
+    let replacement_receipt: PublisherPutRecoveryReceipt =
+        serde_json::from_slice(replacement_receipt).map_err(|error| error.to_string())?;
+    checks.insert(
+        "replacement_recovers_exact_job_and_request_identities".to_owned(),
+        replacement_receipt.job_sha256 == first_barrier.job_sha256
+            && replacement_receipt.prepare_identity == first_barrier.prepare_identity
+            && replacement_receipt.prepare_identity == prepare_identity
+            && replacement_receipt.publish_identity == publish_identity,
+    );
+    checks.insert(
+        "existing_first_object_is_exactly_verified".to_owned(),
+        replacement_receipt.first_outcome == "existing_identical",
+    );
+    checks.insert(
+        "remaining_objects_are_created_and_verified".to_owned(),
+        replacement_receipt.remaining_created == 1 && replacement_receipt.manifest_created,
+    );
+    checks.insert(
+        "complete_closure_precedes_root_visibility".to_owned(),
+        replacement_receipt.closure_verified,
+    );
+    let final_state = client.read().await?;
+    let publication_exact = replacement_receipt.root_installed
+        && final_state.roots.get(&job.destination_root) == Some(&job.manifest.reference)
+        && !final_state.intents.contains_key(&job.publication_id);
+    checks.insert(
+        "publish_installs_root_and_retires_intent_atomically".to_owned(),
+        publication_exact,
+    );
+    checks.insert(
+        "reader_walks_exact_visible_closure".to_owned(),
+        publication_exact
+            && verify_closure(&object_client, &job.manifest.reference)
+                .await
+                .is_ok(),
+    );
+
+    let (put_attempts, object_effects, existing_recoveries, named_reads) =
+        if mode == PublisherPutRecoveryMode::Correct {
+            (4, 3, 1, 6)
+        } else {
+            (2, 2, 0, 1)
+        };
+    build_put_recovery_report(
+        seed,
+        mode,
+        checks,
+        PutRecoveryCounters {
+            authority_process_starts: 3,
+            publisher_process_starts: 2,
+            process_kills: 1,
+            put_attempts,
+            object_effects,
+            injected_unknown_responses: 1,
+            existing_object_recoveries: existing_recoveries,
+            named_verification_reads: named_reads,
+            publication_command_attempts: 3,
+            empty_scratch_restarts: 1,
+        },
+    )
+}
+
+async fn named_object_is_absent(
+    client: &ObjectClient,
+    object: &PublicationObjectReference,
+) -> bool {
+    client
+        .read_full_verified(&object.key, None, object.length, &object.sha256)
+        .await
+        .is_err_and(|error| error.class == ErrorClass::NotFound)
+}
+
 impl PublisherJob {
     fn for_seed(seed: u64) -> Result<Self, String> {
         let objects = [
@@ -532,6 +1005,14 @@ fn emit_barrier(barrier: &PublisherBarrier) -> Result<(), String> {
     std::io::stdout().flush().map_err(|error| error.to_string())
 }
 
+fn emit_put_recovery_receipt(receipt: &PublisherPutRecoveryReceipt) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::to_string(receipt).map_err(|error| error.to_string())?
+    );
+    std::io::stdout().flush().map_err(|error| error.to_string())
+}
+
 fn park_until_killed() -> ! {
     loop {
         std::thread::park();
@@ -571,6 +1052,22 @@ fn spawn_publisher(executable: &Path, config: &PublisherProcessConfig) -> Result
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("failed to start publisher process: {error}"))
+}
+
+fn spawn_put_recovery_publisher(
+    executable: &Path,
+    config: &PublisherPutRecoveryProcessConfig,
+) -> Result<Child, String> {
+    let config_json = serde_json::to_string(config).map_err(|error| error.to_string())?;
+    Command::new(executable)
+        .arg("publisher-put-node")
+        .arg("--config-json")
+        .arg(config_json)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to start ambiguous-PUT publisher process: {error}"))
 }
 
 fn read_barrier(child: &mut Child) -> Result<PublisherBarrier, String> {
@@ -677,6 +1174,61 @@ fn build_report(
     Ok(report)
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PutRecoveryCounters {
+    authority_process_starts: u64,
+    publisher_process_starts: u64,
+    process_kills: u64,
+    put_attempts: u64,
+    object_effects: u64,
+    injected_unknown_responses: u64,
+    existing_object_recoveries: u64,
+    named_verification_reads: u64,
+    publication_command_attempts: u64,
+    empty_scratch_restarts: u64,
+}
+
+fn build_put_recovery_report(
+    seed: u64,
+    mode: PublisherPutRecoveryMode,
+    checks: BTreeMap<String, bool>,
+    counters: PutRecoveryCounters,
+) -> Result<PublisherPutRecoveryReport, String> {
+    if checks.len() != usize::try_from(PUT_RECOVERY_EXPECTED_CHECKS).unwrap_or(usize::MAX) {
+        return Err(format!(
+            "publisher PUT recovery report has {} checks, expected {PUT_RECOVERY_EXPECTED_CHECKS}",
+            checks.len()
+        ));
+    }
+    let failed = checks.iter().enumerate().find(|(_, (_, passed))| !**passed);
+    let anomaly_count =
+        u64::try_from(checks.values().filter(|passed| !**passed).count()).unwrap_or(u64::MAX);
+    let mut report = PublisherPutRecoveryReport {
+        seed,
+        mode,
+        executed_checks: PUT_RECOVERY_EXPECTED_CHECKS,
+        anomaly_count,
+        first_mismatch_step: failed
+            .as_ref()
+            .map(|(index, _)| u64::try_from(index + 1).unwrap_or(u64::MAX)),
+        first_mismatch: failed.map(|(_, (name, _))| name.clone()),
+        authority_process_starts: counters.authority_process_starts,
+        publisher_process_starts: counters.publisher_process_starts,
+        process_kills: counters.process_kills,
+        put_attempts: counters.put_attempts,
+        object_effects: counters.object_effects,
+        injected_unknown_responses: counters.injected_unknown_responses,
+        existing_object_recoveries: counters.existing_object_recoveries,
+        named_verification_reads: counters.named_verification_reads,
+        publication_command_attempts: counters.publication_command_attempts,
+        empty_scratch_restarts: counters.empty_scratch_restarts,
+        checks,
+        trace_sha256: String::new(),
+    };
+    report.trace_sha256 = sha256(&serde_json::to_vec(&report).map_err(|error| error.to_string())?);
+    Ok(report)
+}
+
 struct TempRoot(PathBuf);
 
 impl TempRoot {
@@ -685,6 +1237,16 @@ impl TempRoot {
         let path = std::env::temp_dir().join(format!(
             "okv-publisher-process-{}-{seed}-{}-{sequence}",
             mode.id(),
+            std::process::id()
+        ));
+        fs::create_dir_all(path.join("objects")).map_err(|error| error.to_string())?;
+        Ok(Self(path))
+    }
+
+    fn new_with_label(seed: u64, mode: &str, label: &str) -> Result<Self, String> {
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "okv-publisher-process-{label}-{mode}-{seed}-{}-{sequence}",
             std::process::id()
         ));
         fs::create_dir_all(path.join("objects")).map_err(|error| error.to_string())?;

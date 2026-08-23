@@ -34,7 +34,9 @@ pub use publication_adapter::{
 };
 pub use publisher_process::{
     run_publication_publisher_process_contract, run_publication_publisher_process_node,
-    PublisherProcessConfig, PublisherProcessMode, PublisherProcessReport,
+    run_publication_publisher_put_recovery_contract, run_publication_publisher_put_recovery_node,
+    PublisherProcessConfig, PublisherProcessMode, PublisherProcessReport, PublisherPutRecoveryMode,
+    PublisherPutRecoveryProcessConfig, PublisherPutRecoveryReport,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
