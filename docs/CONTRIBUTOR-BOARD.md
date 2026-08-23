@@ -69,8 +69,10 @@ become one GitHub issue.
 - Exists: `phase0-slate-filesystem-v1` executes deterministic ingest, point
   reads, ordered scans, fresh-instance reopen, per-API request/byte accounting,
   hard gates, raw report artifacts, and OTel export through pinned SlateDB.
-- Remaining: generic repeat orchestration, incumbent pairing, noise verdicts,
-  and the broader `phase0.toml` workload executors.
+- Exists: raw reports are run-scoped, measurement phases no longer blend close
+  with reopen, and the 12-hour fixed-cadence audit emits append-only receipts.
+- Remaining: generic repeat orchestration inside `okv-eval`, incumbent pairing,
+  noise verdicts, and the broader `phase0.toml` workload executors.
 
 ### T6. Establish the SlateDB baseline
 
@@ -83,9 +85,13 @@ become one GitHub issue.
   `84410878` kept with zero anomalies across three seeds. OTel run `794c45da`
   recorded the same logical receipt and bounded physical series. The
   warm-instance poison `e53a01c4` discarded despite returning the correct value.
-- Remaining: scale and repeated-noise curves, MinIO and GCS profiles, explicit
-  compaction completion and amplification, price snapshots, and named Gate 1
-  ceilings.
+- Exists: candidate `361a0fd` repairs the phase boundaries. Its 1, 8, and 64 MiB
+  curve kept exact values, but 64 MiB open read 210,773,938 bytes before the
+  first point read. D30 stops the untuned SlateDB incumbent and permits one
+  bounded configuration pass. The overnight audit is collecting repeated
+  noise and failure receipts.
+- Remaining: one bounded SlateDB layout/compaction pass, a physical MinIO
+  adapter, GCS profile, price snapshots, and named Gate 1 ceilings.
 
 ### T7. PostgreSQL bridge surface spike
 

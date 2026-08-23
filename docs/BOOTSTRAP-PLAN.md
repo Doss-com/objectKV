@@ -189,9 +189,9 @@ the architecture memo.
 
 ### S1. Establish the Phase 0 baseline
 
-Status: `[ACTIVE-WORK]`. Object-store conformance and the first SlateDB
-filesystem workload incumbent now execute; MinIO, GCS, compaction, scale curves,
-and target-workload ceilings remain open.
+Status: `[ACTIVE-WORK]`. Object-store conformance and the repaired SlateDB
+filesystem scale curve now execute; MinIO physical storage, GCS, compaction,
+one bounded layout pass, and target-workload ceilings remain open.
 
 Memory, filesystem, and pinned MinIO now have executable capability-profiled
 conformance evidence. Filesystem is intentionally segment-only because the
@@ -199,13 +199,14 @@ shared Apache `object_store` API does not expose conditional update for its
 local backend. GCS remains unexecuted until `objectKV-dev` authentication and
 provisioning are available.
 
-RFC-0021 and `phase0-slate-filesystem-v1` now run 8 MiB per seed through pinned
-SlateDB at revision `e0161973`. Clean run `84410878` kept with zero anomalies,
-a 129.9 ms median first correct read after fresh reopen, 794 backend calls,
-17,120,801 bytes read, and 53,028,027 bytes written across three seeds. The
-warm-instance poison `e53a01c4` reported an artificial 53.25 microsecond median
-but discarded on the fresh-cache gate. OTel run `794c45da` exported the Phase 0
-request, byte, throughput, correctness, and reopen series.
+RFC-0021 and `phase0-slate-filesystem-v1` run 8 MiB per seed through pinned
+SlateDB at revision `e0161973`. The original 129.9 ms reopen result included
+closing the old instance and is superseded. Candidate `361a0fd` separates every
+phase and gives each raw artifact a unique `run_id`. The repaired 1, 8, and
+64 MiB runs kept exact logical results at 4.85, 6.19, and 424.13 ms for open
+through first correct read. The 64 MiB open read 210,773,938 bytes, crossing
+RFC-0022's stop threshold for the untuned incumbent. The repaired warm-instance
+poison `402f095c` discarded on the fresh-cache gate.
 
 Implement the same fixed dataset/workloads against:
 
@@ -216,7 +217,9 @@ Implement the same fixed dataset/workloads against:
 
 Gate 1 passes only if hot/cold latency, object request amplification, rewritten
 bytes, compaction cost, and empty-cache reopen are measured and acceptable for a
-named target workload. A blended average cannot pass the gate.
+named target workload. A blended average cannot pass the gate. One bounded
+SlateDB layout and compaction pass may continue; another dataset-sized reopen
+stops SlateDB as the incumbent without stopping objectKV.
 
 ### S2. Build the versioned object engine
 

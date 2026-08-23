@@ -483,3 +483,42 @@ count.
 
 Evidence: RFC-0021, candidate `12df9f8`, clean run `84410878`, warm-cache poison
 `e53a01c4`, and OTel run `794c45da`.
+
+## D30. Stop the untuned SlateDB incumbent at dataset-sized reopen
+
+Status: `[DECIDED]` for the current physical incumbent, 2026-08-23.
+
+Decision: supersede the original blended reopen timing with contract version 2,
+which measures old-instance close, new-instance open, first correct read, cold
+reads, and final close independently. Stop treating unmodified SlateDB defaults
+as the objectKV physical incumbent after the repaired 64 MiB run read
+210,773,938 bytes during open. Permit one bounded block, index, WAL, and
+compaction configuration pass before replacing the incumbent.
+
+Optimizes for: rejecting a recovery layout that scans durable data before the
+first read while preserving the useful adaptation and measurement work.
+
+Gives up: promoting SlateDB from the 8 MiB result or interpreting a correctness
+`keep` verdict as a physical-economics pass.
+
+Evidence: RFC-0022, candidate `361a0fd`, runs `8419d658`, `b7b18320`, and
+`dd55baa9`, plus warm-cache poison `402f095c`.
+
+## D31. Continue through vertical falsifiers, not more role scaffolding
+
+Status: `[DECIDED]` for the next proof cycle, 2026-08-23.
+
+Decision: connect one real transaction from `CommitEnvelope` and OCC through
+the three-process Raft log, immutable objectification, `C/O/WAL` frontier
+advance, WAL-pop proof, and exact empty-cache read before adding more
+FoundationDB-like roles. Treat the PostgreSQL page bridge and ZebraDB HTAP
+snapshot source as independent proofs until each has its own authority contract.
+
+Optimizes for: finding a fatal composition or double-authority problem before
+expanding the control plane.
+
+Gives up: a broader distributed demo and a near-term claim that the existing
+isolated mechanisms constitute a complete cell.
+
+Evidence: `docs/research/overnight-strategy-audit-2026-08-22.md` and the three
+pinned architecture, physical, and PostgreSQL/HTAP reviews.

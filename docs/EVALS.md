@@ -529,8 +529,33 @@ The local profile writes 8 MiB for each of three seeds through pinned SlateDB,
 checks post-flush and warm point reads, checks one ordered 100-row scan, opens a
 new database instance over the same filesystem objects, and times the first
 verified read. Its `reuse_warm_db_for_reopen` poison must discard even when the
-logical value remains exact. The suite records backend calls and byte ranges,
-but does not yet assign a cloud-price or compaction-cost ceiling.
+logical value remains exact. Initial open, ingest, oracle verification, cache
+prime, warm read, scan, close, reopen, first read, cold reads, and final close
+have independent time and I/O deltas. Raw filenames include `run_id`.
+
+`[EXISTS]` RFC-0022 adds the repaired scale curve:
+
+```bash
+cargo run -p okv-eval -- run \
+  evals/suites/phase0-slate-filesystem-scale.toml \
+  --profile scale-64mib \
+  --workload slatedb-filesystem-scale-baseline \
+  --backend slatedb-local-fs
+```
+
+Candidate `361a0fd` kept exact values at all three sizes. Reopen stayed near
+flat from 1 to 8 MiB, then the 64 MiB open read 210,773,938 bytes and crossed
+the suite's dataset-scan stop threshold. This stops the untuned SlateDB
+incumbent, not the objectKV architecture. The suite has no cloud-price or
+compaction-cost ceiling yet.
+
+`[EXISTS]` The fixed-cadence strategy audit repeats the scale curve alongside
+MinIO authority, generation recovery, lost-publication-response recovery, HTAP
+streaming, and four deliberate negative controls:
+
+```bash
+experiments/overnight_strategy_audit.sh
+```
 
 Use a deterministic 10 GiB logical dataset after the small developer profile is
 working. Keys and values are generated from recorded seeds.
