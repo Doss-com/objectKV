@@ -5,9 +5,11 @@
 
 mod history;
 mod htap;
+mod publication_gc;
 
 pub use history::{run_differential_history, DifferentialMode, DifferentialReport};
 pub use htap::{run_htap_contract, HtapContractMode, HtapContractReport};
+pub use publication_gc::{run_publication_gc_contract, PublicationGcMode, PublicationGcReport};
 
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};

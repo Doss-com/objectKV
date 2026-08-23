@@ -95,6 +95,21 @@ jobs:
             cargo run --quiet -p okv-eval -- run evals/suites/htap-physical.toml --profile local-fs --workload "$workload" --backend datafusion-local-fs --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap_physical.exact_result").status == "fail")' "$output"
           done
+      - name: Verify object publication, reachability, and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-gc.toml --profile model-dev --workload object-publication-reachability --backend publication-gc-model --output /tmp/okv-publication-gc.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "publication_gc.contract_agreement").status == "pass")' /tmp/okv-publication-gc.json
+          for workload in \
+            object-publication-pointer-before-block \
+            object-publication-omit-intent \
+            object-gc-trust-counter \
+            object-gc-trust-list \
+            object-gc-incomplete-mark \
+            object-gc-skip-delete-revalidation; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/object-publication-gc.toml --profile model-dev --workload "$workload" --backend publication-gc-model --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_gc.contract_agreement").status == "fail")' "$output"
+          done
       - name: Verify persisted WAL reopen contract and negative controls
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload persisted-wal-reopen --backend local-fs --output /tmp/okv-persisted-wal.json

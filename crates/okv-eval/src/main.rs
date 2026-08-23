@@ -13,8 +13,9 @@ use okv_eval::result::{
 use okv_eval::telemetry::{RunResource, Telemetry};
 use okv_htap::{run_physical_overlay_contract, PhysicalOverlayMode};
 use okv_model::{
-    run_differential_history, run_htap_contract, ApplyOutcome, CommitBatch, CommitIdentity,
-    DifferentialMode, HtapContractMode, Model, Mutation, Version,
+    run_differential_history, run_htap_contract, run_publication_gc_contract, ApplyOutcome,
+    CommitBatch, CommitIdentity, DifferentialMode, HtapContractMode, Model, Mutation,
+    PublicationGcMode, Version,
 };
 use okv_object::{
     filesystem_backend, gcs_backend_from_env, memory_backend, minio_backend_from_env,
@@ -520,6 +521,9 @@ fn execute_workload(
         "generation_process_contract" => run_generation_process(workload, seeds, backend),
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "htap_physical_contract" => run_htap_physical_contract(workload, seeds, backend),
+        "object_publication_gc_contract" => {
+            run_object_publication_gc_contract(workload, seeds, backend)
+        }
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
         operation => execution_from_result(Err(format!(
@@ -2095,6 +2099,253 @@ fn run_htap_physical_contract(
             (
                 "htap_physical.materialized_bytes".to_owned(),
                 bounded_count(materialized_bytes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_object_publication_gc_contract(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "object publication and GC workload requires at least one seed".to_owned(),
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => PublicationGcMode::Correct,
+        Some("publish_pointer_before_blocks") => PublicationGcMode::PublishPointerBeforeBlocks,
+        Some("omit_publication_intent") => PublicationGcMode::OmitPublicationIntent,
+        Some("trust_accounting_counter") => PublicationGcMode::TrustAccountingCounter,
+        Some("trust_list_for_liveness") => PublicationGcMode::TrustListForLiveness,
+        Some("continue_incomplete_mark") => PublicationGcMode::ContinueIncompleteMark,
+        Some("delete_without_revalidation") => PublicationGcMode::DeleteWithoutRevalidation,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown object publication and GC negative control {other}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut event_count = 0_u64;
+    let mut exact_checks = 0_u64;
+    let mut publication_intents = 0_u64;
+    let mut published_roots = 0_u64;
+    let mut verified_unknown_outcomes = 0_u64;
+    let mut complete_marks = 0_u64;
+    let mut incomplete_marks = 0_u64;
+    let mut drifted_counters = 0_u64;
+    let mut stale_list_observations = 0_u64;
+    let mut deferred_deletes = 0_u64;
+    let mut reclaimed_objects = 0_u64;
+    let mut object_requests = 0_u64;
+    let mut physical_bytes = 0_u64;
+    let mut live_bytes = 0_u64;
+    let mut exact_replay = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+
+    for seed in seeds {
+        let first = run_publication_gc_contract(*seed, mode);
+        let second = run_publication_gc_contract(*seed, mode);
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        event_count = event_count.saturating_add(first.executed_steps);
+        exact_checks = exact_checks.saturating_add(first.exact_checks);
+        publication_intents = publication_intents.saturating_add(first.publication_intents);
+        published_roots = published_roots.saturating_add(first.published_roots);
+        verified_unknown_outcomes =
+            verified_unknown_outcomes.saturating_add(first.verified_unknown_outcomes);
+        complete_marks = complete_marks.saturating_add(first.complete_marks);
+        incomplete_marks = incomplete_marks.saturating_add(first.incomplete_marks);
+        drifted_counters = drifted_counters.saturating_add(first.drifted_counters);
+        stale_list_observations =
+            stale_list_observations.saturating_add(first.stale_list_observations);
+        deferred_deletes = deferred_deletes.saturating_add(first.deferred_deletes);
+        reclaimed_objects = reclaimed_objects.saturating_add(first.reclaimed_objects);
+        object_requests = object_requests.saturating_add(first.object_requests);
+        physical_bytes = physical_bytes.saturating_add(first.physical_bytes);
+        live_bytes = live_bytes.saturating_add(first.live_bytes);
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!(
+                "seed {seed}, step {:?}: {detail}",
+                first.first_mismatch_step
+            ));
+        }
+        let exact = first.anomaly_count == 0;
+        let amplification = if first.live_bytes == 0 {
+            bounded_count(first.physical_bytes)
+        } else {
+            bounded_count(first.physical_bytes) / bounded_count(first.live_bytes)
+        };
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "object-publication-gc-v1"),
+                    (
+                        "anomaly.class",
+                        if exact { "none" } else { "publication_gc" },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "object_store.requests",
+                value: bounded_count(first.object_requests),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend),
+                    ("store", "deterministic-model"),
+                    ("api", "publication-gc"),
+                    ("result", if exact { "pass" } else { "fail" }),
+                ]),
+            },
+            Measurement {
+                metric: "object_store.bytes",
+                value: bounded_count(first.physical_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend),
+                    ("store", "deterministic-model"),
+                    ("direction", "resident"),
+                    ("api", "publication-gc"),
+                ]),
+            },
+            Measurement {
+                metric: "storage.amplification",
+                value: amplification,
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend),
+                    ("format", "content-addressed-model"),
+                ]),
+            },
+            Measurement {
+                metric: "availability.success_ratio",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "publish-mark-sweep"),
+                    ("fault", mode.id()),
+                    ("backend", backend),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-publication-gc://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let expected_events = u64::try_from(seeds.len())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(7);
+    let semantic_operations_exercised = event_count == expected_events
+        && exact_checks == expected_events
+        && publication_intents > 0
+        && published_roots > 0
+        && verified_unknown_outcomes > 0
+        && complete_marks > 0
+        && incomplete_marks > 0
+        && drifted_counters > 0
+        && stale_list_observations > 0
+        && object_requests > 0
+        && physical_bytes > 0;
+    let passed = anomaly_count == 0 && exact_replay && semantic_operations_exercised;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "object publication and GC gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "publication_gc.exact_seed_replay".to_owned(),
+                status: gate_status(exact_replay),
+                detail: None,
+            },
+            HardGateResult {
+                id: "publication_gc.semantic_operations_exercised".to_owned(),
+                status: gate_status(semantic_operations_exercised),
+                detail: Some(format!(
+                    "events={event_count}, intents={publication_intents}, roots={published_roots}, unknown_outcomes={verified_unknown_outcomes}, complete_marks={complete_marks}, incomplete_marks={incomplete_marks}, drifted_counters={drifted_counters}, stale_lists={stale_list_observations}, deferred={deferred_deletes}, reclaimed={reclaimed_objects}, requests={object_requests}"
+                )),
+            },
+            HardGateResult {
+                id: "publication_gc.contract_agreement".to_owned(),
+                status: gate_status(anomaly_count == 0),
+                detail: mismatch_details.first().cloned(),
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            ("publication_gc.events".to_owned(), bounded_count(event_count)),
+            (
+                "publication_gc.intents".to_owned(),
+                bounded_count(publication_intents),
+            ),
+            (
+                "publication_gc.published_roots".to_owned(),
+                bounded_count(published_roots),
+            ),
+            (
+                "publication_gc.verified_unknown_outcomes".to_owned(),
+                bounded_count(verified_unknown_outcomes),
+            ),
+            (
+                "publication_gc.complete_marks".to_owned(),
+                bounded_count(complete_marks),
+            ),
+            (
+                "publication_gc.incomplete_marks".to_owned(),
+                bounded_count(incomplete_marks),
+            ),
+            (
+                "publication_gc.deferred_deletes".to_owned(),
+                bounded_count(deferred_deletes),
+            ),
+            (
+                "publication_gc.reclaimed_objects".to_owned(),
+                bounded_count(reclaimed_objects),
+            ),
+            (
+                "publication_gc.object_requests".to_owned(),
+                bounded_count(object_requests),
+            ),
+            (
+                "publication_gc.physical_bytes".to_owned(),
+                bounded_count(physical_bytes),
+            ),
+            (
+                "publication_gc.live_bytes".to_owned(),
+                bounded_count(live_bytes),
             ),
         ]),
     }
