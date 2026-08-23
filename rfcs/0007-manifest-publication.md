@@ -108,10 +108,19 @@ valid only against a complete mark. A candidate must also:
 
 Immediately before deletion, the sweeper re-reads the candidate's root and
 intent domains in one serializable transaction. If either domain changed after
-the mark snapshot, the candidate is deferred to a later complete cycle. A
-backend with guarded delete uses the pinned generation or version. A backend
-without guarded delete requires immutable digest keys plus the conservative
-quarantine and revalidation proof from RFC-0004.
+the mark snapshot, the candidate is deferred to a later complete cycle. In the
+same transaction, the sweeper installs a per-object deletion reservation. A
+publisher cannot prepare an intent that intersects a live deletion reservation.
+The reservation remains durable until the delete outcome is resolved by named
+identity read.
+
+A backend with guarded delete uses the pinned generation or version. A backend
+without guarded delete requires immutable digest keys, the conservative
+quarantine and revalidation proof from RFC-0004, and the deletion reservation.
+After the reservation is retired, a later publisher must recreate or reverify
+the object before installing a root. Revalidation without a reservation is
+insufficient because publication can otherwise begin between revalidation and
+an unguarded delete.
 
 Deletion with an unknown outcome is resolved by named identity read. A later
 root may reference the same content digest only after publication has again
@@ -156,6 +165,9 @@ Object keys and root identities remain forbidden metric attributes.
 8. Root publication commits but its response is lost. Transaction request
    replay or exact transition comparison resolves the outcome without relying
    on objects or listing.
+9. A publisher starts after GC revalidation but before an unguarded delete. The
+   durable deletion reservation rejects the publication intent until deletion
+   is resolved, after which publication must recreate or reverify the object.
 
 ## Evaluation contract
 
@@ -197,7 +209,8 @@ objects whose root domains changed during the cycle.
 
 - Partitioning the mark graph without losing one globally complete receipt.
 - Exact publication-intent expiry and owner-fencing protocol.
-- Provider-specific guarded-delete adapters for GCS, S3, and Azure.
+- Provider-specific guarded-delete adapters for GCS, S3, and Azure. The shared
+  deletion-reservation fallback remains required when an adapter is absent.
 - Inventory export consistency and cost for candidate discovery.
 - Encryption-key retirement as an additional liveness root.
 - Proving analytical-tail replacement and query-lease release before reclaiming

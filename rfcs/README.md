@@ -21,5 +21,6 @@ not harden until their RFC is accepted.
 | 0011 | cell and tenant topology | draft | bounded distributed cell and metacluster |
 | 0012 | DataFusion snapshot overlay implementation | proposed | physical HTAP source and operator |
 | 0013 | Streaming DataFusion snapshot overlay | proposed | bounded ordered HTAP merge |
+| 0014 | Real object publication adapter | proposed | physical publication and guarded sweep |
 
 Use `0000-template.md` for new proposals.
