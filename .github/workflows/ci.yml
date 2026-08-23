@@ -36,6 +36,7 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/generation-process.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/generation-certificates.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-physical.toml
       - name: Verify generated MVCC histories and negative control
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history --backend model --output /tmp/okv-model-history.json
@@ -80,6 +81,18 @@ jobs:
             output="/tmp/${workload}.json"
             cargo run --quiet -p okv-eval -- run evals/suites/htap-contract.toml --profile model-dev --workload "$workload" --backend model --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap.exact_result").status == "fail")' "$output"
+          done
+      - name: Verify ZebraDB DataFusion overlay and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/htap-physical.toml --profile local-fs --workload zebradb-arrow-parquet-overlay --backend datafusion-local-fs --output /tmp/okv-htap-physical.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "htap_physical.exact_result").status == "pass")' /tmp/okv-htap-physical.json
+          for workload in \
+            zebradb-physical-pushdown-poison \
+            zebradb-physical-partition-move \
+            zebradb-physical-projection-poison; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/htap-physical.toml --profile local-fs --workload "$workload" --backend datafusion-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap_physical.exact_result").status == "fail")' "$output"
           done
       - name: Verify persisted WAL reopen contract and negative controls
         run: |

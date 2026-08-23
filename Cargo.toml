@@ -2,6 +2,7 @@
 members = [
     "crates/okv-consensus",
     "crates/okv-eval",
+    "crates/okv-htap",
     "crates/okv-model",
     "crates/okv-object",
     "crates/okv-sim",
@@ -26,15 +27,18 @@ pedantic = "warn"
 
 [workspace.dependencies]
 async-trait = "0.1.89"
+arrow = { version = "=58.3.0", default-features = false }
 bytes = "1.10.1"
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5.44", features = ["derive"] }
+datafusion = { version = "=54.0.0", default-features = false, features = ["parquet", "sql"] }
 # object_store 0.14.1 accepts crc-fast 1.10, whose MSRV is Rust 1.89.
 # Pin the latest compatible release while this workspace targets Rust 1.88.
 crc-fast = "=1.9.0"
 futures-util = "0.3.31"
 jsonschema = { version = "0.50.1", default-features = false }
 okv-consensus = { path = "crates/okv-consensus" }
+okv-htap = { path = "crates/okv-htap" }
 okv-model = { path = "crates/okv-model" }
 okv-wal = { path = "crates/okv-wal" }
 object_store = { version = "=0.14.1", features = ["aws", "gcp"] }
@@ -43,11 +47,13 @@ opentelemetry = { version = "0.32.0", features = ["logs", "metrics", "trace"] }
 opentelemetry-appender-tracing = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "logs", "metrics", "trace"] }
 opentelemetry_sdk = { version = "0.32.1", features = ["logs", "metrics", "trace"] }
+parquet = { version = "=58.3.0", default-features = false, features = ["arrow"] }
 ring = "0.17.14"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 slatedb = { git = "https://github.com/slatedb/slatedb.git", rev = "e0161973d8d7ffdede7c44725729838811674e99", default-features = false }
+tempfile = "3.20"
 tokio = { version = "1.47.1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 toml = "0.8"
 tracing = "0.1"

@@ -11,6 +11,7 @@ use okv_eval::result::{
     HardGateResult, PrimaryMetricResult, ProfileIdentity, Verdict,
 };
 use okv_eval::telemetry::{RunResource, Telemetry};
+use okv_htap::{run_physical_overlay_contract, PhysicalOverlayMode};
 use okv_model::{
     run_differential_history, run_htap_contract, ApplyOutcome, CommitBatch, CommitIdentity,
     DifferentialMode, HtapContractMode, Model, Mutation, Version,
@@ -518,6 +519,7 @@ fn execute_workload(
         "raft_process_contract" => run_raft_process(workload, seeds, backend),
         "generation_process_contract" => run_generation_process(workload, seeds, backend),
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
+        "htap_physical_contract" => run_htap_physical_contract(workload, seeds, backend),
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
         operation => execution_from_result(Err(format!(
@@ -1850,6 +1852,255 @@ fn run_htap_exactness_contract(
 }
 
 #[allow(clippy::too_many_lines)]
+fn run_htap_physical_contract(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "HTAP physical workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => PhysicalOverlayMode::Correct,
+        Some("pushdown_before_invalidation") => PhysicalOverlayMode::PushdownBeforeInvalidation,
+        Some("partition_local_reduction") => PhysicalOverlayMode::PartitionLocalReduction,
+        Some("project_primary_key_early") => PhysicalOverlayMode::ProjectPrimaryKeyEarly,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown HTAP physical negative control {other}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut event_count = 0_u64;
+    let mut base_rows = 0_u64;
+    let mut tail_rows = 0_u64;
+    let mut output_rows = 0_u64;
+    let mut tail_bytes = 0_u64;
+    let mut parquet_bytes = 0_u64;
+    let mut materialized_bytes = 0_u64;
+    let mut exact_replay = true;
+    let mut parquet_round_trip = true;
+    let mut arrow_tail_complete = true;
+    let mut invalidation_precedes_filter = true;
+    let mut partition_move_is_logical_identity = true;
+    let mut hidden_primary_key_survives_projection = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+
+    for seed in seeds {
+        let first = match run_physical_overlay_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_physical_overlay_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        event_count = event_count.saturating_add(first.executed_checks);
+        base_rows = base_rows.saturating_add(first.base_rows);
+        tail_rows = tail_rows.saturating_add(first.tail_rows);
+        output_rows = output_rows.saturating_add(first.output_rows);
+        tail_bytes = tail_bytes.saturating_add(first.tail_bytes);
+        parquet_bytes = parquet_bytes.saturating_add(first.parquet_bytes);
+        materialized_bytes = materialized_bytes.max(first.materialized_bytes);
+        parquet_round_trip &= first.parquet_round_trip;
+        arrow_tail_complete &= first.arrow_tail_complete;
+        invalidation_precedes_filter &= first.invalidation_precedes_filter;
+        partition_move_is_logical_identity &= first.partition_move_is_logical_identity;
+        hidden_primary_key_survives_projection &= first.hidden_primary_key_survives_projection;
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!("seed {seed}: {detail}"));
+        }
+        let exact = first.anomaly_count == 0;
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "zebradb-datafusion-overlay-v1"),
+                    (
+                        "anomaly.class",
+                        if exact { "none" } else { "physical_overlay" },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "query.result_exact",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_base_plus_tail"),
+                    ("backend", backend),
+                    ("oracle", "zebradb-datafusion-overlay-v1"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.tail_rows",
+                value: bounded_count(first.tail_rows),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_base_plus_tail"),
+                    ("backend", backend),
+                    ("base.format", "parquet"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.tail_bytes",
+                value: bounded_count(first.tail_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_base_plus_tail"),
+                    ("backend", backend),
+                    ("base.format", "parquet"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.peak_memory",
+                value: bounded_count(first.materialized_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_base_plus_tail"),
+                    ("backend", backend),
+                    ("merge.kind", "materialized-correctness-adapter"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.spill_bytes",
+                value: 0.0,
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_base_plus_tail"),
+                    ("backend", backend),
+                    ("merge.kind", "materialized-correctness-adapter"),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-htap-physical://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let expected_events = u64::try_from(seeds.len())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(4);
+    let semantic_operations_exercised = event_count == expected_events
+        && base_rows > 0
+        && tail_rows > 0
+        && output_rows > 0
+        && tail_bytes > 0
+        && parquet_bytes > 0
+        && materialized_bytes > 0;
+    let passed = anomaly_count == 0
+        && exact_replay
+        && semantic_operations_exercised
+        && parquet_round_trip
+        && arrow_tail_complete
+        && invalidation_precedes_filter
+        && partition_move_is_logical_identity
+        && hidden_primary_key_survives_projection;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "HTAP physical gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "htap_physical.exact_seed_replay".to_owned(),
+                status: gate_status(exact_replay),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_physical.semantic_operations_exercised".to_owned(),
+                status: gate_status(semantic_operations_exercised),
+                detail: Some(format!(
+                    "events={event_count}, base_rows={base_rows}, tail_rows={tail_rows}, output_rows={output_rows}, tail_bytes={tail_bytes}, parquet_bytes={parquet_bytes}, materialized_bytes={materialized_bytes}"
+                )),
+            },
+            HardGateResult {
+                id: "htap_physical.exact_result".to_owned(),
+                status: gate_status(anomaly_count == 0),
+                detail: mismatch_details.first().cloned(),
+            },
+            HardGateResult {
+                id: "htap_physical.parquet_round_trip".to_owned(),
+                status: gate_status(parquet_round_trip),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_physical.arrow_tail_complete".to_owned(),
+                status: gate_status(arrow_tail_complete),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_physical.invalidation_precedes_filter".to_owned(),
+                status: gate_status(invalidation_precedes_filter),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_physical.partition_move_is_logical_identity".to_owned(),
+                status: gate_status(partition_move_is_logical_identity),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_physical.hidden_primary_key_survives_projection".to_owned(),
+                status: gate_status(hidden_primary_key_survives_projection),
+                detail: None,
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            ("htap_physical.events".to_owned(), bounded_count(event_count)),
+            ("htap_physical.base_rows".to_owned(), bounded_count(base_rows)),
+            ("htap_physical.tail_rows".to_owned(), bounded_count(tail_rows)),
+            (
+                "htap_physical.output_rows".to_owned(),
+                bounded_count(output_rows),
+            ),
+            ("htap_physical.tail_bytes".to_owned(), bounded_count(tail_bytes)),
+            (
+                "htap_physical.parquet_bytes".to_owned(),
+                bounded_count(parquet_bytes),
+            ),
+            (
+                "htap_physical.materialized_bytes".to_owned(),
+                bounded_count(materialized_bytes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 fn run_commit_envelope_contract(workload: &WorkloadConfig, seeds: &[u64]) -> WorkloadExecution {
     if seeds.is_empty() {
         return execution_from_result(Err(
@@ -2415,6 +2666,14 @@ fn run_object_store_conformance(workload: &WorkloadConfig, backend_id: &str) -> 
 
 fn bounded_count(value: u64) -> f64 {
     f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
+fn gate_status(passed: bool) -> GateStatus {
+    if passed {
+        GateStatus::Pass
+    } else {
+        GateStatus::Fail
+    }
 }
 
 fn execution_from_result(result: Result<(), String>) -> WorkloadExecution {
