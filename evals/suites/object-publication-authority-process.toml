@@ -1,0 +1,101 @@
+schema_version = 1
+id = "object-publication-authority-process-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0014-real-object-publication-adapter.md",
+  "../../rfcs/0015-replicated-publication-authority.md",
+]
+dataset_generator = "deterministic-three-process-publication-authority-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 6
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 54
+repeats = 1
+backend = "process-local-fs"
+authority_nodes = 3
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+stable_storage = "independent-node-journals"
+request_identity_scope = "cell-wide"
+
+[[lanes]]
+id = "publication-authority"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "publication-authority-failover"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+
+[[workloads]]
+id = "publication-authority-bypass-generation-fence"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "bypass_generation_fence"
+
+[[workloads]]
+id = "publication-authority-publish-without-intent"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "publish_without_intent"
+
+[[workloads]]
+id = "publication-authority-ignore-root-epoch"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "ignore_root_epoch"
+
+[[workloads]]
+id = "publication-authority-ignore-delete-reservation"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "ignore_delete_reservation"
+
+[[workloads]]
+id = "publication-authority-disable-dedup"
+lane = "publication-authority"
+operation = "publication_authority_process_contract"
+negative_control = "disable_request_dedup"
+
+[hard_gates]
+correctness_anomalies = 0
+active_generation_authorizes_publication = true
+prepare_survives_authority_leader_loss = true
+unknown_outcome_resolves_by_request_identity = true
+same_request_replays_exact_outcome = true
+conflicting_request_identity_is_rejected = true
+publish_requires_matching_intent = true
+root_install_retires_intent_atomically = true
+root_epoch_fences_stale_delete_plan = true
+delete_reservation_survives_authority_leader_loss = true
+delete_reservation_blocks_intersecting_prepare = true
+retirement_requires_exact_plan = true
+retirement_allows_fresh_prepare = true
+restarted_nodes_recover_exact_state = true
+fresh_process_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true
