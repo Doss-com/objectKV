@@ -45,6 +45,7 @@ and HTAP materialization follow only after the prior gate passes.
 ```text
 crates/okv-model/   executable MVCC and ZebraDB HTAP reference oracles
 crates/okv-eval/    configurable eval runner and OTel instrumentation
+crates/okv-htap/    Parquet, Arrow, and DataFusion snapshot overlay contracts
 crates/okv-object/  named-object correctness boundary and conformance runner
 crates/okv-sim/     exact seeded crash, network, and fencing replay probe
 crates/okv-slate/   pinned SlateDB adaptation and external-version spike
@@ -88,6 +89,9 @@ cargo run -p okv-eval -- run evals/suites/raft-process.toml \
   --backend process-local-fs
 cargo run -p okv-eval -- run evals/suites/htap-contract.toml \
   --profile model-dev --workload zebradb-base-plus-tail --backend model
+cargo run -p okv-eval -- run evals/suites/htap-streaming.toml \
+  --profile local-fs --workload zebradb-streaming-overlay \
+  --backend datafusion-local-fs
 ```
 
 The model smoke is not a storage or performance benchmark. The simulator probe
@@ -107,8 +111,11 @@ explicit election, quorum failover, partition repair, stale-suffix replacement,
 and journal replay after a simulated process bounce. It does not yet prove a
 real OS process kill, unsynced-disk loss, generation takeover, durable request
 deduplication, throughput, or a complete transaction cell.
-The HTAP-contract runner proves exact model semantics, not a DataFusion physical
-operator or Parquet/Vortex performance.
+The HTAP-contract runner proves exact model semantics. The streaming physical
+runner reads a Parquet base, merges an Arrow tail incrementally across batch
+boundaries, and proves exact output at one target version across two base
+watermarks. Its memory receipt covers the overlay operator on a bounded fixture,
+not complete-query memory, a `T - W_p` cost curve, manifests, leases, or Vortex.
 
 ## Project principles
 

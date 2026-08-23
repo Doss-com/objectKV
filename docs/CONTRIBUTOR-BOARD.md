@@ -198,10 +198,18 @@ become one GitHub issue.
   normalizes a cross-partition move. Run `2b487a75` kept all physical gates at
   zero anomalies; three poisoned subjects discarded; OTel run `4cf2f747`
   exported the result, tail, materialization, spill, and duration series.
-- Remaining: replace the bounded materializing correctness adapter with an
-  ordered streaming merge, prove independently lagging physical partitions,
-  force continuation across short physical transactions at one target `T`,
-  add lease and manifest inputs, and measure the cost curve as `T - W_p` grows.
+  Candidate `95d57b7` adds an incremental ordered merge that holds one base
+  batch, one tail batch, one bounded logical-id group, and one output batch. It
+  validates order across batch boundaries, scans the tail from `min(W_p)` for
+  independently lagging west and east bases, and binds continuation to one
+  target version. Run `b239a722` kept 24 checks at zero anomalies with four
+  peak buffered rows and no spill. Five materialization, grouping, watermark,
+  continuation, and ordering subjects discarded exactly. OTel run `1fa53987`
+  exported the bounded streaming series.
+- Remaining: add snapshot-manifest and lease acquisition, split execution into
+  multiple logical-id ranges, prove partition-aware pruning without losing
+  invalidation, and measure the cost curve as `T - W_p` grows. The current
+  memory receipt covers the overlay operator, not the complete query plan.
 
 ### T17. Specify analytical dependency certificates
 

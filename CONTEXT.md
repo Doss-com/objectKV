@@ -86,6 +86,14 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   invalidation, schema and partition movement, analytical-tail retention,
   snapshot-lease GC, certificate races, unequal table watermarks, and five
   negative controls. It is not a DataFusion or Parquet implementation.
+- `[EXISTS]` The physical ZebraDB path pins DataFusion 54.0.0 and Arrow/Parquet
+  58.3.0. Its first adapter reads a schema-v1 Parquet base and schema-v2 Arrow
+  tail through a custom `TableProvider`. The admitted streaming candidate
+  validates base and tail ordering across record-batch boundaries, scans from
+  the minimum of independently lagging partition watermarks, reduces by logical
+  identity, declares ordered incremental output, and binds continuation to one
+  target version. The receipt covers bounded operator buffering, not manifests,
+  leases, multiple execution ranges, full-query memory, or a performance curve.
 - `[EXISTS]` The `objectKV-dev` Terraform configuration validates locally.
 - `[EXISTS]` The objectKV workstream is registered as `OKV-BOOTSTRAP` in the
   local DOSSBOT project tracker and its dedicated playground port is documented.
