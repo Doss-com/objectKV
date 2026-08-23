@@ -11,7 +11,10 @@ use okv_eval::result::{
     HardGateResult, PrimaryMetricResult, ProfileIdentity, Verdict,
 };
 use okv_eval::telemetry::{RunResource, Telemetry};
-use okv_htap::{run_physical_overlay_contract, PhysicalOverlayMode};
+use okv_htap::{
+    run_physical_overlay_contract, run_streaming_overlay_contract, PhysicalOverlayMode,
+    StreamingOverlayMode,
+};
 use okv_model::{
     run_differential_history, run_htap_contract, run_publication_gc_contract, ApplyOutcome,
     CommitBatch, CommitIdentity, DifferentialMode, HtapContractMode, Model, Mutation,
@@ -521,6 +524,7 @@ fn execute_workload(
         "generation_process_contract" => run_generation_process(workload, seeds, backend),
         "htap_exactness_contract" => run_htap_exactness_contract(workload, seeds, backend),
         "htap_physical_contract" => run_htap_physical_contract(workload, seeds, backend),
+        "htap_streaming_contract" => run_htap_streaming_contract(workload, seeds, backend),
         "object_publication_gc_contract" => {
             run_object_publication_gc_contract(workload, seeds, backend)
         }
@@ -2099,6 +2103,347 @@ fn run_htap_physical_contract(
             (
                 "htap_physical.materialized_bytes".to_owned(),
                 bounded_count(materialized_bytes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_htap_streaming_contract(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "HTAP streaming workload requires at least one seed".to_owned()
+        ));
+    }
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match control {
+        None | Some("none") => StreamingOverlayMode::Correct,
+        Some("materialize_inputs") => StreamingOverlayMode::MaterializeInputs,
+        Some("reset_group_at_batch_boundary") => StreamingOverlayMode::ResetGroupAtBatchBoundary,
+        Some("start_tail_at_max_watermark") => StreamingOverlayMode::StartTailAtMaximumWatermark,
+        Some("rebase_continuation_target") => StreamingOverlayMode::RebaseContinuationTarget,
+        Some("accept_unsorted_input") => StreamingOverlayMode::AcceptUnsortedInput,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown HTAP streaming negative control {other}"
+            )));
+        }
+    };
+
+    let mut anomaly_count = 0_u64;
+    let mut event_count = 0_u64;
+    let mut base_rows = 0_u64;
+    let mut tail_rows = 0_u64;
+    let mut output_rows = 0_u64;
+    let mut input_batches = 0_u64;
+    let mut output_batches = 0_u64;
+    let mut tail_bytes = 0_u64;
+    let mut parquet_bytes = 0_u64;
+    let mut peak_buffered_rows = 0_u64;
+    let mut peak_buffered_bytes = 0_u64;
+    let mut maximum_group_rows = 0_u64;
+    let mut materialized_input_rows = 0_u64;
+    let mut spill_bytes = 0_u64;
+    let mut exact_replay = true;
+    let mut parquet_round_trip = true;
+    let mut arrow_tail_complete = true;
+    let mut incremental_emission = true;
+    let mut input_order_validated = true;
+    let mut batch_boundary_groups_preserved = true;
+    let mut independent_watermarks = true;
+    let mut continuation_target_bound = true;
+    let mut buffer_bound_holds = true;
+    let mut output_order_declared = true;
+    let mut mismatch_details = Vec::new();
+    let mut measurements = Vec::new();
+    let mut artifact_refs = Vec::new();
+
+    for seed in seeds {
+        let first = match run_streaming_overlay_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match run_streaming_overlay_contract(*seed, mode) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        anomaly_count = anomaly_count.saturating_add(first.anomaly_count);
+        event_count = event_count.saturating_add(first.executed_checks);
+        base_rows = base_rows.saturating_add(first.base_rows);
+        tail_rows = tail_rows.saturating_add(first.tail_rows);
+        output_rows = output_rows.saturating_add(first.output_rows);
+        input_batches = input_batches.saturating_add(first.input_batches);
+        output_batches = output_batches.saturating_add(first.output_batches);
+        tail_bytes = tail_bytes.saturating_add(first.tail_bytes);
+        parquet_bytes = parquet_bytes.saturating_add(first.parquet_bytes);
+        peak_buffered_rows = peak_buffered_rows.max(first.peak_buffered_rows);
+        peak_buffered_bytes = peak_buffered_bytes.max(first.peak_buffered_bytes);
+        maximum_group_rows = maximum_group_rows.max(first.maximum_group_rows_observed);
+        materialized_input_rows =
+            materialized_input_rows.saturating_add(first.materialized_input_rows);
+        spill_bytes = spill_bytes.saturating_add(first.spill_bytes);
+        parquet_round_trip &= first.parquet_round_trip;
+        arrow_tail_complete &= first.arrow_tail_complete;
+        incremental_emission &= first.incremental_emission;
+        input_order_validated &= first.input_order_validated;
+        batch_boundary_groups_preserved &= first.batch_boundary_groups_preserved;
+        independent_watermarks &= first.independent_watermarks;
+        continuation_target_bound &= first.continuation_target_bound;
+        buffer_bound_holds &= first.buffer_bound_holds;
+        output_order_declared &= first.output_order_declared;
+        if let Some(detail) = &first.first_mismatch {
+            mismatch_details.push(format!("seed {seed}: {detail}"));
+        }
+        let exact = first.anomaly_count == 0;
+        let merge_kind = if first.materialized_input_rows == 0 {
+            "ordered-streaming"
+        } else {
+            "materialized-negative-control"
+        };
+        measurements.extend([
+            Measurement {
+                metric: "correctness.anomalies",
+                value: bounded_count(first.anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "zebradb-datafusion-streaming-v1"),
+                    (
+                        "anomaly.class",
+                        if exact { "none" } else { "streaming_overlay" },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "query.result_exact",
+                value: if exact { 1.0 } else { 0.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_streaming_base_plus_tail"),
+                    ("backend", backend),
+                    ("oracle", "zebradb-datafusion-streaming-v1"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.tail_rows",
+                value: bounded_count(first.tail_rows),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_streaming_base_plus_tail"),
+                    ("backend", backend),
+                    ("base.format", "parquet"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.tail_bytes",
+                value: bounded_count(first.tail_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_streaming_base_plus_tail"),
+                    ("backend", backend),
+                    ("base.format", "parquet"),
+                ]),
+            },
+            Measurement {
+                metric: "htap.peak_memory",
+                value: bounded_count(first.peak_buffered_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_streaming_base_plus_tail"),
+                    ("backend", backend),
+                    ("merge.kind", merge_kind),
+                ]),
+            },
+            Measurement {
+                metric: "htap.spill_bytes",
+                value: bounded_count(first.spill_bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("query.class", "datafusion_streaming_base_plus_tail"),
+                    ("backend", backend),
+                    ("merge.kind", merge_kind),
+                ]),
+            },
+        ]);
+        artifact_refs.push(format!(
+            "okv-htap-streaming://{}/{seed}/{}",
+            mode.id(),
+            first.trace_sha256
+        ));
+    }
+
+    let expected_events = u64::try_from(seeds.len())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(8);
+    let semantic_operations_exercised = event_count == expected_events
+        && base_rows > 0
+        && tail_rows > 0
+        && output_rows > 0
+        && input_batches > 0
+        && output_batches > 0
+        && tail_bytes > 0
+        && parquet_bytes > 0
+        && peak_buffered_bytes > 0;
+    let passed = anomaly_count == 0
+        && exact_replay
+        && semantic_operations_exercised
+        && parquet_round_trip
+        && arrow_tail_complete
+        && incremental_emission
+        && input_order_validated
+        && batch_boundary_groups_preserved
+        && independent_watermarks
+        && continuation_target_bound
+        && buffer_bound_holds
+        && output_order_declared;
+    let error = (!passed).then(|| {
+        let detail = if mismatch_details.is_empty() {
+            "no semantic mismatch detail".to_owned()
+        } else {
+            mismatch_details.join("; ")
+        };
+        format!(
+            "HTAP streaming gate failed: mode={}, anomalies={anomaly_count}, exact_replay={exact_replay}, semantic_operations={semantic_operations_exercised}; {detail}",
+            mode.id()
+        )
+    });
+
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "htap_streaming.exact_seed_replay".to_owned(),
+                status: gate_status(exact_replay),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_streaming.semantic_operations_exercised".to_owned(),
+                status: gate_status(semantic_operations_exercised),
+                detail: Some(format!(
+                    "events={event_count}, base_rows={base_rows}, tail_rows={tail_rows}, output_rows={output_rows}, input_batches={input_batches}, output_batches={output_batches}, peak_buffered_rows={peak_buffered_rows}, peak_buffered_bytes={peak_buffered_bytes}, maximum_group_rows={maximum_group_rows}, materialized_rows={materialized_input_rows}"
+                )),
+            },
+            HardGateResult {
+                id: "htap_streaming.exact_result".to_owned(),
+                status: gate_status(anomaly_count == 0),
+                detail: mismatch_details.first().cloned(),
+            },
+            HardGateResult {
+                id: "htap_streaming.parquet_round_trip".to_owned(),
+                status: gate_status(parquet_round_trip),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_streaming.arrow_tail_complete".to_owned(),
+                status: gate_status(arrow_tail_complete),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_streaming.incremental_emission".to_owned(),
+                status: gate_status(incremental_emission),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_streaming.input_order_validated".to_owned(),
+                status: gate_status(input_order_validated),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_streaming.batch_boundary_groups_preserved".to_owned(),
+                status: gate_status(batch_boundary_groups_preserved),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_streaming.independent_watermarks".to_owned(),
+                status: gate_status(independent_watermarks),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_streaming.continuation_target_bound".to_owned(),
+                status: gate_status(continuation_target_bound),
+                detail: None,
+            },
+            HardGateResult {
+                id: "htap_streaming.buffer_bound_holds".to_owned(),
+                status: gate_status(buffer_bound_holds),
+                detail: Some(format!(
+                    "peak_rows={peak_buffered_rows}, peak_bytes={peak_buffered_bytes}, maximum_group_rows={maximum_group_rows}, materialized_rows={materialized_input_rows}"
+                )),
+            },
+            HardGateResult {
+                id: "htap_streaming.output_order_declared".to_owned(),
+                status: gate_status(output_order_declared),
+                detail: None,
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs,
+        secondary_metrics: BTreeMap::from([
+            (
+                "htap_streaming.events".to_owned(),
+                bounded_count(event_count),
+            ),
+            (
+                "htap_streaming.base_rows".to_owned(),
+                bounded_count(base_rows),
+            ),
+            (
+                "htap_streaming.tail_rows".to_owned(),
+                bounded_count(tail_rows),
+            ),
+            (
+                "htap_streaming.output_rows".to_owned(),
+                bounded_count(output_rows),
+            ),
+            (
+                "htap_streaming.input_batches".to_owned(),
+                bounded_count(input_batches),
+            ),
+            (
+                "htap_streaming.output_batches".to_owned(),
+                bounded_count(output_batches),
+            ),
+            (
+                "htap_streaming.tail_bytes".to_owned(),
+                bounded_count(tail_bytes),
+            ),
+            (
+                "htap_streaming.parquet_bytes".to_owned(),
+                bounded_count(parquet_bytes),
+            ),
+            (
+                "htap_streaming.peak_buffered_rows".to_owned(),
+                bounded_count(peak_buffered_rows),
+            ),
+            (
+                "htap_streaming.peak_buffered_bytes".to_owned(),
+                bounded_count(peak_buffered_bytes),
+            ),
+            (
+                "htap_streaming.maximum_group_rows".to_owned(),
+                bounded_count(maximum_group_rows),
+            ),
+            (
+                "htap_streaming.materialized_input_rows".to_owned(),
+                bounded_count(materialized_input_rows),
+            ),
+            (
+                "htap_streaming.spill_bytes".to_owned(),
+                bounded_count(spill_bytes),
             ),
         ]),
     }

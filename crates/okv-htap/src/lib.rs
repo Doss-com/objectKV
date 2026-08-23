@@ -1,5 +1,9 @@
 //! Physical Arrow, Parquet, and `DataFusion` contracts for `ZebraDB`.
 
+mod streaming;
+
+pub use streaming::{run_streaming_overlay_contract, StreamingOverlayMode, StreamingOverlayReport};
+
 use arrow::array::{Array, ArrayRef, StringArray, UInt32Array, UInt64Array, UInt8Array};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;

@@ -96,6 +96,20 @@ jobs:
             cargo run --quiet -p okv-eval -- run evals/suites/htap-physical.toml --profile local-fs --workload "$workload" --backend datafusion-local-fs --output "$output"
             jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap_physical.exact_result").status == "fail")' "$output"
           done
+      - name: Verify ZebraDB streaming overlay and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/htap-streaming.toml --profile local-fs --workload zebradb-streaming-overlay --backend datafusion-local-fs --output /tmp/okv-htap-streaming.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "htap_streaming.exact_result").status == "pass") and (.hard_gates[] | select(.id == "htap_streaming.incremental_emission").status == "pass")' /tmp/okv-htap-streaming.json
+          for workload in \
+            zebradb-streaming-materialize-inputs \
+            zebradb-streaming-reset-batch-group \
+            zebradb-streaming-max-watermark \
+            zebradb-streaming-rebase-continuation \
+            zebradb-streaming-accept-unsorted; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/htap-streaming.toml --profile local-fs --workload "$workload" --backend datafusion-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap_streaming.exact_result").status == "fail")' "$output"
+          done
       - name: Verify object publication, reachability, and negative controls
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/object-publication-gc.toml --profile model-dev --workload object-publication-reachability --backend publication-gc-model --output /tmp/okv-publication-gc.json
