@@ -1,6 +1,6 @@
 schema_version = 1
 id = "object-publication-worker-process-v1"
-status = "active-work"
+status = "proposed"
 metric_registry = "../metrics.toml"
 result_schema = "../schema/result.schema.json"
 contract_files = [

@@ -1,0 +1,78 @@
+schema_version = 1
+id = "object-publication-publisher-process-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0014-real-object-publication-adapter.md",
+  "../../rfcs/0015-replicated-publication-authority.md",
+  "../../rfcs/0016-publication-worker-recovery.md",
+  "../../rfcs/0017-publisher-process-recovery.md",
+]
+dataset_generator = "deterministic-publisher-prepare-restart-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 4096
+key_count = 3
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 30
+repeats = 1
+backend = "object-store-local-fs+process-openraft"
+authority_nodes = 3
+publisher_processes = 1
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+stable_storage = "independent-node-journals"
+worker_recovery = "empty-scratch"
+kill_boundary = "quorum-prepare-before-first-put"
+
+[[lanes]]
+id = "publisher-process-recovery"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "publisher-prepare-restart"
+lane = "publisher-process-recovery"
+operation = "publication_publisher_process_contract"
+
+[[workloads]]
+id = "publisher-upload-before-prepare-ack"
+lane = "publisher-process-recovery"
+operation = "publication_publisher_process_contract"
+negative_control = "upload_before_prepare_ack"
+
+[hard_gates]
+correctness_anomalies = 0
+active_generation_authorizes_publisher = true
+dedicated_publisher_reaches_prepare_barrier = true
+prepare_and_outcome_are_quorum_durable = true
+no_object_exists_before_prepare_barrier = true
+publisher_is_killed_at_prepare_boundary = true
+replacement_uses_empty_scratch = true
+replacement_recovers_exact_job_and_request_identity = true
+data_and_manifest_are_verified_by_named_read = true
+publish_installs_root_and_retires_intent_atomically = true
+reader_walks_exact_visible_closure = true
+fresh_process_replay_is_byte_exact = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
