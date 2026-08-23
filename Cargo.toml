@@ -43,6 +43,7 @@ okv-htap = { path = "crates/okv-htap" }
 okv-model = { path = "crates/okv-model" }
 okv-object = { path = "crates/okv-object" }
 okv-publication = { path = "crates/okv-publication" }
+okv-slate = { path = "crates/okv-slate" }
 okv-wal = { path = "crates/okv-wal" }
 object_store = { version = "=0.14.1", features = ["aws", "gcp"] }
 openraft = { version = "=0.9.25", features = ["serde", "storage-v2"] }

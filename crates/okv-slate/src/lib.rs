@@ -9,6 +9,13 @@ use slatedb::{Db, WriteBatch};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+mod phase0;
+
+pub use phase0::{
+    run_phase0_filesystem_contract, Phase0Config, Phase0Gate, Phase0IoDelta, Phase0Mode,
+    Phase0PhaseReport, Phase0Report, Phase0SeedReport,
+};
+
 /// `SlateDB` source revision compiled by this adapter.
 pub const SLATEDB_REVISION: &str = "e0161973d8d7ffdede7c44725729838811674e99";
 

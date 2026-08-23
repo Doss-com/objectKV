@@ -15,6 +15,7 @@ okv-consensus.workspace = true
 okv-htap.workspace = true
 okv-model.workspace = true
 okv-object.workspace = true
+okv-slate.workspace = true
 okv-sim = { path = "../okv-sim" }
 opentelemetry.workspace = true
 opentelemetry-appender-tracing.workspace = true

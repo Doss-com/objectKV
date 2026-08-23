@@ -2959,6 +2959,7 @@ dependencies = [
  "okv-model",
  "okv-object",
  "okv-sim",
+ "okv-slate",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
@@ -3041,8 +3042,15 @@ dependencies = [
 name = "okv-slate"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
+ "bytes",
+ "futures-util",
+ "object_store 0.14.1",
  "okv-model",
+ "serde",
+ "sha2",
  "slatedb",
+ "tempfile",
  "tokio",
 ]
 

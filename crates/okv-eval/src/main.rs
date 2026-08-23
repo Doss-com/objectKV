@@ -6,7 +6,9 @@ use okv_consensus::{
     GenerationProcessMode, ProcessNodeConfig, PublicationProcessMode, RaftClusterMode,
     RaftProcessMode, RaftStorageMode,
 };
-use okv_eval::config::{load_suite, BudgetKind, LoadedSuite, WorkloadConfig};
+use okv_eval::config::{
+    load_suite, BudgetKind, DatasetConfig, LoadedSuite, ProfileConfig, WorkloadConfig,
+};
 use okv_eval::result::{
     median, median_absolute_deviation, validate_result, BudgetResult, EvalResult, GateStatus,
     HardGateResult, PrimaryMetricResult, ProfileIdentity, Verdict,
@@ -38,6 +40,10 @@ use okv_object::{
 use okv_sim::{
     run_commit_contract, run_generation_fencing, run_persisted_wal_contract, CommitContractMode,
     PersistedWalMode,
+};
+use okv_slate::{
+    run_phase0_filesystem_contract, Phase0Config, Phase0IoDelta, Phase0Mode, Phase0PhaseReport,
+    Phase0Report,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -477,9 +483,19 @@ fn run_suite(
         "evaluation started"
     );
 
-    let seeds = dataset_seeds(&loaded, profile_id);
+    let dataset = dataset_config(&loaded, profile_id);
+    let seeds = dataset
+        .map(|dataset| dataset.seeds.clone())
+        .unwrap_or_default();
     let started = Instant::now();
-    let workload_execution = execute_workload(workload, &candidate_commit, &seeds, backend);
+    let workload_execution = execute_workload(
+        workload,
+        &candidate_commit,
+        &seeds,
+        backend,
+        dataset,
+        profile,
+    );
     let elapsed = started.elapsed().as_secs_f64();
     for measurement in &workload_execution.measurements {
         recorder.record(
@@ -644,6 +660,8 @@ fn execute_workload(
     candidate_commit: &str,
     seeds: &[u64],
     backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile: &ProfileConfig,
 ) -> WorkloadExecution {
     match workload.operation.as_str() {
         "model_smoke" => execution_from_result(run_model_smoke()),
@@ -682,10 +700,304 @@ fn execute_workload(
         }
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
+        "slatedb_phase0_filesystem_contract" => {
+            run_slatedb_phase0_filesystem(workload, candidate_commit, dataset, profile, backend)
+        }
         operation => execution_from_result(Err(format!(
             "operation {operation} is declared but has no runner implementation"
         ))),
     }
+}
+
+fn run_slatedb_phase0_filesystem(
+    workload: &WorkloadConfig,
+    candidate_commit: &str,
+    dataset: Option<&DatasetConfig>,
+    profile: &ProfileConfig,
+    backend: &str,
+) -> WorkloadExecution {
+    let Some(dataset) = dataset else {
+        return execution_from_result(Err(
+            "SlateDB Phase 0 workload requires a dataset for the selected profile".to_owned(),
+        ));
+    };
+    let parameter = |name: &str| -> Result<usize, String> {
+        let value = profile
+            .parameters
+            .get(name)
+            .and_then(toml::Value::as_integer)
+            .ok_or_else(|| format!("SlateDB Phase 0 profile requires integer {name}"))?;
+        usize::try_from(value).map_err(|error| format!("invalid {name}: {error}"))
+    };
+    let config = match (
+        parameter("point_reads_per_seed"),
+        parameter("scan_rows_per_seed"),
+    ) {
+        (Ok(point_reads_per_seed), Ok(scan_rows_per_seed)) => Phase0Config {
+            logical_bytes: dataset.logical_bytes,
+            key_count: dataset.key_count,
+            point_reads_per_seed,
+            scan_rows_per_seed,
+            seeds: dataset.seeds.clone(),
+        },
+        (Err(error), _) | (_, Err(error)) => return execution_from_result(Err(error)),
+    };
+    let mode = match workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+    {
+        None | Some("none") => Phase0Mode::Correct,
+        Some("reuse_warm_db_for_reopen") => Phase0Mode::ReuseWarmDbForReopen,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown SlateDB Phase 0 negative control {other}"
+            )));
+        }
+    };
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            return execution_from_result(Err(format!("build SlateDB Phase 0 runtime: {error}")));
+        }
+    };
+    let report = match runtime.block_on(run_phase0_filesystem_contract(&config, mode)) {
+        Ok(report) => report,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    phase0_execution(workload, candidate_commit, backend, &report)
+}
+
+#[allow(clippy::too_many_lines)]
+fn phase0_execution(
+    workload: &WorkloadConfig,
+    candidate_commit: &str,
+    backend: &str,
+    report: &Phase0Report,
+) -> WorkloadExecution {
+    const LANE: &str = "slatedb-filesystem-incumbent";
+    const ORACLE: &str = "deterministic-slate-phase0-filesystem-v1";
+    let mut measurements = Vec::new();
+    let mut total_operations = 0_u64;
+    let mut total_io = Phase0IoDelta::default();
+    for seed in &report.seeds {
+        measurements.push(Measurement {
+            metric: "recovery.first_correct_read_duration",
+            value: seed.reopen_first_correct_read_seconds,
+            attributes: attributes(&[
+                ("lane", LANE),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("dataset.class", "local-fs-8mib"),
+                ("result", if report.passed() { "pass" } else { "fail" }),
+            ]),
+        });
+        for phase in [
+            &seed.ingest,
+            &seed.warm_point,
+            &seed.ordered_scan,
+            &seed.reopen,
+            &seed.cold_point,
+        ] {
+            add_phase0_phase_measurements(&mut measurements, workload, backend, phase);
+            total_operations += phase.logical_operations;
+        }
+        merge_counts(
+            &mut total_io.successful_requests,
+            &seed.total_io.successful_requests,
+        );
+        merge_counts(
+            &mut total_io.failed_requests,
+            &seed.total_io.failed_requests,
+        );
+        merge_counts(&mut total_io.read_bytes, &seed.total_io.read_bytes);
+        merge_counts(&mut total_io.written_bytes, &seed.total_io.written_bytes);
+    }
+    for (api, value) in &total_io.successful_requests {
+        measurements.push(Measurement {
+            metric: "object_store.requests",
+            value: bounded_count(*value),
+            attributes: attributes(&[
+                ("lane", LANE),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("store", "filesystem"),
+                ("api", api),
+                ("result", "success"),
+            ]),
+        });
+    }
+    for (api, value) in &total_io.failed_requests {
+        measurements.push(Measurement {
+            metric: "object_store.requests",
+            value: bounded_count(*value),
+            attributes: attributes(&[
+                ("lane", LANE),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("store", "filesystem"),
+                ("api", api),
+                ("result", "error"),
+            ]),
+        });
+    }
+    for (api, value) in &total_io.read_bytes {
+        measurements.push(Measurement {
+            metric: "object_store.bytes",
+            value: bounded_count(*value),
+            attributes: attributes(&[
+                ("lane", LANE),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("store", "filesystem"),
+                ("direction", "read"),
+                ("api", api),
+            ]),
+        });
+    }
+    for (api, value) in &total_io.written_bytes {
+        measurements.push(Measurement {
+            metric: "object_store.bytes",
+            value: bounded_count(*value),
+            attributes: attributes(&[
+                ("lane", LANE),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("store", "filesystem"),
+                ("direction", "write"),
+                ("api", api),
+            ]),
+        });
+    }
+    let anomalies = report.anomaly_count();
+    measurements.push(Measurement {
+        metric: "correctness.anomalies",
+        value: bounded_count(anomalies),
+        attributes: attributes(&[
+            ("lane", LANE),
+            ("workload", &workload.id),
+            ("oracle", ORACLE),
+            ("anomaly.class", "hard-gate"),
+        ]),
+    });
+    let hard_gates: Vec<HardGateResult> = std::iter::once(HardGateResult {
+        id: "correctness_anomalies".to_owned(),
+        status: if anomalies == 0 {
+            GateStatus::Pass
+        } else {
+            GateStatus::Fail
+        },
+        detail: Some(format!("{anomalies} failed frozen contract gates")),
+    })
+    .chain(report.gates.iter().map(|gate| HardGateResult {
+        id: gate.id.clone(),
+        status: if gate.passed {
+            GateStatus::Pass
+        } else {
+            GateStatus::Fail
+        },
+        detail: Some(gate.detail.clone()),
+    }))
+    .collect();
+    let failed_gates: Vec<&str> = report
+        .gates
+        .iter()
+        .filter(|gate| !gate.passed)
+        .map(|gate| gate.id.as_str())
+        .collect();
+    let artifact_path = phase0_artifact_path(candidate_commit, report);
+    let artifact_result = write_phase0_artifact(&artifact_path, report);
+    let artifact_error = artifact_result.as_ref().err().cloned();
+    let error = if failed_gates.is_empty() {
+        artifact_error
+    } else {
+        Some(format!(
+            "SlateDB Phase 0 failed gates: {}",
+            failed_gates.join(", ")
+        ))
+    };
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates,
+        budget_units: bounded_count(total_operations),
+        artifact_refs: artifact_result
+            .is_ok()
+            .then(|| artifact_path.display().to_string())
+            .into_iter()
+            .collect(),
+        secondary_metrics: BTreeMap::from([
+            (
+                "phase0.object_store.requests.total".to_owned(),
+                bounded_count(total_io.request_total()),
+            ),
+            (
+                "phase0.object_store.read_bytes.total".to_owned(),
+                bounded_count(total_io.read_byte_total()),
+            ),
+            (
+                "phase0.object_store.written_bytes.total".to_owned(),
+                bounded_count(total_io.written_byte_total()),
+            ),
+            (
+                "phase0.correctness.anomalies".to_owned(),
+                bounded_count(anomalies),
+            ),
+        ]),
+    }
+}
+
+fn add_phase0_phase_measurements(
+    measurements: &mut Vec<Measurement>,
+    workload: &WorkloadConfig,
+    backend: &str,
+    phase: &Phase0PhaseReport,
+) {
+    const LANE: &str = "slatedb-filesystem-incumbent";
+    let throughput = if phase.elapsed_seconds > 0.0 {
+        bounded_count(phase.logical_operations) / phase.elapsed_seconds
+    } else {
+        0.0
+    };
+    measurements.push(Measurement {
+        metric: "operation.throughput",
+        value: throughput,
+        attributes: attributes(&[
+            ("lane", LANE),
+            ("workload", &workload.id),
+            ("operation", &phase.phase),
+            ("backend", backend),
+        ]),
+    });
+}
+
+fn merge_counts(target: &mut BTreeMap<String, u64>, source: &BTreeMap<String, u64>) {
+    for (key, value) in source {
+        *target.entry(key.clone()).or_default() += value;
+    }
+}
+
+fn phase0_artifact_path(candidate_commit: &str, report: &Phase0Report) -> PathBuf {
+    let candidate = candidate_commit.replace(['+', '/'], "-");
+    PathBuf::from("target/okv-eval-artifacts").join(format!(
+        "phase0-slate-filesystem-{candidate}-{}.json",
+        report.mode
+    ))
+}
+
+fn write_phase0_artifact(path: &Path, report: &Phase0Report) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Phase 0 artifact path has no parent".to_owned())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("create Phase 0 artifact directory: {error}"))?;
+    let rendered = serde_json::to_string_pretty(report)
+        .map_err(|error| format!("serialize Phase 0 report: {error}"))?;
+    fs::write(path, format!("{rendered}\n"))
+        .map_err(|error| format!("write Phase 0 artifact: {error}"))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -5073,14 +5385,12 @@ fn attributes(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn dataset_seeds(loaded: &LoadedSuite, profile_id: &str) -> Vec<u64> {
+fn dataset_config<'a>(loaded: &'a LoadedSuite, profile_id: &str) -> Option<&'a DatasetConfig> {
     loaded
         .suite
         .dataset
         .get(profile_id)
         .or_else(|| loaded.suite.dataset.values().next())
-        .map(|dataset| dataset.seeds.clone())
-        .unwrap_or_default()
 }
 
 fn sha256(bytes: &[u8]) -> String {
