@@ -59,10 +59,13 @@ For each seed, the runner:
 8. checks fixed point reads again through the reopened instance;
 9. closes the reopened instance and records the object-store operation totals.
 
-The first-correct-read timer includes database open and the verifying get. The
-deterministic receipt excludes elapsed time and physical object names. It binds
-the seed, dataset parameters, requested keys, expected values, scan rows, and
-logical outcomes.
+The first-correct-read timer includes only database open and the verifying get.
+Closing the old instance is measured separately. Initial open, post-flush
+verification, warm-cache priming, measured warm reads, scan, pre-reopen close,
+reopen, first correct read, cold reads, and final close each have independent
+time and object-I/O deltas. The deterministic receipt excludes elapsed time and
+physical object names. It binds the seed, dataset parameters, requested keys,
+expected values, scan rows, and logical outcomes.
 
 ### Object I/O accounting
 
@@ -136,7 +139,8 @@ This suite is an incumbent measurement, not a public storage format. Any change
 to the SlateDB revision, dataset generator, object-store accounting, cache-reset
 procedure, oracle, or result schema changes the suite contract hash and starts a
 new baseline. Old receipts remain valid only for their exact suite and profile
-hashes.
+hashes. Raw report filenames include `run_id`; a repeat cannot overwrite the
+evidence cited by an earlier result.
 
 ## Unresolved questions
 

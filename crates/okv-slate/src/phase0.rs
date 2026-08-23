@@ -90,12 +90,18 @@ pub struct Phase0PhaseReport {
 pub struct Phase0SeedReport {
     pub seed: u64,
     pub total_io: Phase0IoDelta,
+    pub initial_open: Phase0PhaseReport,
     pub ingest: Phase0PhaseReport,
+    pub post_flush_verify: Phase0PhaseReport,
+    pub warm_cache_prime: Phase0PhaseReport,
     pub warm_point: Phase0PhaseReport,
     pub ordered_scan: Phase0PhaseReport,
     pub reopen_first_correct_read_seconds: f64,
-    pub reopen: Phase0PhaseReport,
+    pub close_before_reopen: Phase0PhaseReport,
+    pub reopen_open: Phase0PhaseReport,
+    pub first_correct_read: Phase0PhaseReport,
     pub cold_point: Phase0PhaseReport,
+    pub final_close: Phase0PhaseReport,
 }
 
 /// Full frozen-contract report returned to `okv-eval`.
@@ -207,7 +213,7 @@ pub async fn run_phase0_filesystem_contract(
     ];
 
     Ok(Phase0Report {
-        contract_version: 1,
+        contract_version: 2,
         slatedb_revision: SLATEDB_REVISION.to_owned(),
         store: STORE_KIND.to_owned(),
         mode: match mode {
@@ -250,10 +256,14 @@ async fn run_seed(
     let counters = Arc::new(IoCounters::default());
     let store: Arc<dyn ObjectStore> = Arc::new(CountingStore::new(local, Arc::clone(&counters)));
     let db_path = format!("seed-{seed:016x}");
+    let before_initial_open = counters.snapshot();
+    let initial_open_started = Instant::now();
     let db = Db::builder(db_path.as_str(), Arc::clone(&store))
         .build()
         .await
         .map_err(|error| format!("open SlateDB seed {seed}: {error}"))?;
+    let initial_open_elapsed = initial_open_started.elapsed().as_secs_f64();
+    let initial_open_io = counters.snapshot().difference(&before_initial_open);
 
     let before_ingest = counters.snapshot();
     let ingest_started = Instant::now();
@@ -273,9 +283,17 @@ async fn run_seed(
     let ingest_elapsed = ingest_started.elapsed().as_secs_f64();
     let ingest_io = counters.snapshot().difference(&before_ingest);
     let sample_ordinals = point_ordinals(config, seed);
+    let before_post_flush_verify = counters.snapshot();
+    let post_flush_verify_started = Instant::now();
     let exact_dataset_after_flush = check_points(&db, config, seed, &sample_ordinals).await?;
+    let post_flush_verify_elapsed = post_flush_verify_started.elapsed().as_secs_f64();
+    let post_flush_verify_io = counters.snapshot().difference(&before_post_flush_verify);
 
+    let before_warm_cache_prime = counters.snapshot();
+    let warm_cache_prime_started = Instant::now();
     check_points(&db, config, seed, &sample_ordinals).await?;
+    let warm_cache_prime_elapsed = warm_cache_prime_started.elapsed().as_secs_f64();
+    let warm_cache_prime_io = counters.snapshot().difference(&before_warm_cache_prime);
     let before_warm = counters.snapshot();
     let warm_started = Instant::now();
     let warm_point_reads_exact = check_points(&db, config, seed, &sample_ordinals).await?;
@@ -295,26 +313,47 @@ async fn run_seed(
     let first_ordinal = sample_ordinals[0];
     let first_key = key_for(seed, first_ordinal);
     let first_value = value_for(config.logical_bytes, config.key_count, seed, first_ordinal);
-    let before_reopen = counters.snapshot();
-    let reopen_started = Instant::now();
+    let before_close = counters.snapshot();
+    let close_started = Instant::now();
     let active_db = if mode == Phase0Mode::Correct {
         db.close()
             .await
             .map_err(|error| format!("close SlateDB seed {seed}: {error}"))?;
-        Db::builder(db_path.as_str(), Arc::clone(&store))
+        let close_elapsed = close_started.elapsed().as_secs_f64();
+        let close_io = counters.snapshot().difference(&before_close);
+
+        let before_open = counters.snapshot();
+        let open_started = Instant::now();
+        let reopened = Db::builder(db_path.as_str(), Arc::clone(&store))
             .build()
             .await
-            .map_err(|error| format!("reopen SlateDB seed {seed}: {error}"))?
+            .map_err(|error| format!("reopen SlateDB seed {seed}: {error}"))?;
+        let open_elapsed = open_started.elapsed().as_secs_f64();
+        let open_io = counters.snapshot().difference(&before_open);
+        (
+            reopened,
+            phase("close-before-reopen", 1, close_elapsed, close_io),
+            phase("reopen-open", 1, open_elapsed, open_io),
+        )
     } else {
-        db
+        (
+            db,
+            phase("close-before-reopen", 0, 0.0, Phase0IoDelta::default()),
+            phase("reopen-open", 0, 0.0, Phase0IoDelta::default()),
+        )
     };
+    let (active_db, close_before_reopen, reopen_open) = active_db;
+
+    let before_first_read = counters.snapshot();
+    let first_read_started = Instant::now();
     let first_observed = active_db
         .get(&first_key)
         .await
         .map_err(|error| format!("first reopened read seed {seed}: {error}"))?;
     let empty_cache_reopen_exact = first_observed.as_deref() == Some(first_value.as_slice());
-    let reopen_elapsed = reopen_started.elapsed().as_secs_f64();
-    let reopen_io = counters.snapshot().difference(&before_reopen);
+    let first_read_elapsed = first_read_started.elapsed().as_secs_f64();
+    let first_read_io = counters.snapshot().difference(&before_first_read);
+    let reopen_first_correct_read_seconds = reopen_open.elapsed_seconds + first_read_elapsed;
 
     let cold_ordinals = &sample_ordinals[1..];
     let before_cold = counters.snapshot();
@@ -322,13 +361,20 @@ async fn run_seed(
     let cold_point_reads_exact = check_points(&active_db, config, seed, cold_ordinals).await?;
     let cold_elapsed = cold_started.elapsed().as_secs_f64();
     let cold_io = counters.snapshot().difference(&before_cold);
+    let before_final_close = counters.snapshot();
+    let final_close_started = Instant::now();
     active_db
         .close()
         .await
         .map_err(|error| format!("close reopened SlateDB seed {seed}: {error}"))?;
+    let final_close_elapsed = final_close_started.elapsed().as_secs_f64();
+    let final_close_io = counters.snapshot().difference(&before_final_close);
     let total_io = counters.snapshot().difference(&IoSnapshot::default());
 
-    let read_io_accounted = (reopen_io.read_byte_total() + cold_io.read_byte_total()) > 0;
+    let read_io_accounted = (reopen_open.io.read_byte_total()
+        + first_read_io.read_byte_total()
+        + cold_io.read_byte_total())
+        > 0;
     let object_io_accounted = ingest_io.request_total() > 0
         && ingest_io.written_byte_total() > 0
         && (read_io_accounted || mode == Phase0Mode::ReuseWarmDbForReopen);
@@ -336,7 +382,20 @@ async fn run_seed(
         report: Phase0SeedReport {
             seed,
             total_io,
+            initial_open: phase("initial-open", 1, initial_open_elapsed, initial_open_io),
             ingest: phase("ingest", config.key_count, ingest_elapsed, ingest_io),
+            post_flush_verify: phase(
+                "post-flush-verify",
+                sample_ordinals.len() as u64,
+                post_flush_verify_elapsed,
+                post_flush_verify_io,
+            ),
+            warm_cache_prime: phase(
+                "warm-cache-prime",
+                sample_ordinals.len() as u64,
+                warm_cache_prime_elapsed,
+                warm_cache_prime_io,
+            ),
             warm_point: phase(
                 "warm-point",
                 sample_ordinals.len() as u64,
@@ -344,14 +403,17 @@ async fn run_seed(
                 warm_io,
             ),
             ordered_scan: phase("ordered-scan", scan_count, scan_elapsed, scan_io),
-            reopen_first_correct_read_seconds: reopen_elapsed,
-            reopen: phase("reopen", 1, reopen_elapsed, reopen_io),
+            reopen_first_correct_read_seconds,
+            close_before_reopen,
+            reopen_open,
+            first_correct_read: phase("first-correct-read", 1, first_read_elapsed, first_read_io),
             cold_point: phase(
                 "cold-point",
                 cold_ordinals.len() as u64,
                 cold_elapsed,
                 cold_io,
             ),
+            final_close: phase("final-close", 1, final_close_elapsed, final_close_io),
         },
         checks: BTreeMap::from([
             ("exact_dataset_after_flush", exact_dataset_after_flush),
@@ -793,7 +855,13 @@ mod tests {
         assert!(report.passed(), "failed gates: {:?}", report.gates);
         assert_eq!(report.receipt_digest, report.repeated_receipt_digest);
         assert!(report.seeds[0].ingest.io.written_byte_total() > 0);
-        assert!(report.seeds[0].reopen.io.read_byte_total() > 0);
+        assert!(report.seeds[0].reopen_open.io.read_byte_total() > 0);
+        let expected_reopen = report.seeds[0].reopen_open.elapsed_seconds
+            + report.seeds[0].first_correct_read.elapsed_seconds;
+        assert!(
+            (report.seeds[0].reopen_first_correct_read_seconds - expected_reopen).abs()
+                < f64::EPSILON
+        );
     }
 
     #[tokio::test]

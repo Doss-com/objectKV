@@ -490,6 +490,7 @@ fn run_suite(
     let started = Instant::now();
     let workload_execution = execute_workload(
         workload,
+        &run_id,
         &candidate_commit,
         &seeds,
         backend,
@@ -657,6 +658,7 @@ fn run_suite(
 
 fn execute_workload(
     workload: &WorkloadConfig,
+    run_id: &str,
     candidate_commit: &str,
     seeds: &[u64],
     backend: &str,
@@ -700,9 +702,14 @@ fn execute_workload(
         }
         "model_differential_history" => run_model_differential(workload, seeds),
         "object_store_conformance" => run_object_store_conformance(workload, backend),
-        "slatedb_phase0_filesystem_contract" => {
-            run_slatedb_phase0_filesystem(workload, candidate_commit, dataset, profile, backend)
-        }
+        "slatedb_phase0_filesystem_contract" => run_slatedb_phase0_filesystem(
+            workload,
+            run_id,
+            candidate_commit,
+            dataset,
+            profile,
+            backend,
+        ),
         operation => execution_from_result(Err(format!(
             "operation {operation} is declared but has no runner implementation"
         ))),
@@ -711,6 +718,7 @@ fn execute_workload(
 
 fn run_slatedb_phase0_filesystem(
     workload: &WorkloadConfig,
+    run_id: &str,
     candidate_commit: &str,
     dataset: Option<&DatasetConfig>,
     profile: &ProfileConfig,
@@ -768,12 +776,13 @@ fn run_slatedb_phase0_filesystem(
         Ok(report) => report,
         Err(error) => return execution_from_result(Err(error)),
     };
-    phase0_execution(workload, candidate_commit, backend, &report)
+    phase0_execution(workload, run_id, candidate_commit, backend, &report)
 }
 
 #[allow(clippy::too_many_lines)]
 fn phase0_execution(
     workload: &WorkloadConfig,
+    run_id: &str,
     candidate_commit: &str,
     backend: &str,
     report: &Phase0Report,
@@ -797,11 +806,17 @@ fn phase0_execution(
             ]),
         });
         for phase in [
+            &seed.initial_open,
             &seed.ingest,
+            &seed.post_flush_verify,
+            &seed.warm_cache_prime,
             &seed.warm_point,
             &seed.ordered_scan,
-            &seed.reopen,
+            &seed.close_before_reopen,
+            &seed.reopen_open,
+            &seed.first_correct_read,
             &seed.cold_point,
+            &seed.final_close,
         ] {
             add_phase0_phase_measurements(&mut measurements, workload, backend, phase);
             total_operations += phase.logical_operations;
@@ -909,7 +924,7 @@ fn phase0_execution(
         .filter(|gate| !gate.passed)
         .map(|gate| gate.id.as_str())
         .collect();
-    let artifact_path = phase0_artifact_path(candidate_commit, report);
+    let artifact_path = phase0_artifact_path(run_id, candidate_commit, report);
     let artifact_result = write_phase0_artifact(&artifact_path, report);
     let artifact_error = artifact_result.as_ref().err().cloned();
     let error = if failed_gates.is_empty() {
@@ -981,10 +996,11 @@ fn merge_counts(target: &mut BTreeMap<String, u64>, source: &BTreeMap<String, u6
     }
 }
 
-fn phase0_artifact_path(candidate_commit: &str, report: &Phase0Report) -> PathBuf {
+fn phase0_artifact_path(run_id: &str, candidate_commit: &str, report: &Phase0Report) -> PathBuf {
     let candidate = candidate_commit.replace(['+', '/'], "-");
+    let run = run_id.replace(['+', '/'], "-");
     PathBuf::from("target/okv-eval-artifacts").join(format!(
-        "phase0-slate-filesystem-{candidate}-{}.json",
+        "phase0-slate-filesystem-{candidate}-{run}-{}.json",
         report.mode
     ))
 }
