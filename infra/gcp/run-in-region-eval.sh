@@ -38,7 +38,11 @@ export CARGO_TARGET_DIR="$cargo_target"
 
 mkdir -p "$source_root" "$otel_root"
 git -C "$source_root" init -q
-git -C "$source_root" remote add origin "$repo_url"
+if git -C "$source_root" remote get-url origin >/dev/null 2>&1; then
+  git -C "$source_root" remote set-url origin "$repo_url"
+else
+  git -C "$source_root" remote add origin "$repo_url"
+fi
 git -C "$source_root" fetch -q --depth=2 origin "$candidate_commit"
 git -C "$source_root" checkout -q --detach FETCH_HEAD
 
