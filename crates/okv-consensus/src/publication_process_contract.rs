@@ -965,13 +965,12 @@ impl<'a> ProcessHarness<'a> {
         self.kill_node(101)?;
         self.restart_canonical(102, false).await?;
         self.restart_canonical(103, false).await?;
-        if !elect_until_leader(self.address(102)?, 102).await {
-            return Err("survivors did not elect after acknowledgement probe".to_owned());
-        }
-        let outcome = retry_publication_outcome(self.address(102)?, command.identity).await?;
+        let survivor_leader = self.elect_survivor_leader().await?;
+        let outcome =
+            retry_publication_outcome(self.address(survivor_leader)?, command.identity).await?;
         self.observations.quorumless_outcome_absent = outcome.is_none();
         self.restart_canonical(101, false).await?;
-        let expected = status(self.address(102)?)
+        let expected = status(self.address(survivor_leader)?)
             .await?
             .last_applied_index
             .unwrap_or_default();
@@ -979,6 +978,24 @@ impl<'a> ProcessHarness<'a> {
             return Err("former probe leader did not reconcile its uncommitted tail".to_owned());
         }
         Ok(())
+    }
+
+    async fn elect_survivor_leader(&self) -> Result<NodeId, String> {
+        for _ in 0..RETRY_ATTEMPTS {
+            // Restart timing may let either survivor win. The contract requires
+            // a quorum leader, not a preselected process identity.
+            for node_id in [102, 103] {
+                if status(self.address(node_id)?)
+                    .await
+                    .is_ok_and(|node| node.state == "leader" && node.leader == Some(node_id))
+                {
+                    return Ok(node_id);
+                }
+            }
+            let _: Result<(), String> = control(self.address(102)?, ELECT, &()).await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Err("survivors did not elect after acknowledgement probe".to_owned())
     }
 
     async fn capture_exact_restarted_state(&mut self) -> Result<(), String> {
