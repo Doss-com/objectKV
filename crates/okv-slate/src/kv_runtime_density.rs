@@ -12,6 +12,7 @@ use slatedb::db_cache::moka::{MokaCache, MokaCacheOptions};
 use slatedb::db_cache::DbCache;
 use slatedb::{Db, WriteBatch};
 use std::path::Path;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
