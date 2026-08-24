@@ -341,6 +341,11 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
         }
         if lane.statistic.trim().is_empty() {
             errors.push(format!("lane {} statistic must not be empty", lane.id));
+        } else if !supported_statistic(&lane.statistic) {
+            errors.push(format!(
+                "lane {} uses unsupported statistic {}",
+                lane.id, lane.statistic
+            ));
         }
         for constraint in &lane.constraints {
             if !metric_ids.contains(constraint.metric.as_str()) {
@@ -356,6 +361,11 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
                 errors.push(format!(
                     "lane {} has an empty constraint statistic",
                     lane.id
+                ));
+            } else if !supported_statistic(&constraint.statistic) {
+                errors.push(format!(
+                    "lane {} constraint uses unsupported statistic {}",
+                    lane.id, constraint.statistic
                 ));
             }
         }
@@ -393,6 +403,13 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
     }
 
     errors
+}
+
+fn supported_statistic(statistic: &str) -> bool {
+    matches!(
+        statistic,
+        "maximum" | "median" | "minimum" | "p50" | "p99" | "passed" | "per_operation" | "total"
+    )
 }
 
 fn validate_telemetry(suite: &Suite, errors: &mut Vec<String>) {

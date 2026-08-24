@@ -34,17 +34,18 @@ use okv_consensus::{
     TransactionSystemRecoveryCurveReport,
 };
 use okv_eval::config::{
-    load_suite, BudgetKind, DatasetConfig, LoadedSuite, ProfileConfig, WorkloadConfig,
+    load_suite, BudgetKind, ConstraintOp, DatasetConfig, LaneConfig, LoadedSuite, ProfileConfig,
+    WorkloadConfig,
 };
 use okv_eval::mvcc_gc_authority::{
     run_mvcc_gc_authority_collector_process, run_mvcc_gc_authority_composition,
     MvccGcAuthorityCollectorProcessConfig, MvccGcAuthorityCompositionMode,
 };
 use okv_eval::result::{
-    median, median_absolute_deviation, validate_result, BudgetResult, EvalResult, GateStatus,
-    HardGateResult, PrimaryMetricResult, ProfileIdentity, Verdict,
+    median, median_absolute_deviation, statistic, validate_result, BudgetResult, EvalResult,
+    GateStatus, HardGateResult, PrimaryMetricResult, ProfileIdentity, Verdict,
 };
-use okv_eval::telemetry::{RunResource, Telemetry};
+use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry};
 use okv_htap::{
     run_physical_overlay_contract, run_streaming_overlay_contract, PhysicalOverlayMode,
     StreamingOverlayMode,
@@ -1603,7 +1604,8 @@ fn run_suite(
             measurement.attributes.clone(),
         )?;
     }
-    let failures = f64::from(!workload_execution.passed());
+    let execution_passed = workload_execution.passed();
+    let failures = f64::from(!execution_passed);
     recorder.record(
         "operation.duration",
         elapsed,
@@ -1620,6 +1622,8 @@ fn run_suite(
         failures,
         attributes(&[("lane", &lane.id), ("workload", &workload.id)]),
     )?;
+    let (constraint_gates, constraints_passed, constraint_failures) =
+        evaluate_lane_constraints(lane, &recorder);
 
     let samples = recorder.samples(&lane.primary_metric).to_vec();
     let samples = if samples.is_empty() && lane.primary_metric == "correctness.failures" {
@@ -1647,7 +1651,7 @@ fn run_suite(
         BudgetKind::Events | BudgetKind::Operations => workload_execution.budget_units,
     };
     let budget_passed = budget_observed <= profile.budget_limit;
-    let correctness_passed = workload_execution.passed();
+    let correctness_passed = execution_passed && constraints_passed;
     let verdict = if !correctness_passed || !budget_passed {
         Verdict::Discard
     } else if source_dirty {
@@ -1656,7 +1660,12 @@ fn run_suite(
         Verdict::Keep
     };
     let reason = workload_execution.error.unwrap_or_else(|| {
-        if source_dirty {
+        if !constraints_passed {
+            format!(
+                "lane constraints failed: {}",
+                constraint_failures.join("; ")
+            )
+        } else if source_dirty {
             "diagnostic dirty-tree run; hard gates passed but the result is not comparable"
                 .to_owned()
         } else if budget_passed {
@@ -1695,7 +1704,7 @@ fn run_suite(
             let mut gates = vec![
                 HardGateResult {
                     id: "correctness_failures".to_owned(),
-                    status: if correctness_passed {
+                    status: if execution_passed {
                         GateStatus::Pass
                     } else {
                         GateStatus::Fail
@@ -1717,6 +1726,7 @@ fn run_suite(
                     detail: None,
                 },
             ];
+            gates.extend(constraint_gates);
             gates.extend(workload_execution.hard_gates);
             gates
         },
@@ -1759,6 +1769,77 @@ fn run_suite(
     drop(run_span);
     telemetry.shutdown();
     Ok(())
+}
+
+fn evaluate_lane_constraints(
+    lane: &LaneConfig,
+    recorder: &MetricRecorder,
+) -> (Vec<HardGateResult>, bool, Vec<String>) {
+    let mut gates = Vec::with_capacity(lane.constraints.len());
+    let mut failures = Vec::new();
+    for (index, constraint) in lane.constraints.iter().enumerate() {
+        let observed = statistic(recorder.samples(&constraint.metric), &constraint.statistic);
+        let passed =
+            observed.is_some_and(|value| constraint_holds(value, constraint.op, constraint.value));
+        let detail = observed.map_or_else(
+            || {
+                format!(
+                    "no samples for {} statistic {}",
+                    constraint.metric, constraint.statistic
+                )
+            },
+            |value| {
+                format!(
+                    "observed={value}, op={}, target={}",
+                    constraint_op_id(constraint.op),
+                    constraint.value
+                )
+            },
+        );
+        if !passed {
+            failures.push(format!(
+                "{} {} {} {} ({detail})",
+                constraint.metric,
+                constraint.statistic,
+                constraint_op_id(constraint.op),
+                constraint.value
+            ));
+        }
+        gates.push(HardGateResult {
+            id: format!(
+                "lane.constraint.{index}.{}.{}",
+                constraint.metric, constraint.statistic
+            ),
+            status: if passed {
+                GateStatus::Pass
+            } else {
+                GateStatus::Fail
+            },
+            detail: Some(detail),
+        });
+    }
+    (gates, failures.is_empty(), failures)
+}
+
+fn constraint_holds(observed: f64, op: ConstraintOp, target: f64) -> bool {
+    let tolerance = 1.0e-12 * observed.abs().max(target.abs()).max(1.0);
+    match op {
+        ConstraintOp::Eq => (observed - target).abs() <= tolerance,
+        ConstraintOp::Ge => observed >= target,
+        ConstraintOp::Gt => observed > target,
+        ConstraintOp::Le => observed <= target,
+        ConstraintOp::Lt => observed < target,
+    }
+}
+
+const fn constraint_op_id(op: ConstraintOp) -> &'static str {
+    match op {
+        ConstraintOp::Eq => "eq",
+        ConstraintOp::Ge => "ge",
+        ConstraintOp::Gt => "gt",
+        ConstraintOp::Le => "le",
+        ConstraintOp::Lt => "lt",
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -23019,4 +23100,20 @@ fn command_output(program: &str, arguments: &[&str]) -> Option<String> {
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+#[cfg(test)]
+mod lane_constraint_tests {
+    use super::constraint_holds;
+    use okv_eval::config::ConstraintOp;
+
+    #[test]
+    fn applies_every_constraint_operator() {
+        assert!(constraint_holds(1.0, ConstraintOp::Eq, 1.0));
+        assert!(constraint_holds(2.0, ConstraintOp::Ge, 1.0));
+        assert!(constraint_holds(2.0, ConstraintOp::Gt, 1.0));
+        assert!(constraint_holds(1.0, ConstraintOp::Le, 2.0));
+        assert!(constraint_holds(1.0, ConstraintOp::Lt, 2.0));
+        assert!(!constraint_holds(0.2671, ConstraintOp::Le, 0.025));
+    }
 }
