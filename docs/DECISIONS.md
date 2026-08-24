@@ -2937,3 +2937,42 @@ skew, concurrency, worker churn, and larger datasets. In parallel, measure
 sustained objectification and compaction. Continue only if a practical RAM and
 NVMe budget holds the required hit ratio and if request, byte, compute, and
 storage costs beat the replicated-local incumbent for a named workload.
+
+## D99. Freeze cache economics before changing cache policy
+
+Status: `[DECIDED]` and `[EXISTS]` for the RFC and eval contract,
+`[ACTIVE-WORK]` for implementation and first local curve, 2026-08-24.
+
+Decision: freeze RFC 0067 and suite `provider-bound-cache-economics-v0` before
+changing cache admission, eviction, part size, or prefetch. Measure uniform,
+Zipfian `0.99`, and moving-hotset traces against persistent-NVMe capacities of
+1, 5, 10, and 25 percent of logical data. Keep decoded RAM fixed separately.
+Use provider miss ratio as the sole primary metric.
+
+Optimizes for: exposing whether the admitted GCS shape is economical under a
+fixed physical budget, preserving exact provider identity, and producing a
+curve that cache-policy candidates can improve without changing workload or
+hardware.
+
+Gives up: claiming that one synthetic trace predicts every PostgreSQL, Redis,
+or search workload. The first churn point reopens decoded views in one process
+while retaining persistent cache; it does not prove replacement-process or
+cross-host cache reuse.
+
+The frozen request-cost threshold is a 2.5 percent provider miss ratio. This is
+equivalent to $0.01 per million logical reads when every miss costs one Class B
+GET under snapshot `gcs-us-central1-standard-2026-08-24`. The separate latency
+goal is stricter because a 40 to 50 ms miss must occur in fewer than one percent
+of reads to stay outside a sub-millisecond p99.
+
+Four unsafe controls disable the persistent-cache bound, skip the exact-result
+oracle, skip provider-revision enforcement, or perturb replay. A semantically
+correct workload that exceeds the economic threshold is still discarded and
+recorded. Do not increase cache capacity, runtime, or hardware to turn that
+result green.
+
+Next decision: implement the frozen process worker without changing the suite,
+run the local curve and controls, then select only representative boundary
+points for GCS. If 25 percent persistent capacity cannot approach the target on
+the named skewed or moving-hotset trace, revisit workload scope before cache
+optimization.

@@ -1,0 +1,221 @@
+schema_version = 1
+id = "provider-bound-cache-economics-v0"
+status = "frozen-before-implementation"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0067-provider-bound-cache-economics.md",
+  "../../rfcs/0066-provider-bound-range-read.md",
+  "../../crates/okv-object/fixtures/provider-bound-range-root-v2.json",
+]
+dataset_generator = "provider-bound-ycsb-c-trace-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
+
+[dataset.local-versioned]
+logical_bytes = 33554432
+key_count = 4096
+seeds = [724841, 724842, 724843, 724844, 724845]
+
+[dataset.gcs-dev]
+logical_bytes = 33554432
+key_count = 4096
+seeds = [724841, 724842, 724843, 724844, 724845]
+
+[profiles.local-versioned]
+budget_kind = "events"
+budget_limit = 500000
+repeats = 1
+backend = "deterministic-versioned-provider-cache-process"
+point_bytes = 8192
+warmup_reads = 2000
+measured_reads = 20000
+decoded_cache_bytes = 1048576
+nvme_part_bytes = 65536
+nvme_open_file_handles = 64
+worker_timeout_millis = 600000
+
+[profiles.gcs-dev]
+budget_kind = "events"
+budget_limit = 50000
+repeats = 1
+backend = "gcs-generation-bound-provider-cache-process"
+point_bytes = 8192
+warmup_reads = 200
+measured_reads = 2000
+decoded_cache_bytes = 1048576
+nvme_part_bytes = 65536
+nvme_open_file_handles = 64
+worker_timeout_millis = 1800000
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+price_snapshot = "gcs-us-central1-standard-2026-08-24"
+
+[[lanes]]
+id = "provider-bound-cache-economics"
+objective = "Minimize exact-generation provider misses under a fixed access trace and bounded RAM plus NVMe."
+primary_metric = "provider_bound.cache_miss_ratio"
+statistic = "p50"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "provider_bound.cache_miss_ratio"
+statistic = "p50"
+op = "le"
+value = 0.025
+
+[[workloads]]
+id = "provider-cache-uniform-25pct"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "uniform"
+cache_fraction_ppm = 250000
+view_reopen_every = 0
+
+[[workloads]]
+id = "provider-cache-zipf099-1pct"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 10000
+view_reopen_every = 0
+
+[[workloads]]
+id = "provider-cache-zipf099-5pct"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 50000
+view_reopen_every = 0
+
+[[workloads]]
+id = "provider-cache-zipf099-10pct"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 100000
+view_reopen_every = 0
+
+[[workloads]]
+id = "provider-cache-zipf099-25pct"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 250000
+view_reopen_every = 0
+
+[[workloads]]
+id = "provider-cache-moving-hotset-10pct"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "moving_hotset"
+hotset_fraction_ppm = 100000
+hot_read_fraction_ppm = 900000
+hotset_shift_every = 1000
+cache_fraction_ppm = 100000
+view_reopen_every = 0
+
+[[workloads]]
+id = "provider-cache-moving-hotset-25pct"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "moving_hotset"
+hotset_fraction_ppm = 100000
+hot_read_fraction_ppm = 900000
+hotset_shift_every = 1000
+cache_fraction_ppm = 250000
+view_reopen_every = 0
+
+[[workloads]]
+id = "provider-cache-zipf099-10pct-view-churn"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 100000
+view_reopen_every = 1000
+
+[[workloads]]
+id = "provider-cache-unbounded-control"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 100000
+view_reopen_every = 0
+negative_control = "disable_cache_bound"
+
+[[workloads]]
+id = "provider-cache-skip-oracle-control"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 100000
+view_reopen_every = 0
+negative_control = "skip_exact_oracle"
+
+[[workloads]]
+id = "provider-cache-skip-revision-control"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 100000
+view_reopen_every = 0
+negative_control = "skip_revision_enforcement"
+
+[[workloads]]
+id = "provider-cache-perturbed-replay-control"
+lane = "provider-bound-cache-economics"
+operation = "provider_bound_cache_economics"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 100000
+view_reopen_every = 0
+negative_control = "perturb_replay_trace"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 5
+process_boundary_must_be_exercised = true
+exact_point_reads = true
+authority_selects_provider_closure_digest = true
+every_provider_read_uses_exact_revision = true
+unversioned_fallbacks = 0
+classified_reads_equal_measured_reads = true
+persistent_cache_bound_must_hold = true
+trace_and_reuse_distance_replay_exact = true
+requested_view_reopens_must_execute = true
+request_byte_latency_rss_and_cost_receipts_required = true
+negative_controls_must_discard = 4
+scratch_prefix_cleanup_must_complete = true
+otel_required_for_gcs = true
+schema_valid = true
+budget_must_hold = true
+
+[calibration_targets]
+provider_miss_ratio = 0.025
+provider_hit_ratio = 0.975
+persistent_cache_hit_p99_seconds = 0.001
+provider_miss_p99_seconds = 0.1
+provider_bytes_per_miss = 131072
+max_peak_rss_bytes = 1073741824
+warmed_million_point_request_cost_usd = 0.01
+cloud_claimed = false

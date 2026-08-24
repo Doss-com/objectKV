@@ -2499,6 +2499,35 @@ capacity, concurrency, worker churn, and dataset size. Stop or redesign if
 realistic cache hit rate cannot reach the declared request-cost target or if
 remote misses dominate the OLTP latency distribution.
 
+## Provider-bound cache-economics gate
+
+`[EXISTS]` RFC 0067 and suite `provider-bound-cache-economics-v0` freeze the
+next economic falsifier before implementation. The suite measures exact
+provider-bound point reads over uniform, Zipfian `0.99`, and moving-hotset
+traces while persistent NVMe is fixed at 1, 5, 10, or 25 percent of the 32 MiB
+logical dataset. Decoded RAM is fixed separately. One workload reopens the
+immutable view every 1,000 reads with fresh decoded RAM and retained persistent
+cache.
+
+The primary metric is provider miss ratio. The frozen request-cost target is
+at most `0.025`, equivalent to at least `0.975` provider hit ratio and $0.01
+per million logical reads under the pinned one-GET-per-miss price model. This
+economic constraint may discard a semantically correct result. Discarded
+curves remain evidence and must be recorded.
+
+Every receipt must classify each measured point as a hit or provider miss,
+record tier-specific latency, provider requests and bytes, settled cache bytes,
+reuse distance, requested view reopens, peak RSS, and calculated request cost.
+The classified counts must equal logical reads. Four unbounded-cache,
+skipped-oracle, skipped-revision, and perturbed-replay controls must discard.
+
+The first local profile uses 20,000 measured reads after 2,000 warmups for five
+fixed seeds. The GCS profile uses 2,000 measured reads after 200 warmups. The
+first representative cloud points are the 10 percent Zipfian workload, the 25
+percent moving-hotset workload, and the decoded-view churn workload. Full
+replacement-process churn, concurrent tenants, mixed scans, and sustained
+writes remain outside this contract.
+
 ## Noise and effect rule
 
 1. Run a candidate at least five times before promotion in a performance lane.
