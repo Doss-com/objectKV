@@ -17,10 +17,11 @@ locals {
 }
 
 resource "google_project" "playground" {
-  name            = "objectKV-dev"
-  project_id      = var.project_id
-  org_id          = var.organization_id
-  billing_account = var.billing_account
+  name                = "objectKV-dev"
+  project_id          = var.project_id
+  org_id              = var.organization_id
+  billing_account     = var.billing_account
+  auto_create_network = false
 
   labels = {
     environment = "development"
@@ -113,4 +114,3 @@ resource "google_project_iam_member" "eval_runner_traces" {
   role    = "roles/cloudtrace.agent"
   member  = "serviceAccount:${google_service_account.eval_runner.email}"
 }
-
