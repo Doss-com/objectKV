@@ -2893,3 +2893,47 @@ private vulnerability reporting, issues, and discussions are enabled.
 Next decision: route the first bounded contributor issues through the existing
 RFC and eval contracts, then run the provider-bound cache-state matrix on the
 authenticated `objectKV-dev` GCS playground.
+
+## D98. Admit the in-region GCS read shape only behind RAM and NVMe
+
+Status: `[DECIDED]` and `[EXISTS]` for the frozen five-seed cache matrix and six
+identity controls, `[ACTIVE-WORK]` for production hit-rate and throughput
+curves, 2026-08-24.
+
+Decision: continue the object-native architecture with GCS as authoritative
+rebuild storage and persistent NVMe plus RAM as the serving tiers. Do not place
+a GCS data request on the steady-state OLTP path. Keep worker recruitment,
+authenticated view open, first data miss, and cache-hit latency as separate
+curves.
+
+Optimizes for: sub-millisecond cached reads, disposable compute, exact
+generation-bound recovery, and capacity economics that can move cold bytes out
+of replicated local storage.
+
+Gives up: treating object storage as a direct substitute for RocksDB latency.
+An in-region data miss still costs 29.4 to 53.4 ms in this fixture, one logical
+8 KiB point reads a 64 KiB cache part, and full empty-cache worker-to-row
+latency is 431.1 ms median. The experiment repeats a 128-point working set, so
+it does not prove the frozen 97.5 percent production hit-rate target.
+
+Evidence: candidate `257fe2a`, suite `provider-bound-range-read-v0`, GCS bucket
+`doss-objectkv-dev-okv-evals`, and one ephemeral `n2-standard-8` runner in
+`us-central1-a`. Empty-cache first point was 48.6 ms median with 4.8 ms median
+absolute deviation and 53.4 ms maximum. Metadata-warm but data-cold was 40.8 ms
+median. Persistent-NVMe first point was 294.5 us median and its eight-point
+range was 1.504 ms median, both with zero serving-path provider reads. Warm p99
+medians were 245 to 284 us. Every exact, replay, request, byte, memory, and
+cleanup gate passed. Changed generation, same bytes at a new generation,
+missing revision, changed bytes, changed namespace, and skipped revision
+enforcement all discarded. OTel exported metrics, traces, and logs.
+
+The run deleted every live scratch object, but bucket versioning and soft
+delete retained 218 generations totaling 1,464,840,385 bytes. Frequent evals
+need a separately governed short-retention scratch policy. This storage result
+does not alter the frozen read suite.
+
+Next decision: freeze a cache-capacity and reuse-distance matrix with realistic
+skew, concurrency, worker churn, and larger datasets. In parallel, measure
+sustained objectification and compaction. Continue only if a practical RAM and
+NVMe budget holds the required hit ratio and if request, byte, compute, and
+storage costs beat the replicated-local incumbent for a named workload.

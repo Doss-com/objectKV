@@ -2484,19 +2484,20 @@ worker failure or timeout. `gcs-dev` requires OTel metrics, traces, and logs,
 and computes Class B request cost under snapshot
 `gcs-us-central1-standard-2026-08-24` at $0.0004 per 1,000 operations.
 
-Six focused worker tests pass, the frozen suite validates, and a dirty local
-diagnostic preserved every hard gate. No new local performance result is
-admitted from that diagnostic. The GCS profile remains `[ACTIVE-WORK]` because
-the selected gcloud account cannot refresh noninteractively and the project and
-bucket remain unverified.
+`[EXISTS]` Candidate `257fe2a` ran the frozen profile on an ephemeral
+`us-central1-a` `n2-standard-8` runner. Every correct state kept across five
+seeds. Empty-cache first point was 48.6 ms median and 53.4 ms maximum with one
+64 KiB data GET. Metadata-warm but data-cold was 40.8 ms median. Persistent
+NVMe was 294.5 us median with zero first-point provider reads. Warm p99 medians
+were 245 to 284 us. All six identity controls discarded, and OTel exported
+metrics, traces, and logs.
 
-The remote gate is not complete when live objects disappear from `LIST`.
-Versioning and soft delete may retain billed generations. The first cloud
-receipt must record that policy and estimated retained-storage cost. After the
-three cache states and six controls pass, the next curves vary reuse distance,
-cache capacity, worker churn, and dataset size. Stop or redesign if in-region
-empty-cache p99 exceeds 100 ms, first point exceeds eight GETs or 512 KiB, or
-the measured hit rate cannot reach the declared request-cost target.
+The final live listing was empty, but versioning and soft delete retained 218
+deleted or noncurrent generations totaling 1,464,840,385 bytes. Zero live
+objects is not zero retained cost. The next curves vary reuse distance, cache
+capacity, concurrency, worker churn, and dataset size. Stop or redesign if
+realistic cache hit rate cannot reach the declared request-cost target or if
+remote misses dominate the OLTP latency distribution.
 
 ## Noise and effect rule
 

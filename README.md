@@ -195,10 +195,14 @@ GCS discard stub with the real process path. Every remote immutable GET carries
 the authority-selected GCS generation. Each child uses a guarded scratch
 prefix and must remove all live objects; the controller repeats cleanup after
 failure or timeout. The cloud profile requires OTel and a pinned request-price
-snapshot. Six focused tests and the local contract pass. `[ACTIVE-WORK]` No
-cloud performance claim exists until gcloud is reauthenticated and the
-`objectKV-dev` project, bucket, region, retained-generation policy, and OTel
-endpoint are verified.
+snapshot. `[EXISTS]` Candidate `257fe2a` completed that frozen contract from an
+ephemeral `us-central1-a` runner. Empty-cache first-point latency was 48.6 ms
+median and 53.4 ms maximum across five seeds. Persistent-NVMe first-point
+latency was 294.5 us median with zero serving-path GCS reads. All six identity
+controls discarded, OTel exported all three signals, and live scratch cleanup
+completed. The 128-point warmed working set is not a production hit ratio;
+reuse-distance, cache-capacity, concurrency, and write economics remain
+`[ACTIVE-WORK]`.
 
 `[EXISTS]` Candidate `8fb20e5` moves the first PostgreSQL page reader through
 the actual routed process path. Three encoded 8 KiB pages span two ranges; one

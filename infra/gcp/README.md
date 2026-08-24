@@ -1,14 +1,12 @@
 # objectKV GCP playground
 
-Status: `[ACTIVE-WORK]` the reviewed Terraform boundary and GCS-capable cache
-eviction profile exist. The Google Cloud project and bucket are not verified.
-The selected gcloud operator session requires interactive reauthentication,
-and the available application-default identity receives `PERMISSION_DENIED`
-for the candidate project.
+Status: `[EXISTS]` project, bucket, isolated network, keyless runner identity,
+and the first in-region provider-bound GCS receipt. `[ACTIVE-WORK]` remote
+Terraform state and repeatable ephemeral-runner provisioning.
 
-The project display name is `objectKV-dev`. The final project ID is selected only
-after checking global availability and DOSS organization conventions. The
-example candidate is `doss-objectkv-dev`.
+The project display name is `objectKV-dev`. The project ID is
+`doss-objectkv-dev`, and the eval bucket is
+`doss-objectkv-dev-okv-evals` in `us-central1`.
 
 ## Provisioned boundary
 
@@ -19,9 +17,29 @@ example candidate is `doss-objectkv-dev`.
 - deletion protection on the project and bucket;
 - one keyless eval-runner service account with bucket-scoped object access plus
   OTel export roles for Cloud Monitoring, Logging, and Trace;
+- one custom `10.41.0.0/24` subnet with Private Google Access and no default
+  network;
 - scratch-prefix cleanup after 30 days, without force-destroy behavior.
 
 No service-account keys or credentials are created or stored in the repository.
+
+## First run receipt
+
+Candidate `257fe2a` ran the frozen provider-bound suite on an ephemeral
+`n2-standard-8` VM in `us-central1-a`. Empty-cache first-point latency was 48.6
+ms median and 53.4 ms maximum across five seeds. Persistent-NVMe first-point
+latency was 294.5 us median with zero serving-path GCS reads. All six identity
+controls discarded, OTel exported metrics, traces, and logs, and the final live
+bucket listing was empty.
+
+Versioning and seven-day soft delete retained 218 deleted or noncurrent object
+generations totaling 1,464,840,385 bytes after the matrix and controls. This is
+retained storage, even though no live scratch name remains. A separate
+short-retention scratch bucket is `[PROPOSED]` before frequent scheduled runs.
+
+The temporary VM, boot disk, IAP-only SSH firewall, project SSH metadata, local
+SSH key, Cargo target, and Terraform download cache were removed after the run.
+The project, bucket, network, service account, and Terraform state remain.
 
 ## Guarded apply sequence
 
@@ -37,10 +55,8 @@ terraform -chdir=infra/gcp plan -out=objectkv-dev.tfplan
 terraform -chdir=infra/gcp apply objectkv-dev.tfplan
 ```
 
-Before applying, replace the example organization and billing IDs with values
-observed from the reauthenticated account. A failed `projects describe` with
-`NOT_FOUND` is the availability check. Do not infer ownership from the display
-name.
+Before applying in another environment, replace the organization and billing
+IDs with observed values. Do not infer ownership from the display name.
 
 After apply:
 

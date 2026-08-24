@@ -1,13 +1,15 @@
 # Provider-bound performance readout
 
-Status: `[EXISTS]` five-seed provider-bound local cache curve and six identity
-controls, `[ACTIVE-WORK]` remote GCS latency, OTel, cleanup, and cost.
+Status: `[EXISTS]` five-seed local and in-region GCS cache curves, six GCS
+identity controls, OTel export, and zero-live-object cleanup. `[ACTIVE-WORK]`
+realistic reuse-distance, cache-capacity, concurrency, and dataset-size curves.
 
 ## Verdict
 
-Continue. The measured local curves support objectKV as a cached compute system
-whose authoritative rebuild state lives on objects. They do not support an
-architecture that performs object-store I/O on every OLTP operation.
+Continue, with a cache-first architecture. The measured local and GCS curves
+support objectKV as a cached compute system whose authoritative rebuild state
+lives on objects. They reject an architecture that performs object-store I/O
+on every OLTP operation.
 
 The strongest result is that relation size is no longer on the first-read
 critical path. A fresh process opened an exact 512 MiB PostgreSQL relation view
@@ -16,12 +18,19 @@ MiB median RSS. A complete 555 MB byte audit still took 1.046 seconds. The
 correct performance shape is therefore selected metadata plus touched blocks,
 with whole-closure audit and compaction outside request latency.
 
-The economic result is conditional. The new provider-bound run shows that RAM
-and persistent NVMe remove backend data GETs after a 128-point working set is
-filled. Eviction causes backend refill, so hit rate, reuse distance, and the 64
-KiB cache part size are the controlling variables. GCS has not run. The current
-`gcloud` identity now fails non-interactive token refresh, so project, bucket,
-latency, OTel, cleanup, and price gates remain unverified.
+In `us-central1`, an empty object cache served its first exact point in 48.6 ms
+median after view open. Metadata-warm but data-cold was 40.8 ms. Persistent
+NVMe reduced the same decoded-RAM-cold point to 0.295 ms with zero serving-path
+GCS reads. The complete replacement-worker path was slower because authenticated
+view open still required 71.7 to 382.5 ms median, depending on cache state.
+Object storage is therefore a credible durability and rebuild tier, but not a
+credible direct hot-read tier.
+
+The economic result remains conditional on hit rate. RAM and persistent NVMe
+remove backend data GETs after a 128-point working set is filled. Eviction
+causes backend refill, so reuse distance, cache capacity, and the 64 KiB cache
+part size are controlling variables. The cloud run proves the mechanism, not a
+production hit ratio.
 
 ## Provider-bound local baseline
 
@@ -64,6 +73,43 @@ skipped revision enforcement. Every admitted provider GET had a matching exact
 revision check. SlateDB's bootstrap `LIST` is now synthesized only from the
 authority-selected closure, and its mutable `manifest.boundary` discovery hint
 cannot alter an immutable serving view.
+
+## In-region GCS baseline
+
+Candidate `257fe2a` ran the same frozen suite on one ephemeral
+`n2-standard-8` runner in `us-central1-a`, colocated with the single-region GCS
+bucket. Every correct state kept across five fixed seeds. Metrics, traces, and
+logs reached the local OTel collector. The runner, disk, IAP-only SSH firewall,
+project SSH metadata, and local build scratch were removed after the run.
+
+| Cache state | View ready p50 | First point p50 | View plus point | Warm p50 | Warm p99 | First 8-point range p50 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Empty object and process cache | 382.5 ms | 48.6 ms | 431.1 ms | 188.3 us | 278.0 us | 37.7 ms |
+| Metadata warm, data cold | 98.0 ms | 40.8 ms | 138.8 ms | 152.7 us | 245.0 us | 45.6 ms |
+| Persistent NVMe warm, decoded RAM cold | 71.7 ms | 294.5 us | 72.0 ms | 192.7 us | 284.0 us | 1.504 ms |
+
+The empty-cache first-point samples were 29.4 to 53.4 ms, with a 48.6 ms
+median and 4.8 ms median absolute deviation. Every seed stayed below the frozen
+100 ms bound. This is five-seed admission evidence, not a production p99.
+
+The provider receipt explains the curve:
+
+| Cache state | First-point data I/O | Measured warm reads | Full five-seed preparation and execution |
+| --- | ---: | ---: | ---: |
+| Empty object cache | 1 GET, 65,536 B | 0 GETs, 0 B | 189 GETs, 11,667,459 B |
+| Metadata warm, data cold | 1 GET, 65,536 B | 0 GETs, 0 B | 199 GETs, 11,671,399 B |
+| Persistent NVMe warm | 0 GETs, 0 B | 0 GETs, 0 B | 199 GETs, 11,671,399 B, including cache preparation |
+
+One logical 8 KiB point therefore reads one 64 KiB remote part on a data miss,
+an `8x` byte amplification before protocol overhead. Persistent NVMe removes
+that data miss, but view open still reads selected manifest metadata from GCS.
+
+All six cloud controls discarded: changed generation, same bytes at a new
+generation, missing revision, changed bytes, changed namespace, and skipped
+revision enforcement. Every correct receipt deleted its six live scratch
+objects. A final live listing was empty. Bucket versioning and soft delete
+still retained 218 deleted or noncurrent generations totaling 1,464,840,385
+bytes. Zero live objects is therefore not zero retained storage cost.
 
 ## What is fast now
 
@@ -166,8 +212,10 @@ No provider-checksum claim is made.
 miss adds network and tail latency that local measurements do not contain.
 
 `[BOUND]` Cold point work must remain proportional to index depth and touched
-blocks, not database size. The first GCS gate is at most eight GETs, at most 512
-KiB, and in-region p99 below 100 ms for one cold 8 KiB point.
+blocks, not database size. The first GCS gate passed with one 64 KiB data GET
+and a 53.4 ms five-seed maximum after view open. Full empty-cache worker-to-row
+latency was 431.1 ms median, so worker recruitment and point serving remain
+separate curves.
 
 `[BOUND]` The $0.01 per million warmed-read target requires at least 97.5
 percent cache hits under a one-GET miss model. A materially worse hit rate means
@@ -192,28 +240,17 @@ curves.
 
 ## Next exact experiment
 
-Run `provider-bound-range-read-v0` on `gcs-dev` in three states:
-
-1. metadata warm, data cold;
-2. persistent NVMe warm, decoded RAM cold;
-3. decoded RAM and persistent object cache empty, with OS state reported.
-
-For every state, record view-ready, first point, first eight-page range, warm
-p50/p99, GET count, transferred bytes, cache bytes, exact generation checks,
-refusals, peak RSS, and estimated cost. Run six identity controls and require
-OTel metrics, traces, logs, and scratch-prefix cleanup.
-
-The external blocker is specific: project `doss-objectkv-dev` returns a
-permission denial to the previously available application-default identity,
-and the current `gcloud` account cannot refresh its token non-interactively.
-The candidate bucket `doss-objectkv-dev-okv-evals` was not present in the last
-successful inventory. Local implementation can continue, but no GCS latency or
-dollar result is valid until authentication, project access, and the scratch
-bucket are available.
-
-After that run, add a reuse-distance and cache-capacity curve. The current
+Add a reuse-distance and cache-capacity curve. The current
 1,000 measured reads repeat a 128-point warmed working set and therefore prove
 the cache-hit path, not a production hit ratio. Also repeat provider-bound
 activation at multiple dataset sizes. The existing suite bounds 32 MiB startup
 bytes but does not yet prove that provider-bound pre-first-read bytes stay flat
 as the closure grows.
+
+The next admission matrix should vary RAM and NVMe capacity, Zipfian skew,
+working-set size, concurrency, worker churn, and dataset size. Report logical
+operations per second, cache hit ratio, GCS GETs, GCS bytes, p50/p99 latency,
+CPU, RSS, and request cost together. In parallel, measure objectification and
+compaction under sustained writes. The next decision is whether a practical
+cache budget can hold at least the frozen 97.5 percent hit ratio without
+making compute more expensive than the storage it replaces.

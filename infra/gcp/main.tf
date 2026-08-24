@@ -7,6 +7,7 @@ locals {
   bucket_name = coalesce(var.bucket_name, "${var.project_id}-okv-evals")
   services = toset([
     "cloudbilling.googleapis.com",
+    "compute.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "cloudtrace.googleapis.com",
     "logging.googleapis.com",
@@ -16,11 +17,30 @@ locals {
   ])
 }
 
+resource "google_compute_network" "eval" {
+  name                    = "objectkv-eval"
+  project                 = google_project.playground.project_id
+  auto_create_subnetworks = false
+  routing_mode            = "REGIONAL"
+
+  depends_on = [google_project_service.enabled["compute.googleapis.com"]]
+}
+
+resource "google_compute_subnetwork" "eval" {
+  name                     = "objectkv-eval-us-central1"
+  project                  = google_project.playground.project_id
+  region                   = var.region
+  network                  = google_compute_network.eval.id
+  ip_cidr_range            = "10.41.0.0/24"
+  private_ip_google_access = true
+}
+
 resource "google_project" "playground" {
-  name            = "objectKV-dev"
-  project_id      = var.project_id
-  org_id          = var.organization_id
-  billing_account = var.billing_account
+  name                = "objectKV-dev"
+  project_id          = var.project_id
+  org_id              = var.organization_id
+  billing_account     = var.billing_account
+  auto_create_network = false
 
   labels = {
     environment = "development"
@@ -113,4 +133,3 @@ resource "google_project_iam_member" "eval_runner_traces" {
   role    = "roles/cloudtrace.agent"
   member  = "serviceAccount:${google_service_account.eval_runner.email}"
 }
-

@@ -382,8 +382,12 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   Retained-tail summaries, checkpoint cadence, parallel recruitment,
   independent hosts, network partitions, and a production SLO remain
   `[PROPOSED]`.
-- `[ACTIVE-WORK]` The actual Google Cloud project and GCS bucket await interactive
-  gcloud reauthentication and exact organization/billing verification.
+- `[EXISTS]` Google Cloud project `doss-objectkv-dev`, single-region bucket
+  `doss-objectkv-dev-okv-evals`, isolated eval network, and keyless runner
+  identity are Terraform-managed. The first in-region provider-bound cache
+  matrix and all six identity controls completed with OTel and zero live
+  scratch objects. Realistic cache hit rate, concurrency, and sustained-write
+  economics remain `[ACTIVE-WORK]`.
 - `[EXISTS]` The `okv` package name is already occupied on crates.io.
 - `[EXISTS]` The public GitHub repository is
   `Doss-com/objectKV`.
