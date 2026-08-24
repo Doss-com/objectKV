@@ -742,11 +742,12 @@ become one GitHub issue.
   gate for cache eviction. Candidate `be78904` removes the provider-bound
   range suite's cloud discard stub and adds exact-generation reads, guarded
   per-process prefixes, controller cleanup after worker failure, a pinned
-  request-cost snapshot, and the same local/cloud receipt. Blocker:
-  reauthenticate the authorized gcloud operator, verify the project and bucket,
-  export `OKV_GCP_PROJECT` plus `OKV_GCS_BUCKET`, and provide an OTLP endpoint. The
-  cloud run must record the bucket's retained-generation and soft-delete cost,
-  not only zero live objects after cleanup. In parallel,
+  request-cost snapshot, and the same local/cloud receipt. Candidate `257fe2a`
+  completes the provider-bound matrix and six controls from `us-central1-a`.
+  Empty-cache first point was 48.6 ms median; persistent NVMe was 294.5 us
+  median with zero serving-path GCS reads. The bucket retained 1,464,840,385
+  bytes under versioning and soft delete despite zero live names. Next freeze
+  realistic cache capacity, reuse distance, and concurrency. In parallel,
   complete controls for
   worker-local expiry, renewal resurrection, incomplete snapshot restore,
   stale generation, and stale delete marks.

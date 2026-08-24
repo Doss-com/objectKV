@@ -276,8 +276,11 @@ conformance evidence. Filesystem is intentionally segment-only because the
 shared Apache `object_store` API does not expose conditional update for its
 local backend. Candidate `be78904` makes the provider-bound GCS cache-state
 profile executable with exact generations, request-cost telemetry, guarded
-scratch scope, and failure cleanup. GCS remains unexecuted until
-`objectKV-dev` authentication and provisioning are available.
+scratch scope, and failure cleanup. Candidate `257fe2a` completes the first
+in-region GCS matrix: empty-cache first point was 48.6 ms median, persistent
+NVMe was 294.5 us median with zero serving-path GCS reads, and all six identity
+controls discarded. Realistic cache hit rate, concurrency, and sustained-write
+economics remain open.
 
 RFC-0021 and `phase0-slate-filesystem-v1` run 8 MiB per seed through pinned
 SlateDB at revision `e0161973`. The original 129.9 ms reopen result included
