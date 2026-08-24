@@ -1,0 +1,100 @@
+schema_version = 1
+id = "mvcc-semantics-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = ["../../rfcs/0002-version-and-mvcc-model.md"]
+dataset_generator = "splitmix64-generated-mvcc-history-v2"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.generated-dev]
+logical_bytes = 0
+key_count = 16
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.generated-dev]
+budget_kind = "events"
+budget_limit = 5000
+repeats = 1
+backend = "model"
+
+[[lanes]]
+id = "mvcc-semantics"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "generated-mvcc-history"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+
+[[workloads]]
+id = "generated-mvcc-history-ignore-range-clears"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "ignore_range_clears"
+
+[[workloads]]
+id = "generated-mvcc-history-mutation-order-affects-replay"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "mutation_order_affects_replay"
+
+[[workloads]]
+id = "generated-mvcc-history-accept-conflicting-replay"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "accept_conflicting_replay"
+
+[[workloads]]
+id = "generated-mvcc-history-future-read-fallback"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "future_read_falls_back"
+
+[[workloads]]
+id = "generated-mvcc-history-reject-retention-boundary"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "reject_retention_boundary"
+
+[[workloads]]
+id = "generated-mvcc-history-serve-expired-read"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "serve_expired_read"
+
+[[workloads]]
+id = "generated-mvcc-history-accept-stale-generation"
+lane = "mvcc-semantics"
+operation = "model_differential_history"
+steps = 1000
+negative_control = "accept_stale_generation"
+
+[hard_gates]
+correctness_anomalies = 0
+exact_seed_replay = true
+range_clear_exercised = true
+semantic_operations_exercised = true
+schema_valid = true
+budget_must_hold = true

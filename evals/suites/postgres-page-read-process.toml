@@ -1,0 +1,114 @@
+schema_version = 1
+id = "postgres-page-read-process-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/research/postgres-18-6-storage-bridge.md",
+  "../../rfcs/0062-kv-runtime-routed-read-service.md",
+]
+dataset_generator = "postgres-encoded-pages-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 24576
+key_count = 3
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "operations"
+budget_limit = 21
+repeats = 1
+backend = "local-process+postgres-page-reader+authority-bound-view"
+worker_processes_per_seed = 1
+route_refreshes_per_seed = 1
+ranges_after_refresh = 2
+page_size_bytes = 8192
+page_count = 3
+objectkv_version = 2
+maximum_page_lsn = 800
+transport = "tcp-json-v1"
+cache_state = "process-warm"
+
+[[lanes]]
+id = "postgres-page-read"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "postgres-page-read-correct"
+lane = "postgres-page-read"
+operation = "postgres_page_read_process_contract"
+
+[[workloads]]
+id = "postgres-page-read-missing-page"
+lane = "postgres-page-read"
+operation = "postgres_page_read_process_contract"
+negative_control = "missing_page"
+
+[[workloads]]
+id = "postgres-page-read-corrupt-payload"
+lane = "postgres-page-read"
+operation = "postgres_page_read_process_contract"
+negative_control = "corrupt_payload"
+
+[[workloads]]
+id = "postgres-page-read-change-objectkv-version"
+lane = "postgres-page-read"
+operation = "postgres_page_read_process_contract"
+negative_control = "change_objectkv_version"
+
+[[workloads]]
+id = "postgres-page-read-lsn-ahead"
+lane = "postgres-page-read"
+operation = "postgres_page_read_process_contract"
+negative_control = "page_lsn_ahead"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 3
+worker_processes_per_seed = 1
+worker_kills_per_seed = 1
+route_refreshes_per_seed = 1
+ranges_after_refresh = 2
+page_size_bytes = 8192
+page_count = 3
+objectkv_version_must_not_change = true
+page_lsn_frontier_must_hold = true
+payload_sha256_must_hold = true
+consecutive_pages_must_be_complete = true
+exact_canonical_replay = true
+negative_controls_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+
+[telemetry.schema]
+version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "page.lsn",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]

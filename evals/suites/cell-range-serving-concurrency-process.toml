@@ -1,0 +1,107 @@
+schema_version = 1
+id = "cell-range-serving-concurrency-process-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/DECISIONS.md",
+  "../../rfcs/0038-range-tagged-transaction-log.md",
+  "../../rfcs/0061-range-serving-performance-curve.md",
+]
+dataset_generator = "deterministic-same-base-authenticated-tail-publication-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 4096
+key_count = 9
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 306
+repeats = 1
+backend = "local-process+slatedb-object-base+authenticated-tail+atomic-view"
+worker_processes_per_seed = 1
+reader_tasks_per_worker = 8
+base_version = 2
+first_target = 3
+last_target = 9
+publications_per_seed = 6
+
+[[lanes]]
+id = "range-serving-concurrency"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "range-serving-concurrency-correct"
+lane = "range-serving-concurrency"
+operation = "range_serving_concurrency_process_contract"
+
+[[workloads]]
+id = "range-serving-concurrency-accept-stale-rollback"
+lane = "range-serving-concurrency"
+operation = "range_serving_concurrency_process_contract"
+negative_control = "accept_stale_rollback"
+
+[[workloads]]
+id = "range-serving-concurrency-skip-reader-overlap"
+lane = "range-serving-concurrency"
+operation = "range_serving_concurrency_process_contract"
+negative_control = "skip_reader_overlap"
+
+[[workloads]]
+id = "range-serving-concurrency-accept-mixed-result"
+lane = "range-serving-concurrency"
+operation = "range_serving_concurrency_process_contract"
+negative_control = "accept_mixed_result"
+
+[[workloads]]
+id = "range-serving-concurrency-skip-stale-probe"
+lane = "range-serving-concurrency"
+operation = "range_serving_concurrency_process_contract"
+negative_control = "skip_stale_probe"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 3
+worker_processes_per_seed = 1
+reader_tasks_per_worker = 8
+publications_per_seed = 6
+retained_old_reads_per_seed = 48
+current_new_reads_per_seed = 48
+mixed_results = 0
+same_manifest_targets_must_differ = true
+stale_same_manifest_rollback_must_refuse = true
+exact_canonical_replay = true
+negative_controls_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]

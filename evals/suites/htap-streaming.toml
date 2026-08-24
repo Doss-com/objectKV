@@ -1,0 +1,101 @@
+schema_version = 1
+id = "zebradb-datafusion-streaming-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0010-oltp-olap-snapshots.md",
+  "../../rfcs/0013-streaming-datafusion-overlay.md",
+]
+dataset_generator = "deterministic-arrow-parquet-streaming-overlay-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 9
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 30
+repeats = 1
+backend = "datafusion-local-fs"
+datafusion = "54.0.0"
+arrow = "58.3.0"
+parquet = "58.3.0"
+output_batch_rows = 2
+maximum_group_rows = 16
+
+[[lanes]]
+id = "htap-streaming-exactness"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "query.result_exact"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[workloads]]
+id = "zebradb-streaming-overlay"
+lane = "htap-streaming-exactness"
+operation = "htap_streaming_contract"
+
+[[workloads]]
+id = "zebradb-streaming-materialize-inputs"
+lane = "htap-streaming-exactness"
+operation = "htap_streaming_contract"
+negative_control = "materialize_inputs"
+
+[[workloads]]
+id = "zebradb-streaming-reset-batch-group"
+lane = "htap-streaming-exactness"
+operation = "htap_streaming_contract"
+negative_control = "reset_group_at_batch_boundary"
+
+[[workloads]]
+id = "zebradb-streaming-max-watermark"
+lane = "htap-streaming-exactness"
+operation = "htap_streaming_contract"
+negative_control = "start_tail_at_max_watermark"
+
+[[workloads]]
+id = "zebradb-streaming-rebase-continuation"
+lane = "htap-streaming-exactness"
+operation = "htap_streaming_contract"
+negative_control = "rebase_continuation_target"
+
+[[workloads]]
+id = "zebradb-streaming-accept-unsorted"
+lane = "htap-streaming-exactness"
+operation = "htap_streaming_contract"
+negative_control = "accept_unsorted_input"
+
+[hard_gates]
+correctness_anomalies = 0
+parquet_round_trip = true
+arrow_tail_complete = true
+incremental_emission = true
+input_order_validated = true
+batch_boundary_groups_preserved = true
+independent_watermarks = true
+continuation_target_bound = true
+buffer_bound_holds = true
+output_order_declared = true
+fresh_process_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true

@@ -1,0 +1,142 @@
+schema_version = 1
+id = "cell-staged-head-generation-takeover-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0039-commit-visibility-after-tagged-log-durability.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0041-certified-staged-head-generation-takeover.md",
+]
+dataset_generator = "deterministic-cell-staged-head-generation-takeover-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 4096
+key_count = 2
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 105
+repeats = 1
+backend = "generation-authority+transaction-openraft+signed-certificate-state"
+generation_authority_nodes = 3
+previous_generation_voters = 3
+successor_generation_voters = 3
+tagged_log_sets = 2
+tagged_log_quorum = 2
+expected_baseline_frontier = 10
+expected_staged_version = 11
+expected_successor_version = 12
+
+[[lanes]]
+id = "cell-staged-head-generation-takeover"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-publish-certified-head-after-generation-takeover"
+lane = "cell-staged-head-generation-takeover"
+operation = "cell_staged_head_generation_takeover_contract"
+
+[[workloads]]
+id = "cell-takeover-before-successor-activation"
+lane = "cell-staged-head-generation-takeover"
+operation = "cell_staged_head_generation_takeover_contract"
+negative_control = "takeover_during_recovery"
+
+[[workloads]]
+id = "cell-takeover-missing-log-certificate"
+lane = "cell-staged-head-generation-takeover"
+operation = "cell_staged_head_generation_takeover_contract"
+negative_control = "missing_log_certificate"
+
+[[workloads]]
+id = "cell-takeover-tampered-envelope-expectation"
+lane = "cell-staged-head-generation-takeover"
+operation = "cell_staged_head_generation_takeover_contract"
+negative_control = "tampered_envelope_expectation"
+
+[[workloads]]
+id = "cell-successor-skips-staged-head"
+lane = "cell-staged-head-generation-takeover"
+operation = "cell_staged_head_generation_takeover_contract"
+negative_control = "skip_staged_head"
+
+[[workloads]]
+id = "cell-successor-rewrites-staged-head"
+lane = "cell-staged-head-generation-takeover"
+operation = "cell_staged_head_generation_takeover_contract"
+negative_control = "rewrite_staged_head_generation"
+
+[hard_gates]
+correctness_anomalies = 0
+generation_authority_nodes = 3
+previous_generation_voters = 3
+successor_generation_voters = 3
+tagged_log_sets = 2
+tagged_log_quorum = 2
+staged_head_precedes_data_log_fence = true
+staged_head_has_every_verified_certificate = true
+visible_frontier_does_not_advance_before_takeover = true
+successor_voters_recover_exact_staged_state = true
+old_generation_publish_is_fenced = true
+successor_write_is_rejected_before_head = true
+takeover_requires_active_successor_generation = true
+takeover_binds_recovery_identity = true
+takeover_binds_exact_old_envelope = true
+takeover_rejects_missing_certificate = true
+takeover_preserves_original_envelope_bytes = true
+takeover_publishes_exactly_once = true
+takeover_lost_reply_returns_retained_outcome = true
+domain_generation_changes_atomically = true
+successor_transaction_continues_after_head = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

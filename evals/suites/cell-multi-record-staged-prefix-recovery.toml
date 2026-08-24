@@ -1,0 +1,165 @@
+schema_version = 1
+id = "cell-multi-record-staged-prefix-recovery-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0039-commit-visibility-after-tagged-log-durability.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0041-certified-staged-head-generation-takeover.md",
+  "../../rfcs/0042-incomplete-staged-head-fence-and-abort.md",
+  "../../rfcs/0043-multi-record-staged-prefix-recovery.md",
+]
+dataset_generator = "deterministic-cell-multi-record-staged-prefix-recovery-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 16384
+key_count = 6
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 168
+repeats = 1
+backend = "generation-authority+transaction-openraft+tagged-tlog-prefix-fence-processes"
+generation_authority_nodes = 3
+previous_generation_voters = 3
+successor_generation_voters = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+tagged_log_fence_quorum = 2
+maximum_staged_records = 4
+maximum_staged_bytes = 16384
+expected_baseline_frontier = 10
+expected_recovered_frontier = 12
+expected_first_aborted_version = 13
+expected_last_aborted_version = 14
+expected_successor_version = 15
+
+[[lanes]]
+id = "cell-multi-record-staged-prefix-recovery"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-recover-certified-prefix-abort-incomplete-suffix"
+lane = "cell-multi-record-staged-prefix-recovery"
+operation = "cell_multi_record_staged_prefix_recovery_contract"
+
+[[workloads]]
+id = "cell-publishes-beyond-incomplete-boundary"
+lane = "cell-multi-record-staged-prefix-recovery"
+operation = "cell_multi_record_staged_prefix_recovery_contract"
+negative_control = "publish_beyond_absent_boundary"
+
+[[workloads]]
+id = "cell-aborts-quorum-present-record"
+lane = "cell-multi-record-staged-prefix-recovery"
+operation = "cell_multi_record_staged_prefix_recovery_contract"
+negative_control = "abort_quorum_present_record"
+
+[[workloads]]
+id = "cell-skips-recoverable-prefix-record"
+lane = "cell-multi-record-staged-prefix-recovery"
+operation = "cell_multi_record_staged_prefix_recovery_contract"
+negative_control = "skip_recoverable_prefix_record"
+
+[[workloads]]
+id = "cell-retains-dependent-suffix-after-abort"
+lane = "cell-multi-record-staged-prefix-recovery"
+operation = "cell_multi_record_staged_prefix_recovery_contract"
+negative_control = "retain_dependent_suffix"
+
+[[workloads]]
+id = "cell-accepts-unbounded-staged-prefix"
+lane = "cell-multi-record-staged-prefix-recovery"
+operation = "cell_multi_record_staged_prefix_recovery_contract"
+negative_control = "accept_over_limit_window"
+
+[[workloads]]
+id = "cell-recovers-with-missing-log-set-inventory"
+lane = "cell-multi-record-staged-prefix-recovery"
+operation = "cell_multi_record_staged_prefix_recovery_contract"
+negative_control = "missing_log_set_inventory"
+
+[hard_gates]
+correctness_anomalies = 0
+generation_authority_nodes = 3
+previous_generation_voters = 3
+successor_generation_voters = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+tagged_log_fence_quorum = 2
+staged_window_is_record_bounded = true
+staged_window_is_byte_bounded = true
+staged_window_binds_exact_ordered_records = true
+every_required_log_set_is_durably_fenced = true
+every_inventory_covers_the_exact_window = true
+inventory_attestations_are_policy_authenticated = true
+fence_survives_process_restart = true
+fenced_process_rejects_old_generation_append = true
+presence_requires_quorum_in_every_log_set = true
+absence_requires_quorum_in_one_log_set = true
+unknown_inventory_blocks_recovery = true
+recovered_prefix_is_maximal = true
+recovered_envelopes_preserve_original_bytes = true
+recovered_envelopes_publish_in_original_order = true
+first_absent_record_is_aborted = true
+dependent_suffix_is_aborted = true
+aborted_suffix_never_becomes_visible = true
+aborted_sequences_are_consumed = true
+domain_generation_changes_atomically = true
+lost_reply_returns_every_retained_outcome = true
+successor_uses_sequence_after_entire_window = true
+successor_chains_from_last_recovered_envelope = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

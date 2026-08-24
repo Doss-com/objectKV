@@ -1,0 +1,173 @@
+schema_version = 1
+id = "provider-bound-range-read-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0066-provider-bound-range-read.md",
+  "../../rfcs/0065-postgres-replacement-worker-readiness.md",
+  "../../rfcs/0004-object-store-correctness.md",
+  "../../crates/okv-object/fixtures/persistent-range-base-v1.json",
+  "../../crates/okv-object/fixtures/provider-bound-range-root-v2.json",
+]
+dataset_generator = "provider-bound-slatedb-range-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
+
+[dataset.local-versioned]
+logical_bytes = 33554432
+key_count = 4096
+seeds = [724841, 724842, 724843, 724844, 724845]
+
+[dataset.gcs-dev]
+logical_bytes = 33554432
+key_count = 4096
+seeds = [724841, 724842, 724843, 724844, 724845]
+
+[profiles.local-versioned]
+budget_kind = "seconds"
+budget_limit = 1200
+repeats = 1
+backend = "deterministic-versioned-object-store-process"
+point_bytes = 8192
+range_points = 8
+warmup_reads = 128
+measured_reads = 1000
+worker_timeout_millis = 120000
+
+[profiles.gcs-dev]
+budget_kind = "seconds"
+budget_limit = 3600
+repeats = 1
+backend = "gcs-generation-bound-process"
+point_bytes = 8192
+range_points = 8
+warmup_reads = 128
+measured_reads = 1000
+worker_timeout_millis = 300000
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+price_snapshot = "gcs-us-central1-standard-2026-08-24"
+
+[[lanes]]
+id = "provider-bound-empty-cache"
+primary_metric = "provider_bound.first_point_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "provider-bound-cache-curve"
+primary_metric = "provider_bound.object_requests"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "provider-bound-metadata-warm"
+lane = "provider-bound-cache-curve"
+operation = "provider_bound_range_read"
+cache_state = "metadata-warm-data-cold"
+
+[[workloads]]
+id = "provider-bound-nvme-warm"
+lane = "provider-bound-cache-curve"
+operation = "provider_bound_range_read"
+cache_state = "persistent-nvme-warm-decoded-ram-cold"
+
+[[workloads]]
+id = "provider-bound-empty-cache"
+lane = "provider-bound-empty-cache"
+operation = "provider_bound_range_read"
+cache_state = "empty-cache"
+
+[[workloads]]
+id = "provider-bound-changed-generation"
+lane = "provider-bound-empty-cache"
+operation = "provider_bound_range_read"
+cache_state = "empty-cache"
+negative_control = "changed_generation"
+
+[[workloads]]
+id = "provider-bound-same-bytes-new-generation"
+lane = "provider-bound-empty-cache"
+operation = "provider_bound_range_read"
+cache_state = "empty-cache"
+negative_control = "same_bytes_new_generation"
+
+[[workloads]]
+id = "provider-bound-missing-revision"
+lane = "provider-bound-empty-cache"
+operation = "provider_bound_range_read"
+cache_state = "empty-cache"
+negative_control = "missing_revision"
+
+[[workloads]]
+id = "provider-bound-changed-bytes"
+lane = "provider-bound-empty-cache"
+operation = "provider_bound_range_read"
+cache_state = "empty-cache"
+negative_control = "changed_bytes"
+
+[[workloads]]
+id = "provider-bound-changed-namespace"
+lane = "provider-bound-empty-cache"
+operation = "provider_bound_range_read"
+cache_state = "empty-cache"
+negative_control = "changed_namespace"
+
+[[workloads]]
+id = "provider-bound-skip-revision"
+lane = "provider-bound-empty-cache"
+operation = "provider_bound_range_read"
+cache_state = "empty-cache"
+negative_control = "skip_revision_enforcement"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 5
+cache_states_must_equal = [
+  "metadata-warm-data-cold",
+  "persistent-nvme-warm-decoded-ram-cold",
+  "empty-cache",
+]
+process_boundary_must_be_exercised = true
+authority_selects_provider_closure_digest = true
+every_remote_read_uses_exact_revision = true
+unversioned_fallbacks = 0
+exact_point_and_range_reads = true
+semantic_replay_must_be_exact = true
+negative_controls_must_discard = 6
+version_1_fixture_eager_only = true
+version_2_fixture_lazy_capable = true
+scratch_prefix_cleanup_must_complete = true
+request_and_byte_receipt_required = true
+price_snapshot_required_for_gcs = true
+otel_required_for_gcs = true
+schema_valid = true
+budget_must_hold = true
+
+[calibration_targets]
+empty_cache_first_point_max_gets = 8
+empty_cache_first_point_max_bytes = 524288
+empty_cache_first_point_p99_seconds = 0.1
+bytes_before_first_read_must_not_scale_with_dataset = true
+warmed_million_point_request_cost_usd = 0.01
+cloud_claimed = false

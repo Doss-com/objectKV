@@ -1,0 +1,183 @@
+schema_version = 1
+id = "cell-multi-commit-proxy-ordering-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0034-cell-read-version-proxy-causality.md",
+  "../../rfcs/0039-commit-visibility-after-tagged-log-durability.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0048-partitioned-resolver-agreement.md",
+  "../../rfcs/0049-stateless-resolver-generation-recovery.md",
+  "../../rfcs/0050-stateless-resolver-authenticated-tlog-recovery.md",
+  "../../rfcs/0051-multi-commit-proxy-global-ordering.md",
+]
+dataset_generator = "deterministic-cell-multi-commit-proxy-ordering-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 65536
+key_count = 192
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 1024
+repeats = 1
+backend = "sequencer-openraft+commit-proxy-processes+stateless-resolvers+authenticated-tagged-tlogs"
+sequencer_nodes = 3
+sequencer_quorum = 2
+commit_proxy_processes = 3
+resolver_partitions = 3
+resolver_processes = 3
+resolver_map_epoch = 1
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+batches_per_seed = 24
+transactions_per_batch = 4
+maximum_pending_batches = 8
+
+[[lanes]]
+id = "cell-multi-commit-proxy-ordering"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-orders-three-commit-proxies-at-resolvers-and-tlogs"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+
+[[workloads]]
+id = "cell-issues-one-version-to-two-proxies"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+negative_control = "duplicate_commit_version"
+
+[[workloads]]
+id = "cell-skips-one-previous-batch-version"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+negative_control = "skip_previous_version"
+
+[[workloads]]
+id = "cell-resolves-proxy-batches-in-arrival-order"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+negative_control = "resolver_arrival_order"
+
+[[workloads]]
+id = "cell-durably-logs-proxy-batches-in-arrival-order"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+negative_control = "tlog_arrival_order"
+
+[[workloads]]
+id = "cell-reuses-ticket-with-different-batch-bytes"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+negative_control = "mutate_ticketed_batch"
+
+[[workloads]]
+id = "cell-acknowledges-before-all-required-tlog-sets"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+negative_control = "acknowledge_before_all_tlog_sets"
+
+[[workloads]]
+id = "cell-accepts-stale-commit-proxy-incarnation"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+negative_control = "accept_stale_proxy_incarnation"
+
+[[workloads]]
+id = "cell-omits-conflict-only-progress-frame"
+lane = "cell-multi-commit-proxy-ordering"
+operation = "cell_multi_commit_proxy_ordering_contract"
+negative_control = "omit_progress_frame"
+
+[hard_gates]
+correctness_anomalies = 0
+sequencer_nodes = 3
+sequencer_quorum = 2
+commit_proxy_processes = 3
+resolver_partitions = 3
+resolver_processes = 3
+resolver_map_epoch = 1
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+batches_per_seed = 24
+transactions_per_batch = 4
+maximum_pending_batches = 8
+proxy_generation_identities_are_pinned = true
+sequencer_ticket_versions_are_unique = true
+sequencer_ticket_chain_is_gap_free = true
+sequencer_ticket_binds_exact_batch_bytes = true
+out_of_order_batches_are_buffered = true
+pending_batch_window_is_bounded = true
+all_resolvers_process_the_same_batch_order = true
+transactions_preserve_order_inside_each_batch = true
+crossing_ranges_reach_every_overlap = true
+global_dispositions_match_centralized_oracle = true
+every_sequenced_batch_has_a_tlog_progress_frame = true
+conflict_only_batches_advance_the_tlog_chain = true
+all_tlogs_process_the_same_batch_order = true
+every_tlog_frame_matches_the_ticketed_batch = true
+acknowledgement_requires_every_tlog_set_quorum = true
+later_batches_never_cross_a_missing_predecessor = true
+stale_proxy_generation_is_rejected = true
+stale_proxy_incarnation_is_rejected = true
+resolver_durable_syncs = 0
+resolver_finalization_rpcs = 0
+exact_rows = true
+exact_visible_envelope_bytes = true
+commit_envelope_chain_valid = true
+exact_conflict_outcomes = true
+exact_acknowledgement_set = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

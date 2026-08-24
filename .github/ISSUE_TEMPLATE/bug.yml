@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproduced objectKV defect.
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected invariant or behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Include revision, backend, suite/profile, seed, and commands.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Attach redacted logs or schema-valid eval results. Never include credentials.
+    validations:
+      required: true

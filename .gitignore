@@ -1,0 +1,20 @@
+/target/
+.DS_Store
+
+# Eval outputs are machine-specific and may be large. Durable experiment
+# summaries belong in experiments/ledger.jsonl.
+/evals/results/*
+!/evals/results/README.md
+
+# Local object-store and benchmark state.
+/.okv/
+/run.log
+
+# Terraform working state and local inputs. Shared state must use an explicitly
+# configured remote backend before more than one operator applies this project.
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
+**/crash.log

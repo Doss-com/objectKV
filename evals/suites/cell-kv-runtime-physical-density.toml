@@ -1,0 +1,172 @@
+schema_version = 1
+id = "cell-kv-runtime-physical-density-v0"
+status = "accepted"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0024-slatedb-bounded-configuration-pass.md",
+  "../../rfcs/0056-kv-runtime-resource-envelope.md",
+  "../../rfcs/0057-kv-runtime-physical-density.md",
+]
+dataset_generator = "deterministic-kv-runtime-physical-density-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 768000
+key_count = 3000
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 1800.0
+repeats = 1
+backend = "local-process+slatedb-objectkv-serving-v1"
+candidate_surface = "crates/okv-slate/src/kv_runtime_density.rs,crates/okv-slate/src/lib.rs,crates/okv-slate/src/phase0.rs,crates/okv-eval/src/main.rs"
+max_rss_bytes = 1073741824
+worker_timeout_millis = 120000
+decoded_cache_bytes = 67108864
+nvme_cache_bytes = 268435456
+nvme_part_bytes = 65536
+nvme_open_file_handles = 64
+keys_per_range = 1
+value_bytes = 256
+
+[[lanes]]
+id = "kv-runtime-physical-density"
+primary_metric = "kv_runtime.physical_rss_bytes_per_range"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "kv-runtime-one-db-1"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "one-db-logical-ranges"
+range_engine_count = 1
+
+[[workloads]]
+id = "kv-runtime-one-db-100"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "one-db-logical-ranges"
+range_engine_count = 100
+
+[[workloads]]
+id = "kv-runtime-one-db-1000"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "one-db-logical-ranges"
+range_engine_count = 1000
+
+[[workloads]]
+id = "kv-runtime-many-db-shared-cache-1"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "many-db-shared-cache"
+range_engine_count = 1
+
+[[workloads]]
+id = "kv-runtime-many-db-shared-cache-100"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "many-db-shared-cache"
+range_engine_count = 100
+
+[[workloads]]
+id = "kv-runtime-many-db-shared-cache-1000"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "many-db-shared-cache"
+range_engine_count = 1000
+
+[[workloads]]
+id = "kv-runtime-many-db-private-cache-1"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "many-db-private-cache"
+range_engine_count = 1
+
+[[workloads]]
+id = "kv-runtime-many-db-private-cache-100"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "many-db-private-cache"
+range_engine_count = 100
+
+[[workloads]]
+id = "kv-runtime-many-db-private-cache-1000"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "many-db-private-cache"
+range_engine_count = 1000
+
+[[workloads]]
+id = "kv-runtime-density-uses-accounted-rss"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "one-db-logical-ranges"
+range_engine_count = 100
+negative_control = "substitute_accounted_rss"
+
+[[workloads]]
+id = "kv-runtime-density-misreports-private-caches"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "many-db-private-cache"
+range_engine_count = 100
+negative_control = "claim_private_caches_are_shared"
+
+[[workloads]]
+id = "kv-runtime-density-reuses-warm-handle"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "one-db-logical-ranges"
+range_engine_count = 100
+negative_control = "reuse_warm_handle"
+
+[[workloads]]
+id = "kv-runtime-density-omits-safety-receipt"
+lane = "kv-runtime-physical-density"
+operation = "kv_runtime_physical_density_contract"
+topology = "many-db-shared-cache"
+range_engine_count = 100
+negative_control = "omit_safety_receipt"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 3
+slatedb_revision_exact = true
+objectkv_serving_profile_exact = true
+physical_rss_probe_supported = true
+topology_receipt_exact = true
+database_instance_count_exact = true
+decoded_cache_instance_count_exact = true
+one_process_wide_nvme_cache = true
+completed_range_reads_exact = true
+object_io_accounted = true
+object_file_inventory_measured = true
+nvme_file_inventory_measured = true
+empty_ram_and_nvme_reopen_executed = true
+runtime_task_probe_supported = true
+thread_probe_supported = true
+file_descriptor_probe_supported = true
+safety_bounds_checked = true
+stopped_subject_receipt_exact = true
+semantic_receipt_replays = true
+one_db_targets_complete = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

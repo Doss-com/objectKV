@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>objectKV Implementation Architecture Deep-Dive</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg: #000000;
+      --bg-2: #111111;
+      --surface: rgba(255,255,255,.03);
+      --surface-2: rgba(255,255,255,.05);
+      --line: rgba(255,255,255,.14);
+      --line-soft: rgba(255,255,255,.08);
+      --text: #ededed;
+      --muted: #a1a1a1;
+      --faint: #737373;
+      --blue: #52a8ff;
+      --blue-strong: #1a85ff;
+      --green: #62c073;
+      --amber: #f2a600;
+      --red: #ff6166;
+      --purple: #a78bfa;
+      --teal: #3bb7a5;
+      --sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --mono: "Geist Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      padding: 2px 6px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface-2);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    .shell { width: 100%; max-width: 1320px; margin: 0 auto; padding: 0 40px 88px; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 52px;
+      background: rgba(0,0,0,.9);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(14px);
+    }
+    .wordmark { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+    .top-meta { display: flex; gap: 12px; color: var(--muted); font-size: 12px; }
+    .hero { padding: 78px 0 48px; border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--faint); font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { max-width: 990px; margin: 14px 0 20px; font-size: clamp(40px, 6vw, 68px); font-weight: 600; letter-spacing: -.045em; line-height: 1.01; }
+    .lede { max-width: 900px; margin: 0; color: var(--muted); font-size: 18px; line-height: 1.55; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+    .chip, .status { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 9999px; font-size: 11px; line-height: 1.35; white-space: nowrap; }
+    .chip { color: var(--muted); background: var(--surface); }
+    .dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+    .exists { color: var(--green); border-color: rgba(98,192,115,.3); background: rgba(98,192,115,.08); }
+    .active { color: var(--blue); border-color: rgba(82,168,255,.3); background: rgba(82,168,255,.08); }
+    .proposed { color: var(--amber); border-color: rgba(242,166,0,.3); background: rgba(242,166,0,.08); }
+    .future { color: var(--muted); background: var(--surface); }
+    .alert { display: grid; grid-template-columns: 170px 1fr; margin-top: 36px; overflow: hidden; border: 1px solid rgba(255,97,102,.32); border-radius: 6px; }
+    .alert-label { padding: 18px; color: #ffd5d7; background: rgba(229,72,77,.25); font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .03em; }
+    .alert-copy { padding: 18px 20px; background: rgba(229,72,77,.05); color: var(--muted); }
+    .alert-copy strong { color: var(--text); }
+    .layout { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: 64px; }
+    .toc { position: sticky; top: 76px; align-self: start; padding-top: 48px; }
+    .toc-label { margin-bottom: 12px; color: var(--faint); font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .toc a { display: block; padding: 6px 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
+    .toc a:hover { color: var(--text); text-decoration: none; }
+    main { min-width: 0; max-width: 100%; }
+    section { min-width: 0; max-width: 100%; padding-top: 68px; scroll-margin-top: 64px; }
+    h2 { margin: 0 0 24px; font-size: 29px; font-weight: 600; line-height: 1.2; letter-spacing: -.025em; }
+    h3 { margin: 0 0 8px; font-size: 16px; font-weight: 600; line-height: 1.4; }
+    .anchor { margin-right: 10px; color: var(--faint); font-family: var(--mono); font-size: 13px; font-weight: 600; }
+    .section-intro { max-width: 800px; margin: -10px 0 28px; color: var(--muted); font-size: 15px; }
+    .punchline { padding: 24px; border: 1px solid rgba(82,168,255,.32); border-left: 3px solid var(--blue-strong); border-radius: 6px; background: rgba(26,133,255,.06); font-size: 17px; line-height: 1.55; }
+    .clarity { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 12px; }
+    .clarity-card { padding: 18px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+    .clarity-card.wide { grid-column: 1 / -1; }
+    .label { margin-bottom: 8px; color: var(--faint); font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; }
+    .clarity-card p { margin: 0; color: var(--muted); }
+    .clarity-card strong { color: var(--text); }
+    .stack { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    .stack-row { display: grid; grid-template-columns: 155px 1fr 165px; gap: 20px; align-items: center; min-height: 82px; padding: 16px 18px; border-bottom: 1px solid var(--line-soft); }
+    .stack-row:last-child { border-bottom: 0; }
+    .stack-layer { font-family: var(--mono); font-size: 11px; color: var(--blue); }
+    .stack-main { font-size: 14px; font-weight: 600; }
+    .stack-copy { margin-top: 3px; color: var(--muted); font-size: 12px; font-weight: 400; }
+    .stack-boundary { color: var(--faint); font-size: 11px; text-align: right; }
+    .path-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 12px; }
+    .path { padding: 19px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+    .path-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .path-flow { color: var(--muted); font-family: var(--mono); font-size: 11px; line-height: 1.75; }
+    .inventory { width: 100%; border-collapse: collapse; border: 1px solid var(--line); }
+    .inventory th { padding: 9px 12px; color: var(--muted); font-size: 11px; font-weight: 600; text-align: left; border-bottom: 1px solid var(--line); }
+    .inventory td { padding: 13px 12px; vertical-align: top; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+    .inventory tr:last-child td { border-bottom: 0; }
+    .inventory tbody tr:hover { background: var(--surface); }
+    .inventory .boundary { color: var(--muted); }
+    .curve-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-bottom: 12px; }
+    .curve-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+    .curve-card.wide { grid-column: 1 / -1; }
+    .curve-head { display: flex; justify-content: space-between; gap: 18px; align-items: start; margin-bottom: 4px; }
+    .curve-title { font-size: 14px; font-weight: 600; }
+    .curve-tag { flex: none; color: var(--faint); font-family: var(--mono); font-size: 10px; }
+    .curve-copy { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+    .chart { width: 100%; height: 285px; }
+    .chart-tall { height: 330px; }
+    .curve-note { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 12px; }
+    .curve-note strong { color: var(--text); }
+    .table-wrap { max-width: 100%; overflow-x: auto; }
+    .data-table { width: 100%; min-width: 640px; margin-top: 14px; border-collapse: collapse; }
+    .data-table th { padding: 7px 9px; color: var(--faint); font-family: var(--mono); font-size: 10px; font-weight: 600; text-align: right; border-bottom: 1px solid var(--line); }
+    .data-table th:first-child, .data-table td:first-child { text-align: left; }
+    .data-table td { padding: 9px; color: var(--muted); font-size: 11px; text-align: right; border-bottom: 1px solid var(--line-soft); font-variant-numeric: tabular-nums; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 12px; }
+    .metric { padding: 17px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+    .metric-value { font-size: 28px; font-weight: 600; line-height: 1.1; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+    .metric-label { margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .incident { padding: 20px; border: 1px solid rgba(255,97,102,.3); border-radius: 6px; background: rgba(229,72,77,.04); }
+    .incident-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; margin: 16px 0; }
+    .incident-cycle { padding: 13px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--surface); }
+    .incident-cycle .n { color: var(--faint); font-family: var(--mono); font-size: 10px; }
+    .incident-cycle .v { margin-top: 8px; font-size: 18px; font-weight: 600; }
+    .incident-cycle .s { margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .trade-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .trade { display: grid; grid-template-columns: 34px 1fr; gap: 12px; padding: 17px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+    .trade-id { color: var(--blue); font-family: var(--mono); font-size: 11px; }
+    .trade-title { margin-bottom: 5px; font-size: 13px; font-weight: 600; }
+    .trade-copy { color: var(--muted); font-size: 12px; }
+    .trade-copy b { color: var(--text); font-weight: 600; }
+    .gates { counter-reset: gate; margin: 0; padding: 0; list-style: none; }
+    .gate { counter-increment: gate; display: grid; grid-template-columns: 52px minmax(0,1fr) 180px; gap: 18px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+    .gate::before { content: "G" counter(gate); color: var(--blue); font-family: var(--mono); font-size: 12px; padding-top: 2px; }
+    .gate-title { margin-bottom: 5px; font-size: 14px; font-weight: 600; }
+    .gate-copy { color: var(--muted); font-size: 12px; }
+    .gate-exit { color: var(--faint); font-size: 11px; }
+    .vision-line { padding: 26px; border: 1px solid rgba(167,139,250,.32); border-left: 3px solid var(--purple); border-radius: 6px; background: rgba(167,139,250,.06); font-size: 18px; line-height: 1.55; }
+    .principles { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 8px; margin-top: 16px; }
+    .principle { min-height: 180px; padding: 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+    .principle-n { color: var(--purple); font-family: var(--mono); font-size: 10px; }
+    .principle-title { margin-top: 26px; font-size: 13px; font-weight: 600; }
+    .principle-copy { margin-top: 7px; color: var(--muted); font-size: 11px; }
+    .roadmap { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; margin-top: 18px; }
+    .roadmap-step { position: relative; min-height: 150px; padding: 16px; border: 1px solid var(--line); background: var(--surface); }
+    .roadmap-step:first-child { border-radius: 6px 0 0 6px; }
+    .roadmap-step:last-child { border-radius: 0 6px 6px 0; }
+    .roadmap-status { color: var(--faint); font-family: var(--mono); font-size: 10px; }
+    .roadmap-title { margin-top: 26px; font-size: 13px; font-weight: 600; }
+    .roadmap-copy { margin-top: 6px; color: var(--muted); font-size: 11px; }
+    .not-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; margin-top: 18px; }
+    .not-item { padding: 14px; border: 1px solid rgba(255,97,102,.22); border-radius: 6px; color: var(--muted); font-size: 12px; background: rgba(229,72,77,.025); }
+    .checkpoint { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    .checkpoint-row { display: grid; grid-template-columns: 160px 1fr; gap: 12px; padding: 12px 15px; border-bottom: 1px solid var(--line-soft); }
+    .checkpoint-row:nth-child(odd) { border-right: 1px solid var(--line-soft); }
+    .checkpoint-key { color: var(--faint); font-family: var(--mono); font-size: 10px; }
+    .checkpoint-value { color: var(--muted); font-size: 11px; word-break: break-word; }
+    .sources { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0 26px; margin: 0; padding: 0; list-style: none; }
+    .sources a { display: block; padding: 8px 0; border-bottom: 1px solid var(--line-soft); color: var(--muted); font-family: var(--mono); font-size: 10px; }
+    .diagram-set { display: grid; gap: 18px; }
+    .system-diagram { padding: 22px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); overflow: hidden; }
+    .diagram-head { display: grid; grid-template-columns: 112px minmax(0,1fr); gap: 20px; align-items: start; margin-bottom: 18px; }
+    .diagram-badge { color: var(--blue); font-family: var(--mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+    .diagram-question { font-size: 16px; font-weight: 600; line-height: 1.4; }
+    .diagram-answer { margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 400; }
+    .diagram-legend { display: flex; flex-wrap: wrap; gap: 14px 20px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 4px; color: var(--faint); font-family: var(--mono); font-size: 9px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 7px; }
+    .legend-box { width: 12px; height: 9px; border: 1px solid var(--blue); background: rgba(82,168,255,.1); }
+    .legend-box.proposed-box { border-style: dashed; border-color: var(--amber); background: rgba(242,166,0,.08); }
+    .legend-line { width: 22px; border-top: 2px solid var(--muted); }
+    .legend-line.async-line { border-top-style: dashed; border-color: var(--teal); }
+    .legend-line.authority-line { border-color: var(--red); }
+    .diagram-note { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 11px; }
+    .diagram-note strong { color: var(--text); }
+    .fabric { padding: 14px; border: 1px dashed rgba(167,139,250,.55); border-radius: 6px; }
+    .fabric-label { margin-bottom: 10px; color: var(--purple); font-family: var(--mono); font-size: 10px; }
+    .cell-grid { display: grid; grid-template-columns: 1.55fr .75fr; gap: 12px; }
+    .cell-box { padding: 14px; border: 1px solid rgba(82,168,255,.4); border-left: 3px solid var(--blue); border-radius: 6px; background: rgba(82,168,255,.04); }
+    .cell-box.future-cell { border-style: dashed; border-left-style: dashed; border-color: rgba(242,166,0,.42); background: rgba(242,166,0,.025); }
+    .cell-title { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
+    .cell-title span { color: var(--faint); font-family: var(--mono); font-size: 9px; font-weight: 400; }
+    .role-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; margin-bottom: 10px; }
+    .role { padding: 8px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--surface); color: var(--muted); font-size: 10px; text-align: center; }
+    .tenant-box { padding: 10px; border: 1px solid rgba(59,183,165,.35); border-radius: 4px; background: rgba(59,183,165,.04); }
+    .tenant-title { margin-bottom: 8px; color: var(--teal); font-family: var(--mono); font-size: 9px; }
+    .range-strip { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+    .range { padding: 8px; border: 1px solid var(--line-soft); border-radius: 4px; color: var(--muted); font-family: var(--mono); font-size: 9px; text-align: center; }
+    .object-row { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-top: 10px; }
+    .object-label { color: var(--faint); font-family: var(--mono); font-size: 9px; }
+    .object-buckets { display: flex; flex-wrap: wrap; gap: 6px; }
+    .object-pill { padding: 5px 8px; border: 1px solid rgba(167,139,250,.35); border-radius: 9999px; color: var(--muted); font-family: var(--mono); font-size: 9px; }
+    .flow-track { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 20px; align-items: stretch; }
+    .flow-node { position: relative; min-height: 86px; padding: 12px 10px; border: 1px solid var(--line); border-top: 3px solid var(--blue); border-radius: 4px; background: var(--bg-2); }
+    .flow-node:not(:last-child)::after { content: "->"; position: absolute; top: 50%; right: -18px; transform: translateY(-50%); color: var(--faint); font-family: var(--mono); font-size: 11px; }
+    .flow-node.teal { border-top-color: var(--teal); }
+    .flow-node.purple { border-top-color: var(--purple); }
+    .flow-node.amber { border-top-color: var(--amber); }
+    .flow-node.red { border-top-color: var(--red); }
+    .node-kicker { color: var(--faint); font-family: var(--mono); font-size: 8px; letter-spacing: .04em; text-transform: uppercase; }
+    .node-title { margin-top: 12px; font-size: 11px; font-weight: 600; line-height: 1.3; }
+    .node-copy { margin-top: 5px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+    .async-track { display: grid; grid-template-columns: 1fr 36px 1fr 36px 1fr 36px 1fr; align-items: center; margin: 16px 0 0 43%; }
+    .async-node { padding: 10px; border: 1px dashed rgba(59,183,165,.5); border-radius: 4px; background: rgba(59,183,165,.035); color: var(--muted); font-size: 10px; text-align: center; }
+    .async-arrow { color: var(--teal); font-family: var(--mono); font-size: 10px; text-align: center; }
+    .swimlanes { border: 1px solid var(--line-soft); border-radius: 4px; overflow: hidden; }
+    .swimlane { display: grid; grid-template-columns: 120px 1fr; border-bottom: 1px solid var(--line-soft); }
+    .swimlane:last-child { border-bottom: 0; }
+    .lane-name { display: flex; align-items: center; padding: 13px; border-right: 1px solid var(--line-soft); color: var(--faint); font-family: var(--mono); font-size: 9px; }
+    .lane-flow { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 16px; padding: 12px; }
+    .lane-step { position: relative; padding: 10px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--surface); color: var(--muted); font-size: 9px; line-height: 1.35; }
+    .lane-step:not(:last-child)::after { content: "->"; position: absolute; top: 50%; right: -15px; transform: translateY(-50%); color: var(--faint); font-family: var(--mono); }
+    .lane-step.critical { border-color: rgba(255,97,102,.35); background: rgba(229,72,77,.04); }
+    .lane-step.safe { border-color: rgba(98,192,115,.3); background: rgba(98,192,115,.035); }
+    .htap-grid { display: grid; grid-template-columns: 1fr 58px 1.1fr 58px 1fr; gap: 0; align-items: stretch; }
+    .source-stack { display: grid; gap: 8px; }
+    .source-node, .operator-node, .result-node { display: flex; flex-direction: column; justify-content: center; min-height: 80px; padding: 13px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg-2); }
+    .source-node.base { border-left: 3px solid var(--purple); }
+    .source-node.tail { border-left: 3px solid var(--teal); }
+    .operator-node { border: 1px solid rgba(82,168,255,.42); background: rgba(82,168,255,.045); }
+    .result-node { border: 1px solid rgba(98,192,115,.35); background: rgba(98,192,115,.035); }
+    .diagram-arrow { display: flex; align-items: center; justify-content: center; color: var(--faint); font-family: var(--mono); font-size: 12px; }
+    .node-label { color: var(--faint); font-family: var(--mono); font-size: 8px; text-transform: uppercase; }
+    .node-main { margin-top: 8px; font-size: 12px; font-weight: 600; }
+    .node-sub { margin-top: 4px; color: var(--muted); font-size: 9px; }
+    .authority-map { display: grid; grid-template-columns: 1fr 52px 1.2fr 52px 1fr; gap: 0; align-items: stretch; }
+    .authority-col { display: grid; gap: 8px; }
+    .authority-node { padding: 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg-2); }
+    .authority-node.primary { border-left: 3px solid var(--red); }
+    .authority-node.subordinate { border-left: 3px solid var(--blue); }
+    .authority-node.future-node { border-style: dashed; border-color: rgba(242,166,0,.42); font-style: italic; }
+    .authority-rule { margin-top: 14px; padding: 12px; border-left: 2px solid var(--red); background: rgba(229,72,77,.045); color: var(--muted); font-size: 11px; }
+    .build-layers { display: grid; gap: 7px; }
+    .build-layer { display: grid; grid-template-columns: 140px 1fr 150px; gap: 16px; align-items: center; padding: 12px 14px; border: 1px solid var(--line-soft); border-left: 3px solid var(--blue); border-radius: 4px; background: var(--bg-2); }
+    .build-layer:nth-child(2) { border-left-color: var(--teal); }
+    .build-layer:nth-child(3) { border-left-color: var(--purple); }
+    .build-layer:nth-child(4) { border-left-color: var(--amber); }
+    .build-layer-name { font-family: var(--mono); font-size: 10px; color: var(--text); }
+    .build-layer-modules { color: var(--muted); font-size: 10px; }
+    .build-layer-proof { color: var(--faint); font-size: 9px; text-align: right; }
+    .build-phases { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 6px; margin-top: 14px; }
+    .build-phase { min-height: 112px; padding: 10px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--surface); }
+    .build-phase.current { border-color: rgba(82,168,255,.4); background: rgba(82,168,255,.04); }
+    .build-phase.future-phase { border-style: dashed; border-color: rgba(242,166,0,.35); }
+    .phase-id { color: var(--faint); font-family: var(--mono); font-size: 8px; }
+    .phase-title { margin-top: 14px; font-size: 10px; font-weight: 600; }
+    .phase-copy { margin-top: 5px; color: var(--muted); font-size: 8px; line-height: 1.4; }
+    footer { margin-top: 74px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--faint); font-size: 10px; }
+
+    @media (max-width: 1060px) {
+      .layout { grid-template-columns: 1fr; gap: 0; }
+      .toc { position: static; display: grid; grid-template-columns: repeat(3,1fr); gap: 0 20px; padding-top: 30px; }
+      .toc-label { grid-column: 1 / -1; }
+      .principles { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .principle:last-child { grid-column: 1 / -1; min-height: 120px; }
+      .roadmap { grid-template-columns: 1fr; gap: 8px; }
+      .roadmap-step, .roadmap-step:first-child, .roadmap-step:last-child { min-height: 0; border-radius: 6px; }
+      .flow-track { grid-template-columns: repeat(4,minmax(0,1fr)); row-gap: 18px; }
+      .flow-node:nth-child(4)::after { display: none; }
+      .async-track { margin-left: 0; }
+      .role-strip { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .build-phases { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    }
+    @media (max-width: 760px) {
+      .shell { padding: 0 20px 64px; }
+      .hero { padding-top: 54px; }
+      .top-meta span:first-child { display: none; }
+      .alert { grid-template-columns: 1fr; }
+      .layout { display: block; }
+      .toc { grid-template-columns: repeat(2,1fr); }
+      .clarity, .path-grid, .curve-grid, .trade-grid, .not-grid, .checkpoint, .sources { grid-template-columns: 1fr; }
+      .clarity-card.wide, .curve-card.wide { grid-column: auto; }
+      .stack-row { grid-template-columns: 1fr; gap: 6px; }
+      .stack-boundary { text-align: left; }
+      .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .incident-grid { grid-template-columns: 1fr; }
+      .gate { grid-template-columns: 38px 1fr; }
+      .gate-exit { grid-column: 2; }
+      .principles { grid-template-columns: 1fr; }
+      .principle:last-child { grid-column: auto; }
+      .checkpoint-row:nth-child(odd) { border-right: 0; }
+      .diagram-head, .cell-grid, .swimlane, .htap-grid, .authority-map, .build-layer { grid-template-columns: 1fr; }
+      .diagram-arrow { min-height: 34px; }
+      .diagram-arrow::before { content: "down"; font-size: 9px; }
+      .lane-name { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+      .lane-flow { grid-template-columns: 1fr; gap: 8px; }
+      .lane-step:not(:last-child)::after { content: "down"; top: auto; right: 50%; bottom: -14px; transform: translateX(50%); font-size: 8px; }
+      .flow-track { grid-template-columns: 1fr; gap: 18px; }
+      .flow-node:not(:last-child)::after, .flow-node:nth-child(4)::after { display: block; content: "down"; top: auto; right: 50%; bottom: -15px; transform: translateX(50%); font-size: 8px; }
+      .async-track { grid-template-columns: 1fr; gap: 7px; }
+      .async-arrow { min-height: 12px; }
+      .object-row { grid-template-columns: 1fr; }
+      .range-strip, .build-phases { grid-template-columns: 1fr; }
+      .build-layer-proof { text-align: left; }
+      h1 { font-size: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="wordmark">objectKV / okv</div>
+      <div class="top-meta"><span>implementation architecture deep-dive</span><span>2026-08-23</span></div>
+    </header>
+
+    <div class="hero">
+      <div class="eyebrow">Architecture calibration / implementation paused</div>
+      <h1>From executable contracts to a credible object-native cell</h1>
+      <p class="lede">A diagram-led readout of how objectKV is shaped, how transactions move through it, how recovery and exact HTAP work, and how the current crates are being assembled into a bounded object-native cell.</p>
+      <div class="chips">
+        <span class="status exists"><span class="dot"></span>Semantic contracts exist</span>
+        <span class="status active"><span class="dot"></span>Physical and composed evidence open</span>
+        <span class="status proposed"><span class="dot"></span>Research kernel claim</span>
+        <span class="chip">implementation candidate 99df834</span>
+        <span class="chip">65 eval suites</span>
+      </div>
+      <div class="alert">
+        <div class="alert-label">RECALIBRATION</div>
+        <div class="alert-copy"><strong>The latest MinIO authority result is no longer green.</strong> Cycle 1 passed all 12 contracts. Cycles 2 and 3 failed all 12 with <code>not_found</code> while container health and the bucket remained present. The incident is unresolved and is verification gate zero.</div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <aside class="toc">
+        <div class="toc-label">Contents</div>
+        <nav id="tocLinks"></nav>
+      </aside>
+
+      <main>
+        <section id="answer">
+          <h2><span class="anchor">01</span>Answer</h2>
+          <div class="punchline">objectKV is directionally coherent as an open-source research kernel. The strongest evidence is semantic and local. The decisive remaining risks are physical stability and economics, bounded recovery, and composed end-to-end behavior.</div>
+          <div class="clarity">
+            <div class="clarity-card wide"><div class="label">Question</div><p>Is objectKV becoming a coherent architecture, and what must the next proof cycle establish?</p></div>
+            <div class="clarity-card"><div class="label">Counter</div><p>Narrow the thesis if repeated object authority is unstable, PostgreSQL needs dual commit authority, recovery depends on full DB bytes, or exact HTAP needs an unbounded tail.</p></div>
+            <div class="clarity-card"><div class="label">Next</div><p>Classify MinIO, admit the clean resolver curve, then run GCS physical, PostgreSQL crash, durable HTAP, and independent-host recovery gates.</p></div>
+            <div class="clarity-card"><div class="label">Confidence</div><p><strong>Medium.</strong> Broad local contracts, narrow remote and composed receipts.</p></div>
+            <div class="clarity-card"><div class="label">Claim boundary</div><p><strong>Research kernel.</strong> Not yet a FoundationDB replacement, distributed PostgreSQL, or ZebraDB.</p></div>
+          </div>
+        </section>
+
+        <section id="architecture">
+          <h2><span class="anchor">02</span>Current implementation architecture</h2>
+          <p class="section-intro">A cell is a complete transaction, durability, recovery, and storage system. It is not a page, object, shard, or single-writer KV. Tenant databases define normal transaction domains; ranges scale below them.</p>
+          <div class="stack">
+            <div class="stack-row"><div class="stack-layer">clients / adapters</div><div class="stack-main">PostgreSQL, Redis, search, DataFusion<div class="stack-copy">Semantic consumers pressure-test the same ordered transactional API.</div></div><div class="stack-boundary">PG and HTAP bridges are partial</div></div>
+            <div class="stack-row"><div class="stack-layer">transaction system</div><div class="stack-main">Read versions, commit proxies, resolver ranges, generation authority<div class="stack-copy">Global order and conflict decisions stay constrained and explicit.</div></div><div class="stack-boundary">bounded local contracts exist</div></div>
+            <div class="stack-row"><div class="stack-layer">durable suffix</div><div class="stack-main">Tagged replicated tLogs<div class="stack-copy">The active generation owns committed but not yet objectified state.</div></div><div class="stack-boundary">authenticated recovery exists</div></div>
+            <div class="stack-row"><div class="stack-layer">object authority</div><div class="stack-main">Fenced roots, immutable MVCC segments, manifests, change objects<div class="stack-copy">Object storage owns permanent bulk state after publication.</div></div><div class="stack-boundary">MinIO repeatability open</div></div>
+            <div class="stack-row"><div class="stack-layer">derived layouts</div><div class="stack-main">Ordered serving, Parquet, Vortex, projections<div class="stack-copy">Multiple physical layouts share one commit and schema history.</div></div><div class="stack-boundary">exact HTAP operator exists</div></div>
+            <div class="stack-row"><div class="stack-layer">fleet</div><div class="stack-main">Tenant directory, bounded cells, movement and evacuation<div class="stack-copy">Cells bound failure and operations. No cross-cell transaction.</div></div><div class="stack-boundary">future</div></div>
+          </div>
+
+          <div class="path-grid">
+            <article class="path"><div class="path-head"><h3>Commit</h3><span class="status exists">[EXISTS]</span></div><div class="path-flow">tenant session<br>-> causal read version<br>-> commit proxy batch<br>-> resolver partitions<br>-> global version<br>-> tagged tLog quorums<br>-> visible commit</div></article>
+            <article class="path"><div class="path-head"><h3>Recovery</h3><span class="status exists">[EXISTS]</span></div><div class="path-flow">failure observation<br>-> durable generation fence<br>-> authenticated inventory<br>-> successor recruitment<br>-> staged visibility<br>-> admission above watermark</div></article>
+            <article class="path"><div class="path-head"><h3>Fresh serving</h3><span class="status exists">[EXISTS]</span></div><div class="path-flow">published base at O<br>+ committed suffix (O,T]<br>-> empty-cache worker<br>-> exact state at T</div></article>
+            <article class="path"><div class="path-head"><h3>Exact HTAP</h3><span class="status exists">[EXISTS] bounded</span></div><div class="path-flow">columnar base at Wp<br>+ table tail (Wp,T]<br>-> ordered PK overlay<br>-> exact rows at T<br>or snapshot_unavailable</div></article>
+          </div>
+        </section>
+
+        <section id="system-diagrams">
+          <h2><span class="anchor">03</span>How the system works and is being built</h2>
+          <p class="section-intro">Each diagram answers one architecture question. Solid connectors are commit-critical or authoritative. Dashed connectors are asynchronous. Dashed boxes are proposed or future state.</p>
+          <div class="diagram-set">
+            <article class="system-diagram" id="diagram-topology">
+              <div class="diagram-head">
+                <div class="diagram-badge">Diagram 1 of 6</div>
+                <div class="diagram-question">Where are the transaction, scaling, and fleet boundaries?<div class="diagram-answer">A tenant database is the normal transaction domain inside a complete bounded cell. Ranges scale within the cell; the metacluster places cells but never joins their commit histories.</div></div>
+              </div>
+              <div class="diagram-legend">
+                <span class="legend-item"><span class="legend-box"></span>implemented bounded role</span>
+                <span class="legend-item"><span class="legend-box proposed-box"></span>proposed or future boundary</span>
+                <span class="legend-item"><span class="legend-line"></span>one transaction history</span>
+                <span class="legend-item"><span class="legend-line async-line"></span>placement or materialization</span>
+              </div>
+              <div class="fabric">
+                <div class="fabric-label">[FUTURE] GLOBAL FABRIC / METACLUSTER: tenant placement, routing epoch, migration</div>
+                <div class="cell-grid">
+                  <div class="cell-box">
+                    <div class="cell-title">Cell A <span>[EXISTS] bounded local contracts</span></div>
+                    <div class="role-strip">
+                      <div class="role">read-version proxies</div>
+                      <div class="role">commit proxies</div>
+                      <div class="role">resolver partitions</div>
+                      <div class="role">tagged tLog sets</div>
+                    </div>
+                    <div class="tenant-box">
+                      <div class="tenant-title">TENANT DATABASE A: one serializable transaction domain</div>
+                      <div class="range-strip"><div class="range">range 00..3f</div><div class="range">range 40..9f</div><div class="range">range a0..ff</div></div>
+                    </div>
+                    <div class="object-row"><div class="object-label">immutable physical state</div><div class="object-buckets"><span class="object-pill">MVCC segments</span><span class="object-pill">manifests</span><span class="object-pill">table changes</span><span class="object-pill">Parquet / Vortex</span></div></div>
+                  </div>
+                  <div class="cell-box future-cell">
+                    <div class="cell-title">Cell B <span>[FUTURE] fleet scale</span></div>
+                    <div class="tenant-box"><div class="tenant-title">TENANT DATABASES B..N</div><div class="range-strip"><div class="range">ranges</div><div class="range">ranges</div><div class="range">ranges</div></div></div>
+                    <div class="diagram-note"><strong>No cross-cell transaction.</strong> Movement uses snapshot, tail catch-up, short write freeze, then a routing-epoch cutover.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="diagram-note"><strong>Key distinction:</strong> a cell is a complete database cluster. A shard or range is a routing and work-assignment unit below the tenant transaction boundary.</div>
+            </article>
+
+            <article class="system-diagram" id="diagram-commit">
+              <div class="diagram-head">
+                <div class="diagram-badge">Diagram 2 of 6</div>
+                <div class="diagram-question">How does one transaction become visible and then become permanent object state?<div class="diagram-answer">The replicated tLog path decides commit visibility. Objectification happens later behind a fenced publication root, which keeps object storage out of the coordination path.</div></div>
+              </div>
+              <div class="diagram-legend">
+                <span class="legend-item"><span class="legend-line"></span>commit-critical path</span>
+                <span class="legend-item"><span class="legend-line async-line"></span>asynchronous objectification</span>
+                <span class="legend-item"><span class="legend-line authority-line"></span>authority or fence</span>
+                <span class="legend-item"><span class="legend-box"></span>bounded contract exists</span>
+              </div>
+              <div class="flow-track">
+                <div class="flow-node"><div class="node-kicker">client</div><div class="node-title">Tenant transaction</div><div class="node-copy">read and write conflict ranges</div></div>
+                <div class="flow-node"><div class="node-kicker">read authority</div><div class="node-title">Causal read version</div><div class="node-copy">one version for all reads</div></div>
+                <div class="flow-node teal"><div class="node-kicker">batching</div><div class="node-title">Commit proxy</div><div class="node-copy">orders one canonical batch</div></div>
+                <div class="flow-node teal"><div class="node-kicker">conflicts</div><div class="node-title">Resolver partitions</div><div class="node-copy">all touched ranges must agree</div></div>
+                <div class="flow-node purple"><div class="node-kicker">version</div><div class="node-title">Global commit order</div><div class="node-copy">monotonic within the cell generation</div></div>
+                <div class="flow-node red"><div class="node-kicker">durability</div><div class="node-title">Tagged tLog quorums</div><div class="node-copy">all required log sets certify</div></div>
+                <div class="flow-node amber"><div class="node-kicker">visibility</div><div class="node-title">Commit visible</div><div class="node-copy">reply is replayable after ambiguity</div></div>
+              </div>
+              <div class="async-track">
+                <div class="async-node">materializer reads retained tags</div><div class="async-arrow">- - ></div>
+                <div class="async-node">immutable sorted segment</div><div class="async-arrow">- - ></div>
+                <div class="async-node">fenced root publication</div><div class="async-arrow">- - ></div>
+                <div class="async-node">durable pop through object watermark</div>
+              </div>
+              <div class="diagram-note"><strong>Safety rule:</strong> publication can lag commit. Log pop cannot pass state that is not reachable from a reader-visible, generation-fenced object root.</div>
+            </article>
+
+            <article class="system-diagram" id="diagram-recovery">
+              <div class="diagram-head">
+                <div class="diagram-badge">Diagram 3 of 6</div>
+                <div class="diagram-question">How does the cell recover authority and rebuild an empty serving worker?<div class="diagram-answer">Transaction-system recovery replaces and fences the whole generation. Serving recovery independently composes an immutable base through O with the retained committed suffix through T.</div></div>
+              </div>
+              <div class="diagram-legend">
+                <span class="legend-item"><span class="legend-line authority-line"></span>generation authority</span>
+                <span class="legend-item"><span class="legend-line"></span>authenticated recovery work</span>
+                <span class="legend-item"><span class="legend-line async-line"></span>serving reconstruction</span>
+                <span class="legend-item"><span class="legend-box proposed-box"></span>production distribution open</span>
+              </div>
+              <div class="swimlanes">
+                <div class="swimlane"><div class="lane-name">TRANSACTION SYSTEM</div><div class="lane-flow"><div class="lane-step critical">observe role failure</div><div class="lane-step critical">commit durable generation fence</div><div class="lane-step">authenticate tLog inventory</div><div class="lane-step">recruit successor roles</div><div class="lane-step safe">admit versions above old high watermark</div></div></div>
+                <div class="swimlane"><div class="lane-name">DURABLE STATE</div><div class="lane-flow"><div class="lane-step">published root at O</div><div class="lane-step">verify immutable closure</div><div class="lane-step">reopen retained suffix (O,T]</div><div class="lane-step">validate one envelope chain</div><div class="lane-step safe">exact logical state at T</div></div></div>
+                <div class="swimlane"><div class="lane-name">SERVING WORKER</div><div class="lane-flow"><div class="lane-step">start with empty cache</div><div class="lane-step">resolve range assignment</div><div class="lane-step">load base blocks</div><div class="lane-step">apply recent MVCC overlay</div><div class="lane-step safe">serve point and range reads at T</div></div></div>
+              </div>
+              <div class="diagram-note"><strong>Measured bottleneck:</strong> authenticated inventory is 2.870 of 3.158 seconds at 65,536 retained records per tLog. Permanent DB size is flat because recovery reads zero permanent database bytes.</div>
+            </article>
+
+            <article class="system-diagram" id="diagram-htap">
+              <div class="diagram-head">
+                <div class="diagram-badge">Diagram 4 of 6</div>
+                <div class="diagram-question">How can an analytical query be exact when the columnar base is behind?<div class="diagram-answer">The query chooses one target version T. Every partition reads its columnar base at Wp and overlays every durable table change in (Wp,T] before DataFusion sees rows.</div></div>
+              </div>
+              <div class="diagram-legend">
+                <span class="legend-item"><span class="legend-box" style="border-color:var(--purple)"></span>derived columnar base</span>
+                <span class="legend-item"><span class="legend-box" style="border-color:var(--teal)"></span>transactional live tail</span>
+                <span class="legend-item"><span class="legend-line"></span>same snapshot T</span>
+                <span class="legend-item"><span class="legend-box proposed-box"></span>durable source work open</span>
+              </div>
+              <div class="htap-grid">
+                <div class="source-stack">
+                  <div class="source-node base"><div class="node-label">BASE AT Wp</div><div class="node-main">Parquet or Vortex</div><div class="node-sub">sorted by primary key, pruned by partition and statistics</div></div>
+                  <div class="source-node tail"><div class="node-label">TAIL (Wp,T]</div><div class="node-main">Table-change index</div><div class="node-sub">latest insert, update, delete, or partition move per primary key</div></div>
+                </div>
+                <div class="diagram-arrow">-></div>
+                <div class="operator-node"><div class="node-label">SNAPSHOT OVERLAY EXEC</div><div class="node-main">Streaming primary-key merge</div><div class="node-sub">suppress invalidated base keys, emit latest tail upserts, preserve deletes, bound memory</div></div>
+                <div class="diagram-arrow">-></div>
+                <div class="result-node"><div class="node-label">EXACT TABLE AT T</div><div class="node-main">Arrow RecordBatch stream</div><div class="node-sub">joins, aggregates, and filters across one shared SnapshotContext</div></div>
+              </div>
+              <div class="authority-rule"><strong>Predicate rule.</strong> Tail keys needed to invalidate old base rows cannot be filtered away just because their new row does not satisfy the final predicate.</div>
+              <div class="diagram-note"><strong>Current boundary:</strong> the streaming operator exists. Versioned manifests, snapshot leases, durable interval reads, schema history, and the cost curve against T - Wp remain active work.</div>
+            </article>
+
+            <article class="system-diagram" id="diagram-postgres">
+              <div class="diagram-head">
+                <div class="diagram-badge">Diagram 5 of 6</div>
+                <div class="diagram-question">Where does objectKV fit beneath PostgreSQL without creating two commit authorities?<div class="diagram-answer">The first bridge keeps PostgreSQL WAL, LSN, and tuple MVCC authoritative. objectKV is a subordinate page materialization and object-durability path until crash tests prove a deeper ownership handoff.</div></div>
+              </div>
+              <div class="diagram-legend">
+                <span class="legend-item"><span class="legend-line authority-line"></span>sole initial commit authority</span>
+                <span class="legend-item"><span class="legend-line"></span>page I/O path</span>
+                <span class="legend-item"><span class="legend-line async-line"></span>materialization or publication</span>
+                <span class="legend-item"><span class="legend-box proposed-box"></span>future ownership only after proof</span>
+              </div>
+              <div class="authority-map">
+                <div class="authority-col">
+                  <div class="authority-node primary"><div class="node-label">POSTGRESQL AUTHORITY</div><div class="node-main">WAL flush and LSN</div><div class="node-sub">decides acknowledged transaction durability</div></div>
+                  <div class="authority-node primary"><div class="node-main">Tuple MVCC and checkpoints</div><div class="node-sub">decide visibility, redo, vacuum, and restart correctness</div></div>
+                </div>
+                <div class="diagram-arrow">-></div>
+                <div class="authority-col">
+                  <div class="authority-node"><div class="node-label">POSTGRESQL 18.6 FORK</div><div class="node-main">Buffer manager and second smgr slot</div><div class="node-sub">heap, index, extend, truncate, checkpoint, restart callbacks</div></div>
+                  <div class="authority-node"><div class="node-main">WAL-before-page barrier</div><div class="node-sub">no page version becomes authoritative ahead of durable PostgreSQL WAL</div></div>
+                </div>
+                <div class="diagram-arrow">-></div>
+                <div class="authority-col">
+                  <div class="authority-node subordinate"><div class="node-label">OBJECTKV PAGE PATH</div><div class="node-main">Versioned page materialization</div><div class="node-sub">replicated recent suffix plus immutable object segments</div></div>
+                  <div class="authority-node future-node"><div class="node-main">[FUTURE] objectKV-owned durability</div><div class="node-sub">only after WAL, checkpoint, truncate, and crash matrices pass</div></div>
+                </div>
+              </div>
+              <div class="authority-rule"><strong>Stop condition.</strong> If the bridge requires a second commit decision or can expose a page ahead of durable PostgreSQL WAL, the integration architecture is wrong.</div>
+            </article>
+
+            <article class="system-diagram" id="diagram-build">
+              <div class="diagram-head">
+                <div class="diagram-badge">Diagram 6 of 6</div>
+                <div class="diagram-question">How is the repository being built from semantic models into a full cell?<div class="diagram-answer">The codebase builds upward from executable semantics, then isolates physical adapters and distributed roles, then admits each layer through frozen evals before composing a cell or fleet.</div></div>
+              </div>
+              <div class="diagram-legend">
+                <span class="legend-item"><span class="legend-box"></span>implemented module or phase</span>
+                <span class="legend-item"><span class="legend-box proposed-box"></span>future build phase</span>
+                <span class="legend-item"><span class="legend-line"></span>depends on lower contract</span>
+                <span class="legend-item"><span class="legend-line async-line"></span>evaluation and feedback</span>
+              </div>
+              <div class="build-layers">
+                <div class="build-layer"><div class="build-layer-name">semantics</div><div class="build-layer-modules"><code>okv-model</code>: versions, canonical batches, point and range MVCC, retention, exactness oracles</div><div class="build-layer-proof">differential and HTAP fixtures</div></div>
+                <div class="build-layer"><div class="build-layer-name">physical state</div><div class="build-layer-modules"><code>okv-object</code> + <code>okv-slate</code> + <code>okv-wal</code>: immutable segments, roots, compaction, local quorum frames</div><div class="build-layer-proof">filesystem and MinIO receipts</div></div>
+                <div class="build-layer"><div class="build-layer-name">distributed authority</div><div class="build-layer-modules"><code>okv-consensus</code> + <code>okv-sim</code>: OpenRaft generations, proxies, resolvers, tagged logs, recovery, online split</div><div class="build-layer-proof">process, fault, and curve suites</div></div>
+                <div class="build-layer"><div class="build-layer-name">research control</div><div class="build-layer-modules"><code>okv-eval</code>: TOML suites, hard gates, OTel, budgets, negative subjects, keep/discard ledger</div><div class="build-layer-proof">65 suites, 41 ledger records</div></div>
+              </div>
+              <div class="build-phases">
+                <div class="build-phase current"><div class="phase-id">CELL V0</div><div class="phase-title">Centralized throughput</div><div class="phase-copy">full bounded semantics, one logical proxy and resolver service</div></div>
+                <div class="build-phase current"><div class="phase-id">CELL V1</div><div class="phase-title">Distributed read and storage</div><div class="phase-copy">ranges, tagged serving, materialization, empty-cache recovery</div></div>
+                <div class="build-phase current"><div class="phase-id">CELL V2</div><div class="phase-title">Partitioned conflict resolution</div><div class="phase-copy">range resolvers, agreement, online split, hotspot curve active</div></div>
+                <div class="build-phase current"><div class="phase-id">CELL V3</div><div class="phase-title">Multiple proxies</div><div class="phase-copy">global ordering and generation recovery under bounded local contracts</div></div>
+                <div class="build-phase current"><div class="phase-id">CELL V4</div><div class="phase-title">Partitioned durable logs</div><div class="phase-copy">tag sets, policy transition, lag, repair, full generation recovery</div></div>
+                <div class="build-phase future-phase"><div class="phase-id">CELL V5 / FLEET</div><div class="phase-title">Composed cell and metacluster</div><div class="phase-copy">independent hosts, GCS, tenant placement, migration, upgrades, evacuation</div></div>
+              </div>
+              <div class="diagram-note"><strong>Build discipline:</strong> interfaces are exposed before roles become separate services. A phase is not a product claim until its semantic, failure, performance, and cost gates compose in one receipt.</div>
+            </article>
+          </div>
+        </section>
+
+        <section id="inventory">
+          <h2><span class="anchor">04</span>Implementation inventory</h2>
+          <p class="section-intro">The repository is past a paper design, but most evidence is still a bounded contract rather than a production service.</p>
+          <div class="table-wrap">
+            <table class="inventory">
+              <thead><tr><th>Layer</th><th>Status</th><th>What exists</th><th>Current boundary</th></tr></thead>
+              <tbody>
+                <tr><td>Semantic model</td><td><span class="status exists">[EXISTS]</span></td><td>Canonical mutation batches, point and range MVCC, retention, differential and HTAP oracles</td><td class="boundary">Model and fixtures, not a production engine</td></tr>
+                <tr><td>SlateDB adapter</td><td><span class="status exists">[EXISTS]</span></td><td>Externally versioned writes, durable logical version, serving profile, separate compaction work</td><td class="boundary">Historical range behavior and full range clear incomplete</td></tr>
+                <tr><td>Object authority</td><td><span class="status active">[ACTIVE-WORK]</span></td><td>Immutable create, identity, exact ranges, guarded roots, lost-reply recovery, publication and GC</td><td class="boundary">Cycles 2 and 3 fail all MinIO contracts</td></tr>
+                <tr><td>Transaction durability</td><td><span class="status exists">[EXISTS]</span></td><td>Tagged tLogs, visibility, retained outcomes, inventory, generation fencing, staged takeover</td><td class="boundary">Independent hosts and production quorum open</td></tr>
+                <tr><td>Transaction ordering</td><td><span class="status exists">[EXISTS]</span></td><td>Causal reads, actual-read witnesses, range phantoms, resolver partitions, ordered proxies, online split</td><td class="boundary">No composed cell capacity envelope</td></tr>
+                <tr><td>Recovery</td><td><span class="status exists">[EXISTS]</span></td><td>Full generation replacement, absence-quorum abort, authenticated inventory, monotonic admission</td><td class="boundary">Large-tail inventory dominates</td></tr>
+                <tr><td>Serving recovery</td><td><span class="status exists">[EXISTS]</span></td><td>Fresh worker reconstructs target from object base and retained suffix</td><td class="boundary">Production routing and distributor proposed</td></tr>
+                <tr><td>Exact HTAP</td><td><span class="status exists">[EXISTS] bounded</span></td><td>Parquet base plus ordered Arrow tail through DataFusion with bounded memory</td><td class="boundary">Durable source, leases, schema and lag curve open</td></tr>
+                <tr><td>PostgreSQL bridge</td><td><span class="status active">[ACTIVE-WORK]</span></td><td>PostgreSQL 18.6 second smgr slot compiles, boots, and restarts</td><td class="boundary">No real objectKV page callbacks or crash receipt</td></tr>
+                <tr><td>Fleet</td><td><span class="status future">[FUTURE]</span></td><td>Topology and tenant movement strategy</td><td class="boundary">No metacluster implementation</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="curves">
+          <h2><span class="anchor">05</span>Measured performance curves</h2>
+          <p class="section-intro">The current curves are most useful as bottleneck locators. They are not production benchmarks. Every chart distinguishes measured behavior from the shape the architecture needs.</p>
+
+          <div class="curve-grid">
+            <article class="curve-card wide">
+              <div class="curve-head"><div class="curve-title">Untuned SlateDB reopen hits a 64 MiB cliff</div><div class="curve-tag">3 repeated cycles</div></div>
+              <p class="curve-copy">Fresh-open bytes jump from 452 B to 210.8 MB. First correct reopen jumps from milliseconds to roughly 420 ms.</p>
+              <div id="slateScale" class="chart chart-tall" role="img" aria-label="Untuned SlateDB reopen duration and fresh-open bytes across one, eight, and sixty-four MiB"></div>
+              <div class="curve-note"><strong>Desired shape:</strong> fresh-open work independent of database size. The configured 64 MiB candidate achieves 402 B fresh open, but pays 31.9% more total requests.</div>
+              <div class="table-wrap"><table class="data-table"><thead><tr><th>Logical data</th><th>Reopen p50</th><th>Open requests</th><th>Open bytes</th><th>Total read</th><th>Total written</th></tr></thead><tbody><tr><td>1 MiB</td><td>4.3 to 4.6 ms</td><td>33</td><td>452 B</td><td>0.83 MB</td><td>2.21 MB</td></tr><tr><td>8 MiB</td><td>6.2 to 6.8 ms</td><td>33</td><td>452 B</td><td>5.71 MB</td><td>17.68 MB</td></tr><tr><td>64 MiB</td><td>414 to 429 ms</td><td>142</td><td>210.77 MB</td><td>255.48 MB</td><td>141.39 MB</td></tr></tbody></table></div>
+            </article>
+
+            <article class="curve-card">
+              <div class="curve-head"><div class="curve-title">Configured 64 MiB candidate</div><div class="curve-tag">bytes, log scale</div></div>
+              <p class="curve-copy">A layout and cache trade: sharply lower bytes, more small requests.</p>
+              <div id="slateConfig" class="chart" role="img" aria-label="Untuned and configured SlateDB bytes at sixty-four MiB"></div>
+              <div class="curve-note"><strong>Frozen gates:</strong> fresh open at most 1 MiB; first point at most 8 requests and 512 KiB.</div>
+            </article>
+
+            <article class="curve-card">
+              <div class="curve-head"><div class="curve-title">Compaction work</div><div class="curve-tag">8 MiB profile</div></div>
+              <p class="curve-copy">Local filesystem and MinIO produce almost identical bounded work.</p>
+              <div class="metrics">
+                <div class="metric"><div class="metric-value">1.027x</div><div class="metric-label">maintenance write amplification</div></div>
+                <div class="metric"><div class="metric-value">538 B</div><div class="metric-label">fresh-open read</div></div>
+                <div class="metric"><div class="metric-value">5</div><div class="metric-label">first-point requests</div></div>
+                <div class="metric"><div class="metric-value">83.3 KB</div><div class="metric-label">first-point bytes</div></div>
+              </div>
+              <div class="curve-note"><strong>Missing evidence:</strong> network distance, throttling, brownout, regional failure, and per-operation cloud cost.</div>
+            </article>
+
+            <article class="curve-card wide">
+              <div class="curve-head"><div class="curve-title">Recovery scales with retained authority work, not database bytes</div><div class="curve-tag">21 samples per admitted point</div></div>
+              <p class="curve-copy">At 65,536 records per tLog, authenticated inventory is 91% of recovery. The 1 GiB and 1 PiB profiles are flat and read zero DB bytes.</p>
+              <div id="recoveryCurve" class="chart chart-tall" role="img" aria-label="Recovery duration and inventory duration by retained tLog records"></div>
+              <div class="curve-note"><strong>Desired shape:</strong> constant against permanent DB size, near-linear against suffix bytes, sublinear against roles through parallel recruitment, bounded by checkpoint and objectification policy.</div>
+            </article>
+
+            <article class="curve-card">
+              <div class="curve-head"><div class="curve-title">Recovery topology</div><div class="curve-tag">p50 seconds</div></div>
+              <p class="curve-copy">The largest local topology exposes sequential recruitment as a second bottleneck.</p>
+              <div id="topologyCurve" class="chart" role="img" aria-label="Recovery duration across three local transaction system topologies"></div>
+              <div class="curve-note"><strong>Proposed research target:</strong> below one second on the current large-tail local calibration, after a candidate first beats its owning median by 10%.</div>
+            </article>
+
+            <article class="curve-card">
+              <div class="curve-head"><div class="curve-title">Resolver hotspot diagnostic</div><div class="curve-tag">not admitted</div></div>
+              <p class="curve-copy">Balanced split shows a strong signal, but the dirty source and missing skew/crossing profiles invalidate a scaling claim.</p>
+              <div class="metrics">
+                <div class="metric"><div class="metric-value">3.814x</div><div class="metric-label">median split/source throughput</div></div>
+                <div class="metric"><div class="metric-value">50.1%</div><div class="metric-label">history entries avoided</div></div>
+                <div class="metric"><div class="metric-value">21</div><div class="metric-label">paired samples</div></div>
+                <div class="metric"><div class="metric-value">1.10x</div><div class="metric-label">frozen conservative threshold</div></div>
+              </div>
+              <div class="curve-note"><strong>Needed curve:</strong> 50/50 independent, missed hot key, 25% crossing, 100% crossing, plus five integrity controls from a clean candidate.</div>
+            </article>
+
+            <article class="curve-card">
+              <div class="curve-head"><div class="curve-title">Exact HTAP operator</div><div class="curve-tag">bounded fixture</div></div>
+              <p class="curve-copy">Stable exactness and bounded memory. The important lag curve is still missing.</p>
+              <div class="metrics">
+                <div class="metric"><div class="metric-value">0</div><div class="metric-label">anomalies across 3 repeats</div></div>
+                <div class="metric"><div class="metric-value">4</div><div class="metric-label">peak buffered rows</div></div>
+                <div class="metric"><div class="metric-value">5,518 B</div><div class="metric-label">peak buffered bytes</div></div>
+                <div class="metric"><div class="metric-value">0</div><div class="metric-label">spill events</div></div>
+              </div>
+              <div class="curve-note"><strong>Needed curve:</strong> cost against <code>T - Wp</code>, update density, partition count, deletes, row moves, and predicate invalidation over a durable tail source.</div>
+            </article>
+          </div>
+
+          <div class="incident">
+            <div class="curve-head"><div class="curve-title">[ACTIVE-WORK] MinIO authority repeatability incident</div><div class="curve-tag">suite hash 076e0cdd</div></div>
+            <p class="curve-copy">Cycle 1 passed. Cycles 2 and 3 failed all 12 authority gates with <code>not_found</code>. Health remained HTTP 200 and the bucket remained present. No root cause is established.</p>
+            <div class="incident-grid">
+              <div class="incident-cycle"><div class="n">CYCLE 1</div><div class="v" style="color:var(--green)">0 failures</div><div class="s">44 requests, 441 response bytes, 0.121 s</div></div>
+              <div class="incident-cycle"><div class="n">CYCLE 2</div><div class="v" style="color:var(--red)">12 failures</div><div class="s">24 requests, 0 response bytes, 37.547 s</div></div>
+              <div class="incident-cycle"><div class="n">CYCLE 3</div><div class="v" style="color:var(--red)">12 failures</div><div class="s">24 requests, 0 response bytes, 45.576 s</div></div>
+            </div>
+            <div class="curve-note"><strong>Interpretation:</strong> unresolved backend, fixture, credential, bucket, prefix, adapter, or authority discontinuity. It is not yet evidence for one root cause. The frozen suite should remain unchanged during classification.</div>
+          </div>
+        </section>
+
+        <section id="tradeoffs">
+          <h2><span class="anchor">06</span>Bounds and tradeoffs</h2>
+          <p class="section-intro">The constraints are the architecture. Relaxing them casually converts a bounded kernel into an unbounded distributed system.</p>
+          <div class="trade-grid">
+            <div class="trade"><div class="trade-id">D1</div><div><div class="trade-title">Tenant transactions stay inside one cell</div><div class="trade-copy"><b>Optimize:</b> useful multi-range serializability with bounded failure. <b>Give up:</b> cross-cell atomicity.</div></div></div>
+            <div class="trade"><div class="trade-id">D2</div><div><div class="trade-title">tLogs own the recent suffix</div><div class="trade-copy"><b>Optimize:</b> fast commits without synchronous object publication. <b>Pay:</b> retained-WAL pressure and recovery inventory.</div></div></div>
+            <div class="trade"><div class="trade-id">D3</div><div><div class="trade-title">Objects never become coordination</div><div class="trade-copy"><b>Optimize:</b> tolerate object-store latency and weak primitives. <b>Pay:</b> explicit generation and publication-root authority.</div></div></div>
+            <div class="trade"><div class="trade-id">D4</div><div><div class="trade-title">Full-generation recovery stays the fallback</div><div class="trade-copy"><b>Optimize:</b> auditable fencing and recovery. <b>Pay:</b> larger coordinated recovery events.</div></div></div>
+            <div class="trade"><div class="trade-id">D5</div><div><div class="trade-title">Transactions and values stay bounded</div><div class="trade-copy"><b>Optimize:</b> order, conflict checking, retry, and durable queues. <b>Give up:</b> long compute inside the kernel.</div></div></div>
+            <div class="trade"><div class="trade-id">D6</div><div><div class="trade-title">Exact HTAP is base plus tail</div><div class="trade-copy"><b>Optimize:</b> one fresh logical truth. <b>Pay:</b> lag becomes scan cost and retention pressure.</div></div></div>
+            <div class="trade"><div class="trade-id">D7</div><div><div class="trade-title">Invariant aggregates are transactional</div><div class="trade-copy"><b>Optimize:</b> correct short decisions. <b>Pay:</b> write amplification and projection maintenance.</div></div></div>
+            <div class="trade"><div class="trade-id">D8</div><div><div class="trade-title">PostgreSQL WAL is initial authority</div><div class="trade-copy"><b>Optimize:</b> crash compatibility. <b>Give up:</b> an immediate native-transaction claim.</div></div></div>
+            <div class="trade"><div class="trade-id">D9</div><div><div class="trade-title">Formats sit below logical history</div><div class="trade-copy"><b>Optimize:</b> workload-specific Parquet, Vortex, or row layouts. <b>Pay:</b> explicit format and compaction policy.</div></div></div>
+            <div class="trade"><div class="trade-id">D10</div><div><div class="trade-title">Cells bound fleets; ranges scale within cells</div><div class="trade-copy"><b>Optimize:</b> operational radius without shard-level transaction silos. <b>Pay:</b> explicit placement and migration.</div></div></div>
+          </div>
+        </section>
+
+        <section id="verification">
+          <h2><span class="anchor">07</span>What comes next to verify</h2>
+          <p class="section-intro">Sequence by falsification value. Do not add more roles or consumer surfaces until these gates decide the current shape.</p>
+          <ol class="gates">
+            <li class="gate"><div><div class="gate-title">Classify MinIO authority</div><div class="gate-copy">Capture request-level endpoint, backend identity, credentials identity, bucket, prefix, container events, responses, and object lifecycle without changing the suite.</div></div><div class="gate-exit">Exit: deterministic classification and same-suite repeat after one narrow correction.</div></li>
+            <li class="gate"><div><div class="gate-title">Admit or reject the clean resolver curve</div><div class="gate-copy">Run independent, missed-hot-key, 25% crossing, and 100% crossing profiles with all integrity controls.</div></div><div class="gate-exit">Continue: conservative balanced ratio at least 1.10.</div></li>
+            <li class="gate"><div><div class="gate-title">Prove GCS physical behavior and economics</div><div class="gate-copy">Freeze bytes, requests, latency, throttling, retry, brownout, exact range, root update, compaction, and cost curves in objectKV-dev.</div></div><div class="gate-exit">Continue: size-independent open and declared cost ceilings.</div></li>
+            <li class="gate"><div><div class="gate-title">Put real PostgreSQL pages through the bridge</div><div class="gate-copy">Exercise heap, index, extend, truncate, checkpoint, restart, and kill points while PostgreSQL WAL stays authoritative.</div></div><div class="gate-exit">Stop: any dual commit decision, page ahead of WAL, or acknowledged loss.</div></li>
+            <li class="gate"><div><div class="gate-title">Turn HTAP overlay into a durable source</div><div class="gate-copy">Add versioned manifests, leases, schema history, durable change objects, interval reads, and retention. Measure cost against T - Wp.</div></div><div class="gate-exit">Continue: exact result and work proportional to uncovered tail.</div></li>
+            <li class="gate"><div><div class="gate-title">Repeat recovery across independent hosts</div><div class="gate-copy">Compare compact summaries, checkpoint cadence, and parallel recruitment while preserving corrupt, stale, missing, and slow-role controls.</div></div><div class="gate-exit">Continue: zero DB scans and at least 10% owning-median improvement.</div></li>
+            <li class="gate"><div><div class="gate-title">Compose one bounded cell receipt</div><div class="gate-copy">Measure read authority, proxies, resolvers, tLogs, objectification, fresh serving, failure, recovery, and exact reads in one path.</div></div><div class="gate-exit">First valid end-to-end latency, throughput, availability, and cost claim.</div></li>
+          </ol>
+        </section>
+
+        <section id="vision">
+          <h2><span class="anchor">08</span>The emerging vision of objectKV</h2>
+          <div class="vision-line">An open-source, object-native, FoundationDB-like transactional kernel built as a fleet of bounded cells, where replicated logs own the recent committed suffix, immutable object storage owns permanent bulk state, and one exact version history feeds transactional and analytical layouts.</div>
+          <div class="principles">
+            <div class="principle"><div class="principle-n">01</div><div class="principle-title">Cells, not atomic shards</div><div class="principle-copy">Transactions span ranges inside a tenant database. Cells bound recovery, failure, and operations.</div></div>
+            <div class="principle"><div class="principle-n">02</div><div class="principle-title">Objects, not permanent storage servers</div><div class="principle-copy">Immutable segments and manifests own bytes. Serving workers can be rebuilt.</div></div>
+            <div class="principle"><div class="principle-n">03</div><div class="principle-title">Small, explicit coordination</div><div class="principle-copy">Versions, conflicts, order, fencing, and logs stay in the constrained kernel.</div></div>
+            <div class="principle"><div class="principle-n">04</div><div class="principle-title">One history, multiple layouts</div><div class="principle-copy">MVCC segments, Parquet, Vortex, indexes, and projections share one truth.</div></div>
+            <div class="principle"><div class="principle-n">05</div><div class="principle-title">Evidence is implementation</div><div class="principle-copy">Claims own metrics, negative controls, budgets, OTel, and immutable receipts.</div></div>
+          </div>
+
+          <div class="roadmap">
+            <div class="roadmap-step"><div class="roadmap-status">[ACTIVE-WORK]</div><div class="roadmap-title">objectKV kernel</div><div class="roadmap-copy">Ordered transactions, exact versions, durable suffix, object publication.</div></div>
+            <div class="roadmap-step"><div class="roadmap-status">[PROPOSED]</div><div class="roadmap-title">Semantic adapters</div><div class="roadmap-copy">Redis and search as pressure tests, not parallel product launches.</div></div>
+            <div class="roadmap-step"><div class="roadmap-status">[ACTIVE-WORK]</div><div class="roadmap-title">PostgreSQL bridge</div><div class="roadmap-copy">PG authority first, then objectKV-owned page durability after crash proofs.</div></div>
+            <div class="roadmap-step"><div class="roadmap-status">[ACTIVE-WORK]</div><div class="roadmap-title">Exact DataFusion</div><div class="roadmap-copy">Base plus live transactional tail at one target version.</div></div>
+            <div class="roadmap-step"><div class="roadmap-status">[FUTURE]</div><div class="roadmap-title">ZebraDB</div><div class="roadmap-copy">PostgreSQL compatibility with hybrid OLTP and OLAP on objectKV.</div></div>
+          </div>
+
+          <div class="not-grid">
+            <div class="not-item">Not yet a production FoundationDB replacement.</div>
+            <div class="not-item">Not yet distributed PostgreSQL.</div>
+            <div class="not-item">Not yet ZebraDB.</div>
+            <div class="not-item">Not proof that GCS economics fit.</div>
+            <div class="not-item">Not a metacluster or fleet control plane.</div>
+            <div class="not-item">Not allowed to average away correctness failures.</div>
+          </div>
+        </section>
+
+        <section id="program">
+          <h2><span class="anchor">09</span>Evaluation and auto-research system</h2>
+          <p class="section-intro">The current system has 65 TOML suites and 41 ledger records with hard gates, budgets, negative subjects, OTel telemetry, and artifact receipts. The next gain is richer external-state and composed-cell evidence, not more suite count.</p>
+          <div class="trade-grid">
+            <div class="trade"><div class="trade-id">01</div><div><div class="trade-title">Freeze the question before tuning</div><div class="trade-copy">One primary metric per lane, immutable seeds, declared budgets, and unsafe controls.</div></div></div>
+            <div class="trade"><div class="trade-id">02</div><div><div class="trade-title">Candidate code is mutable; evidence contracts are not</div><div class="trade-copy">The research agent may not move references, runners, suites, or budgets to manufacture a keep.</div></div></div>
+            <div class="trade"><div class="trade-id">03</div><div><div class="trade-title">Telemetry must explain the curve</div><div class="trade-copy">Promote backend identity, response class, tail bytes, topology, checkpoint policy, and role timing to trace dimensions.</div></div></div>
+            <div class="trade"><div class="trade-id">04</div><div><div class="trade-title">Every attempt gets a receipt</div><div class="trade-copy">Keep or discard, exact candidate and parent, suite hash, run IDs, gates, metrics, and artifact references.</div></div></div>
+          </div>
+        </section>
+
+        <section id="evidence">
+          <h2><span class="anchor">10</span>Evidence checkpoint and sources</h2>
+          <div class="checkpoint">
+            <div class="checkpoint-row"><div class="checkpoint-key">implementation</div><div class="checkpoint-value">99df834b7bb62451ce6717f0cc657fd6b65e40e1</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">audit candidate</div><div class="checkpoint-value">22e4728e2a80e29399b45010f53c69ca3fc7de26</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">audit snapshot</div><div class="checkpoint-value">48 records, 46 expected, 2 unexpected</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">unexpected</div><div class="checkpoint-value">MinIO authority cycles 2 and 3</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">eval suites</div><div class="checkpoint-value">65</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">ledger records</div><div class="checkpoint-value">41</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">implementation state</div><div class="checkpoint-value">paused for architecture calibration</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">artifact date</div><div class="checkpoint-value">2026-08-23, America/Los_Angeles</div></div>
+          </div>
+          <ul class="sources">
+            <li><a href="../SYSTEM-SHAPE.md">docs/SYSTEM-SHAPE.md</a></li>
+            <li><a href="../BOOTSTRAP-PLAN.md">docs/BOOTSTRAP-PLAN.md</a></li>
+            <li><a href="../EVALS.md">docs/EVALS.md</a></li>
+            <li><a href="../TELEMETRY.md">docs/TELEMETRY.md</a></li>
+            <li><a href="../../program.md">program.md</a></li>
+            <li><a href="../../rfcs/0011-cell-and-tenant-topology.md">RFC 0011, cell and tenant topology</a></li>
+            <li><a href="../../rfcs/0010-oltp-olap-snapshots.md">RFC 0010, exact OLTP and OLAP snapshots</a></li>
+            <li><a href="../../rfcs/0012-datafusion-overlay-implementation.md">RFC 0012, DataFusion overlay</a></li>
+            <li><a href="../../rfcs/0013-streaming-datafusion-overlay.md">RFC 0013, streaming overlay</a></li>
+            <li><a href="../../rfcs/0015-replicated-publication-authority.md">RFC 0015, publication authority</a></li>
+            <li><a href="../../rfcs/0022-slatedb-filesystem-scale-curve.md">RFC 0022, SlateDB scale curve</a></li>
+            <li><a href="../../rfcs/0024-slatedb-bounded-configuration-pass.md">RFC 0024, serving configuration</a></li>
+            <li><a href="../../rfcs/0025-slatedb-separate-compaction-contract.md">RFC 0025, compaction work</a></li>
+            <li><a href="../../rfcs/0027-slatedb-minio-serving-compaction-contract.md">RFC 0027, MinIO serving and compaction</a></li>
+            <li><a href="../../rfcs/0036-serving-worker-base-plus-wal-recovery.md">RFC 0036, fresh serving from base plus WAL</a></li>
+            <li><a href="../../rfcs/0044-sustained-tagged-log-lag-and-ratekeeping.md">RFC 0044, tLog lag and ratekeeping</a></li>
+            <li><a href="../../rfcs/0047-resumable-chunked-tlog-repair-with-live-tail.md">RFC 0047, chunked repair</a></li>
+            <li><a href="../../rfcs/0054-transaction-system-recovery-curve.md">RFC 0054, generation recovery</a></li>
+            <li><a href="../../rfcs/0055-resolver-hotspot-throughput-curve.md">RFC 0055, resolver hotspot curve</a></li>
+            <li><a href="../POSTGRES-PATH.md">docs/POSTGRES-PATH.md</a></li>
+            <li><a href="postgres-18-6-storage-bridge.md">PostgreSQL 18.6 storage bridge research</a></li>
+            <li><a href="objectkv-implementation-deep-dive-2026-08-23.md">Canonical Markdown deep-dive</a></li>
+            <li><a href="architecture-review-readout-2026-08-23.html">Prior architecture review readout</a></li>
+          </ul>
+        </section>
+      </main>
+    </div>
+
+    <footer>objectKV implementation architecture deep-dive. Local source-backed artifact. Proposed targets are labeled and are not current product SLOs.</footer>
+  </div>
+
+  <script>
+    const chartText = '#a1a1a1';
+    const chartLine = 'rgba(255,255,255,.13)';
+    const baseChart = {
+      animationDuration: 500,
+      textStyle: { fontFamily: 'system-ui, sans-serif', color: chartText },
+      tooltip: { trigger: 'axis', backgroundColor: '#171717', borderColor: 'rgba(255,255,255,.18)', textStyle: { color: '#ededed', fontSize: 11 } },
+      grid: { left: 58, right: 58, top: 48, bottom: 46 },
+      legend: { top: 4, textStyle: { color: chartText, fontSize: 10 } },
+      xAxis: { axisLine: { lineStyle: { color: chartLine } }, axisTick: { show: false }, axisLabel: { color: chartText, fontSize: 10 } },
+      yAxis: { axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: chartLine } }, axisLabel: { color: chartText, fontSize: 10 } }
+    };
+
+    const specs = {
+      slateScale: {
+        ...baseChart,
+        legend: { ...baseChart.legend, data: ['Reopen ms', 'Fresh-open bytes'] },
+        xAxis: { ...baseChart.xAxis, type: 'category', data: ['1 MiB', '8 MiB', '64 MiB'] },
+        yAxis: [
+          { ...baseChart.yAxis, type: 'log', name: 'milliseconds', nameTextStyle: { color: chartText, fontSize: 10 }, min: 1 },
+          { ...baseChart.yAxis, type: 'log', name: 'bytes', nameTextStyle: { color: chartText, fontSize: 10 }, min: 100, splitLine: { show: false } }
+        ],
+        series: [
+          { name: 'Reopen ms', type: 'line', data: [4.5, 6.5, 422.4], symbolSize: 8, lineStyle: { width: 2, color: '#52a8ff' }, itemStyle: { color: '#52a8ff' } },
+          { name: 'Fresh-open bytes', type: 'line', yAxisIndex: 1, data: [452, 452, 210773938], symbolSize: 8, lineStyle: { width: 2, color: '#ff6166' }, itemStyle: { color: '#ff6166' } }
+        ]
+      },
+      slateConfig: {
+        ...baseChart,
+        grid: { left: 120, right: 20, top: 42, bottom: 38 },
+        legend: { ...baseChart.legend, data: ['Untuned', 'Configured'] },
+        xAxis: { ...baseChart.xAxis, type: 'log', min: 100, axisLabel: { color: chartText, fontSize: 9 } },
+        yAxis: { ...baseChart.yAxis, type: 'category', data: ['Fresh open', 'First point', 'Total read', 'Total written'], splitLine: { show: false } },
+        series: [
+          { name: 'Untuned', type: 'bar', data: [210773938, 1395893, 255477624, 141386507], itemStyle: { color: '#ff6166' } },
+          { name: 'Configured', type: 'bar', data: [402, 210439, 27390034, 68873267], itemStyle: { color: '#52a8ff' } }
+        ]
+      },
+      recoveryCurve: {
+        ...baseChart,
+        legend: { ...baseChart.legend, data: ['Total recovery', 'Inventory'] },
+        xAxis: { ...baseChart.xAxis, type: 'log', name: 'retained records / tLog', nameLocation: 'middle', nameGap: 30, nameTextStyle: { color: chartText, fontSize: 10 }, data: [256, 4096, 65536] },
+        yAxis: { ...baseChart.yAxis, type: 'value', name: 'seconds', nameTextStyle: { color: chartText, fontSize: 10 } },
+        series: [
+          { name: 'Total recovery', type: 'line', data: [[256,.292],[4096,.465],[65536,3.158]], symbolSize: 8, lineStyle: { width: 2, color: '#52a8ff' }, itemStyle: { color: '#52a8ff' }, areaStyle: { color: 'rgba(82,168,255,.08)' } },
+          { name: 'Inventory', type: 'line', data: [[256,.014],[4096,.183],[65536,2.870]], symbolSize: 8, lineStyle: { width: 2, color: '#f2a600' }, itemStyle: { color: '#f2a600' } }
+        ]
+      },
+      topologyCurve: {
+        ...baseChart,
+        grid: { left: 48, right: 20, top: 38, bottom: 62 },
+        xAxis: { ...baseChart.xAxis, type: 'category', data: ['2x3 logs\n3 resolvers', '2x5 logs\n9 resolvers', '4x5 logs\n33 resolvers'], axisLabel: { color: chartText, fontSize: 9, interval: 0 } },
+        yAxis: { ...baseChart.yAxis, type: 'value', name: 'seconds', nameTextStyle: { color: chartText, fontSize: 10 } },
+        series: [{ type: 'bar', data: [.390,.627,1.313], barMaxWidth: 44, itemStyle: { color: params => ['#62c073','#52a8ff','#f2a600'][params.dataIndex], borderRadius: [3,3,0,0] }, label: { show: true, position: 'top', color: chartText, fontSize: 10, formatter: v => v.value.toFixed(3) + 's' } }]
+      }
+    };
+
+    const instances = new Map();
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting || instances.has(entry.target.id)) return;
+        const chart = echarts.init(entry.target, null, { renderer: 'canvas' });
+        chart.setOption(specs[entry.target.id]);
+        instances.set(entry.target.id, chart);
+        observer.unobserve(entry.target);
+      });
+    }, { rootMargin: '180px' });
+
+    document.querySelectorAll('.chart').forEach(el => observer.observe(el));
+    window.addEventListener('resize', () => instances.forEach(chart => chart.resize()));
+
+    const toc = document.getElementById('tocLinks');
+    document.querySelectorAll('main section > h2').forEach(h => {
+      const a = document.createElement('a');
+      a.href = '#' + h.parentElement.id;
+      a.textContent = h.textContent.replace(/^\d+/, '').trim();
+      toc.appendChild(a);
+    });
+  </script>
+</body>
+</html>

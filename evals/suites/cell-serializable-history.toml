@@ -1,0 +1,77 @@
+schema_version = 1
+id = "cell-serializable-history-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0029-cell-concurrent-history-contract.md",
+  "../../rfcs/0032-cell-read-value-and-real-time-witness.md",
+]
+dataset_generator = "deterministic-cell-serializable-history-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 917
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "operations"
+budget_limit = 3000
+repeats = 1
+backend = "process-local-fs"
+nodes = 3
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+transaction_authority = "centralized-state-machine-v0"
+transactions_per_seed = 1000
+
+[[lanes]]
+id = "cell-serializable-witness"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-serializable-history"
+lane = "cell-serializable-witness"
+operation = "cell_concurrent_history_contract"
+transactions = 1000
+
+[[workloads]]
+id = "cell-serializable-omit-read-conflicts"
+lane = "cell-serializable-witness"
+operation = "cell_concurrent_history_contract"
+transactions = 1000
+negative_control = "omit_hot_read_conflicts"
+
+[hard_gates]
+correctness_anomalies = 0
+transactions_per_seed = 1000
+read_observations_per_seed = 400
+read_values_exact = true
+actual_read_dependencies_exact = true
+real_time_order_exact = true
+serializability_witness_valid = true
+lost_reply_after_apply = true
+duplicate_retry_returns_original_outcome = true
+restarted_node_converges = true
+commit_envelope_chain_valid = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

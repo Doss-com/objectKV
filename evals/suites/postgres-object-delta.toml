@@ -1,0 +1,144 @@
+schema_version = 1
+id = "postgres-object-delta-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0064-incremental-object-delta-segments.md",
+  "../../rfcs/0063-postgres-wal-before-page-write.md",
+]
+dataset_generator = "postgres-certified-object-delta-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 1048576
+key_count = 128
+seeds = [724841, 724842, 724843, 724844, 724845]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 900
+repeats = 1
+backend = "postgres-certified-object-delta-local-filesystem"
+relation_blocks = 128
+changed_blocks = 1
+required_txlog_sets = 2
+txlog_nodes_per_set = 3
+txlog_quorum_per_set = 2
+maximum_segments_per_checkpoint_capture = 1
+incremental_objectification = true
+full_base_rewrite_allowed = false
+
+[[lanes]]
+id = "postgres-object-delta-shape"
+primary_metric = "postgres.objectification_rewrite_ratio"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.50
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "postgres-object-delta-latency"
+primary_metric = "postgres.object_delta_materialization_duration"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.20
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "postgres-object-delta-append"
+lane = "postgres-object-delta-shape"
+operation = "postgres_incremental_object_delta_contract"
+
+[[workloads]]
+id = "postgres-object-delta-restart"
+lane = "postgres-object-delta-latency"
+operation = "postgres_incremental_object_delta_contract"
+durable_control = "restart_from_full_base_plus_object_deltas_plus_hot_tail"
+
+[[workloads]]
+id = "postgres-object-delta-missing-object"
+lane = "postgres-object-delta-shape"
+operation = "postgres_incremental_object_delta_contract"
+negative_control = "remove_selected_delta_object"
+
+[[workloads]]
+id = "postgres-object-delta-corrupt-object"
+lane = "postgres-object-delta-shape"
+operation = "postgres_incremental_object_delta_contract"
+negative_control = "corrupt_selected_delta_object"
+
+[[workloads]]
+id = "postgres-object-delta-broken-chain"
+lane = "postgres-object-delta-shape"
+operation = "postgres_incremental_object_delta_contract"
+negative_control = "change_prior_log_chain_digest"
+
+[[workloads]]
+id = "postgres-object-delta-omitted-closure"
+lane = "postgres-object-delta-shape"
+operation = "postgres_incremental_object_delta_contract"
+negative_control = "omit_delta_from_stable_publication_closure"
+
+[[workloads]]
+id = "postgres-object-delta-pop-ahead"
+lane = "postgres-object-delta-shape"
+operation = "postgres_incremental_object_delta_contract"
+negative_control = "pop_txlog_beyond_selected_object_frontier"
+
+[[workloads]]
+id = "postgres-object-delta-full-base-rewrite"
+lane = "postgres-object-delta-shape"
+operation = "postgres_incremental_object_delta_contract"
+negative_control = "write_replacement_full_base_sst"
+
+[hard_gates]
+correctness_anomalies = 0
+delta_format_fixture_must_decode = true
+legacy_postgres_root_fixture_must_decode = true
+old_reader_must_reject_delta_root_format = true
+delta_identity_must_match_full_base = true
+delta_records_must_be_strictly_ordered = true
+delta_commit_chain_must_be_exact = true
+delta_object_length_and_sha256_must_match = true
+every_delta_record_must_have_required_certificates = true
+stable_publication_closure_must_name_every_delta = true
+txlog_pop_must_not_exceed_object_delta_frontier = true
+restart_must_not_read_source_heap = true
+restart_rows_must_match_pre_restart_rows = true
+one_capture_must_create_at_most_one_delta_segment = true
+page_writes_must_create_zero_delta_segments = true
+replacement_full_base_sst_must_not_be_written = true
+negative_controls_must_discard = true
+schema_valid = true
+budget_must_hold = true
+
+[telemetry.schema]
+version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 1000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "page.lsn",
+  "wal.flush.lsn",
+  "request.id",
+]

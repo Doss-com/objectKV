@@ -1,0 +1,80 @@
+schema_version = 1
+id = "cell-serving-authority-feed-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0036-serving-worker-base-plus-wal-recovery.md",
+  "../../rfcs/0037-authoritative-committed-envelope-feed.md",
+]
+dataset_generator = "deterministic-cell-serving-authority-feed-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 4096
+key_count = 2
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 48
+repeats = 1
+backend = "process-object-store-local-fs+publication-openraft+transaction-openraft"
+transaction_authority_nodes = 3
+publication_authority_nodes = 3
+serving_workers = 1
+expected_object_frontier = 8
+expected_target_version = 10
+
+[[lanes]]
+id = "cell-serving-authority-feed"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-serving-live-authority-feed"
+lane = "cell-serving-authority-feed"
+operation = "cell_serving_authority_feed_contract"
+
+[[workloads]]
+id = "cell-serving-drop-final-envelope"
+lane = "cell-serving-authority-feed"
+operation = "cell_serving_authority_feed_contract"
+negative_control = "drop_final_envelope"
+
+[hard_gates]
+correctness_anomalies = 0
+object_frontier = 8
+target_version = 10
+copied_wal_directories = 0
+transaction_authority_nodes = 3
+publication_authority_nodes = 3
+serving_worker_process_starts_per_seed = 1
+transaction_leader_kills_per_seed = 1
+worker_resolves_replicated_root = true
+worker_reads_live_authority = true
+authority_feed_linearizable = true
+base_tail_chain_valid = true
+observed_frontier_equals_target = true
+rows_equal_transaction_oracle = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

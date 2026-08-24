@@ -1,0 +1,218 @@
+schema_version = 1
+id = "postgres-smgr-write-process-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0063-postgres-wal-before-page-write.md",
+  "../../docs/research/postgres-18-6-storage-bridge.md",
+  "../../experiments/postgres-smgr-write-probe/README.md",
+]
+dataset_generator = "postgres-18.6-literal-smgr-write-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 1212416
+key_count = 149
+seeds = [724831]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 1800
+repeats = 1
+backend = "postgres-18.6-fork+external-cell-v0+versioned-slatedb-bases+signed-txlogs+publication-authority"
+postgres_revision = "724edf9bde9d356724ad384a2e196edc3c9f80f7"
+page_size_bytes = 8192
+relation_blocks = 148
+relation_rows = 2000
+commit_authority = "postgres-wal-with-subordinate-cell-page-commit"
+object_base_backend = "slatedb-local-filesystem-object-store"
+required_txlog_sets = 2
+txlog_nodes_per_set = 3
+txlog_quorum_per_set = 2
+publication_authority_processes = 3
+transaction_authority_external = true
+complete_relation_object_base_per_stable_sync = true
+publication_pinned_txlog_pop = true
+stable_root_allows_base_plus_certified_tail = true
+checkpoint_capture_triggers_complete_relation_objectification = true
+page_write_triggers_objectification = false
+incremental_objectification = false
+
+[[lanes]]
+id = "postgres-smgr-mutable-callback"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "postgres-smgr-write-checkpoint-restart"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_write_contract"
+
+[[workloads]]
+id = "postgres-smgr-stale-version"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_write_contract"
+negative_control = "stale_objectkv_version"
+
+[[workloads]]
+id = "postgres-smgr-wal-behind"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_write_contract"
+negative_control = "wal_behind_page"
+
+[[workloads]]
+id = "postgres-smgr-no-md-fallback"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_write_contract"
+
+[[workloads]]
+id = "postgres-smgr-atomic-current-view"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_write_contract"
+
+[[workloads]]
+id = "postgres-smgr-durable-service-restart"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_write_contract"
+durable_control = "restart_without_source_heap_then_write_then_restart"
+
+[[workloads]]
+id = "postgres-smgr-missing-txlog-quorum"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_write_contract"
+negative_control = "remove_two_historical_nodes_from_one_required_txlog_set"
+
+[[workloads]]
+id = "postgres-smgr-missing-base-object"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_write_contract"
+negative_control = "remove_one_live_sst_from_authenticated_object_closure"
+
+[[workloads]]
+id = "postgres-smgr-stable-checkpoint"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_stable_contract"
+durable_control = "checkpointer_publish_then_page_service_restart"
+
+[[workloads]]
+id = "postgres-smgr-stable-authority-unavailable"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_stable_contract"
+negative_control = "remove_publication_authority_before_checkpoint_sync"
+
+[[workloads]]
+id = "postgres-smgr-objectified-stable-checkpoint"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_stable_contract"
+durable_control = "complete_relation_base_publish_then_pop_every_required_txlog_set"
+
+[[workloads]]
+id = "postgres-smgr-post-pop-service-restart"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_stable_contract"
+durable_control = "restart_without_source_heap_or_retained_tail_then_write_checkpoint_restart"
+
+[[workloads]]
+id = "postgres-smgr-pop-authority-unavailable"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_stable_contract"
+negative_control = "objectify_hot_version_without_publication_capability_or_txlog_pop"
+
+[[workloads]]
+id = "postgres-smgr-lagging-base-stable-root"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_stable_contract"
+durable_control = "publish_target_from_older_base_plus_complete_certified_tail_then_restart_without_source_heap"
+
+[[workloads]]
+id = "postgres-smgr-checkpoint-captured-objectification"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_stable_contract"
+durable_control = "objectify_only_after_checkpoint_capture_then_activate_newest_ready_base"
+
+[[workloads]]
+id = "postgres-smgr-objectifier-authority-independence"
+lane = "postgres-smgr-mutable-callback"
+operation = "postgres_literal_smgr_stable_contract"
+negative_control = "remove_publication_authority_while_checkpoint_captured_objectification_completes"
+
+[hard_gates]
+correctness_anomalies = 0
+postgres_revision_exact = true
+main_fork_has_no_md_read_write_or_nblocks_fallback = true
+postgres_wal_flush_precedes_page_admission = true
+page_and_extent_commit_atomically = true
+objectkv_version_must_advance = true
+fresh_range_engine_must_reconstruct_commit = true
+postgres_restart_must_read_committed_value = true
+authoritative_nblocks_must_match = true
+local_heap_sha256_must_not_change = true
+current_view_selection_must_be_atomic = true
+current_selection_must_not_require_discovery_round_trip = true
+stale_explicit_version_must_still_refuse = true
+wal_behind_must_refuse = true
+durable_restart_must_not_read_source_heap = true
+durable_restart_must_verify_complete_object_closure = true
+every_required_txlog_set_must_have_unique_quorum_history = true
+every_recovered_txlog_record_must_have_required_certificates = true
+replayed_cell_envelopes_must_be_byte_exact = true
+post_recovery_write_must_commit = true
+second_service_restart_must_read_post_recovery_write = true
+missing_txlog_quorum_must_refuse_startup = true
+missing_base_object_must_refuse_startup = true
+checkpoint_sync_must_publish_recoverable_frontier = true
+stable_root_must_bind_postgres_wal_and_page_lsn = true
+stable_root_must_bind_base_closure_and_certified_txlog_frontier = true
+stable_root_must_be_selected_by_replicated_authority = true
+stable_root_must_survive_page_service_restart = true
+authority_unavailable_must_fail_checkpoint = true
+authority_unavailable_must_not_advance_stable_frontier = true
+stable_root_must_be_recoverable_from_base_plus_certified_tail = true
+txlog_pop_must_not_exceed_stable_object_frontier = true
+later_object_base_activation_must_shorten_certified_tail = true
+objectification_must_not_run_per_page_write = true
+objectification_must_not_wait_for_publication_authority = true
+object_base_must_bind_visible_row_digest = true
+durable_root_pointer_update_must_be_atomic = true
+transaction_authority_must_outlive_disposable_page_service = true
+published_root_must_authorize_every_required_txlog_pop = true
+every_txlog_node_must_persist_same_pop_frontier = true
+post_pop_restart_must_require_zero_tail_records = true
+post_pop_restart_must_not_read_source_heap = true
+post_pop_restart_must_accept_and_stabilize_new_write = true
+prior_published_root_must_validate_after_local_base_advances = true
+authority_unavailable_must_not_pop_newer_txlog_prefix = true
+negative_controls_must_discard = true
+schema_valid = true
+budget_must_hold = true
+
+[telemetry.schema]
+version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "page.lsn",
+  "wal.flush.lsn",
+  "request.id",
+  "trace.id",
+  "span.id",
+]

@@ -1,0 +1,101 @@
+schema_version = 1
+id = "cell-range-route-refresh-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0058-kv-runtime-exact-version-read.md",
+  "../../rfcs/0062-kv-runtime-routed-read-service.md",
+]
+dataset_generator = "deterministic-route-refresh-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 4096
+key_count = 9
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "operations"
+budget_limit = 18
+repeats = 1
+backend = "local-process+kv-runtime-route-refresh+authority-bound-view"
+worker_processes_per_seed = 1
+route_refreshes_per_seed = 1
+ranges_after_refresh = 2
+target_version = 8
+transport = "tcp-json-v1"
+cache_state = "process-warm"
+
+[[lanes]]
+id = "range-route-refresh"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "range-route-refresh-correct"
+lane = "range-route-refresh"
+operation = "range_route_refresh_process_contract"
+
+[[workloads]]
+id = "range-route-refresh-keep-stale-map"
+lane = "range-route-refresh"
+operation = "range_route_refresh_process_contract"
+negative_control = "keep_stale_map"
+
+[[workloads]]
+id = "range-route-refresh-change-snapshot-version"
+lane = "range-route-refresh"
+operation = "range_route_refresh_process_contract"
+negative_control = "change_snapshot_version"
+
+[[workloads]]
+id = "range-route-refresh-skip-second-range"
+lane = "range-route-refresh"
+operation = "range_route_refresh_process_contract"
+negative_control = "skip_second_range"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 3
+worker_processes_per_seed = 1
+worker_kills_per_seed = 1
+route_refreshes_per_seed = 1
+ranges_after_refresh = 2
+target_version_must_not_change = true
+ordered_scan_must_cover_all_ranges = true
+exact_canonical_replay = true
+negative_controls_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+
+[telemetry.schema]
+version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]

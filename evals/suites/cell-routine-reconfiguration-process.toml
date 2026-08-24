@@ -1,0 +1,67 @@
+schema_version = 1
+id = "cell-routine-reconfiguration-process-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0023-routine-voter-reconfiguration.md",
+]
+dataset_generator = "deterministic-seven-process-routine-reconfiguration-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 0
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 60
+repeats = 1
+backend = "process-local-fs"
+authority_nodes = 3
+initial_voters = 3
+replacement_nodes = 1
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+repair_protocol = "membership-epoch-snapshot-plus-suffix"
+
+[[lanes]]
+id = "routine-reconfiguration-process"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "routine-reconfiguration-process-correct"
+lane = "routine-reconfiguration-process"
+operation = "routine_reconfiguration_process_contract"
+
+[hard_gates]
+correctness_anomalies = 0
+authority_quorum_required = true
+fresh_storage_incarnation_required = true
+snapshot_plus_suffix_exact = true
+learner_ready_certificate_required = true
+membership_certificate_required = true
+membership_epoch_advances_once = true
+generation_unchanged = true
+removed_voter_fenced = true
+post_repair_commit_available = true
+replacement_restart_exact = true
+schema_valid = true
+budget_must_hold = true

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/result.schema.json",
+  "title": "objectKV evaluation result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "created_at",
+    "lane",
+    "suite",
+    "suite_hash",
+    "profile",
+    "candidate_commit",
+    "parent_commit",
+    "backend",
+    "budget",
+    "hard_gates",
+    "primary_metric",
+    "verdict",
+    "reason"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "lane": { "type": "string", "minLength": 1 },
+    "suite": { "type": "string", "minLength": 1 },
+    "suite_hash": { "type": "string", "minLength": 1 },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hash", "machine", "rustc", "lockfile_hash"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "hash": { "type": "string", "minLength": 1 },
+        "machine": { "type": "string", "minLength": 1 },
+        "rustc": { "type": "string", "minLength": 1 },
+        "lockfile_hash": { "type": "string", "minLength": 1 }
+      }
+    },
+    "candidate_commit": { "type": "string", "minLength": 7 },
+    "parent_commit": { "type": "string", "minLength": 7 },
+    "backend": { "type": "string", "minLength": 1 },
+    "seeds": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "uniqueItems": true
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "limit", "observed"],
+      "properties": {
+        "kind": { "enum": ["operations", "events", "seconds"] },
+        "limit": { "type": "number", "exclusiveMinimum": 0 },
+        "observed": { "type": "number", "minimum": 0 }
+      }
+    },
+    "hard_gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pass", "fail", "error"] },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "primary_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "unit", "direction", "samples", "median", "mad"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string", "minLength": 1 },
+        "direction": { "enum": ["higher", "lower"] },
+        "samples": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "number" }
+        },
+        "median": { "type": "number" },
+        "mad": { "type": "number", "minimum": 0 },
+        "incumbent_median": { "type": "number" }
+      }
+    },
+    "secondary_metrics": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "verdict": { "enum": ["keep", "discard", "inconclusive", "crash"] },
+    "reason": { "type": "string", "minLength": 1 },
+    "supersedes_run_id": { "type": "string", "minLength": 1 },
+    "artifact_refs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

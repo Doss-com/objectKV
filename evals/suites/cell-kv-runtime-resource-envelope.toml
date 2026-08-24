@@ -1,0 +1,118 @@
+schema_version = 1
+id = "cell-kv-runtime-resource-envelope-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0001-project-principles.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0036-serving-worker-base-plus-wal-recovery.md",
+  "../../rfcs/0056-kv-runtime-resource-envelope.md",
+]
+dataset_generator = "deterministic-kv-runtime-resource-envelope-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.accounted-v0]
+logical_bytes = 4608000
+key_count = 1000
+seeds = [1103, 2207, 3301]
+
+[profiles.accounted-v0]
+budget_kind = "operations"
+budget_limit = 100000.0
+repeats = 1
+backend = "model+accounted-resource-envelope"
+candidate_surface = "crates/okv-object/src/kv_runtime.rs,crates/okv-object/src/lib.rs,crates/okv-eval/src/main.rs"
+ram_limit_bytes = 536870912
+nvme_limit_bytes = 8589934592
+max_range_engines = 1000
+metadata_bytes_per_range = 512
+recent_mvcc_bytes_per_range = 4096
+process_ram_cache_request_bytes = 134217728
+process_nvme_cache_request_bytes = 2147483648
+soft_objectification_debt_bytes = 67108864
+hard_objectification_debt_bytes = 134217728
+
+[[lanes]]
+id = "kv-runtime-resource-envelope"
+primary_metric = "kv_runtime.fixed_ram_bytes_per_range"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "kv-runtime-density-1"
+lane = "kv-runtime-resource-envelope"
+operation = "kv_runtime_resource_envelope_contract"
+range_engine_count = 1
+
+[[workloads]]
+id = "kv-runtime-density-100"
+lane = "kv-runtime-resource-envelope"
+operation = "kv_runtime_resource_envelope_contract"
+range_engine_count = 100
+
+[[workloads]]
+id = "kv-runtime-density-1000"
+lane = "kv-runtime-resource-envelope"
+operation = "kv_runtime_resource_envelope_contract"
+range_engine_count = 1000
+
+[[workloads]]
+id = "kv-runtime-reserves-cache-per-range"
+lane = "kv-runtime-resource-envelope"
+operation = "kv_runtime_resource_envelope_contract"
+range_engine_count = 1000
+negative_control = "reserve_cache_per_range"
+
+[[workloads]]
+id = "kv-runtime-refuses-before-cache-eviction"
+lane = "kv-runtime-resource-envelope"
+operation = "kv_runtime_resource_envelope_contract"
+range_engine_count = 1000
+negative_control = "refuse_before_cache_eviction"
+
+[[workloads]]
+id = "kv-runtime-ignores-hard-debt"
+lane = "kv-runtime-resource-envelope"
+operation = "kv_runtime_resource_envelope_contract"
+range_engine_count = 1000
+negative_control = "ignore_hard_debt_limit"
+
+[[workloads]]
+id = "kv-runtime-skips-range-move"
+lane = "kv-runtime-resource-envelope"
+operation = "kv_runtime_resource_envelope_contract"
+range_engine_count = 1000
+negative_control = "skip_range_move"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 3
+range_engine_count_exact = true
+process_cache_is_shared = true
+fixed_range_accounting_is_linear = true
+accounted_ram_within_limit = true
+accounted_nvme_within_limit = true
+cache_evicted_before_refusal = true
+soft_debt_rate_limits = true
+hard_debt_refuses = true
+non_evictable_pressure_requests_objectification = true
+non_evictable_pressure_requests_range_move = true
+pressure_action_order_exact = true
+deterministic_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

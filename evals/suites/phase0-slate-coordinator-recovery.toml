@@ -1,0 +1,89 @@
+schema_version = 1
+id = "phase0-slate-coordinator-recovery-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0025-slatedb-separate-compaction-contract.md",
+  "../../rfcs/0026-slatedb-worker-process-reclaim.md",
+  "../../rfcs/0028-slatedb-coordinator-recovery-contract.md",
+  "../../docs/research/slatedb-seams-e016197.md",
+]
+dataset_generator = "deterministic-slate-coordinator-recovery-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-coordinator-recovery-8mib]
+logical_bytes = 8388608
+key_count = 8192
+seeds = [1103]
+
+[dataset.confirm-coordinator-recovery-8mib]
+logical_bytes = 8388608
+key_count = 8192
+seeds = [2207, 3301]
+
+[profiles.local-coordinator-recovery-8mib]
+budget_kind = "seconds"
+budget_limit = 180
+repeats = 1
+backend = "slatedb-local-fs-process"
+slatedb_revision = "e0161973d8d7ffdede7c44725729838811674e99"
+overwrite_rounds = 8
+compacted_timeout_millis = 15000
+completion_timeout_millis = 5000
+
+[profiles.confirm-coordinator-recovery-8mib]
+budget_kind = "seconds"
+budget_limit = 360
+repeats = 1
+backend = "slatedb-local-fs-process"
+slatedb_revision = "e0161973d8d7ffdede7c44725729838811674e99"
+overwrite_rounds = 8
+compacted_timeout_millis = 15000
+completion_timeout_millis = 5000
+
+[[lanes]]
+id = "slatedb-coordinator-recovery"
+primary_metric = "compaction.coordinator_recovery_duration"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "slatedb-coordinator-recovery"
+lane = "slatedb-coordinator-recovery"
+operation = "slatedb_phase0_coordinator_recovery_contract"
+
+[[workloads]]
+id = "slatedb-coordinator-recovery-missing-restart"
+lane = "slatedb-coordinator-recovery"
+operation = "slatedb_phase0_coordinator_recovery_contract"
+negative_control = "skip_coordinator_restart"
+
+[hard_gates]
+correctness_anomalies = 0
+coordinator_recovery_overwrite_l0_materialized = true
+compacted_output_persisted_before_coordinator_kill = true
+first_coordinator_process_killed = true
+manifest_unchanged_before_coordinator_restart = true
+replacement_coordinator_identity_fresh = true
+replacement_coordinator_committed_existing_output = true
+exact_latest_overwrite_after_coordinator_recovery = true
+metadata_bounded_reopen_after_coordinator_recovery = true
+first_cold_point_request_budget_after_coordinator_recovery = true
+first_cold_point_byte_budget_after_coordinator_recovery = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

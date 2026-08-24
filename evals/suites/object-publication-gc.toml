@@ -1,0 +1,96 @@
+schema_version = 1
+id = "object-publication-gc-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0004-object-store-correctness.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../docs/research/tigris-codebase-study.md",
+]
+dataset_generator = "deterministic-publication-reachability-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.model]
+logical_bytes = 8192
+key_count = 12
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.model-dev]
+budget_kind = "events"
+budget_limit = 50
+repeats = 1
+backend = "publication-gc-model"
+
+[[lanes]]
+id = "publication-gc-correctness"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "object-publication-reachability"
+lane = "publication-gc-correctness"
+operation = "object_publication_gc_contract"
+
+[[workloads]]
+id = "object-publication-pointer-before-block"
+lane = "publication-gc-correctness"
+operation = "object_publication_gc_contract"
+negative_control = "publish_pointer_before_blocks"
+
+[[workloads]]
+id = "object-publication-omit-intent"
+lane = "publication-gc-correctness"
+operation = "object_publication_gc_contract"
+negative_control = "omit_publication_intent"
+
+[[workloads]]
+id = "object-gc-trust-counter"
+lane = "publication-gc-correctness"
+operation = "object_publication_gc_contract"
+negative_control = "trust_accounting_counter"
+
+[[workloads]]
+id = "object-gc-trust-list"
+lane = "publication-gc-correctness"
+operation = "object_publication_gc_contract"
+negative_control = "trust_list_for_liveness"
+
+[[workloads]]
+id = "object-gc-incomplete-mark"
+lane = "publication-gc-correctness"
+operation = "object_publication_gc_contract"
+negative_control = "continue_incomplete_mark"
+
+[[workloads]]
+id = "object-gc-skip-delete-revalidation"
+lane = "publication-gc-correctness"
+operation = "object_publication_gc_contract"
+negative_control = "delete_without_revalidation"
+
+[hard_gates]
+correctness_anomalies = 0
+blocks_precede_visibility = true
+inflight_publication_is_rooted = true
+unknown_outcomes_resolve_by_identity = true
+gc_walk_is_complete = true
+accounting_counters_are_non_authoritative = true
+list_is_non_authoritative = true
+delete_plan_is_revalidated = true
+fresh_process_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true

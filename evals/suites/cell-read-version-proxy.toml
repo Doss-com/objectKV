@@ -1,0 +1,83 @@
+schema_version = 1
+id = "cell-read-version-proxy-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0002-version-and-mvcc-model.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0032-cell-read-value-and-real-time-witness.md",
+  "../../rfcs/0034-cell-read-version-proxy-causality.md",
+]
+dataset_generator = "deterministic-cell-read-version-proxy-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 300
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "operations"
+budget_limit = 1200
+repeats = 1
+backend = "process-local-fs"
+nodes = 3
+proxy_instances = 2
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+transaction_authority = "centralized-state-machine-v0"
+rounds_per_seed = 100
+
+[[lanes]]
+id = "cell-read-version-proxy"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-read-version-proxy"
+lane = "cell-read-version-proxy"
+operation = "cell_read_version_proxy_history_contract"
+rounds = 100
+
+[[workloads]]
+id = "cell-read-version-proxy-ignore-minimum"
+lane = "cell-read-version-proxy"
+operation = "cell_read_version_proxy_history_contract"
+rounds = 100
+negative_control = "ignore_session_minimum"
+
+[hard_gates]
+correctness_anomalies = 0
+proxy_instances = 2
+proxy_process_starts_per_seed = 2
+proxy_requests_per_seed = 300
+commits_per_seed = 100
+causal_handoffs_per_seed = 100
+minimum_version_violations = 0
+stale_value_observations = 0
+generations_exact = true
+minimum_versions_honored = true
+read_your_writes_exact = true
+real_time_order_exact = true
+leader_kill_after_commit = true
+restarted_node_converges = true
+commit_envelope_chain_valid = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

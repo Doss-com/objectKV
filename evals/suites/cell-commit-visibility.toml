@@ -1,0 +1,112 @@
+schema_version = 1
+id = "cell-commit-visibility-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0038-range-tagged-transaction-log.md",
+  "../../rfcs/0039-commit-visibility-after-tagged-log-durability.md",
+]
+dataset_generator = "deterministic-cell-commit-visibility-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 4096
+key_count = 1
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 84
+repeats = 1
+backend = "transaction-openraft+two-tagged-tlog-sets+process-proxies"
+transaction_authority_nodes = 3
+tagged_tlog_sets = 2
+tagged_tlog_nodes_per_set = 3
+tagged_tlog_quorum = 2
+commit_proxy_processes = 3
+commit_proxy_kills = 2
+serving_workers = 1
+expected_baseline_frontier = 10
+expected_target_version = 11
+
+[[lanes]]
+id = "cell-commit-visibility"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-commit-after-all-tagged-logs"
+lane = "cell-commit-visibility"
+operation = "cell_commit_visibility_contract"
+
+[[workloads]]
+id = "cell-commit-acknowledge-after-one-log-set"
+lane = "cell-commit-visibility"
+operation = "cell_commit_visibility_contract"
+negative_control = "acknowledge_after_one_log_set"
+
+[hard_gates]
+correctness_anomalies = 0
+transaction_authority_nodes = 3
+tagged_tlog_sets = 2
+tagged_tlog_nodes_per_set = 3
+tagged_tlog_quorum = 2
+commit_proxy_process_starts_per_seed = 3
+commit_proxy_process_kills_per_seed = 2
+serving_worker_process_starts_per_seed = 1
+ordered_state_not_visible = true
+one_log_set_not_visible = true
+all_required_log_sets_quorum_durable = true
+proxy_restart_recovers_same_envelope = true
+acknowledgement_waits_for_visibility = true
+visible_publish_exactly_once = true
+retry_returns_retained_outcome = true
+fresh_worker_reconstructs_visible_state = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

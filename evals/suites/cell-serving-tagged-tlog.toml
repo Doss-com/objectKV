@@ -1,0 +1,113 @@
+schema_version = 1
+id = "cell-serving-tagged-tlog-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0037-authoritative-committed-envelope-feed.md",
+  "../../rfcs/0038-range-tagged-transaction-log.md",
+]
+dataset_generator = "deterministic-cell-serving-tagged-tlog-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 4096
+key_count = 2
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 69
+repeats = 1
+backend = "process-object-store-local-fs+publication-openraft+transaction-openraft+tagged-tlog"
+transaction_authority_nodes = 3
+publication_authority_nodes = 3
+tagged_tlog_nodes = 3
+tagged_tlog_quorum = 2
+serving_workers = 1
+expected_object_frontier = 8
+expected_target_version = 10
+assigned_range_tag = 10
+
+[[lanes]]
+id = "cell-serving-tagged-tlog"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-serving-range-tagged-tlog"
+lane = "cell-serving-tagged-tlog"
+operation = "cell_serving_tagged_tlog_contract"
+
+[[workloads]]
+id = "cell-serving-omit-required-range-tag"
+lane = "cell-serving-tagged-tlog"
+operation = "cell_serving_tagged_tlog_contract"
+negative_control = "omit_required_range_tag"
+
+[hard_gates]
+correctness_anomalies = 0
+object_frontier = 8
+target_version = 10
+transaction_authority_nodes = 3
+publication_authority_nodes = 3
+tagged_tlog_nodes = 3
+tagged_tlog_quorum = 2
+tlog_process_kills_per_seed = 1
+serving_worker_process_starts_per_seed = 1
+worker_resolves_replicated_root = true
+tlog_append_quorum_durable = true
+tlog_private_roots_distinct = true
+required_range_tag_present = true
+retained_byte_limit_enforced = true
+survivor_quorum_matches = true
+base_tail_chain_valid = true
+observed_frontier_equals_target = true
+rows_equal_transaction_oracle = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

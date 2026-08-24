@@ -1,0 +1,146 @@
+schema_version = 1
+id = "postgres-page-bridge-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = ["../../docs/research/postgres-18-6-storage-bridge.md"]
+dataset_generator = "postgres-18.6-storage-contract-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
+
+[dataset.contract]
+logical_bytes = 0
+key_count = 18
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "seconds"
+budget_limit = 1800
+repeats = 1
+backend = "process-local-fs"
+postgres_revision = "724edf9bde9d356724ad384a2e196edc3c9f80f7"
+bridge_mode = "smgr-fork"
+commit_authority = "postgres-wal"
+
+[profiles.gcs-dev]
+budget_kind = "seconds"
+budget_limit = 3600
+repeats = 3
+backend = "gcs"
+postgres_revision = "724edf9bde9d356724ad384a2e196edc3c9f80f7"
+bridge_mode = "smgr-fork"
+commit_authority = "postgres-wal"
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+
+[[lanes]]
+id = "storage-contract"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "crash-recovery"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "postgres-compatibility"
+primary_metric = "compatibility.cases"
+statistic = "total"
+direction = "higher"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "relation-fork-contract"
+lane = "storage-contract"
+operation = "postgres_storage_contract"
+
+[[workloads]]
+id = "wal-checkpoint-crash-matrix"
+lane = "crash-recovery"
+operation = "postgres_crash_recovery_contract"
+faults = [
+  "kill_during_page_write",
+  "kill_during_checkpoint",
+  "lost_page_write_reply",
+  "empty_cache_restart",
+]
+
+[[workloads]]
+id = "postgres-18.6-regression-subset"
+lane = "postgres-compatibility"
+operation = "postgres_regression_contract"
+
+[[workloads]]
+id = "page-before-wal-poison"
+lane = "storage-contract"
+operation = "postgres_storage_contract"
+negative_control = "page_visible_before_wal"
+
+[[workloads]]
+id = "false-checkpoint-barrier-poison"
+lane = "crash-recovery"
+operation = "postgres_crash_recovery_contract"
+negative_control = "false_checkpoint_barrier"
+
+[[workloads]]
+id = "stale-page-lsn-poison"
+lane = "storage-contract"
+operation = "postgres_storage_contract"
+negative_control = "stale_page_lsn_overwrite"
+
+[[workloads]]
+id = "truncate-resurrection-poison"
+lane = "storage-contract"
+operation = "postgres_storage_contract"
+negative_control = "truncate_resurrection"
+
+[[workloads]]
+id = "double-authority-poison"
+lane = "postgres-compatibility"
+operation = "postgres_regression_contract"
+negative_control = "objectkv_commit_status_disagrees_with_postgres"
+
+[hard_gates]
+correctness_anomalies = 0
+postgres_revision_exact = true
+single_commit_authority = true
+wal_before_page = true
+checkpoint_barrier_exact = true
+acknowledged_transaction_recovered = true
+relation_lifecycle_exact = true
+temporary_and_unlogged_semantics_exact = true
+zero_unexpected_regression_failures = true
+exact_seed_replay = true
+semantic_operations_exercised = true
+schema_valid = true
+budget_must_hold = true
+telemetry_complete = true
+

@@ -1,0 +1,86 @@
+schema_version = 1
+id = "phase0-slate-external-compaction-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0024-slatedb-bounded-configuration-pass.md",
+  "../../rfcs/0025-slatedb-separate-compaction-contract.md",
+  "../../docs/research/slatedb-seams-e016197.md",
+]
+dataset_generator = "deterministic-slate-external-compaction-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-compaction-8mib]
+logical_bytes = 8388608
+key_count = 8192
+seeds = [1103]
+
+[dataset.confirm-compaction-8mib]
+logical_bytes = 8388608
+key_count = 8192
+seeds = [2207, 3301]
+
+[profiles.local-compaction-8mib]
+budget_kind = "seconds"
+budget_limit = 120
+repeats = 1
+backend = "slatedb-local-fs"
+slatedb_revision = "e0161973d8d7ffdede7c44725729838811674e99"
+flush_count = 8
+compaction_timeout_millis = 30000
+
+[profiles.confirm-compaction-8mib]
+budget_kind = "seconds"
+budget_limit = 240
+repeats = 1
+backend = "slatedb-local-fs"
+slatedb_revision = "e0161973d8d7ffdede7c44725729838811674e99"
+flush_count = 8
+compaction_timeout_millis = 30000
+
+[[lanes]]
+id = "slatedb-external-compaction"
+primary_metric = "compaction.write_amplification"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "slatedb-external-compaction"
+lane = "slatedb-external-compaction"
+operation = "slatedb_phase0_external_compaction_contract"
+
+[[workloads]]
+id = "slatedb-external-compaction-missing-worker"
+lane = "slatedb-external-compaction"
+operation = "slatedb_phase0_external_compaction_contract"
+negative_control = "skip_external_worker"
+
+[hard_gates]
+correctness_anomalies = 0
+initial_l0_flushes_materialized = true
+separate_compaction_roles_completed = true
+external_compaction_reduced_l0 = true
+external_compaction_created_sorted_run = true
+exact_dataset_after_external_compaction = true
+maintenance_object_io_accounted = true
+serving_reads_do_not_write = true
+metadata_bounded_reopen_after_compaction = true
+first_cold_point_request_budget_after_compaction = true
+first_cold_point_byte_budget_after_compaction = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

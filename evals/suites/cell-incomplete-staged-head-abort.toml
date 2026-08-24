@@ -1,0 +1,159 @@
+schema_version = 1
+id = "cell-incomplete-staged-head-abort-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0039-commit-visibility-after-tagged-log-durability.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0041-certified-staged-head-generation-takeover.md",
+  "../../rfcs/0042-incomplete-staged-head-fence-and-abort.md",
+]
+dataset_generator = "deterministic-cell-incomplete-staged-head-abort-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 4096
+key_count = 2
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 132
+repeats = 1
+backend = "generation-authority+transaction-openraft+tagged-tlog-fence-processes"
+generation_authority_nodes = 3
+previous_generation_voters = 3
+successor_generation_voters = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+tagged_log_fence_quorum = 2
+expected_baseline_frontier = 10
+expected_aborted_version = 11
+expected_successor_version = 12
+
+[[lanes]]
+id = "cell-incomplete-staged-head-abort"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-fence-and-abort-incomplete-staged-head"
+lane = "cell-incomplete-staged-head-abort"
+operation = "cell_incomplete_staged_head_abort_contract"
+
+[[workloads]]
+id = "cell-abort-before-successor-activation"
+lane = "cell-incomplete-staged-head-abort"
+operation = "cell_incomplete_staged_head_abort_contract"
+negative_control = "abort_during_recovery"
+
+[[workloads]]
+id = "cell-abort-with-single-absence-signer"
+lane = "cell-incomplete-staged-head-abort"
+operation = "cell_incomplete_staged_head_abort_contract"
+negative_control = "single_absence_signer"
+
+[[workloads]]
+id = "cell-abort-with-missing-log-set-fence"
+lane = "cell-incomplete-staged-head-abort"
+operation = "cell_incomplete_staged_head_abort_contract"
+negative_control = "missing_log_set_fence"
+
+[[workloads]]
+id = "cell-abort-with-forged-absence"
+lane = "cell-incomplete-staged-head-abort"
+operation = "cell_incomplete_staged_head_abort_contract"
+negative_control = "forged_absence_over_present_record"
+
+[[workloads]]
+id = "cell-abort-with-volatile-tlog-fence"
+lane = "cell-incomplete-staged-head-abort"
+operation = "cell_incomplete_staged_head_abort_contract"
+negative_control = "volatile_fence_after_restart"
+
+[[workloads]]
+id = "cell-reuses-aborted-sequence-or-chain"
+lane = "cell-incomplete-staged-head-abort"
+operation = "cell_incomplete_staged_head_abort_contract"
+negative_control = "reuse_aborted_sequence_or_chain"
+
+[hard_gates]
+correctness_anomalies = 0
+generation_authority_nodes = 3
+previous_generation_voters = 3
+successor_generation_voters = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+tagged_log_fence_quorum = 2
+incomplete_head_is_not_visible = true
+every_required_log_set_is_durably_fenced = true
+absence_quorum_intersects_write_quorum = true
+fence_statement_binds_recovery_identity = true
+fence_statement_binds_exact_old_envelope = true
+fence_attestations_are_policy_authenticated = true
+present_process_cannot_attest_absent = true
+fenced_process_rejects_old_generation_append = true
+fence_survives_process_restart = true
+abort_requires_active_successor_generation = true
+abort_requires_every_log_set_fence = true
+abort_requires_one_missing_durability_certificate = true
+abort_requires_one_absence_quorum = true
+abort_leaves_visible_frontier_unchanged = true
+abort_leaves_rows_unchanged = true
+abort_excludes_envelope_from_committed_history = true
+abort_changes_domain_generation_atomically = true
+abort_lost_reply_returns_retained_outcome = true
+aborted_transaction_cannot_restage_or_publish = true
+successor_consumes_next_sequence = true
+successor_chain_skips_aborted_envelope = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

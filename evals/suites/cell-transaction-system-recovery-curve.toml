@@ -1,0 +1,259 @@
+schema_version = 1
+id = "cell-transaction-system-recovery-curve-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0053-commit-proxy-generation-recovery.md",
+  "../../rfcs/0054-transaction-system-recovery-curve.md",
+]
+dataset_generator = "deterministic-transaction-system-recovery-curve-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 1
+key_count = 1
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 300.0
+repeats = 7
+backend = "local-process+replicated-authority+authenticated-tlog-inventory"
+sequencer_nodes = 3
+sequencer_quorum = 2
+tagged_log_write_quorum = 2
+candidate_surface = "crates/okv-consensus/src/transaction_system_recovery_curve.rs"
+
+[[lanes]]
+id = "transaction-system-recovery-curve"
+primary_metric = "recovery.transaction_system_duration"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "recovery.database_bytes_read"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "recovery-tail-256"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "tail-256"
+pending_tickets = 64
+retained_records_per_tlog = 256
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-tail-4096"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "tail-4096"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-tail-65536"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "tail-65536"
+pending_tickets = 64
+retained_records_per_tlog = 65536
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-pending-8"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "pending-8"
+pending_tickets = 8
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-pending-512"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "pending-512"
+pending_tickets = 512
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-topology-2x3"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "topology-2x3-r3"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 3
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-topology-2x5"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "topology-2x5-r9"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 5
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-topology-4x5"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "topology-4x5-r33"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 33
+tlog_sets = 4
+tlog_nodes_per_set = 5
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-database-1gib"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "database-1gib"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1073741824
+
+[[workloads]]
+id = "recovery-database-1pib"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+scale_class = "database-1pib"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1125899906842624
+
+[[workloads]]
+id = "recovery-scans-permanent-database"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+negative_control = "scan_permanent_database"
+scale_class = "control-database-scan"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1073741824
+
+[[workloads]]
+id = "recovery-trusts-one-tlog-set"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+negative_control = "trust_one_tlog_set"
+scale_class = "control-one-tlog-set"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-uses-quadratic-inventory-scan"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+negative_control = "quadratic_inventory_scan"
+scale_class = "control-quadratic-scan"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[[workloads]]
+id = "recovery-resumes-before-role-recruitment"
+lane = "transaction-system-recovery-curve"
+operation = "cell_transaction_system_recovery_curve"
+negative_control = "resume_before_role_recruitment"
+scale_class = "control-early-resume"
+pending_tickets = 64
+retained_records_per_tlog = 4096
+commit_proxy_roles = 3
+resolver_roles = 9
+tlog_sets = 2
+tlog_nodes_per_set = 3
+logical_database_bytes = 1099511627776
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_repeats = 7
+minimum_seeds = 3
+old_generation_fenced_before_inventory = true
+every_required_tlog_set_authenticated = true
+recovered_boundary_is_maximal_contiguous_quorum_prefix = true
+all_declared_successor_roles_recruited_before_resume = true
+successor_version_exceeds_old_issued_high_watermark = true
+permanent_database_bytes_read = 0
+inventory_scan_is_linear = true
+pending_classification_is_linear = true
+phase_receipts_complete = true
+duration_distribution_recorded = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

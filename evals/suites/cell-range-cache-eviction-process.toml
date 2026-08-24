@@ -1,0 +1,101 @@
+schema_version = 1
+id = "cell-range-cache-eviction-process-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0056-kv-runtime-resource-envelope.md",
+  "../../rfcs/0057-kv-runtime-physical-density.md",
+  "../../rfcs/0061-range-serving-performance-curve.md",
+]
+dataset_generator = "deterministic-shared-cache-eviction-process-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
+
+[dataset.local-process]
+logical_bytes = 2097152
+key_count = 64
+seeds = [1103, 2207, 3301]
+
+[dataset.gcs-dev]
+logical_bytes = 2097152
+key_count = 64
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 48
+repeats = 1
+backend = "local-process+authority-bound-slatedb+shared-bounded-cache"
+range_count = 8
+keys_per_range = 8
+value_bytes = 32768
+cache_limit_bytes = 196608
+cache_part_bytes = 65536
+decoded_cache_bytes = 65536
+worker_timeout_millis = 30000
+
+[profiles.gcs-dev]
+budget_kind = "events"
+budget_limit = 48
+repeats = 1
+backend = "gcs-process+authority-bound-slatedb+shared-bounded-cache"
+range_count = 8
+keys_per_range = 8
+value_bytes = 32768
+cache_limit_bytes = 196608
+cache_part_bytes = 65536
+decoded_cache_bytes = 65536
+worker_timeout_millis = 300000
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+
+[[lanes]]
+id = "range-cache-eviction"
+objective = "Preserve exact reads while many logical ranges churn one physically bounded disposable cache."
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "range-cache-eviction-correct"
+lane = "range-cache-eviction"
+operation = "range_cache_eviction_process_contract"
+
+[[workloads]]
+id = "range-cache-eviction-disable-bound"
+lane = "range-cache-eviction"
+operation = "range_cache_eviction_process_contract"
+negative_control = "disable_physical_bound"
+
+[[workloads]]
+id = "range-cache-eviction-skip-reread"
+lane = "range-cache-eviction"
+operation = "range_cache_eviction_process_contract"
+negative_control = "skip_reread"
+
+[[workloads]]
+id = "range-cache-eviction-accept-wrong"
+lane = "range-cache-eviction"
+operation = "range_cache_eviction_process_contract"
+negative_control = "accept_wrong_value"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 3
+shared_cache_roots = 1
+bounded_cache = true
+all_ranges_reread = true
+backend_refill_observed = true

@@ -1,0 +1,74 @@
+schema_version = 1
+id = "cell-process-transaction-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+]
+dataset_generator = "deterministic-cell-process-transaction-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 2
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 40
+repeats = 1
+backend = "process-local-fs"
+nodes = 3
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+transaction_authority = "centralized-state-machine-v0"
+state_machine_recovery = "retained-log-replay"
+
+[[lanes]]
+id = "semantic-commit-failover"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-process-transaction"
+lane = "semantic-commit-failover"
+operation = "cell_process_transaction_contract"
+
+[[workloads]]
+id = "cell-process-disable-dedup"
+lane = "semantic-commit-failover"
+operation = "cell_process_transaction_contract"
+negative_control = "disable_dedup"
+
+[hard_gates]
+correctness_anomalies = 0
+multi_key_atomicity = true
+stale_snapshot_conflict_rejected = true
+lost_reply_occurs_after_apply = true
+successor_recovers_durable_outcome = true
+duplicate_retry_returns_original_outcome = true
+conflicting_retry_rejected = true
+killed_node_replays_retained_log = true
+all_nodes_apply_same_log_index = true
+commit_envelope_chain_valid = true
+exact_fresh_process_replay = true
+semantic_operations_exercised = true
+schema_valid = true
+budget_must_hold = true

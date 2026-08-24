@@ -1,0 +1,95 @@
+schema_version = 1
+id = "persisted-wal-contract-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../crates/okv-wal/fixtures/frame-v1.hex",
+]
+dataset_generator = "deterministic-persisted-wal-scenario-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 0
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 50
+repeats = 1
+backend = "local-fs"
+replicas = 3
+quorum = 2
+
+[[lanes]]
+id = "commit-failover"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "persisted-wal-reopen"
+lane = "commit-failover"
+operation = "persisted_wal_contract"
+
+[[workloads]]
+id = "persisted-wal-ram-only-dedup"
+lane = "commit-failover"
+operation = "persisted_wal_contract"
+negative_control = "ram_only_dedup"
+
+[[workloads]]
+id = "persisted-wal-ack-before-quorum"
+lane = "commit-failover"
+operation = "persisted_wal_contract"
+negative_control = "ack_before_quorum"
+
+[[workloads]]
+id = "persisted-wal-trust-single-replica"
+lane = "commit-failover"
+operation = "persisted_wal_contract"
+negative_control = "trust_single_replica"
+
+[[workloads]]
+id = "persisted-wal-accept-torn-as-commit"
+lane = "commit-failover"
+operation = "persisted_wal_contract"
+negative_control = "accept_torn_as_commit"
+
+[[workloads]]
+id = "persisted-wal-skip-log-chain-validation"
+lane = "commit-failover"
+operation = "persisted_wal_contract"
+negative_control = "skip_log_chain_validation"
+
+[[workloads]]
+id = "persisted-wal-ignore-complete-corruption"
+lane = "commit-failover"
+operation = "persisted_wal_contract"
+negative_control = "ignore_complete_corruption"
+
+[hard_gates]
+correctness_anomalies = 0
+acknowledged_commit_loss = 0
+quorum_recovery_only = true
+complete_corruption_fails_closed = true
+log_chain_contiguous = true
+exact_seed_replay = true
+schema_valid = true
+budget_must_hold = true

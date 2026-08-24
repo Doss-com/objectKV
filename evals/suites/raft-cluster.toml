@@ -1,0 +1,81 @@
+schema_version = 1
+id = "openraft-cluster-contract-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+]
+dataset_generator = "deterministic-three-node-openraft-turmoil-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 0
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 30
+repeats = 1
+backend = "turmoil-local-fs"
+nodes = 3
+consensus_library = "openraft-0.9.25"
+transport = "turmoil-tcp"
+automatic_election = false
+automatic_heartbeat = false
+
+[[lanes]]
+id = "commit-failover"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "openraft-three-node-failover"
+lane = "commit-failover"
+operation = "raft_cluster_contract"
+
+[[workloads]]
+id = "openraft-cluster-ack-before-quorum"
+lane = "commit-failover"
+operation = "raft_cluster_contract"
+negative_control = "acknowledge_before_quorum"
+
+[[workloads]]
+id = "openraft-cluster-skip-successor-election"
+lane = "commit-failover"
+operation = "raft_cluster_contract"
+negative_control = "skip_successor_election"
+
+[[workloads]]
+id = "openraft-cluster-skip-restart-catchup"
+lane = "commit-failover"
+operation = "raft_cluster_contract"
+negative_control = "skip_restart_catchup"
+
+[hard_gates]
+correctness_anomalies = 0
+initial_commit_reaches_all_nodes = true
+isolated_leader_cannot_ack = true
+successor_commits_on_quorum = true
+stale_suffix_is_removed = true
+committed_state_survives_simulated_bounce = true
+restarted_node_catches_up = true
+exact_seed_replay = true
+schema_valid = true
+budget_must_hold = true

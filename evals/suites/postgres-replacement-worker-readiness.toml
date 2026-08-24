@@ -1,0 +1,117 @@
+schema_version = 1
+id = "postgres-replacement-worker-readiness-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0065-postgres-replacement-worker-readiness.md",
+  "../../rfcs/0064-incremental-object-delta-segments.md",
+]
+dataset_generator = "postgres-certified-replacement-worker-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 536870912
+key_count = 65536
+seeds = [724841, 724842, 724843, 724844, 724845]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 7200
+repeats = 1
+backend = "postgres-object-root-local-filesystem-process"
+changed_blocks = 1
+point_reads = 2
+range_pages = 8
+oracle_chunk_pages = 1024
+worker_timeout_millis = 600000
+max_rss_bytes = 1073741824
+cache_model = "process-cold-os-warm-local-filesystem"
+eager_production_open_unchanged = true
+
+[[lanes]]
+id = "postgres-replacement-worker-readiness"
+primary_metric = "postgres.worker_view_ready_duration"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "postgres-worker-ready-128-pages"
+lane = "postgres-replacement-worker-readiness"
+operation = "postgres_replacement_worker_readiness"
+relation_blocks = 128
+
+[[workloads]]
+id = "postgres-worker-ready-4096-pages"
+lane = "postgres-replacement-worker-readiness"
+operation = "postgres_replacement_worker_readiness"
+relation_blocks = 4096
+
+[[workloads]]
+id = "postgres-worker-ready-65536-pages"
+lane = "postgres-replacement-worker-readiness"
+operation = "postgres_replacement_worker_readiness"
+relation_blocks = 65536
+
+[[workloads]]
+id = "postgres-worker-ready-changed-manifest"
+lane = "postgres-replacement-worker-readiness"
+operation = "postgres_replacement_worker_readiness"
+relation_blocks = 128
+negative_control = "changed_manifest"
+
+[[workloads]]
+id = "postgres-worker-ready-changed-delta"
+lane = "postgres-replacement-worker-readiness"
+operation = "postgres_replacement_worker_readiness"
+relation_blocks = 128
+negative_control = "changed_delta"
+
+[[workloads]]
+id = "postgres-worker-ready-skipped-audit"
+lane = "postgres-replacement-worker-readiness"
+operation = "postgres_replacement_worker_readiness"
+relation_blocks = 128
+negative_control = "skip_closure_audit"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 5
+relation_size_points_must_equal = [128, 4096, 65536]
+process_boundary_must_be_exercised = true
+restart_must_not_read_source_heap = true
+manifest_identity_must_be_exact_before_view_ready = true
+delta_lineage_must_be_exact_before_view_ready = true
+first_delta_point_must_be_exact = true
+first_base_point_must_be_exact = true
+first_range_must_be_exact = true
+full_oracle_must_be_exact_and_bounded = true
+closure_audit_must_complete_after_reads = true
+eager_production_open_must_remain_unchanged = true
+changed_manifest_control_must_discard = true
+changed_delta_control_must_discard = true
+skipped_audit_control_must_discard = true
+semantic_replay_must_be_exact = true
+rss_bound_must_hold = true
+schema_valid = true
+budget_must_hold = true
+
+[calibration_targets]
+view_ready_max_to_min_ratio = 4.0
+view_ready_seconds_at_65536_pages = 0.1
+first_base_point_seconds = 0.005
+first_delta_point_seconds = 0.001
+max_worker_rss_bytes = 1073741824
+cloud_latency_claimed = false

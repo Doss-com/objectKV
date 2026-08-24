@@ -1,0 +1,101 @@
+schema_version = 1
+id = "phase0-slate-filesystem-scale-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0021-slatedb-phase0-filesystem-baseline.md",
+  "../../rfcs/0022-slatedb-filesystem-scale-curve.md",
+  "../../docs/research/slatedb-seams-e016197.md",
+]
+dataset_generator = "deterministic-slate-phase0-filesystem-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.scale-1mib]
+logical_bytes = 1048576
+key_count = 1024
+seeds = [1103]
+
+[dataset.scale-8mib]
+logical_bytes = 8388608
+key_count = 8192
+seeds = [1103]
+
+[dataset.scale-64mib]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103]
+
+[profiles.scale-1mib]
+budget_kind = "seconds"
+budget_limit = 30
+repeats = 1
+backend = "slatedb-local-fs"
+slatedb_revision = "e0161973d8d7ffdede7c44725729838811674e99"
+point_reads_per_seed = 32
+scan_rows_per_seed = 100
+cache_reset = "new-db-instance"
+
+[profiles.scale-8mib]
+budget_kind = "seconds"
+budget_limit = 60
+repeats = 1
+backend = "slatedb-local-fs"
+slatedb_revision = "e0161973d8d7ffdede7c44725729838811674e99"
+point_reads_per_seed = 32
+scan_rows_per_seed = 100
+cache_reset = "new-db-instance"
+
+[profiles.scale-64mib]
+budget_kind = "seconds"
+budget_limit = 300
+repeats = 1
+backend = "slatedb-local-fs"
+slatedb_revision = "e0161973d8d7ffdede7c44725729838811674e99"
+point_reads_per_seed = 32
+scan_rows_per_seed = 100
+cache_reset = "new-db-instance"
+
+[[lanes]]
+id = "slatedb-filesystem-scale"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "slatedb-filesystem-scale-baseline"
+lane = "slatedb-filesystem-scale"
+operation = "slatedb_phase0_filesystem_contract"
+
+[[workloads]]
+id = "slatedb-filesystem-scale-reuse-warm-db"
+lane = "slatedb-filesystem-scale"
+operation = "slatedb_phase0_filesystem_contract"
+negative_control = "reuse_warm_db_for_reopen"
+
+[hard_gates]
+correctness_anomalies = 0
+exact_dataset_after_flush = true
+warm_point_reads_exact = true
+ordered_scan_exact = true
+cold_point_reads_exact = true
+empty_cache_reopen_exact = true
+fresh_db_cache_on_reopen = true
+object_io_accounted = true
+deterministic_oracle_digest_repeated = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

@@ -1,0 +1,158 @@
+schema_version = 1
+id = "cell-tagged-log-chunked-live-repair-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0044-sustained-tagged-log-lag-and-ratekeeping.md",
+  "../../rfcs/0045-tagged-log-learner-repair-under-lag.md",
+  "../../rfcs/0046-replicated-tagged-log-policy-transition.md",
+  "../../rfcs/0047-resumable-chunked-tlog-repair-with-live-tail.md",
+]
+dataset_generator = "deterministic-cell-tagged-log-chunked-live-repair-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 65536
+key_count = 12
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 300
+repeats = 1
+backend = "transaction-openraft+signed-tagged-tlog-chunked-repair-processes"
+transaction_authority_nodes = 3
+transaction_authority_quorum = 2
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+failed_node_id = 1
+learner_node_id = 4
+policy_epoch = 1
+initial_object_frontier = 10
+base_frontier = 14
+target_frontier = 16
+base_records = 4
+tail_records = 2
+base_chunk_count = 3
+tail_chunk_count = 2
+
+[[lanes]]
+id = "cell-tagged-log-chunked-live-repair"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-resumes-chunked-tlog-repair-and-catches-live-tail"
+lane = "cell-tagged-log-chunked-live-repair"
+operation = "cell_tagged_log_chunked_live_repair_contract"
+
+[[workloads]]
+id = "cell-loses-acknowledged-repair-chunk"
+lane = "cell-tagged-log-chunked-live-repair"
+operation = "cell_tagged_log_chunked_live_repair_contract"
+negative_control = "volatile_chunk_resume"
+
+[[workloads]]
+id = "cell-finalizes-repair-with-missing-chunk"
+lane = "cell-tagged-log-chunked-live-repair"
+operation = "cell_tagged_log_chunked_live_repair_contract"
+negative_control = "missing_chunk"
+
+[[workloads]]
+id = "cell-overwrites-repair-chunk-on-retry"
+lane = "cell-tagged-log-chunked-live-repair"
+operation = "cell_tagged_log_chunked_live_repair_contract"
+negative_control = "conflicting_chunk_retry"
+
+[[workloads]]
+id = "cell-installs-gapped-repair-tail"
+lane = "cell-tagged-log-chunked-live-repair"
+operation = "cell_tagged_log_chunked_live_repair_contract"
+negative_control = "tail_gap"
+
+[[workloads]]
+id = "cell-certifies-stale-learner-readiness"
+lane = "cell-tagged-log-chunked-live-repair"
+operation = "cell_tagged_log_chunked_live_repair_contract"
+negative_control = "stale_readiness"
+
+[[workloads]]
+id = "cell-counts-uncaught-up-learner"
+lane = "cell-tagged-log-chunked-live-repair"
+operation = "cell_tagged_log_chunked_live_repair_contract"
+negative_control = "count_uncaught_up_learner"
+
+[[workloads]]
+id = "cell-recopies-base-during-tail-catchup"
+lane = "cell-tagged-log-chunked-live-repair"
+operation = "cell_tagged_log_chunked_live_repair_contract"
+negative_control = "full_recopy_tail"
+
+[hard_gates]
+correctness_anomalies = 0
+transaction_authority_nodes = 3
+transaction_authority_quorum = 2
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+base_snapshot_requires_active_quorum = true
+chunk_descriptor_is_immutable = true
+acknowledged_chunk_survives_restart = true
+exact_chunk_retry_is_idempotent = true
+conflicting_chunk_retry_is_rejected = true
+missing_chunk_blocks_finalize = true
+base_records_are_consecutive = true
+tail_begins_after_installed_position = true
+tail_records_are_consecutive = true
+tail_transfer_excludes_base_bytes = true
+combined_root_matches_current_readiness = true
+learner_remains_non_voting = true
+fresh_worker_uses_only_active_policy = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

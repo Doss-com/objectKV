@@ -1,0 +1,124 @@
+schema_version = 1
+id = "object-publication-worker-process-v1"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0014-real-object-publication-adapter.md",
+  "../../rfcs/0015-replicated-publication-authority.md",
+  "../../rfcs/0016-publication-worker-recovery.md",
+]
+dataset_generator = "deterministic-eleven-process-publication-recovery-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 4096
+key_count = 6
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 100
+repeats = 1
+backend = "object-store-local-fs+process-openraft"
+authority_nodes = 3
+generation_one_voters = 3
+generation_two_learners = 3
+publisher_processes = 1
+sweeper_processes = 1
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+stable_storage = "independent-node-journals"
+membership_handoff = "certificate-backed-quiesced-joint-log"
+object_effect_fence = "revision-guard-or-expiring-generation-grant"
+
+[[lanes]]
+id = "publication-worker-recovery"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "publication-worker-generation-handoff"
+lane = "publication-worker-recovery"
+operation = "publication_worker_process_contract"
+
+[[workloads]]
+id = "publication-worker-ack-before-quorum"
+lane = "publication-worker-recovery"
+operation = "publication_worker_process_contract"
+negative_control = "ack_authority_before_quorum"
+
+[[workloads]]
+id = "publication-worker-skip-named-verification"
+lane = "publication-worker-recovery"
+operation = "publication_worker_process_contract"
+negative_control = "resume_publisher_without_named_verification"
+
+[[workloads]]
+id = "publication-worker-reuse-stale-mark"
+lane = "publication-worker-recovery"
+operation = "publication_worker_process_contract"
+negative_control = "reuse_stale_mark_after_restart"
+
+[[workloads]]
+id = "publication-worker-drop-reservation-on-handoff"
+lane = "publication-worker-recovery"
+operation = "publication_worker_process_contract"
+negative_control = "drop_reservation_during_generation_handoff"
+
+[[workloads]]
+id = "publication-worker-retire-before-resolution"
+lane = "publication-worker-recovery"
+operation = "publication_worker_process_contract"
+negative_control = "retire_before_delete_outcome_resolution"
+
+[[workloads]]
+id = "publication-worker-reuse-stale-effect-grant"
+lane = "publication-worker-recovery"
+operation = "publication_worker_process_contract"
+negative_control = "reuse_stale_delete_effect_grant"
+
+[[workloads]]
+id = "publication-worker-reuse-old-data-directory"
+lane = "publication-worker-recovery"
+operation = "publication_worker_process_contract"
+negative_control = "reuse_old_data_directory_as_recovery"
+
+[hard_gates]
+correctness_anomalies = 0
+nine_worker_kill_boundaries_execute = true
+durable_intent_precedes_upload = true
+named_verification_precedes_root = true
+stable_worker_retry_has_one_effect = true
+conflicting_worker_identity_is_rejected = true
+incomplete_mark_cannot_reserve_delete = true
+stale_mark_cannot_reserve_delete = true
+reservation_survives_publisher_and_sweeper_restart = true
+reservation_survives_authority_leader_loss = true
+reservation_survives_generation_handoff = true
+stale_effect_grant_is_fenced_before_retirement = true
+delete_outcome_resolves_before_retirement = true
+post_delete_publication_recreates_bytes = true
+generation_two_uses_empty_directories = true
+old_generation_directories_are_not_read_after_cut = true
+empty_scratch_workers_recover_exactly = true
+inventory_and_counters_are_non_authoritative = true
+fresh_process_replay_is_byte_exact = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

@@ -1,0 +1,109 @@
+schema_version = 1
+id = "cell-snapshot-lease-authority-process-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0015-replicated-publication-authority.md",
+  "../../rfcs/0035-publication-gc-root-graph.md",
+  "../../rfcs/0059-kv-runtime-snapshot-floor-and-history-gc.md",
+  "../../rfcs/0060-replicated-snapshot-lease-authority.md",
+]
+dataset_generator = "deterministic-three-process-snapshot-lease-history-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 2
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 50
+repeats = 1
+backend = "process-local-fs"
+authority_nodes = 3
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+stable_storage = "independent-node-journals"
+lease_clock = "replicated-logical-tick"
+collection_frontier_scope = "cell-wide-top-level-root"
+
+[[lanes]]
+id = "snapshot-lease-authority"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "snapshot-lease-authority-failover"
+lane = "snapshot-lease-authority"
+operation = "snapshot_lease_authority_process_contract"
+
+[[workloads]]
+id = "snapshot-lease-authority-disable-dedup"
+lane = "snapshot-lease-authority"
+operation = "snapshot_lease_authority_process_contract"
+negative_control = "disable_request_dedup"
+
+[[workloads]]
+id = "snapshot-lease-authority-accept-backdated-lease"
+lane = "snapshot-lease-authority"
+operation = "snapshot_lease_authority_process_contract"
+negative_control = "accept_backdated_lease"
+
+[[workloads]]
+id = "snapshot-lease-authority-omit-lease-root-epoch"
+lane = "snapshot-lease-authority"
+operation = "snapshot_lease_authority_process_contract"
+negative_control = "omit_lease_root_epoch"
+
+[[workloads]]
+id = "snapshot-lease-authority-ignore-collection-range-epoch"
+lane = "snapshot-lease-authority"
+operation = "snapshot_lease_authority_process_contract"
+negative_control = "ignore_collection_range_epoch"
+
+[[workloads]]
+id = "snapshot-lease-authority-advance-without-publication"
+lane = "snapshot-lease-authority"
+operation = "snapshot_lease_authority_process_contract"
+negative_control = "advance_collection_without_publication"
+
+[[workloads]]
+id = "snapshot-lease-authority-ignore-collection-input-root"
+lane = "snapshot-lease-authority"
+operation = "snapshot_lease_authority_process_contract"
+negative_control = "ignore_collection_input_root"
+
+[hard_gates]
+correctness_anomalies = 0
+backdated_lease_rejected = true
+acquire_lost_reply_observed = true
+acquire_outcome_recovered_exactly = true
+renew_lost_reply_observed = true
+renew_outcome_recovered_exactly = true
+prepared_job_keeps_frozen_floor = true
+unpublished_worker_output_keeps_old_root = true
+publish_lost_reply_observed = true
+publish_outcome_recovered_exactly = true
+replacement_root_and_frontier_advance_once = true
+lease_closure_blocks_deletion = true
+lease_release_invalidates_stale_mark = true
+delete_reservation_survives_restart = true
+final_state_is_exact = true
+fresh_process_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true

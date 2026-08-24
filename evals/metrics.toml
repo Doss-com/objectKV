@@ -1,0 +1,1354 @@
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]
+
+[[metrics]]
+id = "correctness.failures"
+otel_name = "okv.eval.correctness.failures"
+kind = "counter"
+unit = "{failure}"
+description = "Correctness assertions that failed during one evaluation run"
+attributes = ["lane", "workload", "failure.class"]
+required_attributes = ["lane", "workload"]
+
+[[metrics]]
+id = "operation.duration"
+otel_name = "okv.eval.operation.duration"
+kind = "histogram"
+unit = "s"
+description = "End-to-end latency of a logical evaluation operation"
+attributes = ["lane", "workload", "operation", "backend", "cache.state", "result"]
+required_attributes = ["lane", "workload", "operation", "backend", "result"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "operation.throughput"
+otel_name = "okv.eval.operation.throughput"
+kind = "gauge"
+unit = "{operation}/s"
+description = "Completed logical operations per second"
+attributes = ["lane", "workload", "operation", "backend"]
+required_attributes = ["lane", "workload", "operation", "backend"]
+
+[[metrics]]
+id = "range_serving.view_open_duration"
+otel_name = "okv.eval.range_serving.view_open_duration"
+kind = "histogram"
+unit = "s"
+description = "Time to identity-check the authority base, open its immutable reader, authenticate the certified txLog suffix, and build the overlay"
+attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+required_attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "range_serving.tail_auth_duration"
+otel_name = "okv.eval.range_serving.tail_auth_duration"
+kind = "histogram"
+unit = "s"
+description = "Time to decode, authenticate, and index the certified txLog suffix"
+attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+required_attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+
+[[metrics]]
+id = "range_serving.publication_swap_duration"
+otel_name = "okv.eval.range_serving.publication_swap_duration"
+kind = "histogram"
+unit = "s"
+description = "Time holding the process-local compare-and-swap boundary to publish one fully authenticated immutable Range Engine view"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.000001, 0.0000025, 0.000005, 0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01]
+
+[[metrics]]
+id = "range_read.point_duration"
+otel_name = "okv.eval.range_read.point_duration"
+kind = "histogram"
+unit = "s"
+description = "End-to-end exact point-read latency over the KV Runtime routed-read transport"
+attributes = ["lane", "workload", "backend", "transport", "cache.state"]
+required_attributes = ["lane", "workload", "backend", "transport", "cache.state"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1]
+
+[[metrics]]
+id = "range_read.scan_duration"
+otel_name = "okv.eval.range_read.scan_duration"
+kind = "histogram"
+unit = "s"
+description = "End-to-end exact single-range scan latency over the KV Runtime routed-read transport"
+attributes = ["lane", "workload", "backend", "transport", "cache.state"]
+required_attributes = ["lane", "workload", "backend", "transport", "cache.state"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1]
+
+[[metrics]]
+id = "postgres.page_point_duration"
+otel_name = "okv.eval.postgres.page_point_duration"
+kind = "histogram"
+unit = "s"
+description = "End-to-end authenticated 8 KiB PostgreSQL page point-read latency through the routed KV Runtime"
+attributes = ["lane", "workload", "backend", "transport", "cache.state"]
+required_attributes = ["lane", "workload", "backend", "transport", "cache.state"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1]
+
+[[metrics]]
+id = "postgres.page_vector_duration"
+otel_name = "okv.eval.postgres.page_vector_duration"
+kind = "histogram"
+unit = "s"
+description = "End-to-end consecutive PostgreSQL page-read latency across routed KV Runtime ranges"
+attributes = ["lane", "workload", "backend", "transport", "cache.state"]
+required_attributes = ["lane", "workload", "backend", "transport", "cache.state"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1]
+
+[[metrics]]
+id = "range_serving.first_point_duration"
+otel_name = "okv.eval.range_serving.first_point_duration"
+kind = "histogram"
+unit = "s"
+description = "First exact point read through a process-cold but OS-warm authority-bound local view"
+attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+required_attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]
+
+[[metrics]]
+id = "range_serving.warm_point_p99"
+otel_name = "okv.eval.range_serving.warm_point_p99"
+kind = "histogram"
+unit = "s"
+description = "Within-view p99 exact point-read latency after the first read"
+attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+required_attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+boundaries = [0.000005, 0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05]
+
+[[metrics]]
+id = "range_serving.scan_throughput"
+otel_name = "okv.eval.range_serving.scan_throughput"
+kind = "gauge"
+unit = "{row}/s"
+description = "Exact ordered base-plus-tail rows emitted per second"
+attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+required_attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+
+[[metrics]]
+id = "range_serving.object_requests_per_read"
+otel_name = "okv.eval.range_serving.object_requests_per_read"
+kind = "gauge"
+unit = "{request}/{read}"
+description = "Observed local object-store API requests per measured point read"
+attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+required_attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+
+[[metrics]]
+id = "range_serving.peak_rss_bytes"
+otel_name = "okv.eval.range_serving.peak_rss_bytes"
+kind = "gauge"
+unit = "By"
+description = "Peak resident bytes reported by the isolated Range Engine curve worker"
+attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+required_attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+
+[[metrics]]
+id = "range_serving.cache_prepare_backend_requests"
+otel_name = "okv.eval.range_serving.cache_prepare_backend_requests"
+kind = "counter"
+unit = "{request}"
+description = "Backend object-store requests used to prepare a persistent local cache before decoded-RAM-cold reopen"
+attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+required_attributes = ["lane", "workload", "backend", "base.keys", "tail.records", "cache.mode", "phase"]
+
+[[metrics]]
+id = "resolver.throughput_ratio"
+otel_name = "okv.eval.resolver.throughput_ratio"
+kind = "gauge"
+unit = "1"
+description = "Paired split-resolver logical throughput divided by one-source throughput"
+attributes = ["lane", "workload", "backend", "distribution"]
+required_attributes = ["lane", "workload", "backend", "distribution"]
+
+[[metrics]]
+id = "object_store.requests"
+otel_name = "okv.eval.object_store.requests"
+kind = "counter"
+unit = "{request}"
+description = "Object-store API requests made by a workload"
+attributes = ["lane", "workload", "backend", "store", "api", "result"]
+required_attributes = ["lane", "workload", "backend", "store", "api", "result"]
+
+[[metrics]]
+id = "object_store.bytes"
+otel_name = "okv.eval.object_store.bytes"
+kind = "counter"
+unit = "By"
+description = "Bytes transferred through object-store APIs"
+attributes = ["lane", "workload", "backend", "store", "direction", "api"]
+required_attributes = ["lane", "workload", "backend", "direction"]
+
+[[metrics]]
+id = "cache.hit_ratio"
+otel_name = "okv.eval.cache.hit_ratio"
+kind = "gauge"
+unit = "1"
+description = "Fraction of logical reads satisfied by the selected cache"
+attributes = ["lane", "workload", "cache.tier", "backend"]
+required_attributes = ["lane", "workload", "cache.tier", "backend"]
+
+[[metrics]]
+id = "compaction.write_amplification"
+otel_name = "okv.eval.compaction.write_amplification"
+kind = "gauge"
+unit = "1"
+description = "Object bytes written per logical byte ingested"
+attributes = ["lane", "workload", "backend", "compaction.kind"]
+required_attributes = ["lane", "workload", "backend"]
+
+[[metrics]]
+id = "compaction.reclaim_duration"
+otel_name = "okv.eval.compaction.reclaim_duration"
+kind = "histogram"
+unit = "s"
+description = "Time from terminating a claimed compaction worker to committed completion by its replacement"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
+
+[[metrics]]
+id = "compaction.coordinator_recovery_duration"
+otel_name = "okv.eval.compaction.coordinator_recovery_duration"
+kind = "histogram"
+unit = "s"
+description = "Time from terminating a coordinator after worker output persistence to manifest commit by a replacement coordinator"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
+
+[[metrics]]
+id = "compaction.coordinator_fence_duration"
+otel_name = "okv.eval.compaction.coordinator_fence_duration"
+kind = "histogram"
+unit = "s"
+description = "Time from a newer coordinator epoch becoming durable until the stale coordinator exits"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "gc.orphan_collection_duration"
+otel_name = "okv.eval.gc.orphan_collection_duration"
+kind = "histogram"
+unit = "s"
+description = "Time to collect one aged immutable object absent from every authority root"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "objectification.lag"
+otel_name = "okv.eval.objectification.lag"
+kind = "histogram"
+unit = "s"
+description = "Time from committed WAL visibility to object-durable visibility"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
+
+[[metrics]]
+id = "commit.durable_duration"
+otel_name = "okv.eval.commit.durable_duration"
+kind = "histogram"
+unit = "s"
+description = "Time until an acknowledged commit satisfies its declared durability policy"
+attributes = ["lane", "workload", "durability", "topology", "result"]
+required_attributes = ["lane", "workload", "durability", "result"]
+boundaries = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+
+[[metrics]]
+id = "recovery.first_correct_read_duration"
+otel_name = "okv.eval.recovery.first_correct_read_duration"
+kind = "histogram"
+unit = "s"
+description = "Time from empty-cache process start to the first correct read"
+attributes = ["lane", "workload", "backend", "dataset.class", "result"]
+required_attributes = ["lane", "workload", "backend", "dataset.class", "result"]
+boundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
+
+[[metrics]]
+id = "recovery.membership_epoch"
+otel_name = "okv.eval.recovery.membership_epoch"
+kind = "gauge"
+unit = "{epoch}"
+description = "Monotonic voter-membership epoch inside one transaction-system generation"
+attributes = ["lane", "workload", "cell", "transaction_system"]
+required_attributes = ["lane", "workload", "cell", "transaction_system"]
+
+[[metrics]]
+id = "recovery.transaction_system_duration"
+otel_name = "okv.eval.recovery.transaction_system_duration"
+kind = "histogram"
+unit = "s"
+description = "Time from observed transaction-system role loss through successor admission"
+attributes = ["lane", "workload", "backend", "scale.class", "result"]
+required_attributes = ["lane", "workload", "backend", "scale.class", "result"]
+boundaries = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "recovery.phase_duration"
+otel_name = "okv.eval.recovery.phase_duration"
+kind = "histogram"
+unit = "s"
+description = "Wall duration of one declared transaction-system recovery phase"
+attributes = ["lane", "workload", "backend", "scale.class", "phase", "result"]
+required_attributes = ["lane", "workload", "backend", "scale.class", "phase", "result"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "recovery.inventory_bytes"
+otel_name = "okv.eval.recovery.inventory_bytes"
+kind = "counter"
+unit = "By"
+description = "Authenticated transaction-log inventory bytes examined during recovery"
+attributes = ["lane", "workload", "backend", "scale.class"]
+required_attributes = ["lane", "workload", "backend", "scale.class"]
+
+[[metrics]]
+id = "recovery.database_bytes_read"
+otel_name = "okv.eval.recovery.database_bytes_read"
+kind = "counter"
+unit = "By"
+description = "Permanent database bytes read by transaction-system generation recovery"
+attributes = ["lane", "workload", "backend", "scale.class", "source"]
+required_attributes = ["lane", "workload", "backend", "scale.class", "source"]
+
+[[metrics]]
+id = "recovery.work_units"
+otel_name = "okv.eval.recovery.work_units"
+kind = "gauge"
+unit = "{operation}"
+description = "Deterministic recovery work used to check bounded algorithmic scaling"
+attributes = ["lane", "workload", "backend", "scale.class", "work.kind"]
+required_attributes = ["lane", "workload", "backend", "scale.class", "work.kind"]
+
+[[metrics]]
+id = "range_move.durable_bytes_copied"
+otel_name = "okv.eval.range_move.durable_bytes_copied"
+kind = "counter"
+unit = "By"
+description = "Durable database bytes copied to move or split a logical range"
+attributes = ["lane", "workload", "backend", "move.kind"]
+required_attributes = ["lane", "workload", "backend", "move.kind"]
+
+[[metrics]]
+id = "transaction.commits"
+otel_name = "okv.eval.transaction.commits"
+kind = "counter"
+unit = "{transaction}"
+description = "Transactions committed by the workload"
+attributes = ["lane", "workload", "isolation", "result"]
+required_attributes = ["lane", "workload", "isolation", "result"]
+
+[[metrics]]
+id = "transaction.conflicts"
+otel_name = "okv.eval.transaction.conflicts"
+kind = "counter"
+unit = "{transaction}"
+description = "Transactions rejected for a declared conflict"
+attributes = ["lane", "workload", "isolation", "conflict.kind"]
+required_attributes = ["lane", "workload", "isolation", "conflict.kind"]
+
+[[metrics]]
+id = "serializability.constraints_checked"
+otel_name = "okv.eval.serializability.constraints_checked"
+kind = "counter"
+unit = "{constraint}"
+description = "Read-value and real-time history constraints checked by the serializability witness"
+attributes = ["lane", "workload", "constraint.kind", "result"]
+required_attributes = ["lane", "workload", "constraint.kind", "result"]
+
+[[metrics]]
+id = "frontier.commit_version"
+otel_name = "okv.eval.frontier.commit_version"
+kind = "gauge"
+unit = "{version}"
+description = "Latest transaction version committed by the cell authority"
+attributes = ["lane", "workload", "cell", "range"]
+required_attributes = ["lane", "workload", "cell", "range"]
+
+[[metrics]]
+id = "frontier.object_durable_version"
+otel_name = "okv.eval.frontier.object_durable_version"
+kind = "gauge"
+unit = "{version}"
+description = "Highest contiguous version covered by a verified published object closure"
+attributes = ["lane", "workload", "cell", "range"]
+required_attributes = ["lane", "workload", "cell", "range"]
+
+[[metrics]]
+id = "frontier.authority_snapshot_version"
+otel_name = "okv.eval.frontier.authority_snapshot_version"
+kind = "gauge"
+unit = "{version}"
+description = "Highest transaction-log version covered by the durable authority snapshot"
+attributes = ["lane", "workload", "cell", "range"]
+required_attributes = ["lane", "workload", "cell", "range"]
+
+[[metrics]]
+id = "frontier.safe_log_pop_version"
+otel_name = "okv.eval.frontier.safe_log_pop_version"
+kind = "gauge"
+unit = "{version}"
+description = "Highest version reclaimable from the bootstrap log under every recovery frontier"
+attributes = ["lane", "workload", "cell", "range"]
+required_attributes = ["lane", "workload", "cell", "range"]
+
+[[metrics]]
+id = "telemetry.dropped"
+otel_name = "okv.eval.telemetry.dropped"
+kind = "counter"
+unit = "{measurement}"
+description = "Measurements rejected or dropped by the eval telemetry path"
+attributes = ["signal", "reason"]
+required_attributes = ["signal", "reason"]
+
+[[metrics]]
+id = "correctness.anomalies"
+otel_name = "okv.eval.correctness.anomalies"
+kind = "counter"
+unit = "{anomaly}"
+description = "Histories or results rejected by the serving-model correctness oracle"
+attributes = ["lane", "workload", "oracle", "anomaly.class"]
+required_attributes = ["lane", "workload", "oracle", "anomaly.class"]
+
+[[metrics]]
+id = "snapshot_lease.active"
+otel_name = "okv.eval.snapshot_lease.active"
+kind = "gauge"
+unit = "{lease}"
+description = "Active durable snapshot leases after one authority history"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "snapshot_lease.minimum_readable_version"
+otel_name = "okv.eval.snapshot_lease.minimum_readable_version"
+kind = "gauge"
+unit = "{version}"
+description = "Monotonic minimum snapshot version admitted by the authority"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "snapshot_lease.clock_tick"
+otel_name = "okv.eval.snapshot_lease.clock_tick"
+kind = "gauge"
+unit = "{tick}"
+description = "Replicated logical lease clock after one authority history"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "mvcc_gc.prepared_jobs"
+otel_name = "okv.eval.mvcc_gc.prepared_jobs"
+kind = "gauge"
+unit = "{job}"
+description = "Prepared MVCC collection jobs retained by the publication authority"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "mvcc_gc.collected_through"
+otel_name = "okv.eval.mvcc_gc.collected_through"
+kind = "gauge"
+unit = "{version}"
+description = "Cell-wide version physically collected through exact root publication"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "mvcc_gc.root_epoch"
+otel_name = "okv.eval.mvcc_gc.root_epoch"
+kind = "gauge"
+unit = "{epoch}"
+description = "Publication root-intent epoch fencing stale delete marks"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "object_store.estimated_cost"
+otel_name = "okv.eval.object_store.estimated_cost"
+kind = "counter"
+unit = "USD"
+description = "Estimated object API and transfer cost under a pinned price snapshot"
+attributes = ["lane", "workload", "backend", "price.snapshot"]
+required_attributes = ["lane", "workload", "backend", "price.snapshot"]
+
+[[metrics]]
+id = "storage.amplification"
+otel_name = "okv.eval.storage.amplification"
+kind = "gauge"
+unit = "1"
+description = "Durable physical bytes divided by live logical bytes"
+attributes = ["lane", "workload", "backend", "format"]
+required_attributes = ["lane", "workload", "backend", "format"]
+
+[[metrics]]
+id = "wal.retained_bytes"
+otel_name = "okv.eval.wal.retained_bytes"
+kind = "gauge"
+unit = "By"
+description = "Committed WAL bytes retained above the object durable watermark"
+attributes = ["lane", "workload", "topology", "fault"]
+required_attributes = ["lane", "workload", "topology"]
+
+[[metrics]]
+id = "availability.success_ratio"
+otel_name = "okv.eval.availability.success_ratio"
+kind = "gauge"
+unit = "1"
+description = "Fraction of attempted operations that complete within the declared contract"
+attributes = ["lane", "workload", "operation", "fault", "backend"]
+required_attributes = ["lane", "workload", "operation", "backend"]
+
+[[metrics]]
+id = "query.result_recall"
+otel_name = "okv.eval.query.result_recall"
+kind = "gauge"
+unit = "1"
+description = "Fraction of oracle result identities returned by a query"
+attributes = ["lane", "workload", "query.class", "backend"]
+required_attributes = ["lane", "workload", "query.class", "backend"]
+
+[[metrics]]
+id = "query.result_exact"
+otel_name = "okv.eval.query.result_exact"
+kind = "gauge"
+unit = "1"
+description = "One only when canonical row multisets, values, duplicates, deletes, and aggregates equal the oracle"
+attributes = ["lane", "workload", "query.class", "backend", "oracle"]
+required_attributes = ["lane", "workload", "query.class", "backend", "oracle"]
+
+[[metrics]]
+id = "snapshot.freshness_lag"
+otel_name = "okv.eval.snapshot.freshness_lag"
+kind = "histogram"
+unit = "s"
+description = "Time between the latest committed version and the query-visible covered version"
+attributes = ["lane", "workload", "consumer", "format", "result"]
+required_attributes = ["lane", "workload", "consumer", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 300.0]
+
+[[metrics]]
+id = "htap.tail_rows"
+otel_name = "okv.eval.htap.tail_rows"
+kind = "gauge"
+unit = "{row}"
+description = "Analytical tail rows processed to produce an exact snapshot"
+attributes = ["lane", "workload", "query.class", "backend", "base.format"]
+required_attributes = ["lane", "workload", "query.class", "backend", "base.format"]
+
+[[metrics]]
+id = "htap.tail_bytes"
+otel_name = "okv.eval.htap.tail_bytes"
+kind = "gauge"
+unit = "By"
+description = "Analytical tail bytes processed to produce an exact snapshot"
+attributes = ["lane", "workload", "query.class", "backend", "base.format"]
+required_attributes = ["lane", "workload", "query.class", "backend", "base.format"]
+
+[[metrics]]
+id = "htap.peak_memory"
+otel_name = "okv.eval.htap.peak_memory"
+kind = "gauge"
+unit = "By"
+description = "Peak operator memory while producing an exact analytical snapshot"
+attributes = ["lane", "workload", "query.class", "backend", "merge.kind"]
+required_attributes = ["lane", "workload", "query.class", "backend", "merge.kind"]
+
+[[metrics]]
+id = "htap.spill_bytes"
+otel_name = "okv.eval.htap.spill_bytes"
+kind = "counter"
+unit = "By"
+description = "Bytes spilled by the analytical snapshot overlay"
+attributes = ["lane", "workload", "query.class", "backend", "merge.kind"]
+required_attributes = ["lane", "workload", "query.class", "backend", "merge.kind"]
+
+[[metrics]]
+id = "format.pruning_ratio"
+otel_name = "okv.eval.format.pruning_ratio"
+kind = "gauge"
+unit = "1"
+description = "Fraction of physical blocks or row groups skipped by metadata pruning"
+attributes = ["lane", "workload", "format", "predicate.class"]
+required_attributes = ["lane", "workload", "format", "predicate.class"]
+
+[[metrics]]
+id = "compatibility.cases"
+otel_name = "okv.eval.compatibility.cases"
+kind = "counter"
+unit = "{case}"
+description = "Compatibility cases completed by declared suite, feature class, and status"
+attributes = ["lane", "workload", "compat.suite", "feature.class", "status"]
+required_attributes = ["lane", "workload", "compat.suite", "feature.class", "status"]
+
+[[metrics]]
+id = "postgres.wal_durable_lsn"
+otel_name = "okv.eval.postgres.wal_durable_lsn"
+kind = "gauge"
+unit = "By"
+description = "Highest PostgreSQL LSN known durable under the selected WAL policy"
+attributes = ["lane", "workload", "backend", "timeline"]
+required_attributes = ["lane", "workload", "backend", "timeline"]
+
+[[metrics]]
+id = "postgres.page_durable_lsn"
+otel_name = "okv.eval.postgres.page_durable_lsn"
+kind = "gauge"
+unit = "By"
+description = "Highest PostgreSQL page LSN covered by a verified objectKV storage barrier"
+attributes = ["lane", "workload", "backend", "fork.class"]
+required_attributes = ["lane", "workload", "backend", "fork.class"]
+
+[[metrics]]
+id = "postgres.checkpoint_redo_lsn"
+otel_name = "okv.eval.postgres.checkpoint_redo_lsn"
+kind = "gauge"
+unit = "By"
+description = "PostgreSQL redo LSN recorded by the checkpoint under evaluation"
+attributes = ["lane", "workload", "backend", "timeline"]
+required_attributes = ["lane", "workload", "backend", "timeline"]
+
+[[metrics]]
+id = "postgres.checkpoint_duration"
+otel_name = "okv.eval.postgres.checkpoint.duration"
+kind = "histogram"
+unit = "s"
+description = "End-to-end PostgreSQL checkpoint duration including page write and stable sync"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "postgres.stable_sync_duration"
+otel_name = "okv.eval.postgres.stable_sync.duration"
+kind = "histogram"
+unit = "s"
+description = "Time from PostgreSQL invoking objectKV sync until replicated root read-back"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "postgres.stable_lag_versions"
+otel_name = "okv.eval.postgres.stable_lag_versions"
+kind = "gauge"
+unit = "{version}"
+description = "Hot objectKV version minus authority-selected stable objectKV version"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.stable_object_frontier"
+otel_name = "okv.eval.postgres.stable_object_frontier"
+kind = "gauge"
+unit = "{version}"
+description = "Immutable object-base frontier O named by the authority-selected stable PostgreSQL root"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.stable_publication_revision"
+otel_name = "okv.eval.postgres.stable_publication_revision"
+kind = "gauge"
+unit = "{revision}"
+description = "Replicated publication-authority index selecting the stable PostgreSQL root"
+attributes = ["lane", "workload", "backend", "authority.term"]
+required_attributes = ["lane", "workload", "backend", "authority.term"]
+
+[[metrics]]
+id = "postgres.objectification_duration"
+otel_name = "okv.eval.postgres.objectification.duration"
+kind = "histogram"
+unit = "s"
+description = "Time to build and authenticate one complete immutable PostgreSQL relation base"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "postgres.objectification_ready_version"
+otel_name = "okv.eval.postgres.objectification_ready_version"
+kind = "gauge"
+unit = "{version}"
+description = "Newest complete immutable PostgreSQL relation base ready for later atomic activation"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.objectification_lag_versions"
+otel_name = "okv.eval.postgres.objectification_lag_versions"
+kind = "gauge"
+unit = "{version}"
+description = "Hot objectKV version minus the newest ready immutable PostgreSQL relation base"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.objectified_bytes"
+otel_name = "okv.eval.postgres.objectified_bytes"
+kind = "counter"
+unit = "By"
+description = "Logical PostgreSQL relation bytes rewritten into a complete immutable object base"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.object_delta_segments"
+otel_name = "okv.eval.postgres.object_delta_segments"
+kind = "counter"
+unit = "{segment}"
+description = "Immutable object delta segments selected by PostgreSQL durable roots"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.object_delta_bytes"
+otel_name = "okv.eval.postgres.object_delta_bytes"
+kind = "counter"
+unit = "By"
+description = "Encoded bytes written into immutable PostgreSQL object delta segments"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.object_delta_materialization_duration"
+otel_name = "okv.eval.postgres.object_delta_materialization.duration"
+kind = "histogram"
+unit = "s"
+description = "Time to encode, content-address, sync, and authenticate one immutable PostgreSQL object delta"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+
+[[metrics]]
+id = "postgres.object_delta_activation_duration"
+otel_name = "okv.eval.postgres.object_delta_activation.duration"
+kind = "histogram"
+unit = "s"
+description = "Time to authenticate and atomically activate one staged PostgreSQL object delta"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+
+[[metrics]]
+id = "postgres.object_delta_restart_duration"
+otel_name = "okv.eval.postgres.object_delta_restart.duration"
+kind = "histogram"
+unit = "s"
+description = "Time to authenticate a full base plus selected PostgreSQL object deltas and serve the exact reopened snapshot"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "postgres.object_delta_end_to_end_duration"
+otel_name = "okv.eval.postgres.object_delta_end_to_end.duration"
+kind = "histogram"
+unit = "s"
+description = "Time to materialize, authenticate, and activate one immutable PostgreSQL object delta"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "postgres.full_base_rewrite_duration"
+otel_name = "okv.eval.postgres.full_base_rewrite.duration"
+kind = "histogram"
+unit = "s"
+description = "Reference time to materialize the same final PostgreSQL relation state as a replacement immutable full base"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "postgres.full_base_rewrite_bytes"
+otel_name = "okv.eval.postgres.full_base_rewrite_bytes"
+kind = "counter"
+unit = "By"
+description = "Reference object bytes written to materialize the same final PostgreSQL relation state as a replacement full base"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.delta_to_full_rewrite_bytes_ratio"
+otel_name = "okv.eval.postgres.delta_to_full_rewrite_bytes_ratio"
+kind = "gauge"
+unit = "1"
+description = "Immutable PostgreSQL delta bytes divided by reference replacement full-base bytes for the same final state"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.delta_to_full_rewrite_duration_ratio"
+otel_name = "okv.eval.postgres.delta_to_full_rewrite_duration_ratio"
+kind = "gauge"
+unit = "1"
+description = "Immutable PostgreSQL delta materialization plus activation time divided by isolated replacement full-base materialization time"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.relation_pages"
+otel_name = "okv.eval.postgres.relation_pages"
+kind = "gauge"
+unit = "{page}"
+description = "Logical PostgreSQL relation pages in one object-delta economics subject"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.relation_bytes"
+otel_name = "okv.eval.postgres.relation_bytes"
+kind = "gauge"
+unit = "By"
+description = "Logical PostgreSQL relation bytes in one object-delta economics subject"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.worker_root_load_duration"
+otel_name = "okv.eval.postgres.worker_root_load.duration"
+kind = "histogram"
+unit = "s"
+description = "Time in a fresh replacement worker to load and validate the durable PostgreSQL root and base descriptor"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "postgres.worker_delta_auth_duration"
+otel_name = "okv.eval.postgres.worker_delta_auth.duration"
+kind = "histogram"
+unit = "s"
+description = "Time in a fresh replacement worker to read and authenticate the complete selected PostgreSQL object-delta lineage"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "postgres.worker_view_ready_duration"
+otel_name = "okv.eval.postgres.worker_view_ready.duration"
+kind = "histogram"
+unit = "s"
+description = "Time in a fresh replacement worker from validated descriptors through one exact manifest-bound view, excluding full closure audit"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "postgres.worker_first_delta_point_duration"
+otel_name = "okv.eval.postgres.worker_first_delta_point.duration"
+kind = "histogram"
+unit = "s"
+description = "First exact PostgreSQL page point served from the authenticated resident object-delta overlay"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1]
+
+[[metrics]]
+id = "postgres.worker_first_base_point_duration"
+otel_name = "okv.eval.postgres.worker_first_base_point.duration"
+kind = "histogram"
+unit = "s"
+description = "First exact PostgreSQL page point served from the authority-selected immutable object base"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]
+
+[[metrics]]
+id = "postgres.worker_first_range_duration"
+otel_name = "okv.eval.postgres.worker_first_range.duration"
+kind = "histogram"
+unit = "s"
+description = "First bounded ordered PostgreSQL page range served from the exact base-plus-delta snapshot"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5]
+
+[[metrics]]
+id = "postgres.worker_full_oracle_duration"
+otel_name = "okv.eval.postgres.worker_full_oracle.duration"
+kind = "histogram"
+unit = "s"
+description = "Time for the bounded-memory exact full-relation oracle after replacement-worker readiness"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "postgres.worker_closure_audit_duration"
+otel_name = "okv.eval.postgres.worker_closure_audit.duration"
+kind = "histogram"
+unit = "s"
+description = "Time to reread and hash the complete manifest and live-SST closure after the worker begins measured reads"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+boundaries = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "postgres.worker_peak_rss_bytes"
+otel_name = "okv.eval.postgres.worker_peak_rss_bytes"
+kind = "gauge"
+unit = "By"
+description = "Peak resident bytes reported by one fresh PostgreSQL replacement-worker process"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+
+[[metrics]]
+id = "postgres.worker_closure_bytes"
+otel_name = "okv.eval.postgres.worker_closure_bytes"
+kind = "gauge"
+unit = "By"
+description = "Physical manifest and live-SST bytes selected for the complete replacement-worker closure audit"
+attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+required_attributes = ["lane", "workload", "backend", "result", "relation.pages", "phase"]
+
+[[metrics]]
+id = "provider_bound.view_ready_duration"
+otel_name = "okv.eval.provider_bound.view_ready.duration"
+kind = "histogram"
+unit = "s"
+description = "Time to validate and open one authority-selected provider-revision-bound range view"
+attributes = ["lane", "workload", "backend", "cache.state", "result", "phase"]
+required_attributes = ["lane", "workload", "backend", "cache.state", "result", "phase"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "provider_bound.first_point_duration"
+otel_name = "okv.eval.provider_bound.first_point.duration"
+kind = "histogram"
+unit = "s"
+description = "First exact point-read latency through one provider-revision-bound range view"
+attributes = ["lane", "workload", "backend", "cache.state", "result", "phase"]
+required_attributes = ["lane", "workload", "backend", "cache.state", "result", "phase"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "provider_bound.first_range_duration"
+otel_name = "okv.eval.provider_bound.first_range.duration"
+kind = "histogram"
+unit = "s"
+description = "First exact bounded range-read latency through one provider-revision-bound range view"
+attributes = ["lane", "workload", "backend", "cache.state", "result", "phase"]
+required_attributes = ["lane", "workload", "backend", "cache.state", "result", "phase"]
+boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "provider_bound.object_requests"
+otel_name = "okv.eval.provider_bound.object_requests"
+kind = "counter"
+unit = "{request}"
+description = "Object-store requests issued through the provider-bound view by API and cache state"
+attributes = ["lane", "workload", "backend", "cache.state", "api", "result"]
+required_attributes = ["lane", "workload", "backend", "cache.state", "api", "result"]
+
+[[metrics]]
+id = "provider_bound.object_bytes"
+otel_name = "okv.eval.provider_bound.object_bytes"
+kind = "counter"
+unit = "By"
+description = "Object-store and persistent-cache bytes read through the provider-bound view"
+attributes = ["lane", "workload", "backend", "cache.state", "source", "result"]
+required_attributes = ["lane", "workload", "backend", "cache.state", "source", "result"]
+
+[[metrics]]
+id = "provider_bound.revision_checks"
+otel_name = "okv.eval.provider_bound.revision_checks"
+kind = "counter"
+unit = "{check}"
+description = "Exact provider-revision checks attempted by the provider-bound view"
+attributes = ["lane", "workload", "backend", "cache.state", "result"]
+required_attributes = ["lane", "workload", "backend", "cache.state", "result"]
+
+[[metrics]]
+id = "provider_bound.estimated_cost"
+otel_name = "okv.eval.provider_bound.estimated_cost"
+kind = "counter"
+unit = "USD"
+description = "Estimated request cost for the provider-bound read workload under a pinned price snapshot"
+attributes = ["lane", "workload", "backend", "cache.state", "price.snapshot", "cost.class"]
+required_attributes = ["lane", "workload", "backend", "cache.state", "price.snapshot", "cost.class"]
+
+[[metrics]]
+id = "postgres.objectification_input_bytes"
+otel_name = "okv.eval.postgres.objectification_input_bytes"
+kind = "counter"
+unit = "By"
+description = "Logical changed page and extent bytes consumed by incremental objectification"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.objectification_rewrite_ratio"
+otel_name = "okv.eval.postgres.objectification_rewrite_ratio"
+kind = "gauge"
+unit = "1"
+description = "Encoded incremental object bytes divided by logical changed page and extent bytes"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.object_delta_layers"
+otel_name = "okv.eval.postgres.object_delta_layers"
+kind = "gauge"
+unit = "{layer}"
+description = "Selected immutable delta layers above the current complete PostgreSQL base"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.object_compaction_debt_bytes"
+otel_name = "okv.eval.postgres.object_compaction_debt_bytes"
+kind = "gauge"
+unit = "By"
+description = "Selected immutable delta bytes awaiting compaction into a replacement full base"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.txlog_popped_through"
+otel_name = "okv.eval.postgres.txlog_popped_through"
+kind = "gauge"
+unit = "{version}"
+description = "Minimum publication-authorized pop frontier across every required PostgreSQL txLog set"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "postgres.txlog_retained_bytes"
+otel_name = "okv.eval.postgres.txlog_retained_bytes"
+kind = "gauge"
+unit = "By"
+description = "Retained txLog bytes after object-base publication and any authorized pop"
+attributes = ["lane", "workload", "backend", "log.set", "result"]
+required_attributes = ["lane", "workload", "backend", "log.set", "result"]
+
+[[metrics]]
+id = "telemetry.export_bytes"
+otel_name = "okv.eval.telemetry.export_bytes"
+kind = "counter"
+unit = "By"
+description = "Encoded telemetry bytes exported by signal"
+attributes = ["signal", "exporter", "result"]
+required_attributes = ["signal", "exporter", "result"]
+
+[[metrics]]
+id = "range.hotspot_ratio"
+otel_name = "okv.eval.range.hotspot_ratio"
+kind = "gauge"
+unit = "1"
+description = "Busiest logical range operations divided by mean range operations"
+attributes = ["lane", "workload", "topology", "distribution"]
+required_attributes = ["lane", "workload", "topology", "distribution"]
+
+[[metrics]]
+id = "kv_runtime.fixed_ram_bytes_per_range"
+otel_name = "okv.eval.kv_runtime.fixed_ram_bytes_per_range"
+kind = "gauge"
+unit = "By"
+description = "Accounted fixed metadata and recent MVCC bytes per assigned Range Engine"
+attributes = ["lane", "workload", "backend", "range.count"]
+required_attributes = ["lane", "workload", "backend", "range.count"]
+
+[[metrics]]
+id = "kv_runtime.accounted_ram_bytes"
+otel_name = "okv.eval.kv_runtime.accounted_ram_bytes"
+kind = "gauge"
+unit = "By"
+description = "Total modeled RAM after applying the process-wide cache bound"
+attributes = ["lane", "workload", "backend", "range.count", "pressure.class"]
+required_attributes = ["lane", "workload", "backend", "range.count", "pressure.class"]
+
+[[metrics]]
+id = "kv_runtime.accounted_nvme_bytes"
+otel_name = "okv.eval.kv_runtime.accounted_nvme_bytes"
+kind = "gauge"
+unit = "By"
+description = "Total modeled process-wide disposable NVMe cache bytes"
+attributes = ["lane", "workload", "backend", "range.count"]
+required_attributes = ["lane", "workload", "backend", "range.count"]
+
+[[metrics]]
+id = "kv_runtime.cache_evicted_bytes"
+otel_name = "okv.eval.kv_runtime.cache_evicted_bytes"
+kind = "counter"
+unit = "By"
+description = "Disposable RAM or NVMe cache bytes removed to remain within a KV Runtime bound"
+attributes = ["lane", "workload", "backend", "cache.kind", "reason"]
+required_attributes = ["lane", "workload", "backend", "cache.kind", "reason"]
+
+[[metrics]]
+id = "kv_runtime.objectification_debt_bytes"
+otel_name = "okv.eval.kv_runtime.objectification_debt_bytes"
+kind = "gauge"
+unit = "By"
+description = "Recent durable mutation bytes not yet covered by immutable object state"
+attributes = ["lane", "workload", "backend", "range.count", "pressure.class"]
+required_attributes = ["lane", "workload", "backend", "range.count", "pressure.class"]
+
+[[metrics]]
+id = "kv_runtime.physical_rss_bytes"
+otel_name = "okv.eval.kv_runtime.physical_rss_bytes"
+kind = "gauge"
+unit = "By"
+description = "Current physical resident memory sampled inside the isolated KV Runtime worker"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+
+[[metrics]]
+id = "kv_runtime.physical_rss_bytes_per_range"
+otel_name = "okv.eval.kv_runtime.physical_rss_bytes_per_range"
+kind = "gauge"
+unit = "By"
+description = "Incremental physical RSS divided by completed resident Range Engines"
+attributes = ["lane", "workload", "backend", "topology", "range.count"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count"]
+
+[[metrics]]
+id = "kv_runtime.density_completion_ratio"
+otel_name = "okv.eval.kv_runtime.density_completion_ratio"
+kind = "gauge"
+unit = "1"
+description = "Completed resident Range Engines divided by the frozen target count"
+attributes = ["lane", "workload", "backend", "topology", "stop.reason"]
+required_attributes = ["lane", "workload", "backend", "topology", "stop.reason"]
+
+[[metrics]]
+id = "kv_runtime.runtime_tasks"
+otel_name = "okv.eval.kv_runtime.runtime_tasks"
+kind = "gauge"
+unit = "{task}"
+description = "Live Tokio tasks inside the isolated KV Runtime worker"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+
+[[metrics]]
+id = "kv_runtime.os_threads"
+otel_name = "okv.eval.kv_runtime.os_threads"
+kind = "gauge"
+unit = "{thread}"
+description = "Operating-system threads inside the isolated KV Runtime worker"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+
+[[metrics]]
+id = "kv_runtime.open_file_descriptors"
+otel_name = "okv.eval.kv_runtime.open_file_descriptors"
+kind = "gauge"
+unit = "{descriptor}"
+description = "Open file descriptors inside the isolated KV Runtime worker"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+
+[[metrics]]
+id = "kv_runtime.database_instances"
+otel_name = "okv.eval.kv_runtime.database_instances"
+kind = "gauge"
+unit = "{database}"
+description = "Live SlateDB database instances inside one KV Runtime worker"
+attributes = ["lane", "workload", "backend", "topology", "range.count"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count"]
+
+[[metrics]]
+id = "kv_runtime.cache_instances"
+otel_name = "okv.eval.kv_runtime.cache_instances"
+kind = "gauge"
+unit = "{cache}"
+description = "Live decoded RAM or filesystem NVMe cache instances"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "cache.kind"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "cache.kind"]
+
+[[metrics]]
+id = "kv_runtime.local_files"
+otel_name = "okv.eval.kv_runtime.local_files"
+kind = "gauge"
+unit = "{file}"
+description = "Filesystem objects observed in the object fixture or disposable NVMe cache"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "tier"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "tier"]
+
+[[metrics]]
+id = "kv_runtime.local_bytes"
+otel_name = "okv.eval.kv_runtime.local_bytes"
+kind = "gauge"
+unit = "By"
+description = "Filesystem bytes observed in the object fixture or disposable NVMe cache"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "tier"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "tier"]
+
+[[metrics]]
+id = "kv_runtime.object_requests"
+otel_name = "okv.eval.kv_runtime.object_requests"
+kind = "counter"
+unit = "{request}"
+description = "Object-store requests issued by the isolated KV Runtime worker"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "result"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "result"]
+
+[[metrics]]
+id = "kv_runtime.object_bytes"
+otel_name = "okv.eval.kv_runtime.object_bytes"
+kind = "counter"
+unit = "By"
+description = "Object-store bytes read or written by the isolated KV Runtime worker"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "direction"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "direction"]
+
+[[metrics]]
+id = "kv_runtime.phase_duration"
+otel_name = "okv.eval.kv_runtime.phase_duration"
+kind = "histogram"
+unit = "s"
+description = "Physical KV Runtime lifecycle phase duration"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "phase"]
+boundaries = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 30.0, 120.0]
+
+[[metrics]]
+id = "kv_runtime.point_read_latency"
+otel_name = "okv.eval.kv_runtime.point_read_latency"
+kind = "gauge"
+unit = "s"
+description = "Point-read latency statistic after empty-cache reopen"
+attributes = ["lane", "workload", "backend", "topology", "range.count", "statistic"]
+required_attributes = ["lane", "workload", "backend", "topology", "range.count", "statistic"]
+
+[[metrics]]
+id = "kv_runtime.snapshot_near_latest_cold_point_p99"
+otel_name = "okv.eval.kv_runtime.snapshot_near_latest_cold_point_p99"
+kind = "gauge"
+unit = "s"
+description = "Empty-cache p99 point-read latency eight or fewer versions behind the applied frontier"
+attributes = ["lane", "workload", "backend", "history.depth"]
+required_attributes = ["lane", "workload", "backend", "history.depth"]
+
+[[metrics]]
+id = "kv_runtime.snapshot_point_latency"
+otel_name = "okv.eval.kv_runtime.snapshot_point_latency"
+kind = "gauge"
+unit = "s"
+description = "Exact-version point-read latency by history position and cache state"
+attributes = ["lane", "workload", "backend", "history.depth", "read.class", "cache.state", "statistic"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "read.class", "cache.state", "statistic"]
+
+[[metrics]]
+id = "kv_runtime.snapshot_scan_throughput"
+otel_name = "okv.eval.kv_runtime.snapshot_scan_throughput"
+kind = "gauge"
+unit = "{row}/s"
+description = "Visible ordered rows returned per second at an exact version"
+attributes = ["lane", "workload", "backend", "history.depth", "read.class", "cache.state"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "read.class", "cache.state"]
+
+[[metrics]]
+id = "kv_runtime.snapshot_object_requests_per_row"
+otel_name = "okv.eval.kv_runtime.snapshot_object_requests_per_row"
+kind = "gauge"
+unit = "{request}/{row}"
+description = "Object-store requests divided by visible rows returned by an exact-version scan"
+attributes = ["lane", "workload", "backend", "history.depth", "read.class", "cache.state"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "read.class", "cache.state"]
+
+[[metrics]]
+id = "kv_runtime.snapshot_object_bytes_per_row"
+otel_name = "okv.eval.kv_runtime.snapshot_object_bytes_per_row"
+kind = "gauge"
+unit = "By/{row}"
+description = "Object-store bytes read divided by visible rows returned by an exact-version scan"
+attributes = ["lane", "workload", "backend", "history.depth", "read.class", "cache.state"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "read.class", "cache.state"]
+
+[[metrics]]
+id = "kv_runtime.snapshot_physical_amplification"
+otel_name = "okv.eval.kv_runtime.snapshot_physical_amplification"
+kind = "gauge"
+unit = "1"
+description = "Immutable object bytes divided by the latest visible logical value bytes"
+attributes = ["lane", "workload", "backend", "history.depth"]
+required_attributes = ["lane", "workload", "backend", "history.depth"]
+
+[[metrics]]
+id = "kv_runtime.mvcc_gc_post_physical_amplification"
+otel_name = "okv.eval.kv_runtime.mvcc_gc_post_physical_amplification"
+kind = "gauge"
+unit = "1"
+description = "Live immutable SST bytes after retained-history compaction divided by retained logical value bytes"
+attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+
+[[metrics]]
+id = "kv_runtime.mvcc_gc_live_byte_reduction"
+otel_name = "okv.eval.kv_runtime.mvcc_gc_live_byte_reduction"
+kind = "gauge"
+unit = "1"
+description = "Fraction of live immutable SST bytes removed by retained-history compaction"
+attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+
+[[metrics]]
+id = "kv_runtime.mvcc_gc_compaction_duration"
+otel_name = "okv.eval.kv_runtime.mvcc_gc_compaction_duration"
+kind = "histogram"
+unit = "s"
+description = "Time to publish one retained-history compaction result"
+attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+boundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
+
+[[metrics]]
+id = "kv_runtime.mvcc_gc_cold_point_p99"
+otel_name = "okv.eval.kv_runtime.mvcc_gc_cold_point_p99"
+kind = "gauge"
+unit = "s"
+description = "Empty-cache p99 point-read latency at the retained snapshot floor after compaction"
+attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+
+[[metrics]]
+id = "kv_runtime.mvcc_gc_cold_scan_throughput"
+otel_name = "okv.eval.kv_runtime.mvcc_gc_cold_scan_throughput"
+kind = "gauge"
+unit = "{row}/s"
+description = "Empty-cache ordered scan throughput at the retained snapshot floor after compaction"
+attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "retention.window"]
+
+[[metrics]]
+id = "kv_runtime.mvcc_gc_live_sst_bytes"
+otel_name = "okv.eval.kv_runtime.mvcc_gc_live_sst_bytes"
+kind = "gauge"
+unit = "By"
+description = "Live immutable SST bytes before or after retained-history compaction"
+attributes = ["lane", "workload", "backend", "history.depth", "retention.window", "state"]
+required_attributes = ["lane", "workload", "backend", "history.depth", "retention.window", "state"]

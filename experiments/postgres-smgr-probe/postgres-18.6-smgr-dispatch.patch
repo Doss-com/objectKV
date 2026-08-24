@@ -1,0 +1,61 @@
+diff --git a/src/backend/storage/smgr/smgr.c b/src/backend/storage/smgr/smgr.c
+index 37b99fa319..966df1826e 100644
+--- a/src/backend/storage/smgr/smgr.c
++++ b/src/backend/storage/smgr/smgr.c
+@@ -127,6 +127,29 @@ typedef struct f_smgr
+ 
+ static const f_smgr smgrsw[] = {
+ 	/* magnetic disk */
++	{
++		.smgr_init = mdinit,
++		.smgr_shutdown = NULL,
++		.smgr_open = mdopen,
++		.smgr_close = mdclose,
++		.smgr_create = mdcreate,
++		.smgr_exists = mdexists,
++		.smgr_unlink = mdunlink,
++		.smgr_extend = mdextend,
++		.smgr_zeroextend = mdzeroextend,
++		.smgr_prefetch = mdprefetch,
++		.smgr_maxcombine = mdmaxcombine,
++		.smgr_readv = mdreadv,
++		.smgr_startreadv = mdstartreadv,
++		.smgr_writev = mdwritev,
++		.smgr_writeback = mdwriteback,
++		.smgr_nblocks = mdnblocks,
++		.smgr_truncate = mdtruncate,
++		.smgr_immedsync = mdimmedsync,
++		.smgr_registersync = mdregistersync,
++		.smgr_fd = mdfd,
++	},
++	/* objectKV dispatch probe, deliberately delegates to md */
+ 	{
+ 		.smgr_init = mdinit,
+ 		.smgr_shutdown = NULL,
+@@ -188,6 +211,7 @@ void
+ smgrinit(void)
+ {
+ 	int			i;
++	bool		okv_probe_enabled = getenv("OKV_SMGR_PROBE") != NULL;
+ 
+ 	HOLD_INTERRUPTS();
+ 
+@@ -199,6 +223,9 @@ smgrinit(void)
+ 
+ 	RESUME_INTERRUPTS();
+ 
++	if (okv_probe_enabled)
++		elog(LOG, "objectKV storage manager dispatch probe enabled; delegating to md");
++
+ 	/* register the shutdown proc */
+ 	on_proc_exit(smgrshutdown, 0);
+ }
+@@ -273,7 +300,7 @@ smgropen(RelFileLocator rlocator, ProcNumber backend)
+ 		reln->smgr_targblock = InvalidBlockNumber;
+ 		for (int i = 0; i <= MAX_FORKNUM; ++i)
+ 			reln->smgr_cached_nblocks[i] = InvalidBlockNumber;
+-		reln->smgr_which = 0;	/* we only have md.c at present */
++		reln->smgr_which = getenv("OKV_SMGR_PROBE") != NULL ? 1 : 0;
+ 
+ 		/* it is not pinned yet */
+ 		reln->pincount = 0;

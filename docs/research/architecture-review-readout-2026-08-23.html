@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>objectKV Architecture Review Readout</title>
+  <style>
+    :root {
+      --ds-background-100: #0a0a0a;
+      --ds-background-200: #121212;
+      --ds-gray-100: rgba(255,255,255,.03);
+      --ds-gray-200: rgba(255,255,255,.05);
+      --ds-gray-300: rgba(255,255,255,.08);
+      --ds-gray-alpha-200: #ffffff17;
+      --ds-gray-alpha-300: #ffffff21;
+      --ds-gray-alpha-400: #ffffff24;
+      --ds-gray-alpha-500: #ffffff3d;
+      --ds-gray-600: #878787;
+      --ds-gray-900: #a1a1a1;
+      --ds-gray-1000: #ededed;
+      --ds-blue-700: #1a85ff;
+      --ds-blue-900: #52a8ff;
+      --ds-green-700: #45a557;
+      --ds-green-900: #62c073;
+      --ds-amber-700: #f5a623;
+      --ds-amber-900: #f2a600;
+      --ds-red-700: #e5484d;
+      --ds-red-900: #ff6166;
+      --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background: var(--ds-background-100);
+      color: var(--ds-gray-1000);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--ds-blue-900); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--ds-gray-200);
+      border: 1px solid var(--ds-gray-alpha-400);
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+    .shell { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 40px 80px; overflow: hidden; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 52px;
+      background: rgba(10,10,10,.88);
+      border-bottom: 1px solid var(--ds-gray-alpha-400);
+      backdrop-filter: blur(14px);
+    }
+    .wordmark { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+    .top-meta { display: flex; align-items: center; gap: 12px; color: var(--ds-gray-900); font-size: 12px; }
+    .hero { padding: 80px 0 48px; border-bottom: 1px solid var(--ds-gray-alpha-400); }
+    .eyebrow {
+      color: var(--ds-gray-600);
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 900px;
+      margin: 16px 0 20px;
+      font-size: clamp(38px, 6vw, 64px);
+      font-weight: 600;
+      letter-spacing: -.04em;
+      line-height: 1.02;
+    }
+    .lede { max-width: 800px; margin: 0; color: var(--ds-gray-900); font-size: 18px; line-height: 1.55; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+    .chip, .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+      border: 1px solid var(--ds-gray-alpha-400);
+      border-radius: 9999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .chip { color: var(--ds-gray-900); background: var(--ds-gray-100); }
+    .dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+    .exists { color: var(--ds-green-900); border-color: rgba(69,165,87,.3); background: rgba(69,165,87,.08); }
+    .active { color: var(--ds-blue-900); border-color: rgba(26,133,255,.3); background: rgba(26,133,255,.08); }
+    .proposed { color: var(--ds-amber-900); border-color: rgba(245,166,35,.3); background: rgba(245,166,35,.08); }
+    .future { color: var(--ds-gray-900); background: var(--ds-gray-100); }
+    .callout {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      margin: 40px 0 0;
+      overflow: hidden;
+      border: 1px solid var(--ds-gray-alpha-400);
+      border-radius: 6px;
+    }
+    .callout-label { padding: 18px 20px; background: var(--ds-blue-700); color: #f7f7f7; font-weight: 600; }
+    .callout-copy { padding: 18px 20px; background: var(--ds-gray-100); font-size: 15px; }
+    .layout { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: 64px; }
+    .toc { position: sticky; top: 76px; align-self: start; padding-top: 48px; }
+    .toc-label { margin-bottom: 12px; color: var(--ds-gray-600); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+    .toc a { display: block; padding: 7px 0; color: var(--ds-gray-900); font-size: 12px; line-height: 1.35; }
+    .toc a:hover { color: var(--ds-gray-1000); text-decoration: none; }
+    main { min-width: 0; max-width: 100%; }
+    section { min-width: 0; max-width: 100%; padding-top: 64px; scroll-margin-top: 64px; }
+    h2 { margin: 0 0 24px; font-size: 28px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; }
+    h3 { margin: 0 0 8px; font-size: 16px; font-weight: 600; line-height: 1.4; }
+    .anchor { margin-right: 10px; color: var(--ds-gray-600); font-family: var(--mono); font-size: 14px; font-weight: 500; letter-spacing: -.02em; }
+    .section-intro { max-width: 760px; margin: -12px 0 24px; color: var(--ds-gray-900); font-size: 15px; }
+    .thesis-flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0,1fr));
+      gap: 24px;
+      align-items: stretch;
+    }
+    .flow-node {
+      position: relative;
+      min-height: 126px;
+      padding: 16px;
+      background: var(--ds-gray-100);
+      border: 1px solid var(--ds-gray-alpha-400);
+      border-radius: 6px;
+    }
+    .flow-node:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -19px;
+      transform: translateY(-50%);
+      color: var(--ds-gray-600);
+      font-size: 16px;
+    }
+    .flow-index { color: var(--ds-gray-600); font-family: var(--mono); font-size: 11px; }
+    .flow-title { margin-top: 18px; font-size: 14px; font-weight: 600; line-height: 1.35; }
+    .flow-copy { margin-top: 6px; color: var(--ds-gray-900); font-size: 12px; line-height: 1.45; }
+    .lane-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    .lane {
+      padding: 18px;
+      background: var(--ds-gray-100);
+      border: 1px solid var(--ds-gray-alpha-400);
+      border-radius: 6px;
+    }
+    .lane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .lane p { margin: 0; color: var(--ds-gray-900); font-size: 13px; }
+    .lane .boundary { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-600); }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+    .metric { padding: 18px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; background: var(--ds-gray-100); }
+    .metric-value { font-size: 28px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+    .metric-label { margin-top: 8px; color: var(--ds-gray-900); font-size: 12px; line-height: 1.4; }
+    .metric-note { margin-top: 4px; color: var(--ds-gray-600); font-size: 11px; }
+    .evidence-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 12px; margin-top: 12px; }
+    .panel { padding: 20px; background: var(--ds-gray-100); border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; }
+    .panel-title { margin-bottom: 18px; font-size: 13px; font-weight: 600; }
+    .bar-row { display: grid; grid-template-columns: 74px 1fr 58px; gap: 12px; align-items: center; margin: 12px 0; }
+    .bar-label, .bar-value { color: var(--ds-gray-900); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .bar-value { text-align: right; }
+    .bar-track { height: 8px; overflow: hidden; background: var(--ds-gray-alpha-200); border-radius: 2px; }
+    .bar { height: 100%; background: var(--ds-blue-700); border-radius: 2px; }
+    .finding-list { margin: 0; padding-left: 18px; color: var(--ds-gray-900); }
+    .finding-list li { margin: 8px 0; padding-left: 4px; }
+    .decision-table { width: 100%; border-collapse: collapse; border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; overflow: hidden; }
+    .decision-table th { padding: 9px 12px; color: var(--ds-gray-900); font-size: 11px; font-weight: 500; text-align: left; border-bottom: 1px solid var(--ds-gray-alpha-400); }
+    .decision-table td { padding: 14px 12px; vertical-align: top; border-bottom: 1px solid var(--ds-gray-alpha-400); font-size: 13px; }
+    .decision-table tr:last-child td { border-bottom: 0; }
+    .decision-table tbody tr:hover { background: var(--ds-gray-100); }
+    .decision-id { color: var(--ds-gray-600); font-family: var(--mono); }
+    .tradeoff { color: var(--ds-gray-900); }
+    .condition-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    .condition { display: flex; gap: 12px; padding: 16px; border: 1px solid rgba(229,72,77,.24); border-radius: 6px; background: rgba(229,72,77,.04); }
+    .condition-n { flex: none; color: var(--ds-red-900); font-family: var(--mono); font-size: 11px; }
+    .condition p { margin: 0; color: var(--ds-gray-900); font-size: 13px; }
+    .stop-list { margin: 20px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--ds-gray-alpha-400); }
+    .stop-list li { display: grid; grid-template-columns: 108px 1fr; gap: 20px; padding: 14px 0; border-bottom: 1px solid var(--ds-gray-alpha-400); }
+    .stop-list strong { color: var(--ds-gray-600); font-family: var(--mono); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+    .calibration { counter-reset: step; margin: 0; padding: 0; list-style: none; }
+    .calibration li { counter-increment: step; display: grid; grid-template-columns: 38px 1fr; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--ds-gray-alpha-400); }
+    .calibration li::before { content: counter(step, decimal-leading-zero); color: var(--ds-blue-900); font-family: var(--mono); font-size: 12px; padding-top: 2px; }
+    .calibration strong { display: block; margin-bottom: 4px; font-size: 14px; font-weight: 600; }
+    .calibration span { color: var(--ds-gray-900); font-size: 13px; }
+    .agenda { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; margin-top: 18px; }
+    .agenda-step { min-height: 120px; padding: 16px; background: var(--ds-gray-100); border: 1px solid var(--ds-gray-alpha-400); }
+    .agenda-step:first-child { border-radius: 6px 0 0 6px; }
+    .agenda-step:last-child { border-radius: 0 6px 6px 0; }
+    .agenda-time { color: var(--ds-blue-900); font-family: var(--mono); font-size: 11px; }
+    .agenda-title { margin-top: 16px; font-size: 13px; font-weight: 600; line-height: 1.4; }
+    .checkpoint { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; overflow: hidden; }
+    .checkpoint-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--ds-gray-alpha-400); }
+    .checkpoint-row:nth-child(odd) { border-right: 1px solid var(--ds-gray-alpha-400); }
+    .checkpoint-row:nth-last-child(-n+2) { border-bottom: 0; }
+    .checkpoint-key { color: var(--ds-gray-600); font-family: var(--mono); font-size: 11px; }
+    .checkpoint-value { color: var(--ds-gray-900); font-size: 12px; word-break: break-word; }
+    .sources { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 24px; margin: 0; padding: 0; list-style: none; }
+    .sources a { display: block; padding: 8px 0; border-bottom: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-900); font-family: var(--mono); font-size: 11px; }
+    footer { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-600); font-size: 11px; }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; gap: 0; }
+      .toc { position: static; display: grid; grid-template-columns: repeat(2,1fr); gap: 0 20px; padding-top: 32px; }
+      .toc-label { grid-column: 1 / -1; }
+      .thesis-flow { grid-template-columns: 1fr; }
+      .flow-node { min-height: 0; }
+      .flow-node:not(:last-child)::after { content: "↓"; top: auto; right: 50%; bottom: -22px; transform: translateX(50%); }
+      .metrics { grid-template-columns: repeat(2,1fr); }
+      .agenda { grid-template-columns: 1fr; gap: 8px; }
+      .agenda-step, .agenda-step:first-child, .agenda-step:last-child { min-height: 0; border-radius: 6px; }
+    }
+    @media (max-width: 700px) {
+      .shell { padding: 0 20px 60px; }
+      .top-meta { display: none; }
+      .hero { padding-top: 56px; }
+      .callout { grid-template-columns: 1fr; }
+      .lane-grid, .condition-grid, .evidence-grid, .checkpoint, .sources { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: 1fr; }
+      .checkpoint-row:nth-child(odd) { border-right: 0; }
+      .checkpoint-row { grid-template-columns: 92px minmax(0,1fr); }
+      .checkpoint-row:nth-last-child(-n+2) { border-bottom: 1px solid var(--ds-gray-alpha-400); }
+      .checkpoint-row:last-child { border-bottom: 0; }
+      .checkpoint-value code { white-space: normal; word-break: break-all; }
+      .decision-table { display: block; width: 100%; max-width: 100%; overflow-x: auto; }
+      h1, .lede, .callout-copy { max-width: 100%; overflow-wrap: anywhere; }
+    }
+    @media print {
+      *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+      body { background: #ffffff !important; color: #171717 !important; }
+      .shell { max-width: none; padding: 0.4in; }
+      .topbar, .toc { display: none; }
+      .layout { display: block; }
+      .hero { padding-top: 20px; }
+      h1, h2, h3, .metric-value, .flow-title { color: #171717 !important; }
+      p, .lede, .section-intro, .lane p, .tradeoff, .finding-list, .checkpoint-value { color: #4d4d4d !important; }
+      .lane, .metric, .panel, .flow-node, .agenda-step { background: #fafafa !important; border-color: #dddddd !important; break-inside: avoid; }
+      .decision-table, .checkpoint { border-color: #dddddd !important; }
+      section { padding-top: 36px; }
+      a { color: #0061d5 !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="wordmark">objectKV <span style="color:var(--ds-gray-600)">/ architecture review</span></div>
+      <div class="top-meta"><span>2026-08-23</span><span>commit 4227054</span></div>
+    </header>
+
+    <div class="hero">
+      <div class="eyebrow">Architecture Review 1 · Strategy checkpoint</div>
+      <h1>Continue one bounded proof cycle.</h1>
+      <p class="lede">objectKV is ready for a review of invariants, claim boundaries, stop conditions, and the next falsifying experiments. It is not ready for a production architecture freeze or a FoundationDB-replacement claim.</p>
+      <div class="chips">
+        <span class="status active"><span class="dot"></span>Implementation paused</span>
+        <span class="chip">Goal paused</span>
+        <span class="chip">Local repository</span>
+        <span class="chip">Read-only audit active</span>
+      </div>
+      <div class="callout">
+        <div class="callout-label">Review boundary</div>
+        <div class="callout-copy">Decide whether the system invariants are coherent enough to fund three more proof gates. Do not approve production topology, capacity, or public database claims.</div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <nav class="toc" aria-label="Contents">
+        <div class="toc-label">Contents</div>
+        <a href="#thesis">01 · Strategy thesis</a>
+        <a href="#status">02 · Strategy status</a>
+        <a href="#signals">03 · Early indicators</a>
+        <a href="#decisions">04 · Review decisions</a>
+        <a href="#falsifiers">05 · Stop conditions</a>
+        <a href="#calibration">06 · Calibration order</a>
+        <a href="#review">07 · Review format</a>
+        <a href="#checkpoint">08 · Pause checkpoint</a>
+      </nav>
+
+      <main>
+        <section id="thesis">
+          <h2><span class="anchor">[01]</span>Strategy thesis</h2>
+          <p class="section-intro">The concept is coherent only if authority, recovery, permanent bytes, serving, and analytical truth remain separate but compose exactly.</p>
+          <div class="thesis-flow" aria-label="objectKV strategy flow">
+            <div class="flow-node"><div class="flow-index">01</div><div class="flow-title">Bounded cell authority</div><div class="flow-copy">FDB-like ordered transactions inside one tenant domain.</div></div>
+            <div class="flow-node"><div class="flow-index">02</div><div class="flow-title">Replicated WAL suffix</div><div class="flow-copy">Fast commit authority for versions not yet objectified.</div></div>
+            <div class="flow-node"><div class="flow-index">03</div><div class="flow-title">Immutable bulk state</div><div class="flow-copy">Fenced publication into object-native permanent storage.</div></div>
+            <div class="flow-node"><div class="flow-index">04</div><div class="flow-title">Disposable serving</div><div class="flow-copy">RAM and NVMe cache, reconstructable from durable closure.</div></div>
+            <div class="flow-node"><div class="flow-index">05</div><div class="flow-title">Exact HTAP at T</div><div class="flow-copy">Columnar base plus durable live tail through one version.</div></div>
+          </div>
+        </section>
+
+        <section id="status">
+          <h2><span class="anchor">[02]</span>Strategy status</h2>
+          <div class="lane-grid">
+            <article class="lane"><div class="lane-head"><h3>Cell transaction semantics</h3><span class="status exists">Exists</span></div><p>Actual-read witnesses, range phantoms, causal versions, partitioned resolvers, ordered commit proxies, and online range split contracts.</p><p class="boundary">Boundary: no independent-host or end-to-end capacity envelope.</p></article>
+            <article class="lane"><div class="lane-head"><h3>Durability and recovery</h3><span class="status exists">Exists</span></div><p>Authenticated tLog inventories, generation replacement, staged takeover, absence-quorum abort, retained outcomes, and fresh serving.</p><p class="boundary">Boundary: topology and inventory work remain locally bounded only.</p></article>
+            <article class="lane"><div class="lane-head"><h3>Object-native physical tier</h3><span class="status exists">Exists</span></div><p>Immutable publication, fenced root authority, fresh reopen, SlateDB profile, compaction work, and MinIO protocol fixture.</p><p class="boundary">Boundary: GCS economics, throttling, brownout, and multi-host durability.</p></article>
+            <article class="lane"><div class="lane-head"><h3>Resolver hotspot scaling</h3><span class="status active">Active work</span></div><p>Balanced diagnostic passed semantic gates and measured a 3.814 median split/source throughput ratio.</p><p class="boundary">Boundary: clean full curve and five negative controls are pending.</p></article>
+            <article class="lane"><div class="lane-head"><h3>Exact HTAP overlay</h3><span class="status exists">Exists</span></div><p>DataFusion merges Parquet base and ordered Arrow tail to an exact target version.</p><p class="boundary">Boundary: durable manifests, leases, interval reads, and tail-cost curve.</p></article>
+            <article class="lane"><div class="lane-head"><h3>PostgreSQL bridge</h3><span class="status active">Active work</span></div><p>PostgreSQL 18.6 with a second <code>smgr</code> slot compiles, boots, and restarts.</p><p class="boundary">Boundary: page callbacks, WAL barriers, truncate, crash recovery, and economics.</p></article>
+            <article class="lane"><div class="lane-head"><h3>Cell fleet and metacluster</h3><span class="status proposed">Proposed</span></div><p>Topology separates transaction domains, ranges, objects, cells, and fleet routing.</p><p class="boundary">Boundary: no cross-cell transaction; placement and migration remain future work.</p></article>
+            <article class="lane"><div class="lane-head"><h3>OSS launch</h3><span class="status active">Active work</span></div><p>Repository, RFCs, evals, OTel, research loop, contributor board, and local tracker exist.</p><p class="boundary">Boundary: no remote, license remains proposed, and the repository is unpublished.</p></article>
+          </div>
+        </section>
+
+        <section id="signals">
+          <h2><span class="anchor">[03]</span>Early indicators</h2>
+          <div class="metrics">
+            <div class="metric"><div class="metric-value">0 B</div><div class="metric-label">Permanent database bytes read during admitted recovery</div><div class="metric-note">1 GiB and 1 PiB profiles use identical work</div></div>
+            <div class="metric"><div class="metric-value">3.158 s</div><div class="metric-label">Recovery at 65,536 retained records per tLog</div><div class="metric-note">2.870 s is authenticated inventory</div></div>
+            <div class="metric"><div class="metric-value">3.814×</div><div class="metric-label">Balanced resolver split/source diagnostic</div><div class="metric-note">Inconclusive until clean full curve</div></div>
+            <div class="metric"><div class="metric-value">20 / 20</div><div class="metric-label">Expected audit results after cycle 1</div><div class="metric-note">0 unexpected results</div></div>
+          </div>
+          <div class="evidence-grid">
+            <div class="panel">
+              <div class="panel-title">Retained-tail recovery curve</div>
+              <div class="bar-row"><div class="bar-label">256</div><div class="bar-track"><div class="bar" style="width:9.2%"></div></div><div class="bar-value">0.292 s</div></div>
+              <div class="bar-row"><div class="bar-label">4,096</div><div class="bar-track"><div class="bar" style="width:14.7%"></div></div><div class="bar-value">0.465 s</div></div>
+              <div class="bar-row"><div class="bar-label">65,536</div><div class="bar-track"><div class="bar" style="width:100%"></div></div><div class="bar-value">3.158 s</div></div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">Interpretation</div>
+              <ul class="finding-list">
+                <li>Recovery is independent of permanent database size in the bounded local model.</li>
+                <li>Authenticated tLog inventory is the first measured recovery bottleneck.</li>
+                <li>Tigris validates the layering pattern, but delegates transaction authority to FoundationDB.</li>
+                <li>Positive signals justify continuation, not product claims.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="decisions">
+          <h2><span class="anchor">[04]</span>Architecture Review 1 decisions</h2>
+          <p class="section-intro">Each row needs an explicit accept, revise, or reject outcome.</p>
+          <table class="decision-table">
+            <thead><tr><th>D</th><th>Status</th><th>Proposed decision</th><th>Tradeoff</th></tr></thead>
+            <tbody>
+              <tr id="D1"><td class="decision-id">D1</td><td><span class="status proposed">Review</span></td><td>A tenant database is the transaction domain inside one bounded cell; transactions do not cross cells.</td><td class="tradeoff">Preserves useful FDB-like scope while giving up global atomic transactions.</td></tr>
+              <tr id="D2"><td class="decision-id">D2</td><td><span class="status proposed">Review</span></td><td>Replicated logs own the unobjectified committed suffix; object storage owns bulk state after fenced publication.</td><td class="tradeoff">Avoids synchronous object publication but requires bounded WAL and objectification lag.</td></tr>
+              <tr id="D3"><td class="decision-id">D3</td><td><span class="status proposed">Review</span></td><td>Keep full transaction-system generation replacement as the correct recovery fallback.</td><td class="tradeoff">Simple and auditable, with a larger coordinated event on role loss.</td></tr>
+              <tr id="D4"><td class="decision-id">D4</td><td><span class="status proposed">Review</span></td><td>PostgreSQL WAL, LSN, and tuple MVCC remain authoritative in the first bridge.</td><td class="tradeoff">Protects compatibility but does not prove PostgreSQL on native objectKV transactions.</td></tr>
+              <tr id="D5"><td class="decision-id">D5</td><td><span class="status proposed">Review</span></td><td>One commit history remains truth; columnar bases merge a durable tail through <code>T</code> or return unavailable.</td><td class="tradeoff">Exact freshness turns materialization lag into query and retention pressure.</td></tr>
+              <tr id="D6"><td class="decision-id">D6</td><td><span class="status proposed">Review</span></td><td>Launch objectKV as a research kernel before making database replacement or production HTAP claims.</td><td class="tradeoff">Improves credibility and contribution quality while giving up a larger launch narrative.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="falsifiers">
+          <h2><span class="anchor">[05]</span>Stop or narrow conditions</h2>
+          <div class="condition-grid">
+            <div class="condition"><span class="condition-n">01</span><p>Any acknowledged loss, serializability violation, stale-generation commit, premature WAL pop, or incorrect reconstruction.</p></div>
+            <div class="condition"><span class="condition-n">02</span><p>Recovery depends on permanent database bytes rather than retained authority state and the unobjectified suffix.</p></div>
+            <div class="condition"><span class="condition-n">03</span><p>The clean RFC-0055 curve misses its frozen 1.10 threshold, or any unsafe benchmark control passes.</p></div>
+            <div class="condition"><span class="condition-n">04</span><p>GCS request cost, tail latency, throttling, or brownout misses declared ceilings after one tuning pass.</p></div>
+            <div class="condition"><span class="condition-n">05</span><p>The PostgreSQL bridge requires a second commit decision or permits a page ahead of durable PostgreSQL WAL.</p></div>
+            <div class="condition"><span class="condition-n">06</span><p>Exact HTAP requires a second truth, mixes manifests, or needs unbounded analytical-tail retention.</p></div>
+          </div>
+          <ul class="stop-list">
+            <li><strong>Stop adding</strong><span>Distributed roles, metacluster machinery, and broad consumer features until the existing curves decide the design.</span></li>
+            <li><strong>Stop parallel</strong><span>Treating Redis, search, PostgreSQL, and HTAP as simultaneous launch tracks. They are pressure tests.</span></li>
+            <li><strong>Stop optimizing</strong><span>Before the owning metric, negative controls, and comparison envelope are frozen.</span></li>
+            <li><strong>Stop claiming</strong><span>Ahead of GCS, independent-host, PostgreSQL crash, and durable HTAP-source receipts.</span></li>
+          </ul>
+        </section>
+
+        <section id="calibration">
+          <h2><span class="anchor">[06]</span>Recommended calibration order</h2>
+          <ol class="calibration">
+            <li><div><strong>Complete the clean resolver hotspot curve.</strong><span>Run every skew and crossing point plus all five controls.</span></div></li>
+            <li><div><strong>Run the GCS physical and economics gate.</strong><span>Measure request amplification, throttling, tail latency, and brownout in <code>objectKV-dev</code>.</span></div></li>
+            <li><div><strong>Route real PostgreSQL page callbacks.</strong><span>Execute the WAL, checkpoint, restart, truncate, and crash matrix.</span></div></li>
+            <li><div><strong>Build the durable HTAP source.</strong><span>Add manifests, snapshot leases, interval tail reads, and the <code>T - Wp</code> cost curve.</span></div></li>
+            <li><div><strong>Repeat recovery across independent hosts.</strong><span>Test transaction-system recovery and objectification across real failure domains.</span></div></li>
+            <li><div><strong>Optimize the measured recovery bottleneck.</strong><span>Test compact tLog summaries, checkpoint cadence, and parallel recruitment before adding roles.</span></div></li>
+          </ol>
+        </section>
+
+        <section id="review">
+          <h2><span class="anchor">[07]</span>Review format and required output</h2>
+          <p class="section-intro">One 90-minute review. It ends with decisions and funded experiments, not another open-ended research list.</p>
+          <div class="agenda">
+            <div class="agenda-step"><div class="agenda-time">10 min</div><div class="agenda-title">Claim boundary and system map</div></div>
+            <div class="agenda-step"><div class="agenda-time">20 min</div><div class="agenda-title">D1 through D5 invariants</div></div>
+            <div class="agenda-step"><div class="agenda-time">25 min</div><div class="agenda-title">Evidence and stop conditions</div></div>
+            <div class="agenda-step"><div class="agenda-time">20 min</div><div class="agenda-title">Rank three experiments</div></div>
+            <div class="agenda-step"><div class="agenda-time">15 min</div><div class="agenda-title">Record owners and claim changes</div></div>
+          </div>
+          <ul class="finding-list" style="margin-top:22px">
+            <li>Accept, revise, or reject D1 through D6.</li>
+            <li>Fund three experiments with one primary metric and hard gates each.</li>
+            <li>Record explicit stop conditions and deferred work.</li>
+            <li>Set the next review trigger from evidence, not a date.</li>
+          </ul>
+        </section>
+
+        <section id="checkpoint">
+          <h2><span class="anchor">[08]</span>Pause checkpoint</h2>
+          <div class="checkpoint">
+            <div class="checkpoint-row"><div class="checkpoint-key">Goal</div><div class="checkpoint-value">Paused</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">Candidate</div><div class="checkpoint-value"><code>99df834b7bb62451ce6717f0cc657fd6b65e40e1</code></div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">Readout</div><div class="checkpoint-value"><code>4227054db127a9c3a94a49ef35b586c0e7f8f19a</code></div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">RFC-0055</div><div class="checkpoint-value">Implementation preserved; clean admission and controls pending.</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">Audit</div><div class="checkpoint-value">Pinned to <code>22e4728</code>; cycle 1 has 20 expected and 0 unexpected results.</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">Reviews</div><div class="checkpoint-value">Fable and two focused internal reviews complete; Kimi 3 blocked on authentication.</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">Repository</div><div class="checkpoint-value">Local and unpublished; no configured remote.</div></div>
+            <div class="checkpoint-row"><div class="checkpoint-key">Cloud</div><div class="checkpoint-value">Infrastructure exists; project creation blocked on account, billing, and credentials.</div></div>
+          </div>
+        </section>
+
+        <section id="sources">
+          <h2><span class="anchor">[09]</span>Review inputs</h2>
+          <ul class="sources">
+            <li><a href="../../README.md">README.md</a></li>
+            <li><a href="../SYSTEM-SHAPE.md">docs/SYSTEM-SHAPE.md</a></li>
+            <li><a href="overnight-strategy-audit-2026-08-22.md">overnight strategy audit</a></li>
+            <li><a href="EXPERT-REVIEW-SYNTHESIS.md">expert review synthesis</a></li>
+            <li><a href="tigris-codebase-study.md">Tigris codebase study</a></li>
+            <li><a href="postgres-18-6-storage-bridge.md">PostgreSQL 18.6 storage bridge</a></li>
+            <li><a href="../../rfcs/0055-resolver-hotspot-throughput-curve.md">RFC-0055 resolver throughput curve</a></li>
+            <li><a href="architecture-review-readout-2026-08-23.md">canonical Markdown readout</a></li>
+          </ul>
+        </section>
+      </main>
+    </div>
+
+    <footer>objectKV Architecture Review 1 · Local research artifact · Generated from the 2026-08-23 strategy checkpoint</footer>
+  </div>
+</body>
+</html>

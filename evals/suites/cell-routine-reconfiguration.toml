@@ -1,0 +1,111 @@
+schema_version = 1
+id = "cell-routine-reconfiguration-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0023-routine-voter-reconfiguration.md",
+]
+dataset_generator = "deterministic-routine-reconfiguration-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.model]
+logical_bytes = 0
+key_count = 0
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.model-dev]
+budget_kind = "events"
+budget_limit = 100
+repeats = 1
+backend = "routine-reconfiguration-model"
+authority_nodes = 3
+initial_voters = 3
+replacement_learners = 1
+membership_protocol = "fresh-incarnation-snapshot-suffix-v0"
+
+[[lanes]]
+id = "routine-reconfiguration-correctness"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "routine-reconfiguration"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+
+[[workloads]]
+id = "routine-reconfiguration-same-node-id"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+negative_control = "reuse_node_identity"
+
+[[workloads]]
+id = "routine-reconfiguration-unauthorized-learner"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+negative_control = "admit_learner_without_authority"
+
+[[workloads]]
+id = "routine-reconfiguration-early-promotion"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+negative_control = "promote_before_catchup"
+
+[[workloads]]
+id = "routine-reconfiguration-stale-epoch"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+negative_control = "accept_stale_membership_epoch"
+
+[[workloads]]
+id = "routine-reconfiguration-concurrent-controller"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+negative_control = "accept_concurrent_reconfiguration"
+
+[[workloads]]
+id = "routine-reconfiguration-double-finalize"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+negative_control = "double_apply_finalize_retry"
+
+[[workloads]]
+id = "routine-reconfiguration-removed-voter"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+negative_control = "accept_removed_voter_commit"
+
+[[workloads]]
+id = "routine-reconfiguration-no-data-quorum"
+lane = "routine-reconfiguration-correctness"
+operation = "routine_reconfiguration_contract"
+negative_control = "repair_without_data_quorum"
+
+[hard_gates]
+correctness_anomalies = 0
+replacement_identity_and_incarnation_are_fresh = true
+learner_requires_authority = true
+promotion_requires_snapshot_and_suffix = true
+membership_epoch_advances_once = true
+routine_repair_preserves_generation = true
+removed_voter_cannot_commit = true
+lost_data_quorum_requires_generation_recovery = true
+exact_seed_replay = true
+schema_valid = true
+budget_must_hold = true

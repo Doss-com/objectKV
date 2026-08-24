@@ -1,0 +1,173 @@
+schema_version = 1
+id = "serving-model-semantics-v1"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
+
+[dataset.dev]
+logical_bytes = 67108864
+key_count = 100000
+seeds = [1103, 2207, 3301]
+
+[profiles.dev]
+budget_kind = "operations"
+budget_limit = 100000
+repeats = 1
+
+[profiles.gcs-dev]
+budget_kind = "operations"
+budget_limit = 1000000
+repeats = 5
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+
+[[lanes]]
+id = "redis"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "operation.duration"
+statistic = "p99"
+op = "le"
+value = 0.010
+
+[[lanes]]
+id = "search"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "query.result_recall"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[lanes.constraints]]
+metric = "snapshot.freshness_lag"
+statistic = "p99"
+op = "le"
+value = 1.0
+
+[[lanes]]
+id = "pg-compat"
+primary_metric = "compatibility.cases"
+statistic = "passed"
+direction = "higher"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "availability.success_ratio"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[lanes]]
+id = "htap-overlay"
+primary_metric = "operation.duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "query.result_exact"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[lanes]]
+id = "format-point"
+primary_metric = "object_store.requests"
+statistic = "per_operation"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "format-scan"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "query.result_recall"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[workloads]]
+id = "redis-strings-and-expiry"
+lane = "redis"
+operation = "redis_differential"
+command_manifest = "redis-v1"
+
+[[workloads]]
+id = "search-update-query-merge"
+lane = "search"
+operation = "inverted_index_differential"
+query_distribution = "zipf"
+
+[[workloads]]
+id = "postgres-crash-restart"
+lane = "pg-compat"
+operation = "postgres_regress_and_faults"
+manifest = "postgres-bootstrap-v1"
+
+[[workloads]]
+id = "datafusion-base-plus-tail"
+lane = "htap-overlay"
+operation = "datafusion_version_alignment"
+base_format = "parquet"
+
+[[workloads]]
+id = "format-cold-point"
+lane = "format-point"
+operation = "format_point_read"
+formats = ["row", "parquet", "vortex"]
+
+[[workloads]]
+id = "format-filtered-scan"
+lane = "format-scan"
+operation = "format_filtered_scan"
+formats = ["row", "parquet", "vortex"]
+
+[hard_gates]
+correctness_anomalies = 0
+schema_valid = true
+budget_must_hold = true
+telemetry_complete = true

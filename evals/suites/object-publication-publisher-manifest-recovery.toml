@@ -1,0 +1,84 @@
+schema_version = 1
+id = "object-publication-publisher-manifest-recovery-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0014-real-object-publication-adapter.md",
+  "../../rfcs/0015-replicated-publication-authority.md",
+  "../../rfcs/0016-publication-worker-recovery.md",
+  "../../rfcs/0017-publisher-process-recovery.md",
+  "../../rfcs/0018-publisher-ambiguous-put-recovery.md",
+  "../../rfcs/0019-publisher-ambiguous-manifest-recovery.md",
+]
+dataset_generator = "deterministic-publisher-ambiguous-manifest-restart-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 4096
+key_count = 3
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 39
+repeats = 1
+backend = "object-store-local-fs+process-openraft"
+authority_nodes = 3
+publisher_processes = 1
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+stable_storage = "independent-node-journals"
+worker_recovery = "empty-scratch"
+fault_injection = "successful-manifest-put-response-unknown"
+kill_boundary = "manifest-effect-before-named-closure-recovery"
+
+[[lanes]]
+id = "publisher-manifest-recovery"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "publisher-manifest-put-unknown-restart"
+lane = "publisher-manifest-recovery"
+operation = "publication_publisher_manifest_recovery_contract"
+
+[[workloads]]
+id = "publisher-manifest-unknown-skip-closure"
+lane = "publisher-manifest-recovery"
+operation = "publication_publisher_manifest_recovery_contract"
+negative_control = "trust_manifest_without_closure"
+
+[hard_gates]
+correctness_anomalies = 0
+active_generation_authorizes_publisher = true
+prepare_and_outcome_are_quorum_durable = true
+all_data_objects_are_exact_before_manifest_attempt = true
+manifest_effect_exists_with_unknown_response = true
+no_root_exists_at_manifest_fault_barrier = true
+publisher_is_killed_after_manifest_effect = true
+replacement_uses_empty_scratch = true
+replacement_recovers_exact_job_and_request_identities = true
+existing_data_objects_are_exactly_recovered = true
+existing_manifest_is_exactly_recovered = true
+complete_closure_precedes_root_visibility = true
+publish_installs_root_and_retires_intent_atomically = true
+reader_walks_exact_visible_closure = true
+fresh_process_replay_is_byte_exact = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

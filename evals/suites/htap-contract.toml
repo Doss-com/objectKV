@@ -1,0 +1,86 @@
+schema_version = 1
+id = "zebradb-htap-contract-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = ["../../rfcs/0010-oltp-olap-snapshots.md"]
+dataset_generator = "deterministic-htap-exactness-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.model-dev]
+logical_bytes = 0
+key_count = 11
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.model-dev]
+budget_kind = "events"
+budget_limit = 30
+repeats = 1
+backend = "model"
+
+[[lanes]]
+id = "htap-exactness"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "query.result_exact"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[workloads]]
+id = "zebradb-base-plus-tail"
+lane = "htap-exactness"
+operation = "htap_exactness_contract"
+
+[[workloads]]
+id = "zebradb-pushdown-poison"
+lane = "htap-exactness"
+operation = "htap_exactness_contract"
+negative_control = "pushdown_poison"
+
+[[workloads]]
+id = "zebradb-schema-partition-move"
+lane = "htap-exactness"
+operation = "htap_exactness_contract"
+negative_control = "schema_partition_move"
+
+[[workloads]]
+id = "zebradb-wal-pop-conflation"
+lane = "htap-exactness"
+operation = "htap_exactness_contract"
+negative_control = "wal_pop_conflation"
+
+[[workloads]]
+id = "zebradb-lease-gc-race"
+lane = "htap-exactness"
+operation = "htap_exactness_contract"
+negative_control = "lease_gc_race"
+
+[[workloads]]
+id = "zebradb-certificate-toctou"
+lane = "htap-exactness"
+operation = "htap_exactness_contract"
+negative_control = "certificate_toctou"
+
+[hard_gates]
+correctness_anomalies = 0
+exact_seed_replay = true
+exact_result = true
+semantic_operations_exercised = true
+schema_valid = true
+budget_must_hold = true

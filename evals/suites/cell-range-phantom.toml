@@ -1,0 +1,79 @@
+schema_version = 1
+id = "cell-range-phantom-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0032-cell-read-value-and-real-time-witness.md",
+  "../../rfcs/0033-cell-range-phantom-contract.md",
+]
+dataset_generator = "deterministic-cell-range-phantom-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 600
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "operations"
+budget_limit = 600
+repeats = 1
+backend = "process-local-fs"
+nodes = 3
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+transaction_authority = "centralized-state-machine-v0"
+rounds_per_seed = 100
+
+[[lanes]]
+id = "cell-range-phantom"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-range-phantom"
+lane = "cell-range-phantom"
+operation = "cell_range_phantom_history_contract"
+rounds = 100
+
+[[workloads]]
+id = "cell-range-phantom-omit-range"
+lane = "cell-range-phantom"
+operation = "cell_range_phantom_history_contract"
+rounds = 100
+negative_control = "omit_range_conflict"
+
+[hard_gates]
+correctness_anomalies = 0
+attempted_transactions_per_seed = 200
+range_observations_per_seed = 100
+point_observations_per_seed = 100
+dependency_edges_per_seed = 200
+dependency_cycles = 0
+range_reads_exact = true
+point_reads_exact = true
+phantom_conflicts_exact = true
+dependency_graph_acyclic = true
+leader_kill_between_dependencies = true
+restarted_node_converges = true
+commit_envelope_chain_valid = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

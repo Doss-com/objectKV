@@ -1,0 +1,165 @@
+schema_version = 1
+id = "fault-recovery-v1"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+dataset_generator = "seeded-kv-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
+
+[dataset.dev]
+logical_bytes = 67108864
+key_count = 100000
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.sim-dev]
+budget_kind = "events"
+budget_limit = 1000000
+repeats = 1
+scheduler = "single-threaded-virtual-time"
+exact_seed_replay = true
+
+[profiles.gcs-dev]
+budget_kind = "seconds"
+budget_limit = 1800
+repeats = 5
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+
+[[lanes]]
+id = "generation-recovery"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "object-brownout"
+primary_metric = "objectification.lag"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "wal.retained_bytes"
+statistic = "maximum"
+op = "le"
+value = 8589934592.0
+
+[[lanes]]
+id = "commit-failover"
+primary_metric = "commit.durable_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "takeover"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "gc-snapshot-race"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "range-move"
+primary_metric = "range_move.durable_bytes_copied"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "overlapping-generation-failures"
+lane = "generation-recovery"
+operation = "deterministic_generation_recovery"
+faults = ["sequencer_restart", "resolver_loss", "wal_leader_kill", "stale_publisher"]
+require_exact_seed_replay = true
+
+[[workloads]]
+id = "object-put-brownout"
+lane = "object-brownout"
+operation = "objectification_fault"
+fault_duration_seconds = 1800
+put_latency_multiplier = 10
+put_error_code = 503
+
+[[workloads]]
+id = "quorum-failover"
+lane = "commit-failover"
+operation = "wal_commit_fault"
+faults = ["leader_kill", "follower_disk_full", "lost_ack"]
+
+[[workloads]]
+id = "empty-cache-owner-takeover"
+lane = "takeover"
+operation = "range_owner_takeover"
+delete_local_cache = true
+inject_stale_owner = true
+
+[[workloads]]
+id = "snapshot-branch-gc-interleaving"
+lane = "gc-snapshot-race"
+operation = "gc_reachability_fault"
+roots = ["snapshot", "branch", "backup", "cdc"]
+
+[[workloads]]
+id = "split-move-under-write-load"
+lane = "range-move"
+operation = "range_move_fault"
+distribution = "zipf"
+inject_stale_router = true
+
+[hard_gates]
+correctness_anomalies = 0
+acknowledged_commit_loss = 0
+exact_seed_replay = true
+retained_wal_bounded = true
+schema_valid = true
+telemetry_complete = true

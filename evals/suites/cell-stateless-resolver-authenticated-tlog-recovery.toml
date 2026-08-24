@@ -1,0 +1,183 @@
+schema_version = 1
+id = "cell-stateless-resolver-authenticated-tlog-recovery-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0039-commit-visibility-after-tagged-log-durability.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0041-certified-staged-head-generation-takeover.md",
+  "../../rfcs/0043-multi-record-staged-prefix-recovery.md",
+  "../../rfcs/0048-partitioned-resolver-agreement.md",
+  "../../rfcs/0049-stateless-resolver-generation-recovery.md",
+  "../../rfcs/0050-stateless-resolver-authenticated-tlog-recovery.md",
+]
+dataset_generator = "deterministic-cell-stateless-resolver-authenticated-tlog-recovery-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 16384
+key_count = 32
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 512
+repeats = 1
+backend = "generation-authority+transaction-openraft+stateless-resolvers+authenticated-tagged-tlogs"
+generation_authority_nodes = 3
+previous_generation_voters = 3
+successor_generation_voters = 3
+resolver_partitions = 3
+resolver_processes_per_generation = 3
+transaction_system_generations = 2
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+tagged_log_fence_quorum = 2
+maximum_staged_records = 4
+maximum_staged_bytes = 16384
+expected_baseline_frontier = 10
+expected_recovered_frontier = 12
+expected_first_aborted_version = 13
+expected_last_aborted_version = 14
+expected_successor_version = 15
+
+[[lanes]]
+id = "cell-stateless-resolver-authenticated-tlog-recovery"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-recovers-resolver-accepted-authenticated-tlog-prefix"
+lane = "cell-stateless-resolver-authenticated-tlog-recovery"
+operation = "cell_stateless_resolver_authenticated_tlog_recovery_contract"
+
+[[workloads]]
+id = "cell-publishes-resolver-accepted-record-before-tlog-quorum"
+lane = "cell-stateless-resolver-authenticated-tlog-recovery"
+operation = "cell_stateless_resolver_authenticated_tlog_recovery_contract"
+negative_control = "publish_before_tlog_quorum"
+
+[[workloads]]
+id = "cell-recovers-from-authority-marker-without-tlog-inventories"
+lane = "cell-stateless-resolver-authenticated-tlog-recovery"
+operation = "cell_stateless_resolver_authenticated_tlog_recovery_contract"
+negative_control = "recover_from_authority_marker_only"
+
+[[workloads]]
+id = "cell-activates-successor-before-tlog-prefix-fence"
+lane = "cell-stateless-resolver-authenticated-tlog-recovery"
+operation = "cell_stateless_resolver_authenticated_tlog_recovery_contract"
+negative_control = "activate_before_tlog_prefix_fence"
+
+[[workloads]]
+id = "cell-counts-old-generation-resolver-reply-after-tlog-recovery"
+lane = "cell-stateless-resolver-authenticated-tlog-recovery"
+operation = "cell_stateless_resolver_authenticated_tlog_recovery_contract"
+negative_control = "accept_old_generation_resolver_reply"
+
+[[workloads]]
+id = "cell-admits-read-below-authenticated-recovery-floor"
+lane = "cell-stateless-resolver-authenticated-tlog-recovery"
+operation = "cell_stateless_resolver_authenticated_tlog_recovery_contract"
+negative_control = "read_below_authenticated_recovery_floor"
+
+[[workloads]]
+id = "cell-aborts-quorum-present-resolver-accepted-record"
+lane = "cell-stateless-resolver-authenticated-tlog-recovery"
+operation = "cell_stateless_resolver_authenticated_tlog_recovery_contract"
+negative_control = "recover_below_quorum_present_prefix"
+
+[[workloads]]
+id = "cell-publishes-resolver-accepted-record-beyond-absence-boundary"
+lane = "cell-stateless-resolver-authenticated-tlog-recovery"
+operation = "cell_stateless_resolver_authenticated_tlog_recovery_contract"
+negative_control = "recover_beyond_absent_boundary"
+
+[hard_gates]
+correctness_anomalies = 0
+generation_authority_nodes = 3
+previous_generation_voters = 3
+successor_generation_voters = 3
+resolver_partitions = 3
+resolver_processes_per_generation = 3
+transaction_system_generations = 2
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+tagged_log_fence_quorum = 2
+complete_resolver_evidence_required_before_stage = true
+resolver_acceptance_does_not_publish = true
+partial_resolver_candidate_is_never_staged = true
+partial_resolver_candidate_is_never_visible = true
+staged_envelope_bytes_match_tlog_bytes = true
+visibility_requires_authenticated_quorum_in_every_required_log_set = true
+every_required_log_set_is_durably_prefix_fenced = true
+every_inventory_covers_the_exact_staged_window = true
+inventory_attestations_are_policy_authenticated = true
+authenticated_recovery_prefix_is_maximal = true
+quorum_present_uncertified_record_is_recovered = true
+quorum_absent_record_is_aborted = true
+dependent_suffix_is_aborted = true
+aborted_suffix_never_becomes_visible = true
+successor_resolver_state_starts_empty = true
+successor_resolver_floor_equals_authenticated_frontier = true
+successor_reads_at_or_above_authenticated_frontier = true
+old_generation_resolver_requests_rejected = true
+old_generation_resolver_replies_rejected = true
+old_generation_tlog_appends_rejected = true
+abandoned_work_retries_with_new_identity = true
+successor_uses_sequence_after_complete_old_window = true
+resolver_durable_syncs = 0
+resolver_finalization_rpcs = 0
+exact_rows = true
+exact_original_envelope_bytes = true
+commit_envelope_chain_valid = true
+exact_terminal_outcomes = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

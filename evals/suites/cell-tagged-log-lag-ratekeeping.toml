@@ -1,0 +1,159 @@
+schema_version = 1
+id = "cell-tagged-log-lag-ratekeeping-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0039-commit-visibility-after-tagged-log-durability.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0043-multi-record-staged-prefix-recovery.md",
+  "../../rfcs/0044-sustained-tagged-log-lag-and-ratekeeping.md",
+]
+dataset_generator = "deterministic-cell-tagged-log-lag-ratekeeping-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 32768
+key_count = 8
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 180
+repeats = 1
+backend = "transaction-openraft+publication-openraft+signed-tagged-tlog-ratekeeper-processes"
+transaction_authority_nodes = 3
+publication_authority_nodes = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+retained_soft_limit_bytes = 8192
+retained_hard_limit_bytes = 16384
+commits_before_backpressure = 4
+rate_limited_attempts = 3
+initial_commit_frontier = 10
+initial_object_frontier = 10
+object_pop_frontier = 12
+expected_stalled_frontier = 14
+expected_final_frontier = 16
+
+[[lanes]]
+id = "cell-tagged-log-lag-ratekeeping"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-ratekeeps-lag-pops-and-resumes"
+lane = "cell-tagged-log-lag-ratekeeping"
+operation = "cell_tagged_log_lag_ratekeeper_contract"
+
+[[workloads]]
+id = "cell-ratekeeps-after-partial-hard-limit-append"
+lane = "cell-tagged-log-lag-ratekeeping"
+operation = "cell_tagged_log_lag_ratekeeper_contract"
+negative_control = "ratekeep_after_partial_append"
+
+[[workloads]]
+id = "cell-trusts-best-node-capacity"
+lane = "cell-tagged-log-lag-ratekeeping"
+operation = "cell_tagged_log_lag_ratekeeper_contract"
+negative_control = "best_node_capacity"
+
+[[workloads]]
+id = "cell-reuses-stale-capacity-sample"
+lane = "cell-tagged-log-lag-ratekeeping"
+operation = "cell_tagged_log_lag_ratekeeper_contract"
+negative_control = "stale_capacity_sample"
+
+[[workloads]]
+id = "cell-pops-beyond-object-frontier"
+lane = "cell-tagged-log-lag-ratekeeping"
+operation = "cell_tagged_log_lag_ratekeeper_contract"
+negative_control = "pop_beyond_object_frontier"
+
+[[workloads]]
+id = "cell-resumes-without-pop-quorum"
+lane = "cell-tagged-log-lag-ratekeeping"
+operation = "cell_tagged_log_lag_ratekeeper_contract"
+negative_control = "resume_without_pop_quorum"
+
+[[workloads]]
+id = "cell-allocates-before-ratekeeping"
+lane = "cell-tagged-log-lag-ratekeeping"
+operation = "cell_tagged_log_lag_ratekeeper_contract"
+negative_control = "allocate_before_ratekeeping"
+
+[hard_gates]
+correctness_anomalies = 0
+transaction_authority_nodes = 3
+publication_authority_nodes = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+object_frontier_never_exceeds_commit_frontier = true
+every_acknowledged_commit_is_quorum_durable_in_every_required_set = true
+ratekeeper_uses_fresh_authenticated_quorum_capacity = true
+rate_limited_attempt_allocates_no_sequence = true
+rate_limited_attempt_stages_no_envelope = true
+rate_limited_attempt_appends_no_tagged_log = true
+rate_limited_retry_token_is_stable = true
+visible_frontier_is_stable_while_rate_limited = true
+retained_bytes_never_exceed_hard_limit = true
+correct_path_hits_no_hard_limit_rejection = true
+pop_requires_authenticated_object_frontier = true
+pop_is_quorum_durable_in_every_required_set = true
+pop_survives_process_restart = true
+records_above_pop_remain_byte_exact = true
+capacity_sample_changes_after_append_or_pop = true
+admission_resumes_only_after_pop_quorum = true
+original_rate_limited_identity_commits_once = true
+successor_sequence_has_no_gap_from_rate_limited_attempts = true
+fresh_worker_reconstructs_exact_final_state = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

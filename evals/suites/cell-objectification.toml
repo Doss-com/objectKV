@@ -1,0 +1,72 @@
+schema_version = 1
+id = "cell-objectification-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0020-publisher-lost-publish-response-recovery.md",
+]
+dataset_generator = "deterministic-cell-objectification-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 2
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 60
+repeats = 1
+backend = "process-local-fs"
+transaction_nodes = 3
+publication_nodes = 3
+consensus_library = "openraft-0.9.25"
+object_format = "immutable-envelope-segment-v0"
+
+[[lanes]]
+id = "commit-objectify-empty-cache"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-objectification-correct"
+lane = "commit-objectify-empty-cache"
+operation = "cell_objectification_contract"
+mode = "correct"
+
+[[workloads]]
+id = "cell-objectification-incomplete-closure"
+lane = "commit-objectify-empty-cache"
+operation = "cell_objectification_contract"
+negative_control = "publish_incomplete_closure"
+
+[[workloads]]
+id = "cell-objectification-object-only-pop"
+lane = "commit-objectify-empty-cache"
+operation = "cell_objectification_contract"
+negative_control = "trust_object_frontier_for_safe_pop"
+
+[hard_gates]
+correctness_anomalies = 0
+closure_verified_before_publish = true
+object_frontier_requires_complete_closure = true
+safe_log_pop_is_dual_frontier_minimum = true
+fresh_worker_reconstructs_exact_snapshot = true
+exact_fresh_process_replay = true
+schema_valid = true
+budget_must_hold = true

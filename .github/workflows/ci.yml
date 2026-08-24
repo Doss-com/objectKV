@@ -1,0 +1,351 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.88.0
+          components: rustfmt, clippy
+          rustflags: ""
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo run -p okv-eval -- smoke
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/smoke.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/phase0.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/serving-models.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/fault-recovery.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-store.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-gc.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-adapter.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-authority-process.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-worker-process.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-publisher-process.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-publisher-put-recovery.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-publisher-manifest-recovery.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/object-publication-publisher-publish-recovery.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/model-history.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/commit-contract.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/persisted-wal.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-storage.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-cluster.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/raft-process.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/generation-process.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/generation-certificates.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/cell-process-repair.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-physical.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-streaming.toml
+      - name: Verify generated MVCC histories and negative control
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history --backend model --output /tmp/okv-model-history.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0' /tmp/okv-model-history.json
+          for workload in \
+            generated-mvcc-history-ignore-range-clears \
+            generated-mvcc-history-mutation-order-affects-replay \
+            generated-mvcc-history-accept-conflicting-replay \
+            generated-mvcc-history-future-read-fallback \
+            generated-mvcc-history-reject-retention-boundary \
+            generated-mvcc-history-serve-expired-read \
+            generated-mvcc-history-accept-stale-generation; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload "$workload" --backend model --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "model.oracle_agreement").status == "fail")' "$output"
+          done
+      - name: Verify Cell v0 commit contract and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/commit-contract.toml --profile sim-dev --workload cell-commit-envelope --backend sim-model --output /tmp/okv-commit-contract.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0' /tmp/okv-commit-contract.json
+          for workload in \
+            cell-commit-ram-only-dedup \
+            cell-commit-accept-conflicting-retry \
+            cell-commit-accept-partial-resolver \
+            cell-commit-omit-required-log-tag \
+            cell-commit-accept-stale-generation \
+            cell-commit-ack-before-quorum; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/commit-contract.toml --profile sim-dev --workload "$workload" --backend sim-model --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "commit.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify ZebraDB HTAP exactness and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/htap-contract.toml --profile model-dev --workload zebradb-base-plus-tail --backend model --output /tmp/okv-htap-contract.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "htap.exact_result").status == "pass")' /tmp/okv-htap-contract.json
+          for workload in \
+            zebradb-pushdown-poison \
+            zebradb-schema-partition-move \
+            zebradb-wal-pop-conflation \
+            zebradb-lease-gc-race \
+            zebradb-certificate-toctou; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/htap-contract.toml --profile model-dev --workload "$workload" --backend model --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap.exact_result").status == "fail")' "$output"
+          done
+      - name: Verify ZebraDB DataFusion overlay and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/htap-physical.toml --profile local-fs --workload zebradb-arrow-parquet-overlay --backend datafusion-local-fs --output /tmp/okv-htap-physical.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "htap_physical.exact_result").status == "pass")' /tmp/okv-htap-physical.json
+          for workload in \
+            zebradb-physical-pushdown-poison \
+            zebradb-physical-partition-move \
+            zebradb-physical-projection-poison; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/htap-physical.toml --profile local-fs --workload "$workload" --backend datafusion-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap_physical.exact_result").status == "fail")' "$output"
+          done
+      - name: Verify ZebraDB streaming overlay and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/htap-streaming.toml --profile local-fs --workload zebradb-streaming-overlay --backend datafusion-local-fs --output /tmp/okv-htap-streaming.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "htap_streaming.exact_result").status == "pass") and (.hard_gates[] | select(.id == "htap_streaming.incremental_emission").status == "pass")' /tmp/okv-htap-streaming.json
+          for workload in \
+            zebradb-streaming-materialize-inputs \
+            zebradb-streaming-reset-batch-group \
+            zebradb-streaming-max-watermark \
+            zebradb-streaming-rebase-continuation \
+            zebradb-streaming-accept-unsorted; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/htap-streaming.toml --profile local-fs --workload "$workload" --backend datafusion-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "htap_streaming.exact_result").status == "fail")' "$output"
+          done
+      - name: Verify object publication, reachability, and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-gc.toml --profile model-dev --workload object-publication-reachability --backend publication-gc-model --output /tmp/okv-publication-gc.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "publication_gc.contract_agreement").status == "pass")' /tmp/okv-publication-gc.json
+          for workload in \
+            object-publication-pointer-before-block \
+            object-publication-omit-intent \
+            object-gc-trust-counter \
+            object-gc-trust-list \
+            object-gc-incomplete-mark \
+            object-gc-skip-delete-revalidation; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/object-publication-gc.toml --profile model-dev --workload "$workload" --backend publication-gc-model --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_gc.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify real object publication adapter and negative controls
+        run: |
+          backend="object-store-local-fs+authority-quorum-fs"
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-adapter.toml --profile local-fs --workload object-publication-real-adapter --backend "$backend" --output /tmp/okv-publication-adapter.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "publication_adapter.contract_agreement").status == "pass") and (.hard_gates[] | select(.id == "publication_adapter.physical_boundaries_exercised").status == "pass")' /tmp/okv-publication-adapter.json
+          for workload in \
+            object-publication-adapter-root-before-verify \
+            object-publication-adapter-omit-intent \
+            object-publication-adapter-forget-object-outcome \
+            object-publication-adapter-ram-authority \
+            object-publication-adapter-trust-list \
+            object-publication-adapter-skip-revalidation \
+            object-publication-adapter-skip-reservation; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/object-publication-adapter.toml --profile local-fs --workload "$workload" --backend "$backend" --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_adapter.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify replicated publication authority and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- publication-process-trace --seed 1103 > /tmp/okv-publication-process-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-process-trace --seed 1103 > /tmp/okv-publication-process-trace-b.json
+          cmp /tmp/okv-publication-process-trace-a.json /tmp/okv-publication-process-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-authority-process.toml --profile local-fs --workload publication-authority-failover --backend process-local-fs --output /tmp/okv-publication-process.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "publication_process.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publication_process.contract_agreement").status == "pass")' /tmp/okv-publication-process.json
+          for workload in \
+            publication-authority-bypass-generation-fence \
+            publication-authority-publish-without-intent \
+            publication-authority-ignore-root-epoch \
+            publication-authority-ignore-delete-reservation \
+            publication-authority-disable-dedup \
+            publication-authority-ack-before-quorum \
+            publication-authority-stale-expected-root \
+            publication-authority-local-stale-outcome-read \
+            publication-authority-cross-generation-intent \
+            publication-authority-retire-by-plan-key; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/object-publication-authority-process.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "publication_process.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify publisher prepare recovery and negative control
+        run: |
+          backend="object-store-local-fs+process-openraft"
+          cargo run --quiet -p okv-eval -- publication-publisher-process-trace --seed 1103 > /tmp/okv-publisher-process-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-publisher-process-trace --seed 1103 > /tmp/okv-publisher-process-trace-b.json
+          cmp /tmp/okv-publisher-process-trace-a.json /tmp/okv-publisher-process-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-process.toml --profile local-fs --workload publisher-prepare-restart --backend "$backend" --output /tmp/okv-publisher-process.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 30 and .budget.observed == 30 and (.hard_gates[] | select(.id == "publisher_process.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_process.contract_agreement").status == "pass")' /tmp/okv-publisher-process.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-process.toml --profile local-fs --workload publisher-upload-before-prepare-ack --backend "$backend" --output /tmp/okv-publisher-process-negative.json
+          jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 30 and .budget.observed == 30 and (.hard_gates[] | select(.id == "publisher_process.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "no_object_exists_before_prepare_barrier").status == "fail")' /tmp/okv-publisher-process-negative.json
+      - name: Verify publisher ambiguous PUT recovery and negative control
+        run: |
+          backend="object-store-local-fs+process-openraft"
+          cargo run --quiet -p okv-eval -- publication-publisher-put-recovery-trace --seed 1103 > /tmp/okv-publisher-put-recovery-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-publisher-put-recovery-trace --seed 1103 > /tmp/okv-publisher-put-recovery-trace-b.json
+          cmp /tmp/okv-publisher-put-recovery-trace-a.json /tmp/okv-publisher-put-recovery-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-put-recovery.toml --profile local-fs --workload publisher-first-put-unknown-restart --backend "$backend" --output /tmp/okv-publisher-put-recovery.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 36 and .budget.observed == 36 and (.hard_gates[] | select(.id == "publisher_put_recovery.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_put_recovery.contract_agreement").status == "pass") and (.hard_gates[] | select(.id == "complete_closure_precedes_root_visibility").status == "pass")' /tmp/okv-publisher-put-recovery.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-put-recovery.toml --profile local-fs --workload publisher-publish-partial-closure --backend "$backend" --output /tmp/okv-publisher-put-recovery-negative.json
+          jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 36 and .budget.observed == 36 and (.hard_gates[] | select(.id == "publisher_put_recovery.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "complete_closure_precedes_root_visibility").status == "fail") and (.hard_gates[] | select(.id == "reader_walks_exact_visible_closure").status == "fail")' /tmp/okv-publisher-put-recovery-negative.json
+      - name: Verify publisher ambiguous manifest recovery and negative control
+        run: |
+          backend="object-store-local-fs+process-openraft"
+          cargo run --quiet -p okv-eval -- publication-publisher-manifest-recovery-trace --seed 1103 > /tmp/okv-publisher-manifest-recovery-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-publisher-manifest-recovery-trace --seed 1103 > /tmp/okv-publisher-manifest-recovery-trace-b.json
+          cmp /tmp/okv-publisher-manifest-recovery-trace-a.json /tmp/okv-publisher-manifest-recovery-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-manifest-recovery.toml --profile local-fs --workload publisher-manifest-put-unknown-restart --backend "$backend" --output /tmp/okv-publisher-manifest-recovery.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 39 and .budget.observed == 39 and (.hard_gates[] | select(.id == "publisher_manifest_recovery.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_manifest_recovery.contract_agreement").status == "pass") and (.hard_gates[] | select(.id == "complete_closure_precedes_root_visibility").status == "pass")' /tmp/okv-publisher-manifest-recovery.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-manifest-recovery.toml --profile local-fs --workload publisher-manifest-unknown-skip-closure --backend "$backend" --output /tmp/okv-publisher-manifest-recovery-negative.json
+          jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 39 and .budget.observed == 39 and (.hard_gates[] | select(.id == "publisher_manifest_recovery.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "all_data_objects_are_exact_before_manifest_attempt").status == "fail") and (.hard_gates[] | select(.id == "reader_walks_exact_visible_closure").status == "fail")' /tmp/okv-publisher-manifest-recovery-negative.json
+      - name: Verify publisher lost Publish response recovery and negative control
+        run: |
+          backend="object-store-local-fs+process-openraft"
+          cargo run --quiet -p okv-eval -- publication-publisher-publish-recovery-trace --seed 1103 > /tmp/okv-publisher-publish-recovery-trace-a.json
+          cargo run --quiet -p okv-eval -- publication-publisher-publish-recovery-trace --seed 1103 > /tmp/okv-publisher-publish-recovery-trace-b.json
+          cmp /tmp/okv-publisher-publish-recovery-trace-a.json /tmp/okv-publisher-publish-recovery-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-publish-recovery.toml --profile local-fs --workload publisher-publish-unknown-restart --backend "$backend" --output /tmp/okv-publisher-publish-recovery.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.limit == 42 and .budget.observed == 42 and (.hard_gates[] | select(.id == "publisher_publish_recovery.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "publisher_publish_recovery.contract_agreement").status == "pass") and (.hard_gates[] | select(.id == "publication_transition_applies_exactly_once").status == "pass")' /tmp/okv-publisher-publish-recovery.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-publication-publisher-publish-recovery.toml --profile local-fs --workload publisher-publish-unknown-convergence-only --backend "$backend" --output /tmp/okv-publisher-publish-recovery-negative.json
+          jq -e '.verdict == "discard" and .primary_metric.median > 0 and .budget.limit == 42 and .budget.observed == 42 and (.hard_gates[] | select(.id == "publisher_publish_recovery.contract_agreement").status == "fail") and (.hard_gates[] | select(.id == "original_publish_outcome_is_quorum_durable").status == "fail") and (.hard_gates[] | select(.id == "publication_transition_applies_exactly_once").status == "fail") and (.hard_gates[] | select(.id == "reader_walks_exact_visible_closure").status == "pass")' /tmp/okv-publisher-publish-recovery-negative.json
+      - name: Verify persisted WAL reopen contract and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload persisted-wal-reopen --backend local-fs --output /tmp/okv-persisted-wal.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "persisted_wal.contract_agreement").status == "pass")' /tmp/okv-persisted-wal.json
+          for workload in \
+            persisted-wal-ram-only-dedup \
+            persisted-wal-ack-before-quorum \
+            persisted-wal-trust-single-replica \
+            persisted-wal-accept-torn-as-commit \
+            persisted-wal-skip-log-chain-validation \
+            persisted-wal-ignore-complete-corruption; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/persisted-wal.toml --profile local-fs --workload "$workload" --backend local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "persisted_wal.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify OpenRaft stable storage and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/raft-storage.toml --profile local-fs --workload openraft-storage-reopen --backend local-fs --output /tmp/okv-openraft-storage.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "raft_storage.contract_agreement").status == "pass")' /tmp/okv-openraft-storage.json
+          for workload in \
+            openraft-storage-ram-only-vote \
+            openraft-storage-ram-only-committed \
+            openraft-storage-ignore-conflict-truncate \
+            openraft-storage-ignore-purge \
+            openraft-storage-accept-log-gap \
+            openraft-storage-ignore-complete-corruption; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/raft-storage.toml --profile local-fs --workload "$workload" --backend local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "raft_storage.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify three-node OpenRaft failover and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/raft-cluster.toml --profile local-fs --workload openraft-three-node-failover --backend turmoil-local-fs --output /tmp/okv-openraft-cluster.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "raft_cluster.contract_agreement").status == "pass")' /tmp/okv-openraft-cluster.json
+          for workload in \
+            openraft-cluster-ack-before-quorum \
+            openraft-cluster-skip-successor-election \
+            openraft-cluster-skip-restart-catchup; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/raft-cluster.toml --profile local-fs --workload "$workload" --backend turmoil-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "raft_cluster.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify real-process OpenRaft lost-reply recovery and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- raft-process-trace --seed 1103 > /tmp/okv-process-trace-a.json
+          cargo run --quiet -p okv-eval -- raft-process-trace --seed 1103 > /tmp/okv-process-trace-b.json
+          cmp /tmp/okv-process-trace-a.json /tmp/okv-process-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/raft-process.toml --profile local-fs --workload openraft-process-lost-reply --backend process-local-fs --output /tmp/okv-openraft-process.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "raft_process.contract_agreement").status == "pass")' /tmp/okv-openraft-process.json
+          for workload in \
+            openraft-process-disable-dedup \
+            openraft-process-ack-before-quorum \
+            openraft-process-skip-killed-restart; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/raft-process.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "raft_process.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify cell-generation takeover and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- generation-process-trace --seed 1103 > /tmp/okv-generation-trace-a.json
+          cargo run --quiet -p okv-eval -- generation-process-trace --seed 1103 > /tmp/okv-generation-trace-b.json
+          cmp /tmp/okv-generation-trace-a.json /tmp/okv-generation-trace-b.json
+          cargo run --quiet -p okv-eval -- run evals/suites/generation-process.toml --profile local-fs --workload generation-takeover-authority-failover --backend process-local-fs --output /tmp/okv-generation-process.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "generation_process.contract_agreement").status == "pass")' /tmp/okv-generation-process.json
+          for workload in \
+            generation-takeover-bypass-stale-fence \
+            generation-takeover-write-during-recovery \
+            generation-takeover-competing-recovery \
+            generation-takeover-activate-without-proof; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/generation-process.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "generation_process.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify data-quorum recovery certificates and negative controls
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/generation-certificates.toml --profile local-fs --workload generation-certificate-handoff --backend process-local-fs --output /tmp/okv-generation-certificates.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and (.hard_gates[] | select(.id == "generation_process.contract_agreement").status == "pass")' /tmp/okv-generation-certificates.json
+          for workload in \
+            generation-certificate-single-signer-fence \
+            generation-certificate-tampered-fence-position \
+            generation-certificate-duplicate-recovery-signer \
+            generation-certificate-stale-recovery-id \
+            generation-certificate-wrong-membership; do
+            output="/tmp/${workload}.json"
+            cargo run --quiet -p okv-eval -- run evals/suites/generation-certificates.toml --profile local-fs --workload "$workload" --backend process-local-fs --output "$output"
+            jq -e '.verdict == "discard" and .primary_metric.median > 0 and (.hard_gates[] | select(.id == "generation_process.contract_agreement").status == "fail")' "$output"
+          done
+      - name: Verify fresh-incarnation learner repair and negative control
+        run: |
+          cargo run --quiet -p okv-eval -- run evals/suites/cell-process-repair.toml --profile local-fs --workload cell-process-fresh-learner-repair --backend process-local-fs --output /tmp/okv-cell-process-repair.json
+          jq -e '.verdict == "keep" and .primary_metric.median == 0 and .budget.observed == 60 and (.hard_gates[] | select(.id == "cell_process.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "cell_process.contract_agreement").status == "pass")' /tmp/okv-cell-process-repair.json
+          cargo run --quiet -p okv-eval -- run evals/suites/cell-process-repair.toml --profile local-fs --workload cell-process-log-only-learner --backend process-local-fs --output /tmp/okv-cell-process-repair-negative.json
+          jq -e '.verdict == "discard" and .primary_metric.median == 2 and .budget.observed == 51 and (.hard_gates[] | select(.id == "cell_process.exact_fresh_process_replay").status == "pass") and (.hard_gates[] | select(.id == "cell_process.contract_agreement").status == "fail")' /tmp/okv-cell-process-repair-negative.json
+      - name: Verify local object-store capability profiles
+        run: |
+          cargo run --quiet -p okv-object -- --backend memory --profile authority > /tmp/okv-object-memory.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-store.toml --profile memory-authority --workload named-object-authority-contract --backend memory --output /tmp/okv-object-memory-eval.json
+          fixture_dir=$(mktemp -d)
+          cargo run --quiet -p okv-object -- --backend filesystem --profile segment --filesystem-root "$fixture_dir" > /tmp/okv-object-filesystem.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-store.toml --profile filesystem-segment --workload named-object-segment-contract --backend filesystem --output /tmp/okv-object-filesystem-eval.json
+      - name: Verify object-store negative controls
+        run: |
+          set +e
+          cargo run --quiet -p okv-object -- --backend memory --profile segment --inject-immutable-overwrite-bug > /tmp/okv-object-negative-overwrite.json
+          overwrite_status=$?
+          cargo run --quiet -p okv-object -- --backend memory --profile segment --inject-list-authority-bug > /tmp/okv-object-negative-list.json
+          list_status=$?
+          set -e
+          test "$overwrite_status" -eq 2
+          test "$list_status" -eq 2
+      - name: Start pinned MinIO fixture
+        run: |
+          mkdir -p /tmp/objectkv-minio-data
+          docker compose -f infra/minio/compose.yaml up -d --wait minio
+          docker compose -f infra/minio/compose.yaml run --rm initialize
+      - name: Verify MinIO authority profile
+        env:
+          OKV_S3_ENDPOINT: http://127.0.0.1:19110
+          OKV_S3_BUCKET: okv-dev
+          OKV_S3_ACCESS_KEY_ID: okvdev
+          OKV_S3_SECRET_ACCESS_KEY: okv-dev-only-secret
+          OKV_OBJECT_SERVER_VERSION: RELEASE.2025-09-07T16-13-09Z
+        run: |
+          cargo run --quiet -p okv-object -- --backend minio --profile authority > /tmp/okv-object-minio.json
+          cargo run --quiet -p okv-eval -- run evals/suites/object-store.toml --profile minio-authority --workload named-object-authority-contract --backend minio --output /tmp/okv-object-minio-eval.json
+      - name: Stop pinned MinIO fixture
+        if: always()
+        run: docker compose -f infra/minio/compose.yaml down
+      - run: cargo run -p okv-eval -- run evals/suites/fault-recovery.toml --profile sim-dev --workload overlapping-generation-failures --backend turmoil
+      - name: Verify deterministic simulation replay and negative control
+        run: |
+          cargo run --quiet -p okv-sim -- replay --seed 1103 > /tmp/okv-sim-a.json
+          cargo run --quiet -p okv-sim -- replay --seed 1103 > /tmp/okv-sim-b.json
+          cmp /tmp/okv-sim-a.json /tmp/okv-sim-b.json
+          if cargo run --quiet -p okv-sim -- replay --seed 1103 --inject-stale-publication-bug > /tmp/okv-sim-negative.json; then
+            exit 1
+          fi

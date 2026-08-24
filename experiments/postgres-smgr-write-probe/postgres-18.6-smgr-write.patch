@@ -1,0 +1,787 @@
+diff --git a/src/backend/storage/aio/aio.c b/src/backend/storage/aio/aio.c
+index e64afe68b2..67d86cdd8e 100644
+--- a/src/backend/storage/aio/aio.c
++++ b/src/backend/storage/aio/aio.c
+@@ -479,6 +479,36 @@ pgaio_io_stage(PgAioHandle *ioh, PgAioOp op)
+ 	RESUME_INTERRUPTS();
+ }
+ 
++/*
++ * Complete a read that a non-file storage manager already performed
++ * synchronously. The result is interpreted by the registered callback chain.
++ */
++void
++pgaio_io_complete_readv_synchronously(PgAioHandle *ioh, int result)
++{
++	Assert(ioh->state == PGAIO_HS_HANDED_OUT);
++	Assert(pgaio_my_backend->handed_out_io == ioh);
++	Assert(pgaio_io_has_target(ioh));
++	Assert(ioh->op == PGAIO_OP_INVALID);
++	Assert(!INTERRUPTS_CAN_BE_PROCESSED());
++
++	HOLD_INTERRUPTS();
++
++	ioh->op = PGAIO_OP_READV;
++	ioh->result = 0;
++	pgaio_io_update_state(ioh, PGAIO_HS_DEFINED);
++	pgaio_my_backend->handed_out_io = NULL;
++	pgaio_io_call_stage(ioh);
++	pgaio_io_update_state(ioh, PGAIO_HS_STAGED);
++	pgaio_io_prepare_submit(ioh);
++
++	START_CRIT_SECTION();
++	pgaio_io_process_completion(ioh, result);
++	END_CRIT_SECTION();
++
++	RESUME_INTERRUPTS();
++}
++
+ bool
+ pgaio_io_needs_synchronous_execution(PgAioHandle *ioh)
+ {
+diff --git a/src/backend/storage/smgr/smgr.c b/src/backend/storage/smgr/smgr.c
+index 37b99fa319..97aefc9719 100644
+--- a/src/backend/storage/smgr/smgr.c
++++ b/src/backend/storage/smgr/smgr.c
+@@ -63,14 +63,23 @@
+  */
+ #include "postgres.h"
+ 
++#include <netdb.h>
++#include <sys/socket.h>
++#include <sys/time.h>
++#include <unistd.h>
++
++#include "access/xlog.h"
+ #include "access/xlogutils.h"
+ #include "lib/ilist.h"
+ #include "miscadmin.h"
++#include "storage/bufpage.h"
+ #include "storage/aio.h"
+ #include "storage/bufmgr.h"
+ #include "storage/ipc.h"
+ #include "storage/md.h"
++#include "storage/okv_smgr.h"
+ #include "storage/smgr.h"
++#include "storage/sync.h"
+ #include "utils/hsearch.h"
+ #include "utils/inval.h"
+ 
+@@ -125,6 +134,53 @@ typedef struct f_smgr
+ 	int			(*smgr_fd) (SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, uint32 *off);
+ } f_smgr;
+ 
++#define OKV_REQUEST_HEADER_BYTES 80
++#define OKV_RESPONSE_HEADER_BYTES 40
++#define OKV_MAX_ERROR_BYTES 4096
++#define OKV_OPERATION_READ 1
++#define OKV_OPERATION_WRITE_EXISTING 2
++#define OKV_OPERATION_NBLOCKS 3
++#define OKV_OPERATION_STABLE 4
++
++static bool okv_settings_loaded = false;
++static uint64 okv_objectkv_version = 0;
++static uint64 okv_maximum_page_lsn = 0;
++
++static bool okv_relation_selected(RelFileLocator rlocator);
++static uint32 okvmaxcombine(SMgrRelation reln, ForkNumber forknum,
++							BlockNumber blocknum);
++static void okvreadv(SMgrRelation reln, ForkNumber forknum,
++					 BlockNumber blocknum, void **buffers, BlockNumber nblocks);
++static void okvstartreadv(PgAioHandle *ioh, SMgrRelation reln,
++						  ForkNumber forknum, BlockNumber blocknum,
++						  void **buffers, BlockNumber nblocks);
++static void okvwritev(SMgrRelation reln, ForkNumber forknum,
++					  BlockNumber blocknum, const void **buffers,
++					  BlockNumber nblocks, bool skipFsync);
++static BlockNumber okvnblocks(SMgrRelation reln, ForkNumber forknum);
++static void okvimmedsync(SMgrRelation reln, ForkNumber forknum);
++static void okvregistersync(SMgrRelation reln, ForkNumber forknum);
++static void okv_load_settings(void);
++static uint64 okv_env_u64(const char *name);
++static uint32 okv_env_u32(const char *name);
++static int okv_connect_page_service(void);
++static void okv_init_request(unsigned char *request, uint32 operation,
++						 SMgrRelation reln, ForkNumber forknum,
++						 BlockNumber blocknum, BlockNumber nblocks,
++						 uint64 wal_or_page_lsn, uint32 previous_nblocks,
++						 uint32 resulting_nblocks);
++static void okv_write_all(int socket_fd, const unsigned char *buffer,
++						  size_t length);
++static void okv_read_all(int socket_fd, unsigned char *buffer, size_t length);
++static void okv_read_response(int socket_fd, uint32 expected_operation,
++						  uint32 *payload_bytes, uint32 *value,
++						  uint64 *objectkv_version,
++						  uint64 *maximum_page_lsn);
++static void okv_put_u32(unsigned char *buffer, size_t offset, uint32 value);
++static void okv_put_u64(unsigned char *buffer, size_t offset, uint64 value);
++static uint32 okv_get_u32(const unsigned char *buffer, size_t offset);
++static uint64 okv_get_u64(const unsigned char *buffer, size_t offset);
++
+ static const f_smgr smgrsw[] = {
+ 	/* magnetic disk */
+ 	{
+@@ -148,11 +204,565 @@ static const f_smgr smgrsw[] = {
+ 		.smgr_immedsync = mdimmedsync,
+ 		.smgr_registersync = mdregistersync,
+ 		.smgr_fd = mdfd,
++	},
++	/* objectKV mutable callback probe; lifecycle operations still delegate to md */
++	{
++		.smgr_init = mdinit,
++		.smgr_shutdown = NULL,
++		.smgr_open = mdopen,
++		.smgr_close = mdclose,
++		.smgr_create = mdcreate,
++		.smgr_exists = mdexists,
++		.smgr_unlink = mdunlink,
++		.smgr_extend = mdextend,
++		.smgr_zeroextend = mdzeroextend,
++		.smgr_prefetch = mdprefetch,
++		.smgr_maxcombine = okvmaxcombine,
++		.smgr_readv = okvreadv,
++		.smgr_startreadv = okvstartreadv,
++		.smgr_writev = okvwritev,
++		.smgr_writeback = mdwriteback,
++		.smgr_nblocks = okvnblocks,
++		.smgr_truncate = mdtruncate,
++		.smgr_immedsync = okvimmedsync,
++		.smgr_registersync = okvregistersync,
++		.smgr_fd = mdfd,
+ 	}
+ };
+ 
+ static const int NSmgr = lengthof(smgrsw);
+ 
++static bool
++okv_relation_selected(RelFileLocator rlocator)
++{
++	const char *relation = getenv("OKV_SMGR_RELATION");
++	const char *database = getenv("OKV_SMGR_DATABASE");
++	const char *tablespace = getenv("OKV_SMGR_TABLESPACE");
++
++	if (relation == NULL && database == NULL && tablespace == NULL)
++		return false;
++	if (relation == NULL || database == NULL || tablespace == NULL)
++		ereport(ERROR,
++				(errmsg("objectKV relation selection requires tablespace, database, and relation")));
++
++	return rlocator.relNumber == okv_env_u32("OKV_SMGR_RELATION") &&
++		rlocator.dbOid == okv_env_u32("OKV_SMGR_DATABASE") &&
++		rlocator.spcOid == okv_env_u32("OKV_SMGR_TABLESPACE");
++}
++
++static uint32
++okvmaxcombine(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum)
++{
++	if (forknum != MAIN_FORKNUM)
++		return mdmaxcombine(reln, forknum, blocknum);
++	return Min((uint32) (RELSEG_SIZE - (blocknum % ((BlockNumber) RELSEG_SIZE))),
++			   128U);
++}
++
++static void
++okvreadv(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
++		 void **buffers, BlockNumber nblocks)
++{
++	unsigned char request[OKV_REQUEST_HEADER_BYTES] = {0};
++	uint32		payload_bytes;
++	uint32		page_count;
++	uint64		objectkv_version;
++	uint64		maximum_page_lsn;
++	uint64		expected_payload;
++	int			socket_fd;
++
++	if (forknum != MAIN_FORKNUM)
++	{
++		mdreadv(reln, forknum, blocknum, buffers, nblocks);
++		return;
++	}
++
++	if (nblocks == 0 || nblocks > 128)
++		ereport(ERROR,
++				(errmsg("objectKV read block count %u is outside 1..128", nblocks)));
++
++	okv_load_settings();
++	okv_init_request(request, OKV_OPERATION_READ, reln, forknum, blocknum,
++					 nblocks, okv_maximum_page_lsn, 0, 0);
++	okv_put_u64(request, 40, 0);
++	okv_put_u64(request, 48, 0);
++
++	socket_fd = okv_connect_page_service();
++	okv_write_all(socket_fd, request, sizeof(request));
++	okv_read_response(socket_fd, OKV_OPERATION_READ, &payload_bytes,
++					  &page_count, &objectkv_version, &maximum_page_lsn);
++	expected_payload = (uint64) nblocks * BLCKSZ;
++	if (page_count != nblocks || payload_bytes != expected_payload)
++	{
++		close(socket_fd);
++		ereport(ERROR,
++				(errmsg("objectKV page response shape mismatch: pages %u, bytes %u",
++						page_count, payload_bytes)));
++	}
++	if (objectkv_version < okv_objectkv_version ||
++		maximum_page_lsn < okv_maximum_page_lsn)
++	{
++		close(socket_fd);
++		ereport(ERROR,
++				(errmsg("objectKV page response changed the requested snapshot")));
++	}
++	for (BlockNumber block = 0; block < nblocks; block++)
++		okv_read_all(socket_fd, buffers[block], BLCKSZ);
++	close(socket_fd);
++	okv_objectkv_version = objectkv_version;
++	okv_maximum_page_lsn = maximum_page_lsn;
++	elog(LOG,
++		 "objectKV smgr_readv relation %u blocks %u..%u at objectKV version %llu and maximum page LSN %llu",
++		 reln->smgr_rlocator.locator.relNumber, blocknum,
++		 blocknum + nblocks - 1, (unsigned long long) objectkv_version,
++		 (unsigned long long) maximum_page_lsn);
++}
++
++static void
++okvstartreadv(PgAioHandle *ioh, SMgrRelation reln, ForkNumber forknum,
++			  BlockNumber blocknum, void **buffers, BlockNumber nblocks)
++{
++	if (forknum != MAIN_FORKNUM)
++	{
++		mdstartreadv(ioh, reln, forknum, blocknum, buffers, nblocks);
++		return;
++	}
++	okvreadv(reln, forknum, blocknum, buffers, nblocks);
++	pgaio_io_set_target_smgr(ioh, reln, forknum, blocknum, nblocks, false);
++	pgaio_io_complete_readv_synchronously(ioh, nblocks);
++}
++
++static void
++okvwritev(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
++		  const void **buffers, BlockNumber nblocks, bool skipFsync)
++{
++	unsigned char request[OKV_REQUEST_HEADER_BYTES] = {0};
++	uint32		payload_bytes;
++	uint32		resulting_nblocks;
++	uint64		objectkv_version;
++	uint64		maximum_page_lsn;
++	uint64		page_lsn = 0;
++	uint64		wal_flush_lsn;
++	BlockNumber previous_nblocks;
++	int			socket_fd;
++
++	if (forknum != MAIN_FORKNUM)
++	{
++		mdwritev(reln, forknum, blocknum, buffers, nblocks, skipFsync);
++		return;
++	}
++	if (nblocks == 0 || nblocks > 128)
++		ereport(ERROR,
++				(errmsg("objectKV write block count %u is outside 1..128", nblocks)));
++	okv_load_settings();
++	previous_nblocks = okvnblocks(reln, forknum);
++	if (blocknum > previous_nblocks ||
++		nblocks > previous_nblocks - blocknum)
++		ereport(ERROR,
++				(errmsg("objectKV existing-page write %u..%u exceeds extent %u",
++						blocknum, blocknum + nblocks - 1, previous_nblocks)));
++	for (BlockNumber block = 0; block < nblocks; block++)
++		page_lsn = Max(page_lsn,
++					   (uint64) PageGetLSN((Page) buffers[block]));
++	wal_flush_lsn = (uint64) GetFlushRecPtr(NULL);
++	if (getenv("OKV_SMGR_FORCE_WAL_BEHIND") != NULL && page_lsn > 0)
++		wal_flush_lsn = page_lsn - 1;
++	okv_init_request(request, OKV_OPERATION_WRITE_EXISTING, reln, forknum,
++					 blocknum, nblocks, wal_flush_lsn, previous_nblocks,
++					 previous_nblocks);
++	okv_put_u64(request, 40, 0);
++	okv_put_u64(request, 64,
++				page_lsn ^ ((uint64) nblocks << 56) ^ ((uint64) forknum << 48));
++	okv_put_u32(request, 72, reln->smgr_rlocator.locator.relNumber);
++	okv_put_u32(request, 76, blocknum);
++
++	socket_fd = okv_connect_page_service();
++	okv_write_all(socket_fd, request, sizeof(request));
++	for (BlockNumber block = 0; block < nblocks; block++)
++		okv_write_all(socket_fd, buffers[block], BLCKSZ);
++	okv_read_response(socket_fd, OKV_OPERATION_WRITE_EXISTING, &payload_bytes,
++					  &resulting_nblocks, &objectkv_version,
++					  &maximum_page_lsn);
++	close(socket_fd);
++	if (payload_bytes != 0 || resulting_nblocks != previous_nblocks ||
++		objectkv_version <= okv_objectkv_version ||
++		maximum_page_lsn < okv_maximum_page_lsn || maximum_page_lsn < page_lsn)
++		ereport(ERROR,
++				(errmsg("objectKV page write returned an invalid commit receipt")));
++	okv_objectkv_version = objectkv_version;
++	okv_maximum_page_lsn = maximum_page_lsn;
++	if (!skipFsync && !SmgrIsTemp(reln))
++		okvregistersync(reln, forknum);
++	elog(LOG,
++		 "objectKV smgr_writev relation %u blocks %u..%u committed objectKV version %llu with WAL flush LSN %llu",
++		 reln->smgr_rlocator.locator.relNumber, blocknum,
++		 blocknum + nblocks - 1, (unsigned long long) objectkv_version,
++		 (unsigned long long) wal_flush_lsn);
++}
++
++/*
++ * Publish the current recoverable objectKV frontier through the replicated
++ * authority.  This is the remote-storage equivalent of making all prior
++ * relation writes stable before PostgreSQL completes a checkpoint.
++ */
++static void
++okvimmedsync(SMgrRelation reln, ForkNumber forknum)
++{
++	unsigned char request[OKV_REQUEST_HEADER_BYTES] = {0};
++	uint32		payload_bytes;
++	uint32		nblocks;
++	uint64		objectkv_version;
++	uint64		maximum_page_lsn;
++	uint64		wal_flush_lsn;
++	int			socket_fd;
++
++	if (forknum != MAIN_FORKNUM)
++	{
++		mdimmedsync(reln, forknum);
++		return;
++	}
++	okv_load_settings();
++	wal_flush_lsn = (uint64) GetFlushRecPtr(NULL);
++	okv_init_request(request, OKV_OPERATION_STABLE, reln, forknum, 0, 0,
++					 wal_flush_lsn, 0, 0);
++	/* A stable request selects the service's atomic current frontier. */
++	okv_put_u64(request, 40, 0);
++	okv_put_u64(request, 64,
++				wal_flush_lsn ^ (uint64) reln->smgr_rlocator.locator.relNumber);
++	okv_put_u32(request, 72, reln->smgr_rlocator.locator.dbOid);
++	okv_put_u32(request, 76, reln->smgr_rlocator.locator.relNumber);
++
++	socket_fd = okv_connect_page_service();
++	okv_write_all(socket_fd, request, sizeof(request));
++	okv_read_response(socket_fd, OKV_OPERATION_STABLE, &payload_bytes,
++					  &nblocks, &objectkv_version, &maximum_page_lsn);
++	close(socket_fd);
++	if (payload_bytes != 0 || objectkv_version < okv_objectkv_version ||
++		maximum_page_lsn < okv_maximum_page_lsn)
++		ereport(ERROR,
++				(errmsg("objectKV stable publication returned an invalid receipt")));
++	okv_objectkv_version = objectkv_version;
++	okv_maximum_page_lsn = maximum_page_lsn;
++	elog(LOG,
++		 "objectKV stable root published relation %u at objectKV version %llu, maximum page LSN %llu, PostgreSQL WAL flush LSN %llu",
++		 reln->smgr_rlocator.locator.relNumber,
++		 (unsigned long long) objectkv_version,
++		 (unsigned long long) maximum_page_lsn,
++		 (unsigned long long) wal_flush_lsn);
++}
++
++/* Mark the relation for one deduplicated stable-root publication. */
++static void
++okvregistersync(SMgrRelation reln, ForkNumber forknum)
++{
++	FileTag		tag = {0};
++
++	if (forknum != MAIN_FORKNUM)
++	{
++		mdregistersync(reln, forknum);
++		return;
++	}
++	Assert(!SmgrIsTemp(reln));
++	tag.handler = SYNC_HANDLER_OKV;
++	tag.forknum = forknum;
++	tag.rlocator = reln->smgr_rlocator.locator;
++	tag.segno = 0;
++	if (!RegisterSyncRequest(&tag, SYNC_REQUEST, false /* retryOnError */ ))
++	{
++		ereport(DEBUG1,
++				(errmsg_internal("could not forward objectKV stable request because request queue is full")));
++		okvimmedsync(reln, forknum);
++	}
++}
++
++/* Checkpointer callback for a queued objectKV stable request. */
++int
++okvsyncfiletag(const FileTag *ftag, char *path)
++{
++	SMgrRelation reln;
++
++	(void) snprintf(path, MAXPGPATH, "objectkv://%u/%u/%u/%d",
++					 ftag->rlocator.spcOid, ftag->rlocator.dbOid,
++					 ftag->rlocator.relNumber, ftag->forknum);
++	reln = smgropen(ftag->rlocator, INVALID_PROC_NUMBER);
++	okvimmedsync(reln, (ForkNumber) ftag->forknum);
++	return 0;
++}
++
++bool
++okvfiletagmatches(const FileTag *ftag, const FileTag *candidate)
++{
++	return ftag->rlocator.dbOid == candidate->rlocator.dbOid;
++}
++
++static BlockNumber
++okvnblocks(SMgrRelation reln, ForkNumber forknum)
++{
++	unsigned char request[OKV_REQUEST_HEADER_BYTES] = {0};
++	uint32		payload_bytes;
++	uint32		nblocks;
++	uint64		objectkv_version;
++	uint64		maximum_page_lsn;
++	uint64		prior_version;
++	int			socket_fd;
++
++	if (forknum != MAIN_FORKNUM)
++		return mdnblocks(reln, forknum);
++	okv_load_settings();
++	prior_version = okv_objectkv_version;
++	okv_init_request(request, OKV_OPERATION_NBLOCKS, reln, forknum, 0, 0,
++					 okv_maximum_page_lsn, 0, 0);
++	okv_put_u64(request, 40, 0);
++	okv_put_u64(request, 48, 0);
++	socket_fd = okv_connect_page_service();
++	okv_write_all(socket_fd, request, sizeof(request));
++	okv_read_response(socket_fd, OKV_OPERATION_NBLOCKS, &payload_bytes,
++					  &nblocks, &objectkv_version, &maximum_page_lsn);
++	close(socket_fd);
++	if (payload_bytes != 0 || objectkv_version < okv_objectkv_version ||
++		maximum_page_lsn < okv_maximum_page_lsn)
++		ereport(ERROR,
++				(errmsg("objectKV nblocks response changed the requested snapshot")));
++	okv_objectkv_version = objectkv_version;
++	okv_maximum_page_lsn = maximum_page_lsn;
++	if (objectkv_version != prior_version)
++		elog(LOG,
++			 "objectKV atomic current nblocks advanced page-store version from %llu to %llu",
++			 (unsigned long long) prior_version,
++			 (unsigned long long) objectkv_version);
++	return (BlockNumber) nblocks;
++}
++
++static void
++okv_load_settings(void)
++{
++	if (okv_settings_loaded)
++		return;
++	okv_objectkv_version = okv_env_u64("OKV_SMGR_OBJECTKV_VERSION");
++	okv_maximum_page_lsn = okv_env_u64("OKV_SMGR_MAX_PAGE_LSN");
++	okv_settings_loaded = true;
++}
++
++static uint64
++okv_env_u64(const char *name)
++{
++	const char *value = getenv(name);
++	char   *end = NULL;
++	unsigned long long parsed;
++
++	if (value == NULL || value[0] == '\0')
++		ereport(ERROR, (errmsg("objectKV setting %s is required", name)));
++	errno = 0;
++	parsed = strtoull(value, &end, 10);
++	if (errno != 0 || end == value || *end != '\0')
++		ereport(ERROR, (errmsg("objectKV setting %s is not an unsigned integer", name)));
++	return (uint64) parsed;
++}
++
++static uint32
++okv_env_u32(const char *name)
++{
++	uint64		value = okv_env_u64(name);
++
++	if (value > PG_UINT32_MAX)
++		ereport(ERROR, (errmsg("objectKV setting %s exceeds uint32", name)));
++	return (uint32) value;
++}
++
++static int
++okv_connect_page_service(void)
++{
++	const char *host = getenv("OKV_SMGR_PAGE_HOST");
++	const char *port = getenv("OKV_SMGR_PAGE_PORT");
++	struct addrinfo hints = {0};
++	struct addrinfo *addresses = NULL;
++	struct addrinfo *address;
++	struct timeval timeout = {.tv_sec = 5, .tv_usec = 0};
++	int			socket_fd = -1;
++	int			status;
++
++	if (host == NULL)
++		host = "127.0.0.1";
++	if (port == NULL || port[0] == '\0')
++		ereport(ERROR, (errmsg("objectKV setting OKV_SMGR_PAGE_PORT is required")));
++	hints.ai_family = AF_UNSPEC;
++	hints.ai_socktype = SOCK_STREAM;
++	status = getaddrinfo(host, port, &hints, &addresses);
++	if (status != 0)
++		ereport(ERROR,
++				(errmsg("could not resolve objectKV page service %s:%s: %s",
++						host, port, gai_strerror(status))));
++	for (address = addresses; address != NULL; address = address->ai_next)
++	{
++		socket_fd = socket(address->ai_family, address->ai_socktype,
++						   address->ai_protocol);
++		if (socket_fd < 0)
++			continue;
++		(void) setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
++						  sizeof(timeout));
++		(void) setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout,
++						  sizeof(timeout));
++		if (connect(socket_fd, address->ai_addr, address->ai_addrlen) == 0)
++			break;
++		close(socket_fd);
++		socket_fd = -1;
++	}
++	freeaddrinfo(addresses);
++	if (socket_fd < 0)
++		ereport(ERROR,
++				(errmsg("could not connect to objectKV page service %s:%s: %m",
++						host, port)));
++	return socket_fd;
++}
++
++static void
++okv_init_request(unsigned char *request, uint32 operation,
++				 SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
++				 BlockNumber nblocks, uint64 wal_or_page_lsn,
++				 uint32 previous_nblocks, uint32 resulting_nblocks)
++{
++	memcpy(request, "OKVPGS02", 8);
++	okv_put_u32(request, 8, operation);
++	okv_put_u32(request, 12, reln->smgr_rlocator.locator.spcOid);
++	okv_put_u32(request, 16, reln->smgr_rlocator.locator.dbOid);
++	okv_put_u32(request, 20, reln->smgr_rlocator.locator.relNumber);
++	okv_put_u32(request, 24,
++				 reln->smgr_rlocator.backend == INVALID_PROC_NUMBER ? 0 :
++				 (uint32) reln->smgr_rlocator.backend);
++	okv_put_u32(request, 28, (uint32) forknum);
++	okv_put_u32(request, 32, blocknum);
++	okv_put_u32(request, 36, nblocks);
++	okv_put_u64(request, 40, okv_objectkv_version);
++	okv_put_u64(request, 48, wal_or_page_lsn);
++	okv_put_u32(request, 56, previous_nblocks);
++	okv_put_u32(request, 60, resulting_nblocks);
++}
++
++static void
++okv_write_all(int socket_fd, const unsigned char *buffer, size_t length)
++{
++	while (length > 0)
++	{
++		ssize_t		written = write(socket_fd, buffer, length);
++
++		if (written < 0 && errno == EINTR)
++			continue;
++		if (written <= 0)
++		{
++			close(socket_fd);
++			ereport(ERROR, (errmsg("could not write objectKV page request: %m")));
++		}
++		buffer += written;
++		length -= written;
++	}
++}
++
++static void
++okv_read_all(int socket_fd, unsigned char *buffer, size_t length)
++{
++	while (length > 0)
++	{
++		ssize_t		read_bytes = read(socket_fd, buffer, length);
++
++		if (read_bytes < 0 && errno == EINTR)
++			continue;
++		if (read_bytes <= 0)
++		{
++			close(socket_fd);
++			ereport(ERROR, (errmsg("could not read objectKV page response: %m")));
++		}
++		buffer += read_bytes;
++		length -= read_bytes;
++	}
++}
++
++static void
++okv_read_response(int socket_fd, uint32 expected_operation,
++				  uint32 *payload_bytes, uint32 *value,
++				  uint64 *objectkv_version, uint64 *maximum_page_lsn)
++{
++	unsigned char response[OKV_RESPONSE_HEADER_BYTES];
++	uint32		status;
++	uint32		operation;
++
++	okv_read_all(socket_fd, response, sizeof(response));
++	if (memcmp(response, "OKVPGR02", 8) != 0)
++	{
++		close(socket_fd);
++		ereport(ERROR,
++				(errmsg("objectKV page service returned invalid response magic")));
++	}
++	status = okv_get_u32(response, 8);
++	operation = okv_get_u32(response, 12);
++	*payload_bytes = okv_get_u32(response, 16);
++	*value = okv_get_u32(response, 20);
++	*objectkv_version = okv_get_u64(response, 24);
++	*maximum_page_lsn = okv_get_u64(response, 32);
++	if (status != 0)
++	{
++		char   *message;
++
++		if (*payload_bytes > OKV_MAX_ERROR_BYTES)
++		{
++			close(socket_fd);
++			ereport(ERROR,
++					(errmsg("objectKV page service error exceeds protocol bound")));
++		}
++		message = palloc((Size) *payload_bytes + 1);
++		okv_read_all(socket_fd, (unsigned char *) message, *payload_bytes);
++		message[*payload_bytes] = '\0';
++		close(socket_fd);
++		ereport(ERROR,
++				(errmsg("objectKV storage-manager operation %u refused: %s",
++						expected_operation, message)));
++	}
++	if (operation != expected_operation)
++	{
++		close(socket_fd);
++		ereport(ERROR,
++				(errmsg("objectKV page service returned operation %u for request %u",
++						operation, expected_operation)));
++	}
++}
++
++static void
++okv_put_u32(unsigned char *buffer, size_t offset, uint32 value)
++{
++	buffer[offset] = (unsigned char) (value >> 24);
++	buffer[offset + 1] = (unsigned char) (value >> 16);
++	buffer[offset + 2] = (unsigned char) (value >> 8);
++	buffer[offset + 3] = (unsigned char) value;
++}
++
++static void
++okv_put_u64(unsigned char *buffer, size_t offset, uint64 value)
++{
++	for (int byte = 7; byte >= 0; byte--)
++	{
++		buffer[offset + byte] = (unsigned char) value;
++		value >>= 8;
++	}
++}
++
++static uint32
++okv_get_u32(const unsigned char *buffer, size_t offset)
++{
++	return (uint32) buffer[offset] << 24 |
++		(uint32) buffer[offset + 1] << 16 |
++		(uint32) buffer[offset + 2] << 8 |
++		(uint32) buffer[offset + 3];
++}
++
++static uint64
++okv_get_u64(const unsigned char *buffer, size_t offset)
++{
++	uint64		value = 0;
++
++	for (int byte = 0; byte < 8; byte++)
++		value = value << 8 | (uint64) buffer[offset + byte];
++	return value;
++}
++
+ /*
+  * Each backend has a hashtable that stores all extant SMgrRelation objects.
+  * In addition, "unpinned" SMgrRelation objects are chained together in a list.
+@@ -188,6 +798,7 @@ void
+ smgrinit(void)
+ {
+ 	int			i;
++	bool		okv_probe_enabled = getenv("OKV_SMGR_RELATION") != NULL;
+ 
+ 	HOLD_INTERRUPTS();
+ 
+@@ -199,6 +810,9 @@ smgrinit(void)
+ 
+ 	RESUME_INTERRUPTS();
+ 
++	if (okv_probe_enabled)
++		elog(LOG, "objectKV mutable storage manager callback probe enabled");
++
+ 	/* register the shutdown proc */
+ 	on_proc_exit(smgrshutdown, 0);
+ }
+@@ -273,7 +887,7 @@ smgropen(RelFileLocator rlocator, ProcNumber backend)
+ 		reln->smgr_targblock = InvalidBlockNumber;
+ 		for (int i = 0; i <= MAX_FORKNUM; ++i)
+ 			reln->smgr_cached_nblocks[i] = InvalidBlockNumber;
+-		reln->smgr_which = 0;	/* we only have md.c at present */
++		reln->smgr_which = okv_relation_selected(rlocator) ? 1 : 0;
+ 
+ 		/* it is not pinned yet */
+ 		reln->pincount = 0;
+diff --git a/src/backend/storage/sync/sync.c b/src/backend/storage/sync/sync.c
+index fc16db9013..92b0f06bde 100644
+--- a/src/backend/storage/sync/sync.c
++++ b/src/backend/storage/sync/sync.c
+@@ -29,6 +29,7 @@
+ #include "storage/fd.h"
+ #include "storage/latch.h"
+ #include "storage/md.h"
++#include "storage/okv_smgr.h"
+ #include "utils/hsearch.h"
+ #include "utils/memutils.h"
+ 
+@@ -114,6 +115,11 @@ static const SyncOps syncsw[] = {
+ 	/* pg_multixact/members */
+ 	[SYNC_HANDLER_MULTIXACT_MEMBER] = {
+ 		.sync_syncfiletag = multixactmemberssyncfiletag
++	},
++	/* objectKV stable-root publication */
++	[SYNC_HANDLER_OKV] = {
++		.sync_syncfiletag = okvsyncfiletag,
++		.sync_filetagmatches = okvfiletagmatches
+ 	}
+ };
+ 
+diff --git a/src/include/storage/aio.h b/src/include/storage/aio.h
+index 2933eea064..8ff3fca898 100644
+--- a/src/include/storage/aio.h
++++ b/src/include/storage/aio.h
+@@ -300,6 +300,8 @@ extern void pgaio_io_start_readv(PgAioHandle *ioh,
+ 								 int fd, int iovcnt, uint64 offset);
+ extern void pgaio_io_start_writev(PgAioHandle *ioh,
+ 								  int fd, int iovcnt, uint64 offset);
++extern void pgaio_io_complete_readv_synchronously(PgAioHandle *ioh,
++												  int result);
+ 
+ /* functions in aio_target.c */
+ extern void pgaio_io_set_target(PgAioHandle *ioh, PgAioTargetID targetid);
+diff --git a/src/include/storage/okv_smgr.h b/src/include/storage/okv_smgr.h
+new file mode 100644
+index 0000000000..ed8428aca6
+--- /dev/null
++++ b/src/include/storage/okv_smgr.h
+@@ -0,0 +1,16 @@
++/*-------------------------------------------------------------------------
++ *
++ * okv_smgr.h
++ *	  objectKV storage manager checkpoint synchronization callbacks.
++ *
++ *-------------------------------------------------------------------------
++ */
++#ifndef OKV_SMGR_H
++#define OKV_SMGR_H
++
++#include "storage/sync.h"
++
++extern int	okvsyncfiletag(const FileTag *ftag, char *path);
++extern bool okvfiletagmatches(const FileTag *ftag, const FileTag *candidate);
++
++#endif							/* OKV_SMGR_H */
+diff --git a/src/include/storage/sync.h b/src/include/storage/sync.h
+index c2272d1417..71f49fb74c 100644
+--- a/src/include/storage/sync.h
++++ b/src/include/storage/sync.h
+@@ -39,6 +39,7 @@ typedef enum SyncRequestHandler
+ 	SYNC_HANDLER_COMMIT_TS,
+ 	SYNC_HANDLER_MULTIXACT_OFFSET,
+ 	SYNC_HANDLER_MULTIXACT_MEMBER,
++	SYNC_HANDLER_OKV,
+ 	SYNC_HANDLER_NONE,
+ } SyncRequestHandler;
+ 

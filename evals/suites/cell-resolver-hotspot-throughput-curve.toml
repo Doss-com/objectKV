@@ -1,0 +1,207 @@
+schema_version = 1
+id = "cell-resolver-hotspot-throughput-curve-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0048-partitioned-resolver-agreement.md",
+  "../../rfcs/0051-multi-commit-proxy-global-ordering.md",
+  "../../rfcs/0052-online-resolver-map-split.md",
+  "../../rfcs/0055-resolver-hotspot-throughput-curve.md",
+]
+dataset_generator = "deterministic-resolver-hotspot-throughput-curve-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 8192
+key_count = 8192
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 600.0
+repeats = 7
+backend = "local-process+memory-only-ordered-resolver-workers"
+candidate_surface = "crates/okv-consensus/src/resolver_hotspot_curve.rs,crates/okv-consensus/src/lib.rs,crates/okv-eval/src/main.rs"
+source_resolver_processes = 1
+child_resolver_processes = 2
+minimum_available_parallelism = 2
+controller_threads = 2
+logical_transactions = 8192
+batches = 128
+transactions_per_batch = 64
+warmup_transactions = 512
+history_entries_total = 4096
+repetitions_per_seed = 7
+topology_order = "alternating"
+
+[[lanes]]
+id = "resolver-hotspot-throughput-curve"
+primary_metric = "resolver.throughput_ratio"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "resolver-balanced-independent"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+distribution = "balanced-independent"
+left_fraction = 0.5
+right_fraction = 0.5
+crossing_fraction = 0.0
+left_history_fraction = 0.5
+
+[[workloads]]
+id = "resolver-missed-hot-key-boundary"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+distribution = "missed-hot-key-boundary"
+left_fraction = 1.0
+right_fraction = 0.0
+crossing_fraction = 0.0
+left_history_fraction = 1.0
+
+[[workloads]]
+id = "resolver-crossing-25"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+distribution = "crossing-25"
+left_fraction = 0.375
+right_fraction = 0.375
+crossing_fraction = 0.25
+left_history_fraction = 0.5
+
+[[workloads]]
+id = "resolver-crossing-100"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+distribution = "crossing-100"
+left_fraction = 0.0
+right_fraction = 0.0
+crossing_fraction = 1.0
+left_history_fraction = 0.5
+
+[[workloads]]
+id = "resolver-omits-crossing-child"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+negative_control = "route_crossing_to_one_child"
+distribution = "control-one-child"
+left_fraction = 0.375
+right_fraction = 0.375
+crossing_fraction = 0.25
+left_history_fraction = 0.5
+
+[[workloads]]
+id = "resolver-changes-split-workload"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+negative_control = "mutate_split_workload"
+distribution = "control-workload-drift"
+left_fraction = 0.5
+right_fraction = 0.5
+crossing_fraction = 0.0
+left_history_fraction = 0.5
+
+[[workloads]]
+id = "resolver-skips-outcome-validation"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+negative_control = "skip_outcome_validation"
+distribution = "control-unvalidated"
+left_fraction = 0.5
+right_fraction = 0.5
+crossing_fraction = 0.0
+left_history_fraction = 0.5
+
+[[workloads]]
+id = "resolver-times-worker-startup"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+negative_control = "include_worker_startup"
+distribution = "control-startup-timed"
+left_fraction = 0.5
+right_fraction = 0.5
+crossing_fraction = 0.0
+left_history_fraction = 0.5
+
+[[workloads]]
+id = "resolver-serializes-split-children"
+lane = "resolver-hotspot-throughput-curve"
+operation = "cell_resolver_hotspot_throughput_curve"
+negative_control = "serialize_split_children"
+distribution = "control-serialized-children"
+left_fraction = 0.5
+right_fraction = 0.5
+crossing_fraction = 0.0
+left_history_fraction = 0.5
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_repeats = 7
+minimum_seeds = 3
+minimum_available_parallelism = 2
+logical_transactions = 8192
+batches = 128
+transactions_per_batch = 64
+source_and_split_workload_digest_exact = true
+source_outcomes_match_oracle = true
+split_outcomes_match_oracle = true
+source_and_split_outcomes_match = true
+crossing_transactions_reach_every_child = true
+one_map_epoch_per_transaction = true
+source_history_is_exact_child_union = true
+worker_startup_excluded_from_timing = true
+history_preparation_excluded_from_timing = true
+warmup_excluded_from_timing = true
+every_outcome_validated = true
+split_child_execution_overlaps = true
+operation_count_fixed = true
+batch_order_fixed = true
+controller_concurrency_fixed = true
+same_executable_and_machine = true
+alternating_topology_order_complete = true
+duration_distribution_recorded = true
+exact_untimed_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

@@ -1,0 +1,153 @@
+schema_version = 1
+id = "cell-range-serving-performance-curve-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0038-range-tagged-transaction-log.md",
+  "../../rfcs/0058-kv-runtime-exact-version-read.md",
+  "../../rfcs/0059-kv-runtime-snapshot-floor-and-history-gc.md",
+  "../../rfcs/0060-replicated-snapshot-lease-authority.md",
+  "../../rfcs/0061-range-serving-performance-curve.md",
+]
+dataset_generator = "deterministic-authority-base-certified-tail-curve-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 16777216
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 1800.0
+repeats = 1
+backend = "local-process+authority-slate-base+certified-txlog-tail"
+candidate_surface = "crates/okv-object/src/range_serving_curve.rs,crates/okv-object/src/range_serving_view.rs,crates/okv-slate/src/phase0.rs,crates/okv-eval/src/main.rs"
+value_bytes = 256
+point_samples = 64
+scan_rows = 1024
+max_rss_bytes = 1073741824
+worker_timeout_millis = 300000
+decoded_cache_bytes = 67108864
+nvme_cache_bytes = 268435456
+nvme_part_bytes = 65536
+nvme_open_file_handles = 64
+
+[[lanes]]
+id = "range-serving-performance"
+primary_metric = "range_serving.view_open_duration"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "base-1k-tail-0"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 1024
+tail_records = 0
+
+[[workloads]]
+id = "base-16k-tail-0"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 16384
+tail_records = 0
+
+[[workloads]]
+id = "base-64k-tail-0"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 65536
+tail_records = 0
+
+[[workloads]]
+id = "base-16k-tail-64"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 16384
+tail_records = 64
+
+[[workloads]]
+id = "base-16k-tail-1024"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 16384
+tail_records = 1024
+
+[[workloads]]
+id = "base-64k-tail-64"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 65536
+tail_records = 64
+
+[[workloads]]
+id = "base-16k-tail-0-shared-cache"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 16384
+tail_records = 0
+cache_mode = "shared_ram_nvme"
+
+[[workloads]]
+id = "base-16k-tail-64-shared-cache"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 16384
+tail_records = 64
+cache_mode = "shared_ram_nvme"
+
+[[workloads]]
+id = "base-16k-tail-0-nvme-reopen"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 16384
+tail_records = 0
+cache_mode = "nvme_reopen"
+
+[[workloads]]
+id = "base-16k-tail-64-nvme-reopen"
+lane = "range-serving-performance"
+operation = "range_serving_performance_curve"
+base_key_count = 16384
+tail_records = 64
+cache_mode = "nvme_reopen"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 3
+slatedb_revision_exact = true
+dimensions_exact = true
+base_plus_tail_reads_exact = true
+certified_tail_count_exact = true
+object_io_accounted = true
+shared_cache_repeated_point_backend_requests = 0
+raw_scan_backend_request_ceiling = 96
+shared_cache_scan_backend_request_ceiling = 4
+nvme_reopen_cache_prepare_backend_requests_minimum = 1
+nvme_reopen_open_control_plane_requests_minimum = 1
+nvme_reopen_first_point_backend_read_bytes = 0
+nvme_reopen_first_point_backend_range_gets = 0
+nvme_reopen_repeated_point_backend_requests = 0
+nvme_reopen_scan_backend_requests = 0
+rss_bound_held = true
+semantic_replay_exact = true
+correctness_dependency = "cell-range-serving-handoff-v1"
+cache_model = "process-cold-os-warm-local-filesystem"
+cloud_latency_claimed = false
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

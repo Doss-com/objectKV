@@ -1,0 +1,117 @@
+schema_version = 1
+id = "cell-kv-runtime-exact-version-read-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0057-kv-runtime-physical-density.md",
+  "../../rfcs/0058-kv-runtime-exact-version-read.md",
+]
+dataset_generator = "deterministic-snapshot-read-history-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 67108864
+key_count = 1024
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 1800.0
+repeats = 1
+backend = "local-process+slatedb-objectkv-mvcc-v1"
+candidate_surface = "crates/okv-slate/src/lib.rs,crates/okv-slate/src/snapshot_read_curve.rs,crates/okv-slate/src/phase0.rs,crates/okv-eval/src/main.rs"
+key_count = 1024
+value_bytes = 256
+max_rss_bytes = 1073741824
+worker_timeout_millis = 120000
+decoded_cache_bytes = 67108864
+nvme_cache_bytes = 268435456
+nvme_part_bytes = 65536
+nvme_open_file_handles = 64
+
+[[lanes]]
+id = "kv-runtime-exact-version-read"
+primary_metric = "kv_runtime.snapshot_near_latest_cold_point_p99"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "snapshot-read-depth-1"
+lane = "kv-runtime-exact-version-read"
+operation = "kv_runtime_exact_version_read_curve"
+version_depth = 1
+
+[[workloads]]
+id = "snapshot-read-depth-16"
+lane = "kv-runtime-exact-version-read"
+operation = "kv_runtime_exact_version_read_curve"
+version_depth = 16
+
+[[workloads]]
+id = "snapshot-read-depth-256"
+lane = "kv-runtime-exact-version-read"
+operation = "kv_runtime_exact_version_read_curve"
+version_depth = 256
+
+[[workloads]]
+id = "snapshot-read-latest-only"
+lane = "kv-runtime-exact-version-read"
+operation = "kv_runtime_exact_version_read_curve"
+version_depth = 16
+negative_control = "latest_only"
+
+[[workloads]]
+id = "snapshot-read-skips-tombstone"
+lane = "kv-runtime-exact-version-read"
+operation = "kv_runtime_exact_version_read_curve"
+version_depth = 16
+negative_control = "skip_point_tombstone"
+
+[[workloads]]
+id = "snapshot-read-overstates-frontier"
+lane = "kv-runtime-exact-version-read"
+operation = "kv_runtime_exact_version_read_curve"
+version_depth = 16
+negative_control = "overstate_applied_frontier"
+
+[[workloads]]
+id = "snapshot-read-breaks-key-order"
+lane = "kv-runtime-exact-version-read"
+operation = "kv_runtime_exact_version_read_curve"
+version_depth = 16
+negative_control = "length_prefix_user_keys"
+
+[hard_gates]
+correctness_anomalies = 0
+minimum_seeds = 3
+slatedb_revision_exact = true
+objectkv_serving_profile_exact = true
+version_depth_exact = true
+point_reads_exact = true
+ordered_scans_exact = true
+tombstone_exact = true
+frontier_exact = true
+binary_order_exact = true
+close_reopen_exact = true
+safety_bounds_held = true
+object_io_accounted = true
+object_inventory_measured = true
+semantic_replay_exact = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

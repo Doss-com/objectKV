@@ -1,0 +1,35 @@
+[package]
+name = "okv-object"
+description = "Object-store correctness boundary and conformance runner for objectKV"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+clap.workspace = true
+crc-fast.workspace = true
+futures-util.workspace = true
+jsonschema.workspace = true
+object_store.workspace = true
+okv-consensus.workspace = true
+okv-model.workspace = true
+okv-slate.workspace = true
+okv-sim = { path = "../okv-sim" }
+okv-wal.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+slatedb.workspace = true
+sysinfo.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

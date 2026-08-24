@@ -1,0 +1,149 @@
+schema_version = 1
+id = "cell-partitioned-resolver-agreement-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0033-cell-range-phantom-contract.md",
+  "../../rfcs/0048-partitioned-resolver-agreement.md",
+]
+dataset_generator = "deterministic-cell-partitioned-resolver-agreement-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 65536
+key_count = 240
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 2400
+repeats = 1
+backend = "transaction-openraft+partitioned-resolver-processes"
+transaction_authority_nodes = 3
+transaction_authority_quorum = 2
+resolver_partitions = 3
+resolver_processes = 3
+resolver_map_epoch = 1
+rounds_per_seed = 100
+attempts_per_round = 6
+
+[[lanes]]
+id = "cell-partitioned-resolver-agreement"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-partitioned-resolvers-match-centralized-oracle"
+lane = "cell-partitioned-resolver-agreement"
+operation = "cell_partitioned_resolver_agreement_contract"
+
+[[workloads]]
+id = "cell-routes-crossing-range-by-start-key"
+lane = "cell-partitioned-resolver-agreement"
+operation = "cell_partitioned_resolver_agreement_contract"
+negative_control = "start_key_only_routing"
+
+[[workloads]]
+id = "cell-commits-after-partial-resolver-acceptance"
+lane = "cell-partitioned-resolver-agreement"
+operation = "cell_partitioned_resolver_agreement_contract"
+negative_control = "partial_acceptance"
+
+[[workloads]]
+id = "cell-counts-duplicate-resolver-identity"
+lane = "cell-partitioned-resolver-agreement"
+operation = "cell_partitioned_resolver_agreement_contract"
+negative_control = "duplicate_resolver_identity"
+
+[[workloads]]
+id = "cell-combines-mixed-resolver-map-epochs"
+lane = "cell-partitioned-resolver-agreement"
+operation = "cell_partitioned_resolver_agreement_contract"
+negative_control = "mixed_map_epoch"
+
+[[workloads]]
+id = "cell-loses-acknowledged-resolver-decision"
+lane = "cell-partitioned-resolver-agreement"
+operation = "cell_partitioned_resolver_agreement_contract"
+negative_control = "volatile_partition_decision"
+
+[[workloads]]
+id = "cell-resolves-before-prior-global-finalization"
+lane = "cell-partitioned-resolver-agreement"
+operation = "cell_partitioned_resolver_agreement_contract"
+negative_control = "skip_prior_finalization"
+
+[[workloads]]
+id = "cell-activates-split-with-old-map-prepare"
+lane = "cell-partitioned-resolver-agreement"
+operation = "cell_partitioned_resolver_agreement_contract"
+negative_control = "split_with_prepared_transaction"
+
+[hard_gates]
+correctness_anomalies = 0
+transaction_authority_nodes = 3
+transaction_authority_quorum = 2
+resolver_partitions = 3
+resolver_processes = 3
+resolver_map_epoch = 1
+transaction_attempts_per_seed = 600
+centralized_and_partitioned_statuses_match = true
+centralized_and_partitioned_rows_match = true
+centralized_and_partitioned_envelope_chains_match = true
+crossing_ranges_route_to_every_overlap = true
+all_required_partitions_decide = true
+resolver_identities_are_distinct = true
+resolver_map_epoch_is_exact = true
+partition_decision_is_durable_before_ack = true
+prior_global_disposition_precedes_new_touching_work = true
+committed_writes_finalize_on_every_touched_partition = true
+conflicted_writes_finalize_on_no_partition = true
+prepared_old_map_blocks_split_activation = true
+restarted_resolver_replays_exact_decision = true
+dependency_graph_acyclic = true
+commit_envelope_chain_valid = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

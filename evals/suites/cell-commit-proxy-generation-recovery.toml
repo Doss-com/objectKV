@@ -1,0 +1,194 @@
+schema_version = 1
+id = "cell-commit-proxy-generation-recovery-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0039-commit-visibility-after-tagged-log-durability.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0041-certified-staged-head-generation-takeover.md",
+  "../../rfcs/0042-incomplete-staged-head-fence-and-abort.md",
+  "../../rfcs/0050-stateless-resolver-authenticated-tlog-recovery.md",
+  "../../rfcs/0051-multi-commit-proxy-global-ordering.md",
+  "../../rfcs/0052-online-resolver-map-split.md",
+  "../../rfcs/0053-commit-proxy-generation-recovery.md",
+]
+dataset_generator = "deterministic-cell-commit-proxy-generation-recovery-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 131072
+key_count = 320
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 2048
+repeats = 1
+backend = "sequencer-openraft+commit-proxy-processes+stateless-resolvers+authenticated-tagged-tlogs+generation-takeover"
+sequencer_nodes = 3
+sequencer_quorum = 2
+commit_proxy_processes_per_generation = 3
+resolver_processes_per_generation = 3
+resolver_map_epoch = 1
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+transaction_system_generations = 4
+proxy_loss_episodes = 3
+batches_per_seed = 36
+transactions_per_batch = 4
+maximum_pending_batches = 8
+
+[[lanes]]
+id = "cell-commit-proxy-generation-recovery"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-recovers-three-commit-proxy-loss-boundaries"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+
+[[workloads]]
+id = "cell-continues-generation-after-commit-proxy-loss"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "continue_same_generation"
+
+[[workloads]]
+id = "cell-replaces-missing-nonempty-ticket-with-noop"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "replace_missing_ticket_with_noop"
+
+[[workloads]]
+id = "cell-publishes-from-one-required-tlog-set"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "publish_partial_tlog_durability"
+
+[[workloads]]
+id = "cell-omits-fully-durable-lost-reply-ticket"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "omit_fully_durable_unknown_result"
+
+[[workloads]]
+id = "cell-executes-successor-across-missing-predecessor"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "execute_across_missing_predecessor"
+
+[[workloads]]
+id = "cell-recovers-from-incomplete-tlog-inventory"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "trust_incomplete_tlog_inventory"
+
+[[workloads]]
+id = "cell-reuses-old-issued-version-after-recovery"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "reuse_old_issued_version"
+
+[[workloads]]
+id = "cell-accepts-fenced-generation-role-reply"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "accept_fenced_generation_reply"
+
+[[workloads]]
+id = "cell-replays-unknown-result-as-second-mutation"
+lane = "cell-commit-proxy-generation-recovery"
+operation = "cell_commit_proxy_generation_recovery_contract"
+negative_control = "duplicate_unknown_result_mutation"
+
+[hard_gates]
+correctness_anomalies = 0
+sequencer_nodes = 3
+sequencer_quorum = 2
+commit_proxy_processes_per_generation = 3
+resolver_processes_per_generation = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+transaction_system_generations = 4
+proxy_loss_episodes = 3
+batches_per_seed = 36
+transactions_per_batch = 4
+maximum_pending_batches = 8
+proxy_loss_fences_complete_transaction_system = true
+old_sequencer_is_fenced = true
+old_proxies_are_fenced = true
+old_resolvers_are_fenced = true
+old_tlogs_are_fenced = true
+every_required_tlog_inventory_is_authenticated = true
+recovered_boundary_is_maximal_contiguous_quorum_prefix = true
+pre_resolver_ticket_and_suffix_are_abandoned = true
+partial_tlog_ticket_and_suffix_are_abandoned = true
+fully_durable_lost_reply_ticket_is_preserved = true
+unknown_result_resolves_by_stable_request_identity = true
+missing_nonempty_ticket_is_never_replaced_with_noop = true
+successors_never_execute_across_missing_predecessor = true
+successor_generation_exceeds_old_issued_high_watermark = true
+versions_are_unique_across_generations = true
+stale_generation_requests_are_rejected = true
+stale_generation_replies_are_rejected = true
+every_transaction_uses_one_generation = true
+every_transaction_uses_one_resolver_map_epoch = true
+centralized_dispositions_exact = true
+exact_rows = true
+exact_visible_envelope_bytes = true
+commit_envelope_chain_valid = true
+all_tlog_inventory_roots_exact = true
+exact_acknowledgement_set = true
+exact_retained_outcomes = true
+resolver_durable_syncs = 0
+resolver_finalization_rpcs = 0
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

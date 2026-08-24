@@ -1,0 +1,160 @@
+schema_version = 1
+id = "cell-tagged-log-policy-transition-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0023-routine-voter-reconfiguration.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0044-sustained-tagged-log-lag-and-ratekeeping.md",
+  "../../rfcs/0045-tagged-log-learner-repair-under-lag.md",
+  "../../rfcs/0046-replicated-tagged-log-policy-transition.md",
+]
+dataset_generator = "deterministic-cell-tagged-log-policy-transition-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 49152
+key_count = 10
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 300
+repeats = 1
+backend = "transaction-openraft+signed-tagged-tlog-policy-transition-processes"
+transaction_authority_nodes = 3
+transaction_authority_quorum = 2
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+moving_log_set = 10
+unchanged_log_set = 20
+failed_node_id = 1
+learner_node_id = 4
+old_policy_epoch = 1
+next_policy_epoch = 2
+initial_object_frontier = 10
+pre_transition_frontier = 14
+expected_final_frontier = 17
+
+[[lanes]]
+id = "cell-tagged-log-policy-transition"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-moves-repair-ready-tlog-through-policy-epoch"
+lane = "cell-tagged-log-policy-transition"
+operation = "cell_tagged_log_policy_transition_contract"
+
+[[workloads]]
+id = "cell-promotes-tlog-without-repair-readiness"
+lane = "cell-tagged-log-policy-transition"
+operation = "cell_tagged_log_policy_transition_contract"
+negative_control = "missing_repair_readiness"
+
+[[workloads]]
+id = "cell-moves-tlog-with-unresolved-old-stage"
+lane = "cell-tagged-log-policy-transition"
+operation = "cell_tagged_log_policy_transition_contract"
+negative_control = "unresolved_old_stage"
+
+[[workloads]]
+id = "cell-skips-tlog-policy-epoch"
+lane = "cell-tagged-log-policy-transition"
+operation = "cell_tagged_log_policy_transition_contract"
+negative_control = "invalid_next_policy"
+
+[[workloads]]
+id = "cell-counts-mixed-tlog-policy-quorum"
+lane = "cell-tagged-log-policy-transition"
+operation = "cell_tagged_log_policy_transition_contract"
+negative_control = "mixed_policy_quorum"
+
+[[workloads]]
+id = "cell-activates-tlog-policy-without-authority-quorum"
+lane = "cell-tagged-log-policy-transition"
+operation = "cell_tagged_log_policy_transition_contract"
+negative_control = "missing_authority_activation"
+
+[[workloads]]
+id = "cell-rejoins-removed-tlog-after-restart"
+lane = "cell-tagged-log-policy-transition"
+operation = "cell_tagged_log_policy_transition_contract"
+negative_control = "removed_node_rejoin"
+
+[[workloads]]
+id = "cell-double-applies-tlog-policy-transition"
+lane = "cell-tagged-log-policy-transition"
+operation = "cell_tagged_log_policy_transition_contract"
+negative_control = "double_transition"
+
+[hard_gates]
+correctness_anomalies = 0
+transaction_authority_nodes = 3
+transaction_authority_quorum = 2
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+learner_repair_readiness_is_valid = true
+next_policy_replaces_exactly_one_failed_member = true
+next_policy_epoch_is_exact_successor = true
+unchanged_member_keys_are_exact = true
+unresolved_old_stage_blocks_transition = true
+successor_stage_requires_next_policy_quorum = true
+policy_commit_is_replicated_and_idempotent = true
+activation_requires_authority_quorum = true
+activation_receipt_is_durable = true
+removed_node_is_fenced_after_restart = true
+mixed_policy_signatures_never_form_quorum = true
+post_transition_commit_uses_one_epoch_per_log_set = true
+learner_contributes_only_after_activation = true
+fresh_worker_uses_only_active_policy = true
+cell_generation_is_unchanged = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]

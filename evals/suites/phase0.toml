@@ -1,0 +1,176 @@
+schema_version = 1
+id = "phase0-object-economics-v1"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+dataset_generator = "seeded-kv-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
+
+[dataset.dev]
+logical_bytes = 67108864
+key_count = 100000
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[dataset.comparable]
+logical_bytes = 10737418240
+key_count = 10000000
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.dev]
+budget_kind = "operations"
+budget_limit = 100000
+repeats = 1
+
+[profiles.minio]
+budget_kind = "operations"
+budget_limit = 1000000
+repeats = 5
+docker_image = "minio/minio:REPLACE_WITH_PINNED_DIGEST"
+
+[profiles.gcs-dev]
+budget_kind = "operations"
+budget_limit = 1000000
+repeats = 5
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+
+[[lanes]]
+id = "objectify"
+primary_metric = "objectification.lag"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "hot-point"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.03
+
+[[lanes.constraints]]
+metric = "object_store.requests"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "cold-point"
+primary_metric = "object_store.requests"
+statistic = "per_operation"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "range-read"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "compaction"
+primary_metric = "compaction.write_amplification"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "reopen"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.failures"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "uniform-write"
+lane = "objectify"
+operation = "set"
+distribution = "uniform"
+value_bytes = [128, 1024, 16384]
+
+[[workloads]]
+id = "hot-point"
+lane = "hot-point"
+operation = "get"
+distribution = "zipf"
+warm_cache = true
+
+[[workloads]]
+id = "cold-point"
+lane = "cold-point"
+operation = "get"
+distribution = "uniform"
+warm_cache = false
+
+[[workloads]]
+id = "scan-10"
+lane = "range-read"
+operation = "scan"
+row_count = 10
+
+[[workloads]]
+id = "scan-100"
+lane = "range-read"
+operation = "scan"
+row_count = 100
+
+[[workloads]]
+id = "scan-10000"
+lane = "range-read"
+operation = "scan"
+row_count = 10000
+
+[[workloads]]
+id = "overwrite-compaction"
+lane = "compaction"
+operation = "overwrite_then_compact"
+overwrite_fraction = 0.5
+
+[[workloads]]
+id = "empty-cache-reopen"
+lane = "reopen"
+operation = "reopen_then_get"
+delete_local_cache = true
+
+[hard_gates]
+correctness_failures = 0
+schema_valid = true
+budget_must_hold = true
+backend_contract_must_pass = true

@@ -1,0 +1,71 @@
+schema_version = 1
+id = "object-publication-root-graph-v1"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0004-object-store-correctness.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0014-real-object-publication-adapter.md",
+  "../../rfcs/0035-publication-gc-root-graph.md",
+]
+dataset_generator = "deterministic-publication-root-graph-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 16384
+key_count = 11
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 27
+repeats = 1
+backend = "object-store-local-fs+authority-quorum-fs"
+root_types = 5
+
+[[lanes]]
+id = "publication-root-graph"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "object-publication-root-graph"
+lane = "publication-root-graph"
+operation = "object_publication_root_graph_contract"
+
+[[workloads]]
+id = "object-publication-root-graph-omit-lease"
+lane = "publication-root-graph"
+operation = "object_publication_root_graph_contract"
+negative_control = "omit_analytical_lease_root"
+
+[hard_gates]
+correctness_anomalies = 0
+root_types_registered_per_seed = 5
+authority_reopens_exact_roots = true
+complete_marks_per_seed = 3
+all_declared_roots_survive = true
+selective_unpin_reclaims_clone_only = true
+shared_object_survives = true
+pin_after_mark_defers_delete = true
+racing_lease_survives = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true

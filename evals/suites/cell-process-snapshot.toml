@@ -1,0 +1,68 @@
+schema_version = 1
+id = "cell-process-snapshot-v0"
+status = "active-work"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+]
+dataset_generator = "deterministic-cell-process-snapshot-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 0
+key_count = 2
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "events"
+budget_limit = 50
+repeats = 1
+backend = "process-local-fs"
+nodes = 3
+consensus_library = "openraft-0.9.25"
+transport = "tokio-tcp"
+transaction_authority = "centralized-state-machine-v0"
+state_machine_recovery = "checksummed-durable-snapshot-v1"
+
+[[lanes]]
+id = "authority-snapshot-wal-pop"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-process-durable-snapshot-pop"
+lane = "authority-snapshot-wal-pop"
+operation = "cell_process_transaction_contract"
+mode = "durable_snapshot_pop"
+
+[[workloads]]
+id = "cell-process-unsafe-wal-pop"
+lane = "authority-snapshot-wal-pop"
+operation = "cell_process_transaction_contract"
+negative_control = "purge_without_durable_snapshot"
+
+[hard_gates]
+correctness_anomalies = 0
+durable_snapshot_covers_applied_position = true
+retained_outcomes_survive_log_pop = true
+new_commits_continue_after_log_pop = true
+commit_envelope_chain_survives_log_pop = true
+exact_fresh_process_replay = true
+semantic_operations_exercised = true
+schema_valid = true
+budget_must_hold = true

@@ -1,0 +1,146 @@
+schema_version = 1
+id = "cell-tagged-log-learner-repair-v0"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0023-routine-voter-reconfiguration.md",
+  "../../rfcs/0040-authenticated-tagged-log-certificates.md",
+  "../../rfcs/0044-sustained-tagged-log-lag-and-ratekeeping.md",
+  "../../rfcs/0045-tagged-log-learner-repair-under-lag.md",
+]
+dataset_generator = "deterministic-cell-tagged-log-learner-repair-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 32768
+key_count = 8
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "events"
+budget_limit = 210
+repeats = 1
+backend = "transaction-openraft+signed-tagged-tlog-repair-processes"
+transaction_authority_nodes = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+failed_log_set = 10
+failed_node_id = 1
+learner_node_id = 4
+commits_before_repair = 4
+initial_commit_frontier = 10
+initial_object_frontier = 10
+expected_final_frontier = 14
+
+[[lanes]]
+id = "cell-tagged-log-learner-repair"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "cell-repairs-empty-tlog-learner-from-quorum"
+lane = "cell-tagged-log-learner-repair"
+operation = "cell_tagged_log_learner_repair_contract"
+
+[[workloads]]
+id = "cell-repairs-tlog-from-one-source"
+lane = "cell-tagged-log-learner-repair"
+operation = "cell_tagged_log_learner_repair_contract"
+negative_control = "single_source"
+
+[[workloads]]
+id = "cell-installs-tampered-tlog-repair-snapshot"
+lane = "cell-tagged-log-learner-repair"
+operation = "cell_tagged_log_learner_repair_contract"
+negative_control = "tampered_snapshot"
+
+[[workloads]]
+id = "cell-declares-stale-tlog-learner-ready"
+lane = "cell-tagged-log-learner-repair"
+operation = "cell_tagged_log_learner_repair_contract"
+negative_control = "stale_ready"
+
+[[workloads]]
+id = "cell-installs-wrong-tlog-learner-incarnation"
+lane = "cell-tagged-log-learner-repair"
+operation = "cell_tagged_log_learner_repair_contract"
+negative_control = "wrong_learner_incarnation"
+
+[[workloads]]
+id = "cell-counts-unpromoted-tlog-learner"
+lane = "cell-tagged-log-learner-repair"
+operation = "cell_tagged_log_learner_repair_contract"
+negative_control = "count_unpromoted_learner"
+
+[[workloads]]
+id = "cell-repairs-duplicate-live-tlog-learner-identity"
+lane = "cell-tagged-log-learner-repair"
+operation = "cell_tagged_log_learner_repair_contract"
+negative_control = "duplicate_live_identity"
+
+[hard_gates]
+correctness_anomalies = 0
+transaction_authority_nodes = 3
+tagged_log_sets = 2
+tagged_log_nodes_per_set = 3
+tagged_log_write_quorum = 2
+failed_process_is_unavailable = true
+learner_starts_empty = true
+repair_snapshot_requires_active_write_quorum = true
+repair_snapshot_bytes_match_quorum_digest = true
+learner_identity_and_incarnation_match = true
+learner_public_key_matches_certificate = true
+learner_install_is_synchronized = true
+learner_ready_requires_tail_catchup = true
+learner_ready_requires_active_write_quorum = true
+learner_restart_is_exact = true
+learner_is_excluded_from_active_quorums = true
+active_survivor_quorum_serves_exact_state = true
+exact_canonical_replay = true
+negative_control_must_discard = true
+telemetry_drops = 0
+schema_valid = true
+budget_must_hold = true
+schema_version = 1
+namespace = "okv.eval"
+
+[cardinality]
+max_series_per_run = 5000
+banned_attributes = [
+  "key",
+  "value",
+  "version",
+  "request.id",
+  "object.path",
+  "trace.id",
+  "span.id",
+]
+required_resource_attributes = [
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+  "okv.eval.run.id",
+  "okv.eval.suite.id",
+  "okv.eval.suite.hash",
+  "okv.eval.profile.id",
+  "okv.eval.profile.hash",
+  "okv.eval.candidate.commit",
+  "okv.eval.backend",
+]
