@@ -31,9 +31,9 @@ use slatedb::db_cache::DbCache;
 use slatedb::Db;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 const DATABASE_PATH: &str = "range-serving-curve";
@@ -120,6 +120,109 @@ impl RangeServingProviderMode {
     }
 }
 
+/// Deterministic point-access distribution for the provider cache-economics
+/// gate.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderCacheTraceDistribution {
+    Uniform,
+    Zipfian,
+    MovingHotset,
+}
+
+impl ProviderCacheTraceDistribution {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Uniform => "uniform",
+            Self::Zipfian => "zipfian",
+            Self::MovingHotset => "moving_hotset",
+        }
+    }
+}
+
+/// Correct subject or one deliberately unsafe cache-economics control.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderCacheEconomicsMode {
+    #[default]
+    Correct,
+    DisableCacheBound,
+    SkipExactOracle,
+    PerturbReplayTrace,
+}
+
+impl ProviderCacheEconomicsMode {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Correct => "correct",
+            Self::DisableCacheBound => "disable_cache_bound",
+            Self::SkipExactOracle => "skip_exact_oracle",
+            Self::PerturbReplayTrace => "perturb_replay_trace",
+        }
+    }
+}
+
+/// Frozen trace and oracle parameters for one provider cache-economics child.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ProviderCacheEconomicsConfig {
+    pub distribution: ProviderCacheTraceDistribution,
+    pub zipf_theta_milli: u32,
+    pub hotset_fraction_ppm: u32,
+    pub hot_read_fraction_ppm: u32,
+    pub hotset_shift_every: usize,
+    pub view_reopen_every: usize,
+    pub provider_get_cost_nano_usd: u64,
+    pub mode: ProviderCacheEconomicsMode,
+}
+
+/// Exact process receipt for the bounded provider cache-economics gate.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ProviderCacheEconomicsReceipt {
+    pub contract_version: u32,
+    pub mode: String,
+    pub distribution: String,
+    pub zipf_theta_milli: u32,
+    pub hotset_fraction_ppm: u32,
+    pub hot_read_fraction_ppm: u32,
+    pub hotset_shift_every: usize,
+    pub trace_sha256: String,
+    pub reuse_distance_sha256: String,
+    pub warmup_reads: usize,
+    pub measured_reads: usize,
+    pub logical_reads: u64,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+    pub cache_hit_ratio: f64,
+    pub cache_miss_ratio: f64,
+    pub cache_capacity_bytes: u64,
+    pub cache_bound_enabled: bool,
+    pub cache_bound_held: bool,
+    pub settled_cache_bytes: u64,
+    pub settled_cache_parts: u64,
+    pub point_provider_get_requests: u64,
+    pub point_provider_read_bytes: u64,
+    pub open_provider_get_requests: u64,
+    pub open_provider_read_bytes: u64,
+    pub estimated_request_cost_per_million_reads_usd: f64,
+    pub all_point_p50_seconds: f64,
+    pub all_point_p99_seconds: f64,
+    pub cache_hit_p50_seconds: f64,
+    pub cache_hit_p99_seconds: f64,
+    pub provider_miss_p50_seconds: f64,
+    pub provider_miss_p99_seconds: f64,
+    pub reuse_distance_samples: u64,
+    pub reuse_distance_p50: u64,
+    pub reuse_distance_p95: u64,
+    pub reuse_distance_p99: u64,
+    pub view_reopens: u64,
+    pub oracle_checks: u64,
+    pub oracle_exact: bool,
+    pub oracle_sha256: String,
+    pub observed_sha256: String,
+}
+
 /// One isolated curve point. Cache state is process-cold with an OS-warm local
 /// filesystem, then warm within the same immutable view.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -145,6 +248,8 @@ pub struct RangeServingCurveConfig {
     pub warmup_reads: usize,
     #[serde(default)]
     pub measured_reads: usize,
+    #[serde(default)]
+    pub economics: Option<ProviderCacheEconomicsConfig>,
     pub seed: u64,
 }
 
@@ -198,6 +303,8 @@ pub struct RangeServingCurveReceipt {
     pub peak_rss_bytes: u64,
     pub safety_bounds_held: bool,
     pub semantic_receipt_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub economics: Option<ProviderCacheEconomicsReceipt>,
 }
 
 /// Build and measure one authority-selected object base plus real certified
@@ -340,6 +447,25 @@ async fn run_range_serving_curve_inner(
             provider_namespace,
         )
         .await?;
+    if config.economics.is_some() {
+        return run_provider_cache_economics(
+            config,
+            nvme_root,
+            source_store,
+            provider_store,
+            provider_closure_sha256,
+            unversioned_fallbacks,
+            counters,
+            range_root,
+            target_version,
+            records,
+            policies,
+            oracle,
+            base_frontier,
+            ingest_flush_seconds,
+        )
+        .await;
+    }
     let before_cache_prepare = counters.total();
     let (serving_store, decoded_cache) = match config.cache_mode {
         RangeServingCacheMode::Raw => (Arc::clone(&source_store), None),
@@ -595,7 +721,617 @@ async fn run_range_serving_curve_inner(
         peak_rss_bytes,
         safety_bounds_held,
         semantic_receipt_sha256,
+        economics: None,
     })
+}
+
+struct ProviderCacheTrace {
+    warmup: Vec<usize>,
+    measured: Vec<usize>,
+    trace_sha256: String,
+    reuse_distances: Vec<u64>,
+    reuse_distance_sha256: String,
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+async fn run_provider_cache_economics(
+    config: &RangeServingCurveConfig,
+    nvme_root: &Path,
+    source_store: Arc<dyn ObjectStore>,
+    provider_store: Option<Arc<ProviderBoundObjectStore>>,
+    provider_closure_sha256: String,
+    unversioned_fallbacks: u64,
+    counters: Arc<IoCounters>,
+    range_root: AuthorityRangeRoot,
+    target_version: u64,
+    records: Vec<CertifiedTxLogRecord>,
+    policies: BTreeMap<u16, CellLogSetPolicy>,
+    oracle: BTreeMap<Vec<u8>, Vec<u8>>,
+    base_frontier: u64,
+    ingest_flush_seconds: f64,
+) -> Result<RangeServingCurveReceipt, String> {
+    let economics = config
+        .economics
+        .as_ref()
+        .ok_or_else(|| "provider cache economics config is missing".to_owned())?;
+    let trace = provider_cache_trace(config, economics);
+    let before_cache_prepare = counters.total();
+    let mut active_store = build_nvme_store(nvme_root, Arc::clone(&source_store), config).await?;
+    let after_cache_prepare = counters.total();
+    let cache_prepare_io = after_cache_prepare.difference_since(&before_cache_prepare);
+
+    let before_open = counters.total();
+    let before_open_gets = provider_get_requests(provider_store.as_ref());
+    let open_started = Instant::now();
+    let mut view = open_economics_view(
+        Arc::clone(&active_store),
+        range_root.clone(),
+        target_version,
+        records.clone(),
+        &policies,
+        config.seed ^ 0xce01,
+        config,
+    )
+    .await?;
+    let mut view_open_seconds = open_started.elapsed().as_secs_f64();
+    let mut base_open_seconds = view.base_open_seconds();
+    let mut tail_auth_seconds = view.tail_auth_seconds();
+    let authenticated_tail_records = view.authenticated_tail_records();
+    let after_open = counters.total();
+    let open_io = after_open.difference_since(&before_open);
+    let mut open_provider_get_requests =
+        provider_get_requests(provider_store.as_ref()).saturating_sub(before_open_gets);
+    let mut open_provider_read_bytes = open_io.read_byte_total();
+
+    let before_fill = counters.total();
+    let oracle_enabled = economics.mode != ProviderCacheEconomicsMode::SkipExactOracle;
+    let mut warmup_exact = oracle_enabled;
+    for ordinal in &trace.warmup {
+        let observed = view
+            .get_at(&key_for(*ordinal), target_version)
+            .await
+            .map_err(|error| format!("provider cache warmup read: {error}"))?;
+        if oracle_enabled {
+            warmup_exact &= observed.as_ref() == oracle.get(&key_for(*ordinal));
+        }
+    }
+    let after_fill = counters.total();
+    let fill_point_io = after_fill.difference_since(&before_fill);
+
+    let mut all_seconds = Vec::with_capacity(trace.measured.len());
+    let mut hit_seconds = Vec::new();
+    let mut miss_seconds = Vec::new();
+    let mut cache_hits = 0_u64;
+    let mut cache_misses = 0_u64;
+    let mut point_provider_get_requests = 0_u64;
+    let mut point_provider_read_bytes = 0_u64;
+    let mut view_reopens = 0_u64;
+    let mut oracle_checks = 0_u64;
+    let mut oracle_exact = oracle_enabled && warmup_exact;
+    let mut oracle_hasher = Sha256::new();
+    oracle_hasher.update(b"okv-provider-cache-result-v1");
+    let mut observed_hasher = Sha256::new();
+    observed_hasher.update(b"okv-provider-cache-result-v1");
+    let before_points = counters.total();
+    let mut first_point_io = Phase0IoDelta::default();
+    let mut first_point_seconds = 0.0_f64;
+    let mut first_point_exact = false;
+
+    for (index, ordinal) in trace.measured.iter().copied().enumerate() {
+        if economics.view_reopen_every > 0
+            && index > 0
+            && index.is_multiple_of(economics.view_reopen_every)
+        {
+            view.close()
+                .await
+                .map_err(|error| format!("close provider cache economics view: {error}"))?;
+            drop(view);
+            active_store = build_nvme_store(nvme_root, Arc::clone(&source_store), config).await?;
+            let reopen_before_io = counters.total();
+            let reopen_before_gets = provider_get_requests(provider_store.as_ref());
+            let reopen_started = Instant::now();
+            view = open_economics_view(
+                Arc::clone(&active_store),
+                range_root.clone(),
+                target_version,
+                records.clone(),
+                &policies,
+                config.seed ^ 0xce10 ^ u64::try_from(index).unwrap_or(u64::MAX),
+                config,
+            )
+            .await?;
+            view_open_seconds += reopen_started.elapsed().as_secs_f64();
+            base_open_seconds += view.base_open_seconds();
+            tail_auth_seconds += view.tail_auth_seconds();
+            let reopen_after_io = counters.total();
+            open_provider_read_bytes = open_provider_read_bytes.saturating_add(
+                reopen_after_io
+                    .difference_since(&reopen_before_io)
+                    .read_byte_total(),
+            );
+            open_provider_get_requests = open_provider_get_requests.saturating_add(
+                provider_get_requests(provider_store.as_ref()).saturating_sub(reopen_before_gets),
+            );
+            view_reopens = view_reopens.saturating_add(1);
+        }
+
+        let key = key_for(ordinal);
+        let before_io = counters.total();
+        let before_gets = provider_get_requests(provider_store.as_ref());
+        let started = Instant::now();
+        let observed = view
+            .get_at(&key, target_version)
+            .await
+            .map_err(|error| format!("provider cache measured read: {error}"))?;
+        let elapsed = started.elapsed().as_secs_f64();
+        let after_io = counters.total();
+        let get_delta = provider_get_requests(provider_store.as_ref()).saturating_sub(before_gets);
+        let read_delta = after_io.difference_since(&before_io).read_byte_total();
+        all_seconds.push(elapsed);
+        point_provider_get_requests = point_provider_get_requests.saturating_add(get_delta);
+        point_provider_read_bytes = point_provider_read_bytes.saturating_add(read_delta);
+        if get_delta == 0 {
+            cache_hits = cache_hits.saturating_add(1);
+            hit_seconds.push(elapsed);
+        } else {
+            cache_misses = cache_misses.saturating_add(1);
+            miss_seconds.push(elapsed);
+        }
+
+        observed_hasher.update(u64::try_from(ordinal).unwrap_or(u64::MAX).to_be_bytes());
+        match observed.as_ref() {
+            Some(value) => {
+                observed_hasher.update([1]);
+                observed_hasher.update(value);
+            }
+            None => observed_hasher.update([0]),
+        }
+        let exact = if oracle_enabled {
+            oracle_checks = oracle_checks.saturating_add(1);
+            oracle_hasher.update(u64::try_from(ordinal).unwrap_or(u64::MAX).to_be_bytes());
+            match oracle.get(&key) {
+                Some(value) => {
+                    oracle_hasher.update([1]);
+                    oracle_hasher.update(value);
+                }
+                None => oracle_hasher.update([0]),
+            }
+            observed.as_ref() == oracle.get(&key)
+        } else {
+            false
+        };
+        oracle_exact &= exact;
+        if index == 0 {
+            first_point_seconds = elapsed;
+            first_point_exact = exact;
+            first_point_io = after_io.difference_since(&before_io);
+        }
+    }
+    let after_points = counters.total();
+    let warm_point_io = after_points.difference_since(&before_points);
+    view.close()
+        .await
+        .map_err(|error| format!("close provider cache economics final view: {error}"))?;
+    drop(view);
+
+    let cache_bound_enabled = economics.mode != ProviderCacheEconomicsMode::DisableCacheBound;
+    let inventory = if cache_bound_enabled {
+        wait_for_cache_bound(nvme_root, config.nvme_cache_bytes).await?
+    } else {
+        cache_inventory(nvme_root)?
+    };
+    let cache_bound_held = cache_bound_enabled
+        && inventory.bytes <= u64::try_from(config.nvme_cache_bytes).unwrap_or(u64::MAX);
+    all_seconds.sort_by(f64::total_cmp);
+    hit_seconds.sort_by(f64::total_cmp);
+    miss_seconds.sort_by(f64::total_cmp);
+    let logical_reads = u64::try_from(trace.measured.len()).unwrap_or(u64::MAX);
+    let logical_reads_f64 = f64::from(u32::try_from(logical_reads).unwrap_or(u32::MAX)).max(1.0);
+    let cache_hit_ratio =
+        f64::from(u32::try_from(cache_hits).unwrap_or(u32::MAX)) / logical_reads_f64;
+    let cache_miss_ratio =
+        f64::from(u32::try_from(cache_misses).unwrap_or(u32::MAX)) / logical_reads_f64;
+    let estimated_request_cost_per_million_reads_usd =
+        f64::from(u32::try_from(point_provider_get_requests).unwrap_or(u32::MAX))
+            * f64::from(u32::try_from(economics.provider_get_cost_nano_usd).unwrap_or(u32::MAX))
+            / 1_000_000_000.0
+            / logical_reads_f64
+            * 1_000_000.0;
+    let mut reuse_distances = trace.reuse_distances.clone();
+    reuse_distances.sort_unstable();
+    let provider_stats = provider_store
+        .as_ref()
+        .map_or_else(ProviderBoundReadStats::default, |store| store.stats());
+    let provider_read_bytes = counters
+        .total()
+        .difference_since(&before_cache_prepare)
+        .read_byte_total();
+    let peak_rss_bytes = resident_memory_bytes();
+    let safety_bounds_held = peak_rss_bytes > 0 && peak_rss_bytes <= config.max_rss_bytes;
+    let oracle_sha256 = if oracle_enabled {
+        format!("{:x}", oracle_hasher.finalize())
+    } else {
+        String::new()
+    };
+    let observed_sha256 = format!("{:x}", observed_hasher.finalize());
+    let economics_receipt = ProviderCacheEconomicsReceipt {
+        contract_version: 1,
+        mode: economics.mode.id().to_owned(),
+        distribution: economics.distribution.id().to_owned(),
+        zipf_theta_milli: economics.zipf_theta_milli,
+        hotset_fraction_ppm: economics.hotset_fraction_ppm,
+        hot_read_fraction_ppm: economics.hot_read_fraction_ppm,
+        hotset_shift_every: economics.hotset_shift_every,
+        trace_sha256: trace.trace_sha256,
+        reuse_distance_sha256: trace.reuse_distance_sha256,
+        warmup_reads: trace.warmup.len(),
+        measured_reads: trace.measured.len(),
+        logical_reads,
+        cache_hits,
+        cache_misses,
+        cache_hit_ratio,
+        cache_miss_ratio,
+        cache_capacity_bytes: u64::try_from(config.nvme_cache_bytes).unwrap_or(u64::MAX),
+        cache_bound_enabled,
+        cache_bound_held,
+        settled_cache_bytes: inventory.bytes,
+        settled_cache_parts: inventory.parts,
+        point_provider_get_requests,
+        point_provider_read_bytes,
+        open_provider_get_requests,
+        open_provider_read_bytes,
+        estimated_request_cost_per_million_reads_usd,
+        all_point_p50_seconds: percentile_or_zero(&all_seconds, 50),
+        all_point_p99_seconds: percentile_or_zero(&all_seconds, 99),
+        cache_hit_p50_seconds: percentile_or_zero(&hit_seconds, 50),
+        cache_hit_p99_seconds: percentile_or_zero(&hit_seconds, 99),
+        provider_miss_p50_seconds: percentile_or_zero(&miss_seconds, 50),
+        provider_miss_p99_seconds: percentile_or_zero(&miss_seconds, 99),
+        reuse_distance_samples: u64::try_from(reuse_distances.len()).unwrap_or(u64::MAX),
+        reuse_distance_p50: percentile_u64_or_zero(&reuse_distances, 50),
+        reuse_distance_p95: percentile_u64_or_zero(&reuse_distances, 95),
+        reuse_distance_p99: percentile_u64_or_zero(&reuse_distances, 99),
+        view_reopens,
+        oracle_checks,
+        oracle_exact,
+        oracle_sha256,
+        observed_sha256,
+    };
+    let semantic_receipt_sha256 = economics_semantic_receipt(config, &economics_receipt);
+    let base_logical_bytes = u64::try_from(config.base_key_count)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(u64::try_from(config.value_bytes).unwrap_or(u64::MAX));
+    Ok(RangeServingCurveReceipt {
+        contract_version: 2,
+        slatedb_revision: SLATEDB_REVISION.to_owned(),
+        cache_model: "provider-bound-bounded-ram-nvme-economics".to_owned(),
+        cache_mode: config.cache_mode.id().to_owned(),
+        seed: config.seed,
+        base_key_count: config.base_key_count,
+        value_bytes: config.value_bytes,
+        base_frontier,
+        tail_records: config.tail_records,
+        point_samples: trace.measured.len(),
+        target_version,
+        base_logical_bytes,
+        ingest_flush_seconds,
+        view_open_seconds,
+        base_open_seconds,
+        tail_auth_seconds,
+        first_point_seconds,
+        warm_point_p50_seconds: economics_receipt.all_point_p50_seconds,
+        warm_point_p99_seconds: economics_receipt.all_point_p99_seconds,
+        scan_seconds: 0.0,
+        scan_rows: 0,
+        scan_rows_per_second: 0.0,
+        first_point_exact,
+        warm_points_exact: oracle_exact,
+        ordered_scan_exact: true,
+        authenticated_tail_records,
+        cache_prepare_io,
+        open_io,
+        first_point_io,
+        fill_point_io,
+        warm_point_io,
+        scan_io: Phase0IoDelta::default(),
+        total_io: counters.total(),
+        provider_mode: config.provider_mode.id().to_owned(),
+        object_backend: config.object_backend.id().to_owned(),
+        provider_closure_sha256,
+        provider_get_requests: provider_stats.get_requests,
+        provider_revision_checks: provider_stats.revision_checks,
+        provider_refused_requests: provider_stats.refused_requests,
+        provider_read_bytes,
+        unversioned_fallbacks,
+        scratch_objects_deleted: 0,
+        scratch_cleanup_complete: config.object_backend == RangeServingObjectBackend::Local,
+        peak_rss_bytes,
+        safety_bounds_held,
+        semantic_receipt_sha256,
+        economics: Some(economics_receipt),
+    })
+}
+
+async fn open_economics_view(
+    store: Arc<dyn ObjectStore>,
+    range_root: AuthorityRangeRoot,
+    target_version: u64,
+    records: Vec<CertifiedTxLogRecord>,
+    policies: &BTreeMap<u16, CellLogSetPolicy>,
+    seed: u64,
+    config: &RangeServingCurveConfig,
+) -> Result<AuthorityBoundRangeView, String> {
+    AuthorityBoundRangeView::open_with_cache(
+        DATABASE_PATH,
+        store,
+        range_root,
+        target_version,
+        records,
+        policies,
+        seed,
+        new_decoded_cache(config),
+    )
+    .await
+    .map_err(|error| format!("open provider cache economics view: {error}"))
+}
+
+fn provider_get_requests(store: Option<&Arc<ProviderBoundObjectStore>>) -> u64 {
+    store.map_or(0, |store| store.stats().get_requests)
+}
+
+fn provider_cache_trace(
+    config: &RangeServingCurveConfig,
+    economics: &ProviderCacheEconomicsConfig,
+) -> ProviderCacheTrace {
+    let perturb = if economics.mode == ProviderCacheEconomicsMode::PerturbReplayTrace {
+        u64::from(std::process::id())
+    } else {
+        0
+    };
+    let mut rng = TraceRng::new(config.seed ^ 0xca6e_0001 ^ perturb);
+    let zipf = (economics.distribution == ProviderCacheTraceDistribution::Zipfian)
+        .then(|| zipf_cdf(config.base_key_count, economics.zipf_theta_milli));
+    let mut warmup = Vec::with_capacity(config.warmup_reads);
+    for index in 0..config.warmup_reads {
+        warmup.push(trace_ordinal(
+            &mut rng,
+            config.base_key_count,
+            economics,
+            index,
+            false,
+            zipf.as_deref(),
+        ));
+    }
+    let mut measured = Vec::with_capacity(config.measured_reads);
+    for index in 0..config.measured_reads {
+        measured.push(trace_ordinal(
+            &mut rng,
+            config.base_key_count,
+            economics,
+            index,
+            true,
+            zipf.as_deref(),
+        ));
+    }
+    let mut trace_hasher = Sha256::new();
+    trace_hasher.update(b"okv-provider-cache-trace-v1");
+    trace_hasher.update(config.seed.to_be_bytes());
+    trace_hasher.update(economics.distribution.id().as_bytes());
+    trace_hasher.update(economics.zipf_theta_milli.to_be_bytes());
+    trace_hasher.update(economics.hotset_fraction_ppm.to_be_bytes());
+    trace_hasher.update(economics.hot_read_fraction_ppm.to_be_bytes());
+    trace_hasher.update(economics.hotset_shift_every.to_be_bytes());
+    for ordinal in warmup.iter().chain(&measured) {
+        trace_hasher.update(u64::try_from(*ordinal).unwrap_or(u64::MAX).to_be_bytes());
+    }
+
+    let mut reuse_stack = Vec::with_capacity(config.base_key_count);
+    for ordinal in &warmup {
+        let _ = observe_reuse(&mut reuse_stack, *ordinal);
+    }
+    let mut reuse_distances = Vec::with_capacity(measured.len());
+    let mut reuse_hasher = Sha256::new();
+    reuse_hasher.update(b"okv-provider-cache-reuse-distance-v1");
+    for ordinal in &measured {
+        let distance = observe_reuse(&mut reuse_stack, *ordinal);
+        reuse_hasher.update(distance.unwrap_or(u64::MAX).to_be_bytes());
+        if let Some(distance) = distance {
+            reuse_distances.push(distance);
+        }
+    }
+    ProviderCacheTrace {
+        warmup,
+        measured,
+        trace_sha256: format!("{:x}", trace_hasher.finalize()),
+        reuse_distances,
+        reuse_distance_sha256: format!("{:x}", reuse_hasher.finalize()),
+    }
+}
+
+fn trace_ordinal(
+    rng: &mut TraceRng,
+    key_count: usize,
+    economics: &ProviderCacheEconomicsConfig,
+    index: usize,
+    measured: bool,
+    zipf: Option<&[f64]>,
+) -> usize {
+    match economics.distribution {
+        ProviderCacheTraceDistribution::Uniform => rng.index(key_count),
+        ProviderCacheTraceDistribution::Zipfian => {
+            let sample = rng.unit_interval();
+            zipf.unwrap_or_default()
+                .partition_point(|cumulative| *cumulative < sample)
+                .min(key_count.saturating_sub(1))
+        }
+        ProviderCacheTraceDistribution::MovingHotset => {
+            let hotset_size = key_count
+                .saturating_mul(economics.hotset_fraction_ppm as usize)
+                .div_ceil(1_000_000)
+                .clamp(1, key_count);
+            let shift = if measured {
+                index / economics.hotset_shift_every.max(1)
+            } else {
+                0
+            };
+            if rng.next_u64() % 1_000_000 < u64::from(economics.hot_read_fraction_ppm) {
+                let start = shift.saturating_mul(hotset_size) % key_count;
+                (start + rng.index(hotset_size)) % key_count
+            } else {
+                rng.index(key_count)
+            }
+        }
+    }
+}
+
+fn zipf_cdf(key_count: usize, theta_milli: u32) -> Vec<f64> {
+    let theta = f64::from(theta_milli) / 1_000.0;
+    let normalizer = (1..=key_count)
+        .map(|rank| f64::from(u32::try_from(rank).unwrap_or(u32::MAX)).powf(-theta))
+        .sum::<f64>();
+    let mut cumulative = 0.0_f64;
+    (1..=key_count)
+        .map(|rank| {
+            cumulative +=
+                f64::from(u32::try_from(rank).unwrap_or(u32::MAX)).powf(-theta) / normalizer;
+            cumulative
+        })
+        .collect()
+}
+
+fn observe_reuse(stack: &mut Vec<usize>, ordinal: usize) -> Option<u64> {
+    let distance = stack.iter().position(|candidate| *candidate == ordinal);
+    if let Some(position) = distance {
+        stack.remove(position);
+    }
+    stack.insert(0, ordinal);
+    distance.map(|position| u64::try_from(position).unwrap_or(u64::MAX))
+}
+
+struct TraceRng(u64);
+
+impl TraceRng {
+    fn new(seed: u64) -> Self {
+        Self(if seed == 0 {
+            0x9e37_79b9_7f4a_7c15
+        } else {
+            seed
+        })
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut value = self.0;
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^= value << 17;
+        self.0 = value;
+        value
+    }
+
+    fn index(&mut self, bound: usize) -> usize {
+        usize::try_from(self.next_u64() % u64::try_from(bound).unwrap_or(u64::MAX)).unwrap_or(0)
+    }
+
+    fn unit_interval(&mut self) -> f64 {
+        f64::from(u32::try_from(self.next_u64() >> 32).unwrap_or(u32::MAX)) / 4_294_967_296.0
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CacheInventory {
+    bytes: u64,
+    parts: u64,
+}
+
+async fn wait_for_cache_bound(root: &Path, limit: usize) -> Result<CacheInventory, String> {
+    let limit = u64::try_from(limit).unwrap_or(u64::MAX);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        let inventory = cache_inventory(root)?;
+        if inventory.bytes <= limit || tokio::time::Instant::now() >= deadline {
+            return Ok(inventory);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+fn cache_inventory(root: &Path) -> Result<CacheInventory, String> {
+    let mut files = Vec::new();
+    collect_cache_files(root, &mut files).map_err(|error| error.to_string())?;
+    let mut bytes = 0_u64;
+    let mut parts = 0_u64;
+    for path in files {
+        bytes = bytes.saturating_add(
+            fs::metadata(&path)
+                .map_err(|error| error.to_string())?
+                .len(),
+        );
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("_part"))
+        {
+            parts = parts.saturating_add(1);
+        }
+    }
+    Ok(CacheInventory { bytes, parts })
+}
+
+fn collect_cache_files(root: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            collect_cache_files(&entry.path(), files)?;
+        } else if file_type.is_file() {
+            files.push(entry.path());
+        }
+    }
+    Ok(())
+}
+
+fn economics_semantic_receipt(
+    config: &RangeServingCurveConfig,
+    receipt: &ProviderCacheEconomicsReceipt,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"okv-provider-cache-economics-receipt-v1");
+    hasher.update(config.seed.to_be_bytes());
+    hasher.update(receipt.mode.as_bytes());
+    hasher.update(receipt.distribution.as_bytes());
+    hasher.update(receipt.trace_sha256.as_bytes());
+    hasher.update(receipt.reuse_distance_sha256.as_bytes());
+    hasher.update(receipt.logical_reads.to_be_bytes());
+    hasher.update(receipt.cache_hits.to_be_bytes());
+    hasher.update(receipt.cache_misses.to_be_bytes());
+    hasher.update(receipt.oracle_checks.to_be_bytes());
+    hasher.update([u8::from(receipt.oracle_exact)]);
+    hasher.update(receipt.oracle_sha256.as_bytes());
+    hasher.update(receipt.observed_sha256.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn percentile_or_zero(sorted: &[f64], quantile: usize) -> f64 {
+    if sorted.is_empty() {
+        0.0
+    } else {
+        percentile(sorted, quantile)
+    }
+}
+
+fn percentile_u64_or_zero(sorted: &[u64], quantile: usize) -> u64 {
+    if sorted.is_empty() {
+        0
+    } else {
+        let index = sorted.len().saturating_sub(1).saturating_mul(quantile) / 100;
+        sorted[index]
+    }
 }
 
 fn validate_config(config: &RangeServingCurveConfig) -> Result<(), String> {
@@ -611,6 +1347,30 @@ fn validate_config(config: &RangeServingCurveConfig) -> Result<(), String> {
         || config.nvme_open_file_handles == 0
     {
         return Err("range-serving curve requires nonzero base/RSS, value_bytes >= 16, at least two points, and a bounded nonzero scan".to_owned());
+    }
+    if let Some(economics) = &config.economics {
+        if config.cache_mode != RangeServingCacheMode::SharedRamNvme
+            || !config.provider_mode.enabled()
+            || config.warmup_reads == 0
+            || config.measured_reads == 0
+            || config.point_samples != config.measured_reads
+        {
+            return Err("provider cache economics requires provider-bound shared RAM/NVMe, nonzero warmup and measured reads, and point_samples equal to measured_reads".to_owned());
+        }
+        match economics.distribution {
+            ProviderCacheTraceDistribution::Uniform => {}
+            ProviderCacheTraceDistribution::Zipfian if economics.zipf_theta_milli > 0 => {}
+            ProviderCacheTraceDistribution::MovingHotset
+                if (1..=1_000_000).contains(&economics.hotset_fraction_ppm)
+                    && (1..=1_000_000).contains(&economics.hot_read_fraction_ppm)
+                    && economics.hotset_shift_every > 0 => {}
+            ProviderCacheTraceDistribution::Zipfian => {
+                return Err("provider cache Zipfian trace requires positive theta".to_owned())
+            }
+            ProviderCacheTraceDistribution::MovingHotset => {
+                return Err("provider cache moving hotset requires bounded nonzero fractions and shift interval".to_owned())
+            }
+        }
     }
     match (config.object_backend, config.scratch_prefix.as_deref()) {
         (RangeServingObjectBackend::Local, None) => {}
@@ -883,8 +1643,13 @@ async fn build_nvme_store(
     store: Arc<dyn ObjectStore>,
     config: &RangeServingCurveConfig,
 ) -> Result<Arc<dyn ObjectStore>, String> {
+    let maximum = config
+        .economics
+        .as_ref()
+        .is_none_or(|economics| economics.mode != ProviderCacheEconomicsMode::DisableCacheBound)
+        .then_some(config.nvme_cache_bytes);
     CachedObjectStore::builder(nvme_root, store)
-        .with_max_cache_size_bytes(Some(config.nvme_cache_bytes))
+        .with_max_cache_size_bytes(maximum)
         .with_part_size_bytes(config.nvme_part_bytes)
         .with_cache_on_flush(false)
         .with_scan_interval(None)

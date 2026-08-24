@@ -86,6 +86,7 @@ use okv_object::{
     CellTaggedLogLearnerRepairMode, CellTaggedLogPolicyTransitionMode,
     CellTaggedLogRepairWorkerProcessConfig, ConformanceOptions, ConformanceProfile, KvRuntime,
     KvRuntimeAction, KvRuntimeAdmission, KvRuntimeConfig, KvRuntimeDecision,
+    ProviderCacheEconomicsConfig, ProviderCacheEconomicsMode, ProviderCacheTraceDistribution,
     PublicationAdapterMode, PublicationRootGraphMode, PublisherManifestRecoveryMode,
     PublisherManifestRecoveryProcessConfig, PublisherProcessConfig, PublisherProcessMode,
     PublisherPublishRecoveryMode, PublisherPublishRecoveryProcessConfig, PublisherPutRecoveryMode,
@@ -194,6 +195,19 @@ struct ProviderBoundRangeArtifact<'a> {
     workload: &'a str,
     cache_state: &'a str,
     provider_mode: &'a str,
+    receipts: &'a [RangeServingCurveReceipt],
+    semantic_replay_receipt: &'a RangeServingCurveReceipt,
+}
+
+#[derive(Serialize)]
+struct ProviderCacheEconomicsArtifact<'a> {
+    contract_version: u32,
+    executable_sha256: &'a str,
+    workload: &'a str,
+    distribution: &'a str,
+    cache_capacity_bytes: u64,
+    provider_mode: &'a str,
+    economics_mode: &'a str,
     receipts: &'a [RangeServingCurveReceipt],
     semantic_replay_receipt: &'a RangeServingCurveReceipt,
 }
@@ -1879,6 +1893,15 @@ fn execute_workload(
             dataset,
             profile,
         ),
+        "provider_bound_cache_economics" => run_provider_bound_cache_economics(
+            workload,
+            run_id,
+            candidate_commit,
+            seeds,
+            backend,
+            dataset,
+            profile,
+        ),
         "cell_commit_visibility_contract" => run_cell_commit_visibility(workload, seeds, backend),
         "cell_tagged_log_certificate_contract" => {
             run_cell_tagged_log_certificate(workload, seeds, backend)
@@ -3294,6 +3317,21 @@ fn provider_bound_range_artifact_path(
         .map_or_else(|| PathBuf::from("target/okv-eval-artifacts"), PathBuf::from);
     root.join(format!(
         "provider-bound-range-{candidate}-{run}-{}.json",
+        workload.id
+    ))
+}
+
+fn provider_cache_economics_artifact_path(
+    run_id: &str,
+    candidate_commit: &str,
+    workload: &WorkloadConfig,
+) -> PathBuf {
+    let candidate = candidate_commit.replace(['+', '/'], "-");
+    let run = run_id.replace(['+', '/'], "-");
+    let root = std::env::var_os("OKV_EVAL_ARTIFACT_DIR")
+        .map_or_else(|| PathBuf::from("target/okv-eval-artifacts"), PathBuf::from);
+    root.join(format!(
+        "provider-cache-economics-{candidate}-{run}-{}.json",
         workload.id
     ))
 }
@@ -17558,6 +17596,7 @@ fn run_range_serving_performance_curve(
         scratch_prefix: None,
         warmup_reads: 0,
         measured_reads: 0,
+        economics: None,
         seed,
     };
     let mut receipts = Vec::with_capacity(seeds.len());
@@ -17926,6 +17965,7 @@ fn run_provider_bound_range_read(
         }),
         warmup_reads,
         measured_reads,
+        economics: None,
         seed,
     };
     let mut receipts = Vec::with_capacity(seeds.len());
@@ -18124,6 +18164,689 @@ fn run_provider_bound_range_read(
             ),
         ]),
     }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_provider_bound_cache_economics(
+    workload: &WorkloadConfig,
+    run_id: &str,
+    candidate_commit: &str,
+    seeds: &[u64],
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile: &ProfileConfig,
+) -> WorkloadExecution {
+    const LOCAL_BACKEND: &str = "deterministic-versioned-provider-cache-process";
+    const GCS_BACKEND: &str = "gcs-generation-bound-provider-cache-process";
+    const LOCAL_PRICE_SNAPSHOT: &str = "local-versioned-zero";
+    const GCS_PRICE_SNAPSHOT: &str = "gcs-us-central1-standard-2026-08-24";
+    const GCS_GET_COST_NANO_USD: u64 = 400;
+    let object_backend = match backend {
+        LOCAL_BACKEND => RangeServingObjectBackend::Local,
+        GCS_BACKEND => RangeServingObjectBackend::Gcs,
+        other => {
+            return provider_bound_discard(
+                workload,
+                other,
+                "bounded-nvme",
+                format!("unknown provider cache economics backend {other}"),
+            )
+        }
+    };
+    let (price_snapshot, provider_get_cost_nano_usd) = match object_backend {
+        RangeServingObjectBackend::Local => (LOCAL_PRICE_SNAPSHOT, 0),
+        RangeServingObjectBackend::Gcs => {
+            let Some(configured_snapshot) = profile
+                .parameters
+                .get("price_snapshot")
+                .and_then(toml::Value::as_str)
+            else {
+                return provider_bound_discard(
+                    workload,
+                    backend,
+                    "bounded-nvme",
+                    "GCS provider cache economics profile requires price_snapshot".to_owned(),
+                );
+            };
+            if configured_snapshot != GCS_PRICE_SNAPSHOT {
+                return provider_bound_discard(
+                    workload,
+                    backend,
+                    "bounded-nvme",
+                    format!(
+                        "unsupported GCS price snapshot {configured_snapshot}; expected {GCS_PRICE_SNAPSHOT}"
+                    ),
+                );
+            }
+            for variable in ["OKV_GCP_PROJECT", "OKV_GCS_BUCKET"] {
+                if std::env::var(variable)
+                    .ok()
+                    .is_none_or(|value| value.trim().is_empty())
+                {
+                    return provider_bound_discard(
+                        workload,
+                        backend,
+                        "bounded-nvme",
+                        format!("GCS provider cache economics profile requires {variable}"),
+                    );
+                }
+            }
+            (GCS_PRICE_SNAPSHOT, GCS_GET_COST_NANO_USD)
+        }
+    };
+    let Some(dataset) = dataset else {
+        return provider_bound_discard(
+            workload,
+            backend,
+            "bounded-nvme",
+            "provider cache economics requires a dataset".to_owned(),
+        );
+    };
+    if seeds.len() < 5 {
+        return provider_bound_discard(
+            workload,
+            backend,
+            "bounded-nvme",
+            "provider cache economics requires at least five seeds".to_owned(),
+        );
+    }
+    let distribution = match workload
+        .parameters
+        .get("distribution")
+        .and_then(toml::Value::as_str)
+    {
+        Some("uniform") => ProviderCacheTraceDistribution::Uniform,
+        Some("zipfian") => ProviderCacheTraceDistribution::Zipfian,
+        Some("moving_hotset") => ProviderCacheTraceDistribution::MovingHotset,
+        Some(other) => {
+            return provider_bound_discard(
+                workload,
+                backend,
+                "bounded-nvme",
+                format!("unknown provider cache distribution {other}"),
+            )
+        }
+        None => {
+            return provider_bound_discard(
+                workload,
+                backend,
+                "bounded-nvme",
+                "provider cache economics requires distribution".to_owned(),
+            )
+        }
+    };
+    let negative_control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("none");
+    let (economics_mode, provider_mode) = match negative_control {
+        "none" | "correct" => (
+            ProviderCacheEconomicsMode::Correct,
+            RangeServingProviderMode::Correct,
+        ),
+        "disable_cache_bound" => (
+            ProviderCacheEconomicsMode::DisableCacheBound,
+            RangeServingProviderMode::Correct,
+        ),
+        "skip_exact_oracle" => (
+            ProviderCacheEconomicsMode::SkipExactOracle,
+            RangeServingProviderMode::Correct,
+        ),
+        "skip_revision_enforcement" => (
+            ProviderCacheEconomicsMode::Correct,
+            RangeServingProviderMode::SkipRevisionEnforcement,
+        ),
+        "perturb_replay_trace" => (
+            ProviderCacheEconomicsMode::PerturbReplayTrace,
+            RangeServingProviderMode::Correct,
+        ),
+        other => {
+            return provider_bound_discard(
+                workload,
+                backend,
+                "bounded-nvme",
+                format!("unknown provider cache economics control {other}"),
+            )
+        }
+    };
+    let profile_values = (|| {
+        Ok::<_, String>((
+            kv_runtime_profile_usize(profile, "point_bytes")?,
+            kv_runtime_profile_usize(profile, "warmup_reads")?,
+            kv_runtime_profile_usize(profile, "measured_reads")?,
+            kv_runtime_profile_u64(profile, "decoded_cache_bytes")?,
+            kv_runtime_profile_usize(profile, "nvme_part_bytes")?,
+            kv_runtime_profile_usize(profile, "nvme_open_file_handles")?,
+            kv_runtime_profile_u64(profile, "worker_timeout_millis")?,
+        ))
+    })();
+    let (
+        value_bytes,
+        warmup_reads,
+        measured_reads,
+        decoded_cache_bytes,
+        nvme_part_bytes,
+        nvme_open_file_handles,
+        timeout_millis,
+    ) = match profile_values {
+        Ok(values) => values,
+        Err(error) => return provider_bound_discard(workload, backend, "bounded-nvme", error),
+    };
+    let cache_fraction_ppm = match kv_runtime_workload_usize(workload, "cache_fraction_ppm") {
+        Ok(value @ 1..=1_000_000) => value,
+        Ok(other) => {
+            return provider_bound_discard(
+                workload,
+                backend,
+                "bounded-nvme",
+                format!("cache_fraction_ppm must be in 1..=1000000, got {other}"),
+            )
+        }
+        Err(error) => return provider_bound_discard(workload, backend, "bounded-nvme", error),
+    };
+    let optional_workload_usize = |key: &str| {
+        workload
+            .parameters
+            .get(key)
+            .and_then(toml::Value::as_integer)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(0)
+    };
+    let zipf_theta_milli =
+        u32::try_from(optional_workload_usize("zipf_theta_milli")).unwrap_or(u32::MAX);
+    let hotset_fraction_ppm =
+        u32::try_from(optional_workload_usize("hotset_fraction_ppm")).unwrap_or(u32::MAX);
+    let hot_read_fraction_ppm =
+        u32::try_from(optional_workload_usize("hot_read_fraction_ppm")).unwrap_or(u32::MAX);
+    let hotset_shift_every = optional_workload_usize("hotset_shift_every");
+    let view_reopen_every = optional_workload_usize("view_reopen_every");
+    let Ok(base_key_count) = usize::try_from(dataset.key_count) else {
+        return provider_bound_discard(
+            workload,
+            backend,
+            "bounded-nvme",
+            "provider cache key count does not fit usize".to_owned(),
+        );
+    };
+    let expected_logical_bytes = dataset
+        .key_count
+        .saturating_mul(u64::try_from(value_bytes).unwrap_or(u64::MAX));
+    if expected_logical_bytes != dataset.logical_bytes {
+        return provider_bound_discard(
+            workload,
+            backend,
+            "bounded-nvme",
+            "provider cache dataset dimensions disagree with profile".to_owned(),
+        );
+    }
+    let cache_capacity_u64 = dataset
+        .logical_bytes
+        .saturating_mul(u64::try_from(cache_fraction_ppm).unwrap_or(u64::MAX))
+        / 1_000_000;
+    let Ok(cache_capacity_bytes) = usize::try_from(cache_capacity_u64) else {
+        return provider_bound_discard(
+            workload,
+            backend,
+            "bounded-nvme",
+            "provider cache capacity does not fit usize".to_owned(),
+        );
+    };
+    if cache_capacity_bytes < nvme_part_bytes.saturating_mul(2) {
+        return provider_bound_discard(
+            workload,
+            backend,
+            "bounded-nvme",
+            "provider cache capacity must hold at least two physical parts".to_owned(),
+        );
+    }
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            return provider_bound_discard(
+                workload,
+                backend,
+                "bounded-nvme",
+                format!("resolve provider cache executable: {error}"),
+            )
+        }
+    };
+    let config_for_seed = |seed| RangeServingCurveConfig {
+        base_key_count,
+        value_bytes,
+        tail_records: 0,
+        point_samples: measured_reads,
+        scan_rows: 1,
+        max_rss_bytes: 1_073_741_824,
+        cache_mode: RangeServingCacheMode::SharedRamNvme,
+        decoded_cache_bytes,
+        nvme_cache_bytes: cache_capacity_bytes,
+        nvme_part_bytes,
+        nvme_open_file_handles,
+        provider_mode,
+        object_backend,
+        scratch_prefix: (object_backend == RangeServingObjectBackend::Gcs).then(|| {
+            format!(
+                "scratch/provider-bound-range/cache-economics/{}/{}/{}/{}",
+                workload.id,
+                economics_mode.id(),
+                seed,
+                Uuid::new_v4()
+            )
+        }),
+        warmup_reads,
+        measured_reads,
+        economics: Some(ProviderCacheEconomicsConfig {
+            distribution,
+            zipf_theta_milli,
+            hotset_fraction_ppm,
+            hot_read_fraction_ppm,
+            hotset_shift_every,
+            view_reopen_every,
+            provider_get_cost_nano_usd,
+            mode: economics_mode,
+        }),
+        seed,
+    };
+    let mut receipts = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        match run_range_serving_curve_child(&executable, &config_for_seed(*seed), timeout_millis) {
+            Ok(receipt) => receipts.push(receipt),
+            Err(error) => {
+                return provider_bound_discard(
+                    workload,
+                    backend,
+                    "bounded-nvme",
+                    format!("provider cache economics child failed: {error}"),
+                )
+            }
+        }
+    }
+    let replay = match run_range_serving_curve_child(
+        &executable,
+        &config_for_seed(seeds[0]),
+        timeout_millis,
+    ) {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            return provider_bound_discard(
+                workload,
+                backend,
+                "bounded-nvme",
+                format!("provider cache economics replay failed: {error}"),
+            )
+        }
+    };
+    let economics_receipts = receipts
+        .iter()
+        .filter_map(|receipt| receipt.economics.as_ref())
+        .collect::<Vec<_>>();
+    let dimensions_exact = economics_receipts.len() == seeds.len()
+        && receipts.iter().all(|receipt| {
+            receipt.base_key_count == base_key_count
+                && receipt.value_bytes == value_bytes
+                && receipt.point_samples == measured_reads
+                && receipt.cache_mode == RangeServingCacheMode::SharedRamNvme.id()
+                && receipt.provider_mode == provider_mode.id()
+                && receipt.object_backend == object_backend.id()
+        })
+        && economics_receipts.iter().all(|receipt| {
+            receipt.distribution == distribution.id()
+                && receipt.warmup_reads == warmup_reads
+                && receipt.measured_reads == measured_reads
+                && receipt.cache_capacity_bytes == cache_capacity_u64
+        });
+    let reads_exact = economics_receipts.iter().all(|receipt| {
+        receipt.logical_reads == u64::try_from(measured_reads).unwrap_or(u64::MAX)
+            && receipt.cache_hits.saturating_add(receipt.cache_misses) == receipt.logical_reads
+            && receipt.oracle_checks == receipt.logical_reads
+            && receipt.oracle_exact
+            && receipt.oracle_sha256.len() == 64
+            && receipt.oracle_sha256 == receipt.observed_sha256
+            && (receipt.cache_hit_ratio + receipt.cache_miss_ratio - 1.0).abs() <= 1.0e-12
+    });
+    let provider_identity_exact = receipts.iter().all(|receipt| {
+        receipt.provider_closure_sha256.len() == 64
+            && receipt.provider_get_requests > 0
+            && receipt.provider_get_requests == receipt.provider_revision_checks
+            && receipt.provider_refused_requests == 0
+            && receipt.unversioned_fallbacks == 0
+    });
+    let cache_bound_held = economics_receipts.iter().all(|receipt| {
+        receipt.cache_bound_enabled
+            && receipt.cache_bound_held
+            && receipt.settled_cache_bytes <= receipt.cache_capacity_bytes
+    });
+    let replay_economics = replay.economics.as_ref();
+    let trace_replay_exact = economics_receipts.first().is_some_and(|first| {
+        replay_economics.is_some_and(|replayed| {
+            first.trace_sha256.len() == 64
+                && first.reuse_distance_sha256.len() == 64
+                && first.trace_sha256 == replayed.trace_sha256
+                && first.reuse_distance_sha256 == replayed.reuse_distance_sha256
+                && first.reuse_distance_p50 == replayed.reuse_distance_p50
+                && first.reuse_distance_p95 == replayed.reuse_distance_p95
+                && first.reuse_distance_p99 == replayed.reuse_distance_p99
+        })
+    });
+    let expected_reopens = if view_reopen_every == 0 {
+        0
+    } else {
+        u64::try_from(measured_reads.saturating_sub(1) / view_reopen_every).unwrap_or(u64::MAX)
+    };
+    let view_reopens_exact = economics_receipts
+        .iter()
+        .all(|receipt| receipt.view_reopens == expected_reopens);
+    let receipts_complete = economics_receipts.iter().all(|receipt| {
+        receipt.all_point_p50_seconds > 0.0
+            && receipt.all_point_p99_seconds > 0.0
+            && receipt.reuse_distance_samples > 0
+            && receipt.open_provider_get_requests > 0
+            && receipt.open_provider_read_bytes > 0
+            && (receipt.cache_misses == 0
+                || (receipt.point_provider_get_requests > 0
+                    && receipt.point_provider_read_bytes > 0
+                    && receipt.provider_miss_p99_seconds > 0.0))
+            && (receipt.cache_hits == 0 || receipt.cache_hit_p99_seconds > 0.0)
+            && receipt
+                .estimated_request_cost_per_million_reads_usd
+                .is_finite()
+    });
+    let safety_bounds_held = receipts
+        .iter()
+        .all(|receipt| receipt.safety_bounds_held && receipt.peak_rss_bytes > 0);
+    let scratch_cleanup_complete = receipts.iter().all(|receipt| {
+        receipt.scratch_cleanup_complete
+            && (object_backend == RangeServingObjectBackend::Local
+                || receipt.scratch_objects_deleted > 0)
+    });
+    let checks = [
+        dimensions_exact,
+        reads_exact,
+        provider_identity_exact,
+        cache_bound_held,
+        trace_replay_exact,
+        view_reopens_exact,
+        receipts_complete,
+        safety_bounds_held,
+        scratch_cleanup_complete,
+    ];
+    let anomalies =
+        u64::try_from(checks.iter().filter(|passed| !**passed).count()).unwrap_or(u64::MAX);
+    let executable_sha256 = match file_sha256(&executable) {
+        Ok(digest) => digest,
+        Err(error) => return provider_bound_discard(workload, backend, "bounded-nvme", error),
+    };
+    let artifact_path = provider_cache_economics_artifact_path(run_id, candidate_commit, workload);
+    let artifact = ProviderCacheEconomicsArtifact {
+        contract_version: 1,
+        executable_sha256: &executable_sha256,
+        workload: &workload.id,
+        distribution: distribution.id(),
+        cache_capacity_bytes: cache_capacity_u64,
+        provider_mode: provider_mode.id(),
+        economics_mode: economics_mode.id(),
+        receipts: &receipts,
+        semantic_replay_receipt: &replay,
+    };
+    if let Err(error) = write_json_artifact(&artifact_path, &artifact, "provider cache economics") {
+        return provider_bound_discard(workload, backend, "bounded-nvme", error);
+    }
+    if negative_control != "none" && negative_control != "correct" {
+        let mut discard = if anomalies > 0 {
+            provider_bound_discard(
+                workload,
+                backend,
+                "bounded-nvme",
+                format!("provider cache economics control detected: {negative_control}"),
+            )
+        } else {
+            let mut escaped = provider_bound_discard(
+                workload,
+                backend,
+                "bounded-nvme",
+                format!("unsafe provider cache economics control escaped: {negative_control}"),
+            );
+            escaped.hard_gates = vec![HardGateResult {
+                id: "provider_bound.control_detected".to_owned(),
+                status: GateStatus::Fail,
+                detail: Some("unsafe subject satisfied every clean-run gate".to_owned()),
+            }];
+            escaped
+        };
+        discard.artifact_refs = vec![artifact_path.display().to_string()];
+        return discard;
+    }
+
+    let passed = anomalies == 0;
+    let mut measurements = vec![Measurement {
+        metric: "correctness.anomalies",
+        value: bounded_count(anomalies),
+        attributes: attributes(&[
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("oracle", "provider-cache-economics-v1"),
+            ("anomaly.class", if passed { "none" } else { "contract" }),
+        ]),
+    }];
+    for (receipt, economics) in receipts.iter().zip(&economics_receipts) {
+        measurements.extend(provider_cache_economics_measurements(
+            workload,
+            backend,
+            receipt,
+            economics,
+            price_snapshot,
+            f64::from(u32::try_from(provider_get_cost_nano_usd).unwrap_or(u32::MAX))
+                / 1_000_000_000.0,
+        ));
+    }
+    let gate = |id: &str, value: bool| HardGateResult {
+        id: id.to_owned(),
+        status: gate_status(value),
+        detail: None,
+    };
+    WorkloadExecution {
+        error: (!passed).then(|| {
+            format!(
+                "provider cache economics discarded: anomalies={anomalies}, dimensions={dimensions_exact}, reads={reads_exact}, identity={provider_identity_exact}, bound={cache_bound_held}, replay={trace_replay_exact}, reopens={view_reopens_exact}, receipts={receipts_complete}, safety={safety_bounds_held}, cleanup={scratch_cleanup_complete}"
+            )
+        }),
+        measurements,
+        hard_gates: vec![
+            gate("provider_bound.minimum_seeds", seeds.len() >= 5),
+            gate("provider_bound.dimensions_exact", dimensions_exact),
+            gate("provider_bound.reads_exact", reads_exact),
+            gate("provider_bound.identity_exact", provider_identity_exact),
+            gate("provider_bound.cache_bound_held", cache_bound_held),
+            gate("provider_bound.trace_replay_exact", trace_replay_exact),
+            gate("provider_bound.view_reopens_exact", view_reopens_exact),
+            gate("provider_bound.receipts_complete", receipts_complete),
+            gate("provider_bound.safety_bounds_held", safety_bounds_held),
+            gate(
+                "provider_bound.scratch_cleanup_complete",
+                scratch_cleanup_complete,
+            ),
+        ],
+        budget_units: bounded_usize(measured_reads.saturating_mul(seeds.len())),
+        artifact_refs: vec![artifact_path.display().to_string()],
+        secondary_metrics: BTreeMap::from([
+            (
+                "provider_bound.cache_capacity_bytes".to_owned(),
+                bounded_count(cache_capacity_u64),
+            ),
+            (
+                "provider_bound.hit_p99_seconds".to_owned(),
+                economics_receipts
+                    .iter()
+                    .map(|receipt| receipt.cache_hit_p99_seconds)
+                    .fold(0.0_f64, f64::max),
+            ),
+            (
+                "provider_bound.miss_p99_seconds".to_owned(),
+                economics_receipts
+                    .iter()
+                    .map(|receipt| receipt.provider_miss_p99_seconds)
+                    .fold(0.0_f64, f64::max),
+            ),
+            (
+                "provider_bound.cost_per_million_reads_usd".to_owned(),
+                economics_receipts
+                    .iter()
+                    .map(|receipt| receipt.estimated_request_cost_per_million_reads_usd)
+                    .fold(0.0_f64, f64::max),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn provider_cache_economics_measurements(
+    workload: &WorkloadConfig,
+    backend: &str,
+    receipt: &RangeServingCurveReceipt,
+    economics: &okv_object::ProviderCacheEconomicsReceipt,
+    price_snapshot: &str,
+    get_request_cost_usd: f64,
+) -> Vec<Measurement> {
+    let capacity = economics.cache_capacity_bytes.to_string();
+    let common = |result: &str| {
+        attributes(&[
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("backend", backend),
+            ("trace.distribution", economics.distribution.as_str()),
+            ("cache.capacity", capacity.as_str()),
+            ("result", result),
+        ])
+    };
+    let tier = |cache_result: &str| {
+        attributes(&[
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("backend", backend),
+            ("trace.distribution", economics.distribution.as_str()),
+            ("cache.capacity", capacity.as_str()),
+            ("cache.result", cache_result),
+            ("result", "pass"),
+        ])
+    };
+    let mut measurements = vec![
+        Measurement {
+            metric: "provider_bound.cache_miss_ratio",
+            value: economics.cache_miss_ratio,
+            attributes: common("pass"),
+        },
+        Measurement {
+            metric: "provider_bound.cache_hit_ratio",
+            value: economics.cache_hit_ratio,
+            attributes: common("pass"),
+        },
+        Measurement {
+            metric: "provider_bound.logical_reads",
+            value: bounded_count(economics.cache_hits),
+            attributes: tier("hit"),
+        },
+        Measurement {
+            metric: "provider_bound.logical_reads",
+            value: bounded_count(economics.cache_misses),
+            attributes: tier("miss"),
+        },
+        Measurement {
+            metric: "provider_bound.cache_resident_bytes",
+            value: bounded_count(economics.settled_cache_bytes),
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("backend", backend),
+                ("cache.capacity", capacity.as_str()),
+                ("result", "pass"),
+            ]),
+        },
+        Measurement {
+            metric: "provider_bound.view_reopens",
+            value: bounded_count(economics.view_reopens),
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("backend", backend),
+                ("trace.distribution", economics.distribution.as_str()),
+                ("result", "pass"),
+            ]),
+        },
+        Measurement {
+            metric: "provider_bound.reuse_distance",
+            value: bounded_count(economics.reuse_distance_p50),
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("trace.distribution", economics.distribution.as_str()),
+            ]),
+        },
+        Measurement {
+            metric: "provider_bound.object_requests",
+            value: bounded_count(economics.point_provider_get_requests),
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("backend", backend),
+                ("cache.state", "bounded-nvme"),
+                ("api", "get"),
+                ("result", "pass"),
+            ]),
+        },
+        Measurement {
+            metric: "provider_bound.object_bytes",
+            value: bounded_count(economics.point_provider_read_bytes),
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("backend", backend),
+                ("cache.state", "bounded-nvme"),
+                ("source", "provider"),
+                ("result", "pass"),
+            ]),
+        },
+        Measurement {
+            metric: "provider_bound.revision_checks",
+            value: bounded_count(receipt.provider_revision_checks),
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("backend", backend),
+                ("cache.state", "bounded-nvme"),
+                ("result", "pass"),
+            ]),
+        },
+        Measurement {
+            metric: "provider_bound.estimated_cost",
+            value: f64::from(
+                u32::try_from(economics.point_provider_get_requests).unwrap_or(u32::MAX),
+            ) * get_request_cost_usd,
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("backend", backend),
+                ("cache.state", "bounded-nvme"),
+                ("price.snapshot", price_snapshot),
+                ("cost.class", "request"),
+            ]),
+        },
+    ];
+    if economics.cache_hits > 0 {
+        measurements.push(Measurement {
+            metric: "provider_bound.point_duration",
+            value: economics.cache_hit_p99_seconds,
+            attributes: tier("hit"),
+        });
+    }
+    if economics.cache_misses > 0 {
+        measurements.push(Measurement {
+            metric: "provider_bound.point_duration",
+            value: economics.provider_miss_p99_seconds,
+            attributes: tier("miss"),
+        });
+    }
+    measurements
 }
 
 fn provider_bound_measurements(
