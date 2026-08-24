@@ -1,5 +1,7 @@
 # objectKV
 
+[![ci](https://github.com/Doss-com/objectKV/actions/workflows/ci.yml/badge.svg)](https://github.com/Doss-com/objectKV/actions/workflows/ci.yml)
+
 The object-native transactional kernel for building databases.
 
 Status: `[ACTIVE-WORK]` repository bootstrap. No durability, distribution, or
@@ -519,8 +521,9 @@ The diagram-led team artifact is published on
 The focused runtime topology, SQL read-path, and finite-serving-envelope maps
 are available in the [local diagram index](docs/diagrams/index.html) and the
 [published map set](https://tapestry.doss.com/a/5a375c8fe804483d--objectkv-runtime-architecture-maps).
+
 ## License
 
 `[EXISTS]` Apache License 2.0. The public repository is
-[`Doss-com/objectKV`](https://github.com/Doss-com/objectKV). Hosted check
-verification is `[ACTIVE-WORK]`.
+[`Doss-com/objectKV`](https://github.com/Doss-com/objectKV). Hosted CI
+verification is `[EXISTS]`.

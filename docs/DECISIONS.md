@@ -2852,7 +2852,7 @@ further PostgreSQL work.
 
 ## D97. Publish a clean objectKV source snapshot, retain research history locally
 
-Status: `[DECIDED]` and `[ACTIVE-WORK]`, 2026-08-24.
+Status: `[DECIDED]` and `[EXISTS]`, 2026-08-24.
 
 Decision: use candidate `48f0a3b` as the source boundary for the first public
 `Doss-com/objectKV` `main` branch. Publish one clean root snapshot rather than
@@ -2878,6 +2878,18 @@ clippy, the complete workspace test suite, and `okv-eval smoke`. GitHub reports
 that the authenticated owner can create repositories in `Doss-com`, and the
 `Doss-com/objectKV` name is available.
 
-Next decision: create the clean public snapshot, rerun its exact checks, create
-the public repository, push only that snapshot to `main`, and verify the first
-hosted CI run before opening contributor issues.
+Completion gate: create the clean public snapshot, rerun its exact checks,
+create the public repository, push only that snapshot to `main`, and verify the
+first hosted CI run before opening contributor issues.
+
+Launch receipt: `Doss-com/objectKV` is public. Candidate `a1ada58` passes the
+complete hosted Linux CI job. Linux exposed two launch-only harness defects:
+one macOS-specific process import lacked a target guard, and the publication
+fault harness required survivor 102 to lead even when survivor 103 had already
+won a valid election. Both are repaired without changing a frozen eval or
+protocol rule. Secret scanning, push protection, Dependabot security fixes,
+private vulnerability reporting, issues, and discussions are enabled.
+
+Next decision: route the first bounded contributor issues through the existing
+RFC and eval contracts, then run the provider-bound cache-state matrix on the
+authenticated `objectKV-dev` GCS playground.

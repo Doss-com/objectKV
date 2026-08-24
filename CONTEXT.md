@@ -156,6 +156,10 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   target version. The receipt covers bounded operator buffering, not manifests,
   leases, multiple execution ranges, full-query memory, or a performance curve.
 - `[EXISTS]` The `objectKV-dev` Terraform configuration validates locally.
+- `[EXISTS]` The public `Doss-com/objectKV` `main` branch passes hosted Linux
+  format, strict all-target clippy, workspace tests, eval and negative-control
+  contracts, MinIO conformance, and deterministic replay at candidate
+  `a1ada58`.
 - `[EXISTS]` Two fresh `okv-sim` processes at seed 1103 emit byte-identical
   canonical traces across synced control state, crash/restart, network
   partition/repair, generation change, and stale-publication rejection. The
