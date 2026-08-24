@@ -18674,29 +18674,63 @@ fn run_provider_bound_cache_economics(
         return provider_bound_discard(workload, backend, "bounded-nvme", error);
     }
     if negative_control != "none" && negative_control != "correct" {
-        let mut discard = if anomalies > 0 {
-            provider_bound_discard(
-                workload,
-                backend,
-                "bounded-nvme",
-                format!("provider cache economics control detected: {negative_control}"),
-            )
-        } else {
-            let mut escaped = provider_bound_discard(
-                workload,
-                backend,
-                "bounded-nvme",
-                format!("unsafe provider cache economics control escaped: {negative_control}"),
-            );
-            escaped.hard_gates = vec![HardGateResult {
+        let control_detected = anomalies > 0;
+        let mut measurements = vec![Measurement {
+            metric: "correctness.anomalies",
+            value: 1.0,
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("oracle", "provider-cache-economics-v1"),
+                (
+                    "anomaly.class",
+                    if control_detected {
+                        "control-detected"
+                    } else {
+                        "control-escaped"
+                    },
+                ),
+            ]),
+        }];
+        let capacity = cache_capacity_u64.to_string();
+        for receipt in &economics_receipts {
+            measurements.push(Measurement {
+                metric: "provider_bound.cache_miss_ratio",
+                value: receipt.cache_miss_ratio,
+                attributes: attributes(&[
+                    ("lane", workload.lane.as_str()),
+                    ("workload", workload.id.as_str()),
+                    ("backend", backend),
+                    ("trace.distribution", receipt.distribution.as_str()),
+                    ("cache.capacity", capacity.as_str()),
+                    ("result", "discard"),
+                ]),
+            });
+        }
+        return WorkloadExecution {
+            error: Some(if control_detected {
+                format!("provider cache economics control detected: {negative_control}")
+            } else {
+                format!("unsafe provider cache economics control escaped: {negative_control}")
+            }),
+            measurements,
+            hard_gates: vec![HardGateResult {
                 id: "provider_bound.control_detected".to_owned(),
-                status: GateStatus::Fail,
-                detail: Some("unsafe subject satisfied every clean-run gate".to_owned()),
-            }];
-            escaped
+                status: if control_detected {
+                    GateStatus::Pass
+                } else {
+                    GateStatus::Fail
+                },
+                detail: Some(if control_detected {
+                    format!("unsafe subject failed {anomalies} clean-run gates")
+                } else {
+                    "unsafe subject satisfied every clean-run gate".to_owned()
+                }),
+            }],
+            budget_units: bounded_usize(measured_reads.saturating_mul(seeds.len())),
+            artifact_refs: vec![artifact_path.display().to_string()],
+            secondary_metrics: BTreeMap::new(),
         };
-        discard.artifact_refs = vec![artifact_path.display().to_string()];
-        return discard;
     }
 
     let passed = anomalies == 0;
