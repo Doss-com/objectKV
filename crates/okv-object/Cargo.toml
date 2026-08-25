@@ -10,12 +10,14 @@ version.workspace = true
 [dependencies]
 async-trait.workspace = true
 base64.workspace = true
+bytemuck.workspace = true
 bytes.workspace = true
 chrono.workspace = true
 clap.workspace = true
 crc-fast.workspace = true
 futures-util.workspace = true
 jsonschema.workspace = true
+libc.workspace = true
 object_store.workspace = true
 okv-consensus.workspace = true
 okv-model.workspace = true
