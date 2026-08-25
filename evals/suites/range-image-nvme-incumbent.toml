@@ -1,0 +1,279 @@
+schema_version = 1
+id = "range-image-nvme-incumbent-v0"
+status = "frozen-before-implementation"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0071-range-image-nvme-incumbent.md",
+  "../../rfcs/0070-bounded-range-image-io.md",
+  "../../rfcs/0069-assigned-range-placement.md",
+]
+dataset_generator = "range-image-nvme-incumbent-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcp-local-ssd-nvme"]
+
+[dataset.gcp-local-ssd-nvme]
+logical_bytes = 1073741824
+key_count = 131072
+value_bytes = 8192
+seeds = [724851, 724877, 724901, 724921, 724939]
+
+[profiles.gcp-local-ssd-nvme]
+budget_kind = "seconds"
+budget_limit = 3600
+repeats = 1
+backend = "gcp-local-ssd-nvme+rocksdb-11.1.2"
+project = "doss-objectkv-dev"
+zone = "us-central1-a"
+machine_type = "n2-standard-8"
+local_ssd_count = 1
+local_ssd_interface = "nvme"
+local_ssd_by_id = "/dev/disk/by-id/google-local-nvme-ssd-0"
+filesystem = "ext4"
+filesystem_block_bytes = 4096
+mount_options = ["noatime"]
+rocksdb_tag = "v11.1.2"
+rocksdb_commit = "3b446089141659fad25328c5ea3e7ed283df46e4"
+reader_memory_budget_bytes = 67108864
+warmup_point_reads = 16384
+measured_point_reads = 131072
+concurrencies = [1, 8, 32]
+direct_io_alignment_bytes = 4096
+raw_fio_runtime_seconds = 30
+raw_fio_block_bytes = [4096, 8192, 16384, 32768, 65536]
+raw_fio_queue_depths = [1, 8, 32, 128]
+scratch_root_env = "OKV_EVAL_NVME_ROOT"
+device_path_env = "OKV_EVAL_NVME_DEVICE"
+fio_receipt_env = "OKV_EVAL_FIO_RECEIPT"
+rocksdb_probe_env = "OKV_EVAL_ROCKSDB_PROBE"
+scratch_cleanup_required = true
+
+[[lanes]]
+id = "range-image-nvme-device"
+objective = "Record the guarded Local SSD direct-I/O capability envelope before comparing engines."
+primary_metric = "range_image.nvme_raw_random_read_iops"
+statistic = "p50"
+direction = "higher"
+practical_improvement_fraction = 0.25
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "range_image.nvme_direct_io_alignment_violations"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "range-image-nvme-incumbent"
+objective = "Maximize matched direct-media point IOPS relative to RocksDB while preserving exactness, latency, memory, byte, scan, and provider bounds."
+primary_metric = "range_image.nvme_objectkv_to_rocksdb_iops_ratio"
+statistic = "p50"
+direction = "higher"
+practical_improvement_fraction = 0.15
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "range_image.nvme_direct_io_alignment_violations"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "range_image.nvme_image_amplification"
+statistic = "maximum"
+op = "le"
+value = 1.10
+
+[[lanes.constraints]]
+metric = "range_image.nvme_accounted_resident_bytes"
+statistic = "maximum"
+op = "le"
+value = 67108864.0
+
+[[lanes.constraints]]
+metric = "range_image.nvme_worker_rss_bytes"
+statistic = "maximum"
+op = "le"
+value = 268435456.0
+
+[[lanes.constraints]]
+metric = "range_image.nvme_point_p99"
+statistic = "maximum"
+op = "le"
+value = 0.001
+
+[[lanes.constraints]]
+metric = "range_image.nvme_point_physical_bytes_p99"
+statistic = "maximum"
+op = "le"
+value = 73728.0
+
+[[lanes.constraints]]
+metric = "range_image.nvme_objectkv_to_rocksdb_iops_ratio"
+statistic = "p50"
+op = "ge"
+value = 0.50
+
+[[lanes.constraints]]
+metric = "range_image.nvme_objectkv_to_rocksdb_p99_ratio"
+statistic = "maximum"
+op = "le"
+value = 2.0
+
+[[lanes.constraints]]
+metric = "range_image.nvme_objectkv_to_rocksdb_scan_ratio"
+statistic = "p50"
+op = "ge"
+value = 0.50
+
+[[lanes.constraints]]
+metric = "provider_bound.post_ready_provider_requests"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "provider_bound.post_ready_provider_bytes"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "nvme-raw-device-calibration"
+lane = "range-image-nvme-device"
+operation = "range_image_nvme_raw_calibration"
+direct_io = true
+full_write_pass = true
+
+[[workloads]]
+id = "range-image-nvme-8k"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 8192
+direct_media = true
+buffered_warm_ceiling = true
+ordered_scan = true
+
+[[workloads]]
+id = "range-image-nvme-16k"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 16384
+direct_media = true
+buffered_warm_ceiling = true
+ordered_scan = true
+
+[[workloads]]
+id = "range-image-nvme-32k"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 32768
+direct_media = true
+buffered_warm_ceiling = true
+ordered_scan = true
+
+[[workloads]]
+id = "range-image-nvme-64k"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 65536
+direct_media = true
+buffered_warm_ceiling = true
+ordered_scan = true
+
+[[workloads]]
+id = "nvme-buffered-as-direct-control"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 16384
+negative_control = "report_buffered_as_direct"
+
+[[workloads]]
+id = "nvme-unaligned-fallback-control"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 16384
+negative_control = "accept_unaligned_or_buffered_fallback"
+
+[[workloads]]
+id = "nvme-skip-block-checksum-control"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 16384
+negative_control = "skip_block_checksum"
+
+[[workloads]]
+id = "nvme-unfair-rocksdb-control"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 16384
+negative_control = "change_rocksdb_cache_or_trace"
+
+[[workloads]]
+id = "nvme-skip-rocksdb-oracle-control"
+lane = "range-image-nvme-incumbent"
+operation = "range_image_nvme_incumbent_curve"
+block_payload_bytes = 16384
+negative_control = "skip_rocksdb_oracle"
+
+[[workloads]]
+id = "nvme-wrong-device-control"
+lane = "range-image-nvme-device"
+operation = "range_image_nvme_raw_calibration"
+direct_io = true
+negative_control = "accept_non_local_ssd_device"
+
+[hard_gates]
+exact_points_and_scans = true
+canonical_dataset_and_trace_digest_exact = true
+authority_root_identity_exact = true
+device_identity_and_ownership_exact = true
+boot_device_distinct = true
+raw_fio_receipt_complete = true
+direct_io_open_exact = true
+direct_io_offsets_lengths_and_buffers_aligned = true
+no_buffered_fallback = true
+objectkv_and_rocksdb_cache_bytes_equal = true
+objectkv_and_rocksdb_concurrency_equal = true
+rocksdb_commit_and_options_exact = true
+objectkv_index_and_block_checksums_exact = true
+rocksdb_checksums_exact = true
+post_ready_provider_requests_zero = true
+post_ready_provider_bytes_zero = true
+at_least_one_geometry_must_keep = true
+deterministic_replay_exact = true
+negative_controls_must_discard = 6
+otel_metrics_traces_and_logs_required = true
+scratch_cleanup_required = true
+schema_valid = true
+budget_must_hold = true
+
+[calibration_targets]
+minimum_objectkv_to_rocksdb_iops_ratio = 0.50
+maximum_objectkv_to_rocksdb_p99_ratio = 2.0
+minimum_objectkv_to_rocksdb_scan_ratio = 0.50
+maximum_objectkv_point_p99_seconds = 0.001
+maximum_objectkv_point_physical_bytes_p99 = 73728
+maximum_image_amplification = 1.10
+maximum_accounted_resident_bytes = 67108864
+maximum_worker_rss_bytes = 268435456
+post_ready_provider_requests = 0
+post_ready_provider_bytes = 0
+physical_nvme_claimed = true
+cloud_object_read_claimed = false
+transaction_throughput_claimed = false
+system_economics_claimed = false
