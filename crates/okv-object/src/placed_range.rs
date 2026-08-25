@@ -1187,10 +1187,11 @@ mod tests {
 
     #[tokio::test]
     async fn incumbent_emits_exact_root_bound_receipt() {
-        let receipt =
-            run_assigned_range_placement_worker(&tiny(AssignedRangePlacementMode::Correct))
-                .await
-                .unwrap();
+        let receipt = Box::pin(run_assigned_range_placement_worker(&tiny(
+            AssignedRangePlacementMode::Correct,
+        )))
+        .await
+        .unwrap();
         assert!(receipt.verification_complete);
         assert!(receipt.exact_points);
         assert!(receipt.exact_scan);
@@ -1209,16 +1210,18 @@ mod tests {
         config.apply_unrelated_pressure = false;
         config.point_reads = config.key_count;
 
-        let receipt = run_assigned_range_placement_worker(&config).await.unwrap();
+        let receipt = Box::pin(run_assigned_range_placement_worker(&config))
+            .await
+            .unwrap();
 
         assert!(receipt.outside_range_refused);
     }
 
     #[tokio::test]
     async fn premature_publication_is_visible_in_receipt() {
-        let receipt = run_assigned_range_placement_worker(&tiny(
+        let receipt = Box::pin(run_assigned_range_placement_worker(&tiny(
             AssignedRangePlacementMode::PublishBeforeVerification,
-        ))
+        )))
         .await
         .unwrap();
         assert!(!receipt.verification_complete);
@@ -1226,9 +1229,9 @@ mod tests {
 
     #[tokio::test]
     async fn stale_receipt_control_accepts_advanced_target() {
-        let receipt = run_assigned_range_placement_worker(&tiny(
+        let receipt = Box::pin(run_assigned_range_placement_worker(&tiny(
             AssignedRangePlacementMode::ReuseStaleReceipt,
-        ))
+        )))
         .await
         .unwrap();
         assert!(!receipt.old_ready_refused_after_advance);
