@@ -2648,6 +2648,18 @@ oracle work, and non-Local-SSD targeting must each produce a schema-valid
 discard. If all four payload classes discard, redesign the local
 representation before GCS hydration or distributed throughput work.
 
+`[ACTIVE-WORK]` One pre-admission 64 KiB shakedown on candidate `dfc41a0`
+matched RocksDB concurrency-32 throughput, 11,373 versus 11,204 reads/s, and
+kept the concurrency-1 absolute p99 at 0.999 ms. It did not pass: concurrency-32
+p99 was 53.5 ms, 7.41x RocksDB, and ordered scan reached 62.2 MiB/s, only 0.292x
+RocksDB. Exact values and scan digests matched, image amplification was 1.073x,
+and audited reader memory remained within 64 MiB. Raw fio, OTel, controls, and
+four additional seeds were intentionally skipped. RocksDB physical-byte
+telemetry and process-isolated worker RSS also need correction. The full matrix
+is paused while the concurrent cache, duplicate decode, and scan I/O path are
+redesigned. Evidence and the next candidate sequence are in
+[`research/range-image-nvme-shakedown-2026-08-25.md`](research/range-image-nvme-shakedown-2026-08-25.md).
+
 ## Noise and effect rule
 
 1. Run a candidate at least five times before promotion in a performance lane.
