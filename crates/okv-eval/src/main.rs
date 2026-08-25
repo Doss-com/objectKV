@@ -79,31 +79,34 @@ use okv_object::{
     run_publication_publisher_put_recovery_contract, run_publication_publisher_put_recovery_node,
     run_publication_root_graph_contract, run_range_cache_eviction_worker,
     run_range_cache_fault_contract, run_range_cache_fault_worker_process,
-    run_range_read_process_contract, run_range_read_process_worker,
-    run_range_route_refresh_process_contract, run_range_serving_concurrency_contract,
-    run_range_serving_concurrency_worker, run_range_serving_curve_worker,
-    run_range_serving_handoff_contract, run_range_serving_handoff_worker_process,
-    run_tagged_log_process, validate_conformance_report, AssignedRangeImageProbeConfig,
-    AssignedRangePlacementConfig, AssignedRangePlacementMode, AssignedRangePlacementReceipt,
-    CaseStatus, CellCommitProxyProcessConfig, CellCommitVisibilityMode,
-    CellCommitVisibilityWorkerProcessConfig, CellObjectificationMode, CellServingAuthorityFeedMode,
-    CellServingAuthorityWorkerProcessConfig, CellServingRecoveryMode, CellServingTaggedTlogMode,
-    CellServingTaggedTlogWorkerProcessConfig, CellServingWorkerProcessConfig,
-    CellTaggedLogChunkedRepairMode, CellTaggedLogLagRatekeepingMode,
-    CellTaggedLogLagWorkerProcessConfig, CellTaggedLogLearnerRepairMode,
-    CellTaggedLogPolicyTransitionMode, CellTaggedLogRepairWorkerProcessConfig, ConformanceOptions,
-    ConformanceProfile, KvRuntime, KvRuntimeAction, KvRuntimeAdmission, KvRuntimeConfig,
-    KvRuntimeDecision, ProviderCacheEconomicsConfig, ProviderCacheEconomicsMode,
-    ProviderCacheTraceDistribution, PublicationAdapterMode, PublicationRootGraphMode,
-    PublisherManifestRecoveryMode, PublisherManifestRecoveryProcessConfig, PublisherProcessConfig,
-    PublisherProcessMode, PublisherPublishRecoveryMode, PublisherPublishRecoveryProcessConfig,
-    PublisherPutRecoveryMode, PublisherPutRecoveryProcessConfig, RangeCacheEvictionBackend,
-    RangeCacheEvictionConfig, RangeCacheEvictionMode, RangeCacheEvictionReceipt,
-    RangeCacheFaultMode, RangeCacheFaultWorkerConfig, RangeEngineId, RangeEngineUsage,
-    RangeReadProcessConfig, RangeReadProcessMode, RangeRouteRefreshMode, RangeServingCacheMode,
-    RangeServingConcurrencyConfig, RangeServingConcurrencyMode, RangeServingCurveConfig,
-    RangeServingCurveReceipt, RangeServingHandoffMode, RangeServingHandoffWorkerConfig,
-    RangeServingObjectBackend, RangeServingProviderMode, TaggedLogProcessConfig,
+    run_range_image_curve_probe, run_range_image_curve_worker, run_range_read_process_contract,
+    run_range_read_process_worker, run_range_route_refresh_process_contract,
+    run_range_serving_concurrency_contract, run_range_serving_concurrency_worker,
+    run_range_serving_curve_worker, run_range_serving_handoff_contract,
+    run_range_serving_handoff_worker_process, run_tagged_log_process, validate_conformance_report,
+    AssignedRangeImageProbeConfig, AssignedRangePlacementConfig, AssignedRangePlacementMode,
+    AssignedRangePlacementReceipt, CaseStatus, CellCommitProxyProcessConfig,
+    CellCommitVisibilityMode, CellCommitVisibilityWorkerProcessConfig, CellObjectificationMode,
+    CellServingAuthorityFeedMode, CellServingAuthorityWorkerProcessConfig, CellServingRecoveryMode,
+    CellServingTaggedTlogMode, CellServingTaggedTlogWorkerProcessConfig,
+    CellServingWorkerProcessConfig, CellTaggedLogChunkedRepairMode,
+    CellTaggedLogLagRatekeepingMode, CellTaggedLogLagWorkerProcessConfig,
+    CellTaggedLogLearnerRepairMode, CellTaggedLogPolicyTransitionMode,
+    CellTaggedLogRepairWorkerProcessConfig, ConformanceOptions, ConformanceProfile, KvRuntime,
+    KvRuntimeAction, KvRuntimeAdmission, KvRuntimeConfig, KvRuntimeDecision,
+    ProviderCacheEconomicsConfig, ProviderCacheEconomicsMode, ProviderCacheTraceDistribution,
+    PublicationAdapterMode, PublicationRootGraphMode, PublisherManifestRecoveryMode,
+    PublisherManifestRecoveryProcessConfig, PublisherProcessConfig, PublisherProcessMode,
+    PublisherPublishRecoveryMode, PublisherPublishRecoveryProcessConfig, PublisherPutRecoveryMode,
+    PublisherPutRecoveryProcessConfig, RangeCacheEvictionBackend, RangeCacheEvictionConfig,
+    RangeCacheEvictionMode, RangeCacheEvictionReceipt, RangeCacheFaultMode,
+    RangeCacheFaultWorkerConfig, RangeEngineId, RangeEngineUsage, RangeImageCurveConfig,
+    RangeImageCurveMode, RangeImageCurveProbeConfig, RangeImageCurveReceipt,
+    RangeImageDistribution, RangeReadProcessConfig, RangeReadProcessMode, RangeRouteRefreshMode,
+    RangeServingCacheMode, RangeServingConcurrencyConfig, RangeServingConcurrencyMode,
+    RangeServingCurveConfig, RangeServingCurveReceipt, RangeServingHandoffMode,
+    RangeServingHandoffWorkerConfig, RangeServingObjectBackend, RangeServingProviderMode,
+    TaggedLogProcessConfig,
 };
 use okv_postgres::{
     prepare_postgres_worker_readiness_fixture, run_postgres_object_delta_contract_with_config,
@@ -193,6 +196,16 @@ struct RangeServingCurveArtifact<'a> {
     workload: &'a str,
     receipts: &'a [RangeServingCurveReceipt],
     semantic_replay_receipt: &'a RangeServingCurveReceipt,
+}
+
+#[derive(Serialize)]
+struct RangeImageCurveArtifact<'a> {
+    contract_version: u32,
+    executable_sha256: &'a str,
+    workload: &'a str,
+    mode: &'a str,
+    receipts: &'a [RangeImageCurveReceipt],
+    semantic_replay_receipt: &'a RangeImageCurveReceipt,
 }
 
 #[derive(Serialize)]
@@ -835,6 +848,18 @@ enum Commands {
         #[arg(long)]
         config_json: String,
     },
+    /// Internal entrypoint for one bounded range-image curve worker.
+    #[command(hide = true)]
+    RangeImageCurveNode {
+        #[arg(long)]
+        config_json: String,
+    },
+    /// Internal provider-free probe for a retained bounded range image.
+    #[command(hide = true)]
+    RangeImageCurveProbe {
+        #[arg(long)]
+        config_json: String,
+    },
     /// Internal entrypoint used by the retained-history compaction controller.
     #[command(hide = true)]
     MvccGcCurveNode {
@@ -1462,6 +1487,16 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let receipt = run_assigned_range_image_probe(&config)?;
             println!("{}", serde_json::to_string(&receipt)?);
         }
+        Commands::RangeImageCurveNode { config_json } => {
+            let config = serde_json::from_str::<RangeImageCurveConfig>(&config_json)?;
+            let receipt = run_range_image_curve_worker(&config)?;
+            println!("{}", serde_json::to_string(&receipt)?);
+        }
+        Commands::RangeImageCurveProbe { config_json } => {
+            let config = serde_json::from_str::<RangeImageCurveProbeConfig>(&config_json)?;
+            let receipt = run_range_image_curve_probe(&config)?;
+            println!("{}", serde_json::to_string(&receipt)?);
+        }
         Commands::MvccGcCurveNode { config_json, mode } => {
             let config = serde_json::from_str::<MvccGcCurveConfig>(&config_json)?;
             let mode = parse_mvcc_gc_curve_mode(&mode).map_err(std::io::Error::other)?;
@@ -2042,6 +2077,15 @@ fn execute_workload(
             profile,
         ),
         "provider_bound_assigned_range_placement" => run_provider_bound_assigned_range_placement(
+            workload,
+            run_id,
+            candidate_commit,
+            seeds,
+            backend,
+            dataset,
+            profile,
+        ),
+        "provider_bound_range_image_io_curve" => run_provider_bound_range_image_io_curve(
             workload,
             run_id,
             candidate_commit,
@@ -3510,6 +3554,21 @@ fn assigned_range_placement_artifact_path(
         .map_or_else(|| PathBuf::from("target/okv-eval-artifacts"), PathBuf::from);
     root.join(format!(
         "assigned-range-placement-{candidate}-{run}-{}.json",
+        workload.id
+    ))
+}
+
+fn range_image_curve_artifact_path(
+    run_id: &str,
+    candidate_commit: &str,
+    workload: &WorkloadConfig,
+) -> PathBuf {
+    let candidate = candidate_commit.replace(['+', '/'], "-");
+    let run = run_id.replace(['+', '/'], "-");
+    let root = std::env::var_os("OKV_EVAL_ARTIFACT_DIR")
+        .map_or_else(|| PathBuf::from("target/okv-eval-artifacts"), PathBuf::from);
+    root.join(format!(
+        "range-image-curve-{candidate}-{run}-{}.json",
         workload.id
     ))
 }
@@ -18890,6 +18949,505 @@ fn assigned_range_placement_measurements(
             metric: "provider_bound.post_ready_scan_throughput",
             value: receipt.post_ready_scan_rows_per_second,
             attributes: point_or_scan(result),
+        },
+    ]
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_provider_bound_range_image_io_curve(
+    workload: &WorkloadConfig,
+    run_id: &str,
+    candidate_commit: &str,
+    seeds: &[u64],
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile: &ProfileConfig,
+) -> WorkloadExecution {
+    const BACKEND: &str = "retained-local-range-image-process";
+    let Some(dataset) = dataset else {
+        return execution_from_result(Err("range-image curve requires a dataset".to_owned()));
+    };
+    if backend != BACKEND {
+        return execution_from_result(Err(format!(
+            "range-image curve has no backend adapter for {backend}"
+        )));
+    }
+    if seeds.len() < 5 {
+        return execution_from_result(Err(
+            "range-image curve requires at least five seeds".to_owned()
+        ));
+    }
+    let Ok(key_count) = usize::try_from(dataset.key_count) else {
+        return execution_from_result(Err("range-image key count does not fit usize".to_owned()));
+    };
+    if dataset.key_count == 0 || !dataset.logical_bytes.is_multiple_of(dataset.key_count) {
+        return execution_from_result(Err(
+            "range-image dataset dimensions are not integral".to_owned()
+        ));
+    }
+    let Ok(value_bytes) = usize::try_from(dataset.logical_bytes / dataset.key_count) else {
+        return execution_from_result(Err("range-image value bytes do not fit usize".to_owned()));
+    };
+    let logical_range_count = match kv_runtime_workload_usize(workload, "logical_range_count") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let assigned_range_index = match kv_runtime_workload_usize(workload, "assigned_range_index") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let reader_memory_budget_bytes =
+        match kv_runtime_workload_usize(workload, "reader_memory_budget_bytes") {
+            Ok(value) => value,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+    let warmup_point_reads = match kv_runtime_profile_usize(profile, "warmup_point_reads") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let measured_point_reads = match kv_runtime_profile_usize(profile, "measured_point_reads") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let parameter_bool = |key: &str| {
+        workload
+            .parameters
+            .get(key)
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(false)
+    };
+    let process_reopen = parameter_bool("process_reopen");
+    let scan = parameter_bool("scan");
+    let distribution = match workload
+        .parameters
+        .get("distribution")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("uniform")
+    {
+        "uniform" => RangeImageDistribution::Uniform,
+        "zipf_0_99" => RangeImageDistribution::Zipf099,
+        "sequential" => RangeImageDistribution::Sequential,
+        other => {
+            return execution_from_result(Err(format!("unknown range-image distribution {other}")))
+        }
+    };
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("none");
+    let mode = match control {
+        "none" | "correct" => RangeImageCurveMode::Correct,
+        "decode_whole_image" => RangeImageCurveMode::DecodeWholeImage,
+        "linear_point_scan" => RangeImageCurveMode::LinearPointScan,
+        "accept_corrupt_index" => RangeImageCurveMode::AcceptCorruptIndex,
+        "skip_block_checksum" => RangeImageCurveMode::SkipBlockChecksum,
+        other => return execution_from_result(Err(format!("unknown range-image control {other}"))),
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            return execution_from_result(Err(format!(
+                "resolve range-image curve executable: {error}"
+            )))
+        }
+    };
+    let config_for_seed = |seed| RangeImageCurveConfig {
+        key_count,
+        value_bytes,
+        logical_range_count,
+        assigned_range_index,
+        reader_memory_budget_bytes,
+        warmup_point_reads,
+        measured_point_reads,
+        distribution,
+        process_reopen,
+        scan,
+        mode,
+        seed,
+        process_probe_executable: Some(executable.clone()),
+    };
+    let timeout_millis = 900_000_u64;
+    let mut receipts = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        match run_range_image_curve_child(&executable, &config_for_seed(*seed), timeout_millis) {
+            Ok(receipt) => receipts.push(receipt),
+            Err(error) => return execution_from_result(Err(error)),
+        }
+    }
+    let replay = match run_range_image_curve_child(
+        &executable,
+        &config_for_seed(seeds[0]),
+        timeout_millis,
+    ) {
+        Ok(receipt) => receipt,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let dimensions_exact = receipts.iter().all(|receipt| {
+        receipt.logical_range_count == logical_range_count
+            && receipt.assigned_range_index == assigned_range_index
+            && receipt.reader_memory_budget_bytes
+                == u64::try_from(reader_memory_budget_bytes).unwrap_or(u64::MAX)
+            && receipt.distribution == distribution
+            && receipt.process_reopen_requested == process_reopen
+    });
+    let points_exact = receipts.iter().all(|receipt| receipt.exact_points);
+    let scans_exact = !scan || receipts.iter().all(|receipt| receipt.exact_scan);
+    let outside_range_refused = receipts.iter().all(|receipt| receipt.outside_range_refused);
+    let root_bound_receipt_exact = receipts
+        .iter()
+        .all(|receipt| receipt.root_bound_receipt_exact);
+    let checksums_exact = receipts
+        .iter()
+        .all(|receipt| receipt.index_checksum_verified && receipt.block_checksums_verified);
+    let process_reopen_exact = !process_reopen
+        || receipts
+            .iter()
+            .all(|receipt| receipt.process_reopen_executed);
+    let scratch_cleanup_complete = receipts
+        .iter()
+        .all(|receipt| receipt.scratch_cleanup_complete);
+    let deterministic_replay_exact = receipts.first().is_some_and(|first| {
+        first.semantic_receipt_sha256.len() == 64
+            && first.semantic_receipt_sha256 == replay.semantic_receipt_sha256
+    });
+    let provider_zero = receipts.iter().all(|receipt| {
+        receipt.post_ready_provider_requests == 0 && receipt.post_ready_provider_bytes == 0
+    });
+    let image_ratio_bound = receipts
+        .iter()
+        .all(|receipt| ratio_u64(receipt.image_bytes, receipt.reader_memory_budget_bytes) >= 8.0);
+    let memory_bound = receipts
+        .iter()
+        .all(|receipt| receipt.accounted_resident_bytes <= receipt.reader_memory_budget_bytes);
+    let open_io_bound = receipts.iter().all(|receipt| {
+        receipt.open_file_read_operations <= 4 && receipt.open_file_read_bytes <= 524_288
+    });
+    let point_io_bound = receipts.iter().all(|receipt| {
+        receipt.point_file_read_operations_p99 <= 2 && receipt.point_file_read_bytes_p99 <= 65_536
+    });
+    let point_latency_bound = receipts
+        .iter()
+        .all(|receipt| receipt.point_p99_seconds <= 0.001);
+    let page_cache_claim_exact = receipts
+        .iter()
+        .all(|receipt| !receipt.os_page_cache_controlled);
+    let semantic_checks = [
+        dimensions_exact,
+        points_exact,
+        scans_exact,
+        outside_range_refused,
+        root_bound_receipt_exact,
+        checksums_exact,
+        process_reopen_exact,
+        scratch_cleanup_complete,
+        deterministic_replay_exact,
+        provider_zero,
+        page_cache_claim_exact,
+    ];
+    let semantic_anomalies = semantic_checks.iter().filter(|passed| !**passed).count();
+    let performance_kept =
+        image_ratio_bound && memory_bound && open_io_bound && point_io_bound && point_latency_bound;
+    let control_detected = match mode {
+        RangeImageCurveMode::Correct => true,
+        RangeImageCurveMode::DecodeWholeImage => receipts
+            .iter()
+            .all(|receipt| receipt.accounted_resident_bytes > receipt.reader_memory_budget_bytes),
+        RangeImageCurveMode::LinearPointScan => receipts.iter().all(|receipt| {
+            receipt.point_file_read_operations_p99 > 2 || receipt.point_file_read_bytes_p99 > 65_536
+        }),
+        RangeImageCurveMode::AcceptCorruptIndex => receipts
+            .iter()
+            .all(|receipt| !receipt.index_checksum_verified || !receipt.root_bound_receipt_exact),
+        RangeImageCurveMode::SkipBlockChecksum => receipts
+            .iter()
+            .all(|receipt| !receipt.block_checksums_verified && !receipt.exact_points),
+    };
+    let clean_semantics = mode == RangeImageCurveMode::Correct && semantic_anomalies == 0;
+    let result = if clean_semantics && performance_kept {
+        "pass"
+    } else {
+        "discard"
+    };
+    let executable_sha256 = match file_sha256(&executable) {
+        Ok(digest) => digest,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let artifact_path = range_image_curve_artifact_path(run_id, candidate_commit, workload);
+    let artifact = RangeImageCurveArtifact {
+        contract_version: 1,
+        executable_sha256: &executable_sha256,
+        workload: &workload.id,
+        mode: mode.id(),
+        receipts: &receipts,
+        semantic_replay_receipt: &replay,
+    };
+    if let Err(error) = write_json_artifact(&artifact_path, &artifact, "range-image curve") {
+        return execution_from_result(Err(error));
+    }
+    let correctness_anomalies = if mode == RangeImageCurveMode::Correct {
+        bounded_usize(semantic_anomalies)
+    } else {
+        1.0
+    };
+    let mut measurements = vec![Measurement {
+        metric: "correctness.anomalies",
+        value: correctness_anomalies,
+        attributes: attributes(&[
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("oracle", "range-image-io-v0"),
+            (
+                "anomaly.class",
+                if clean_semantics {
+                    "none"
+                } else if mode == RangeImageCurveMode::Correct {
+                    "range-image-contract"
+                } else {
+                    "control-detected"
+                },
+            ),
+        ]),
+    }];
+    for receipt in &receipts {
+        measurements.extend(range_image_curve_measurements(
+            workload, backend, receipt, result,
+        ));
+    }
+    let gate = |id: &str, passed: bool| HardGateResult {
+        id: id.to_owned(),
+        status: gate_status(passed),
+        detail: None,
+    };
+    WorkloadExecution {
+        error: if mode == RangeImageCurveMode::Correct {
+            (!clean_semantics || !performance_kept).then(|| {
+                format!(
+                    "range-image candidate discarded: semantic_anomalies={semantic_anomalies}, performance_kept={performance_kept}"
+                )
+            })
+        } else {
+            Some(if control_detected {
+                format!("range-image control detected: {control}")
+            } else {
+                format!("range-image control escaped: {control}")
+            })
+        },
+        measurements,
+        hard_gates: vec![
+            gate("range_image.minimum_seeds", seeds.len() >= 5),
+            gate("range_image.dimensions_exact", dimensions_exact),
+            gate("range_image.points_exact", points_exact),
+            gate("range_image.scans_exact", scans_exact),
+            gate("range_image.outside_range_refused", outside_range_refused),
+            gate(
+                "range_image.root_bound_receipt_exact",
+                root_bound_receipt_exact,
+            ),
+            gate("range_image.checksums_exact", checksums_exact),
+            gate("range_image.process_reopen_exact", process_reopen_exact),
+            gate(
+                "range_image.scratch_cleanup_complete",
+                scratch_cleanup_complete,
+            ),
+            gate(
+                "range_image.deterministic_replay_exact",
+                deterministic_replay_exact,
+            ),
+            gate("range_image.provider_zero", provider_zero),
+            gate("range_image.image_ratio_bound", image_ratio_bound),
+            gate("range_image.memory_bound", memory_bound),
+            gate("range_image.open_io_bound", open_io_bound),
+            gate("range_image.point_io_bound", point_io_bound),
+            gate("range_image.point_latency_bound", point_latency_bound),
+            gate("range_image.page_cache_claim_exact", page_cache_claim_exact),
+            gate("range_image.control_detected", control_detected),
+        ],
+        budget_units: bounded_usize(measured_point_reads.saturating_mul(seeds.len())),
+        artifact_refs: vec![artifact_path.display().to_string()],
+        secondary_metrics: BTreeMap::from([
+            (
+                "range_image.maximum_point_bytes_p99".to_owned(),
+                bounded_count(
+                    receipts
+                        .iter()
+                        .map(|receipt| receipt.point_file_read_bytes_p99)
+                        .max()
+                        .unwrap_or(0),
+                ),
+            ),
+            (
+                "range_image.maximum_accounted_bytes".to_owned(),
+                bounded_count(
+                    receipts
+                        .iter()
+                        .map(|receipt| receipt.accounted_resident_bytes)
+                        .max()
+                        .unwrap_or(0),
+                ),
+            ),
+        ]),
+    }
+}
+
+fn run_range_image_curve_child(
+    executable: &Path,
+    config: &RangeImageCurveConfig,
+    timeout_millis: u64,
+) -> Result<RangeImageCurveReceipt, String> {
+    let mut child = Command::new(executable)
+        .arg("range-image-curve-node")
+        .arg("--config-json")
+        .arg(serde_json::to_string(config).map_err(|error| error.to_string())?)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let deadline = Duration::from_millis(timeout_millis.saturating_add(5_000));
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|error| error.to_string())?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "range-image curve child failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                }
+                return serde_json::from_slice(&output.stdout).map_err(|error| error.to_string());
+            }
+            Ok(None) if started.elapsed() <= deadline => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "range-image curve child exceeded {timeout_millis} ms"
+                ));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error.to_string());
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn range_image_curve_measurements(
+    workload: &WorkloadConfig,
+    backend: &str,
+    receipt: &RangeImageCurveReceipt,
+    result: &str,
+) -> Vec<Measurement> {
+    let common = attributes(&[
+        ("lane", workload.lane.as_str()),
+        ("workload", workload.id.as_str()),
+        ("backend", backend),
+        ("image.format", receipt.image_format.as_str()),
+        ("distribution", receipt.distribution.id()),
+        ("result", result),
+    ]);
+    let range_count = receipt.logical_range_count.to_string();
+    let assignment_index = receipt.assigned_range_index.to_string();
+    let provider = attributes(&[
+        ("lane", workload.lane.as_str()),
+        ("workload", workload.id.as_str()),
+        ("backend", backend),
+        ("range.count", range_count.as_str()),
+        ("assignment.index", assignment_index.as_str()),
+        ("request.operation", "all"),
+        ("result", result),
+    ]);
+    let provider_bytes = attributes(&[
+        ("lane", workload.lane.as_str()),
+        ("workload", workload.id.as_str()),
+        ("backend", backend),
+        ("range.count", range_count.as_str()),
+        ("assignment.index", assignment_index.as_str()),
+        ("result", result),
+    ]);
+    vec![
+        Measurement {
+            metric: "range_image.image_bytes",
+            value: bounded_count(receipt.image_bytes),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.image_to_memory_ratio",
+            value: ratio_u64(receipt.image_bytes, receipt.reader_memory_budget_bytes),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.accounted_resident_bytes",
+            value: bounded_count(receipt.accounted_resident_bytes),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.sparse_index_bytes",
+            value: bounded_count(receipt.index_bytes),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.peak_rss_delta_bytes",
+            value: bounded_count(receipt.peak_rss_delta_bytes),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.open_duration",
+            value: receipt.open_duration_seconds,
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.open_file_read_operations",
+            value: bounded_count(receipt.open_file_read_operations),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.open_file_read_bytes",
+            value: bounded_count(receipt.open_file_read_bytes),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.point_file_read_operations_p99",
+            value: bounded_count(receipt.point_file_read_operations_p99),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.point_file_read_bytes_p99",
+            value: bounded_count(receipt.point_file_read_bytes_p99),
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.point_p99",
+            value: receipt.point_p99_seconds,
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.application_cache_hit_ratio",
+            value: receipt.application_cache_hit_ratio,
+            attributes: common.clone(),
+        },
+        Measurement {
+            metric: "range_image.scan_throughput",
+            value: receipt.scan_rows_per_second,
+            attributes: common,
+        },
+        Measurement {
+            metric: "provider_bound.post_ready_provider_requests",
+            value: bounded_count(receipt.post_ready_provider_requests),
+            attributes: provider,
+        },
+        Measurement {
+            metric: "provider_bound.post_ready_provider_bytes",
+            value: bounded_count(receipt.post_ready_provider_bytes),
+            attributes: provider_bytes,
         },
     ]
 }

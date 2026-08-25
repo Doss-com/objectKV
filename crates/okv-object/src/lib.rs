@@ -40,6 +40,8 @@ mod publication_adapter;
 mod publisher_process;
 mod range_cache_eviction_process;
 mod range_cache_fault_process;
+mod range_image;
+mod range_image_curve;
 mod range_read_client;
 mod range_read_process;
 mod range_read_service;
@@ -136,6 +138,11 @@ pub use range_cache_fault_process::{
     RangeCacheFaultOutcome, RangeCacheFaultReport, RangeCacheFaultSubjectReport,
     RangeCacheFaultWorkerConfig, RangeCacheFaultWorkerPhase, RangeCacheFaultWorkerReceipt,
     RangeCachePhysicalFault,
+};
+pub use range_image_curve::{
+    run_range_image_curve_probe, run_range_image_curve_worker, RangeImageCurveConfig,
+    RangeImageCurveMode, RangeImageCurveProbeConfig, RangeImageCurveReceipt,
+    RangeImageDistribution,
 };
 pub use range_read_client::{
     ClientRangeMapSnapshot, ClientRangeRoute, KvReadClient, KvReadClientConfig, KvReadClientError,
