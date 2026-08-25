@@ -2619,6 +2619,35 @@ RSS matrix against a same-host RocksDB or TiKV incumbent. Full evidence and
 limits are in
 [`research/provider-bound-range-image-io-2026-08-25.md`](research/provider-bound-range-image-io-2026-08-25.md).
 
+## Physical NVMe and RocksDB incumbent gate
+
+`[ACTIVE-WORK]` RFC 0071 and suite `range-image-nvme-incumbent-v0`
+freeze the first physical-media test before changing range-image geometry. One
+ephemeral `n2-standard-8` host in `us-central1-a` receives one guarded 375 GiB
+Local SSD through NVMe. Raw direct fio establishes the device envelope before
+the disk is formatted as ext4.
+
+The candidate and RocksDB `v11.1.2` at commit `3b446089` use the same 1 GiB
+deterministic dataset, five seeds, serialized point traces, 64 MiB application
+cache, direct-I/O device, checksums, concurrency points, and complete ordered
+scan oracle. Candidate payload classes are 8, 16, 32, and 64 KiB. Padded
+physical extent bytes remain explicit output.
+
+The primary metric is objectKV direct-media point IOPS divided by RocksDB IOPS
+at concurrency 32. A geometry must reach at least `0.50x` RocksDB IOPS, stay at
+or below `2.00x` RocksDB p99 across concurrency 1, 8, and 32, and reach at
+least `0.50x` RocksDB scan throughput. The objectKV concurrency-1 p99 must stay
+at or below 1 ms, physical point bytes p99 at or below 72 KiB, aligned image
+amplification at or below `1.10x`, audited reader memory at or below 64 MiB,
+and worker RSS at or below 256 MiB. Provider work remains zero.
+
+Buffered-warm measurements are a separate CPU ceiling and never participate
+in the direct-media verdict. Buffered-as-direct reporting, unaligned fallback,
+skipped objectKV checksums, unfair RocksDB cache or traces, skipped RocksDB
+oracle work, and non-Local-SSD targeting must each produce a schema-valid
+discard. If all four payload classes discard, redesign the local
+representation before GCS hydration or distributed throughput work.
+
 ## Noise and effect rule
 
 1. Run a candidate at least five times before promotion in a performance lane.

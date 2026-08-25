@@ -76,5 +76,8 @@ not harden until their RFC is accepted.
 | 0066 | Provider-bound range reads | in-region GCS cache states admitted | measure realistic cache reuse and capacity |
 | 0067 | Provider-bound cache economics | implemented, first 25-percent stop points discarded | replace passive caching with an explicit feasible locality model |
 | 0068 | Provider-bound locality feasibility | implemented, all 25-percent pairs discarded | define a feasible assigned-range placement and hydration curve |
+| 0069 | Assigned-range placement | derived provider-free range image admitted locally | bound application memory and local-file I/O |
+| 0070 | Bounded-memory range-image I/O | local-file candidate admitted; OS page cache uncontrolled | measure physical NVMe against a local incumbent |
+| 0071 | Physical NVMe range-image and RocksDB incumbent | proposed, eval frozen before implementation | choose or reject a local range-image geometry before GCS hydration |
 
 Use `0000-template.md` for new proposals.

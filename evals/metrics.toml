@@ -1680,3 +1680,138 @@ unit = "{row}/s"
 description = "Exact ordered rows emitted per second through bounded output batches"
 attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
 required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.nvme_raw_random_read_iops"
+otel_name = "okv.eval.range_image.nvme.raw_random_read_iops"
+kind = "gauge"
+unit = "{operation}/s"
+description = "Raw guarded Local SSD random-read IOPS from direct fio calibration"
+attributes = ["lane", "workload", "backend", "block.bytes", "queue.depth", "device.identity", "result"]
+required_attributes = ["lane", "workload", "backend", "block.bytes", "queue.depth", "device.identity", "result"]
+
+[[metrics]]
+id = "range_image.nvme_raw_read_p99"
+otel_name = "okv.eval.range_image.nvme.raw_read_p99"
+kind = "gauge"
+unit = "s"
+description = "Raw guarded Local SSD direct-read p99 latency from fio calibration"
+attributes = ["lane", "workload", "backend", "block.bytes", "queue.depth", "device.identity", "result"]
+required_attributes = ["lane", "workload", "backend", "block.bytes", "queue.depth", "device.identity", "result"]
+
+[[metrics]]
+id = "range_image.nvme_point_iops"
+otel_name = "okv.eval.range_image.nvme.point_iops"
+kind = "gauge"
+unit = "{point}/s"
+description = "Exact point operations per second through one measured local engine"
+attributes = ["lane", "workload", "backend", "engine", "block.class", "concurrency", "io.mode", "result"]
+required_attributes = ["lane", "workload", "backend", "engine", "block.class", "concurrency", "io.mode", "result"]
+
+[[metrics]]
+id = "range_image.nvme_point_p99"
+otel_name = "okv.eval.range_image.nvme.point_p99"
+kind = "gauge"
+unit = "s"
+description = "P99 exact objectKV point latency at the frozen concurrency-1 calibration point"
+attributes = ["lane", "workload", "backend", "block.class", "concurrency", "io.mode", "result"]
+required_attributes = ["lane", "workload", "backend", "block.class", "concurrency", "io.mode", "result"]
+
+[[metrics]]
+id = "range_image.nvme_point_latency"
+otel_name = "okv.eval.range_image.nvme.point_latency"
+kind = "gauge"
+unit = "s"
+description = "Exact point latency statistic by engine, block class, concurrency, and I/O mode"
+attributes = ["lane", "workload", "backend", "engine", "block.class", "concurrency", "io.mode", "statistic", "result"]
+required_attributes = ["lane", "workload", "backend", "engine", "block.class", "concurrency", "io.mode", "statistic", "result"]
+
+[[metrics]]
+id = "range_image.nvme_point_physical_bytes_p99"
+otel_name = "okv.eval.range_image.nvme.point_physical_bytes_p99"
+kind = "gauge"
+unit = "By"
+description = "P99 direct local-device bytes attributable to one exact objectKV point"
+attributes = ["lane", "workload", "backend", "block.class", "concurrency", "io.mode", "result"]
+required_attributes = ["lane", "workload", "backend", "block.class", "concurrency", "io.mode", "result"]
+
+[[metrics]]
+id = "range_image.nvme_scan_bytes_per_second"
+otel_name = "okv.eval.range_image.nvme.scan_bytes_per_second"
+kind = "gauge"
+unit = "By/s"
+description = "Exact ordered logical scan bytes per second by local engine and I/O mode"
+attributes = ["lane", "workload", "backend", "engine", "block.class", "io.mode", "result"]
+required_attributes = ["lane", "workload", "backend", "engine", "block.class", "io.mode", "result"]
+
+[[metrics]]
+id = "range_image.nvme_image_amplification"
+otel_name = "okv.eval.range_image.nvme.image_amplification"
+kind = "gauge"
+unit = "1"
+description = "Aligned range-image file bytes divided by logical key and value bytes"
+attributes = ["lane", "workload", "backend", "block.class", "result"]
+required_attributes = ["lane", "workload", "backend", "block.class", "result"]
+
+[[metrics]]
+id = "range_image.nvme_accounted_resident_bytes"
+otel_name = "okv.eval.range_image.nvme.accounted_resident_bytes"
+kind = "gauge"
+unit = "By"
+description = "Audited range-image index, cache, bookkeeping, and in-flight direct-I/O buffer bytes"
+attributes = ["lane", "workload", "backend", "block.class", "concurrency", "result"]
+required_attributes = ["lane", "workload", "backend", "block.class", "concurrency", "result"]
+
+[[metrics]]
+id = "range_image.nvme_worker_rss_bytes"
+otel_name = "okv.eval.range_image.nvme.worker_rss_bytes"
+kind = "gauge"
+unit = "By"
+description = "Peak physical RSS of one isolated read worker during the physical NVMe curve"
+attributes = ["lane", "workload", "backend", "engine", "block.class", "concurrency", "io.mode", "result"]
+required_attributes = ["lane", "workload", "backend", "engine", "block.class", "concurrency", "io.mode", "result"]
+
+[[metrics]]
+id = "range_image.nvme_cpu_seconds_per_million_points"
+otel_name = "okv.eval.range_image.nvme.cpu_seconds_per_million_points"
+kind = "gauge"
+unit = "s"
+description = "Read-worker user and system CPU seconds normalized to one million exact points"
+attributes = ["lane", "workload", "backend", "engine", "block.class", "concurrency", "io.mode", "cpu.class", "result"]
+required_attributes = ["lane", "workload", "backend", "engine", "block.class", "concurrency", "io.mode", "cpu.class", "result"]
+
+[[metrics]]
+id = "range_image.nvme_direct_io_alignment_violations"
+otel_name = "okv.eval.range_image.nvme.direct_io_alignment_violations"
+kind = "counter"
+unit = "{violation}"
+description = "Direct-I/O device, file, offset, length, or destination-buffer alignment violations"
+attributes = ["lane", "workload", "backend", "engine", "alignment.kind", "result"]
+required_attributes = ["lane", "workload", "backend", "engine", "alignment.kind", "result"]
+
+[[metrics]]
+id = "range_image.nvme_objectkv_to_rocksdb_iops_ratio"
+otel_name = "okv.eval.range_image.nvme.objectkv_to_rocksdb_iops_ratio"
+kind = "gauge"
+unit = "1"
+description = "Matched objectKV exact point IOPS divided by RocksDB exact point IOPS"
+attributes = ["lane", "workload", "backend", "block.class", "concurrency", "io.mode", "result"]
+required_attributes = ["lane", "workload", "backend", "block.class", "concurrency", "io.mode", "result"]
+
+[[metrics]]
+id = "range_image.nvme_objectkv_to_rocksdb_p99_ratio"
+otel_name = "okv.eval.range_image.nvme.objectkv_to_rocksdb_p99_ratio"
+kind = "gauge"
+unit = "1"
+description = "Matched objectKV exact point p99 divided by RocksDB exact point p99"
+attributes = ["lane", "workload", "backend", "block.class", "concurrency", "io.mode", "result"]
+required_attributes = ["lane", "workload", "backend", "block.class", "concurrency", "io.mode", "result"]
+
+[[metrics]]
+id = "range_image.nvme_objectkv_to_rocksdb_scan_ratio"
+otel_name = "okv.eval.range_image.nvme.objectkv_to_rocksdb_scan_ratio"
+kind = "gauge"
+unit = "1"
+description = "Matched objectKV exact ordered-scan bytes per second divided by RocksDB bytes per second"
+attributes = ["lane", "workload", "backend", "block.class", "io.mode", "result"]
+required_attributes = ["lane", "workload", "backend", "block.class", "io.mode", "result"]
