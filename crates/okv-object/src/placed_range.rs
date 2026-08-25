@@ -1,5 +1,8 @@
 //! Root-bound assigned-range placement into a derived provider-free local image.
 
+use crate::range_image::{
+    root_identity_digest, write_range_image, RangeImageIdentity, RangeImageReader,
+};
 use crate::{
     bind_provider_physical_manifest, promote_provider_bound_persistent_range_base,
     AuthorityBoundRangeView, AuthorityRangeRoot, CertifiedTxLogRecord,
@@ -26,7 +29,7 @@ use slatedb::db_cache::DbCache;
 use slatedb::Db;
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -44,12 +47,11 @@ const CACHE_PART_BYTES: usize = 65_536;
 const DECODED_CACHE_BYTES: u64 = 1_048_576;
 const READY_RECEIPT_NAME: &str = "placed-ready.json";
 const RANGE_IMAGE_NAME: &str = "range-image.okv";
-const RANGE_IMAGE_MAGIC: &[u8; 8] = b"OKVRI001";
-const LOCAL_IMAGE_FORMAT: &str = "okv-derived-sorted-range-v1";
+const LOCAL_IMAGE_FORMAT: &str = "okv-derived-sorted-range-v2";
+const DEFAULT_READER_MEMORY_BYTES: usize = 4_194_304;
 
 type RangeRow = (Vec<u8>, Vec<u8>);
 type RangeRows = Vec<RangeRow>;
-type DecodedRangeImage = (u64, Vec<u8>, Vec<u8>, RangeRows);
 
 /// Correct derived-image subject or one deliberately unsafe placement control.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -222,33 +224,6 @@ impl Drop for GuardedScratchRoot {
     }
 }
 
-struct PlacedRangeReader {
-    rows: BTreeMap<Vec<u8>, Vec<u8>>,
-    range_begin: Vec<u8>,
-    range_end: Vec<u8>,
-}
-
-impl PlacedRangeReader {
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, String> {
-        if key < self.range_begin.as_slice() || key >= self.range_end.as_slice() {
-            return Err("point is outside placed range".to_owned());
-        }
-        Ok(self.rows.get(key).cloned())
-    }
-
-    fn scan(&self, start: &[u8], end: &[u8], limit: usize) -> Result<RangeRows, String> {
-        if start < self.range_begin.as_slice() || end > self.range_end.as_slice() || start >= end {
-            return Err("scan is outside placed range".to_owned());
-        }
-        Ok(self
-            .rows
-            .range(start.to_vec()..end.to_vec())
-            .take(limit)
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect())
-    }
-}
-
 /// Open and exhaustively verify a retained derived image without constructing
 /// an object-store client.
 ///
@@ -263,8 +238,12 @@ pub fn run_assigned_range_image_probe(
     let (range_begin, range_end, assigned_first, assigned_end) =
         assignment_bounds(&config.placement);
     let expected = expected_rows_at_target(&config.placement, config.target_version)?;
-    let (reader, receipt) =
-        open_range_image(&config.ready_root, ASSIGNMENT_EPOCH, config.target_version)?;
+    let (reader, receipt) = open_range_image(
+        &config.ready_root,
+        ASSIGNMENT_EPOCH,
+        config.target_version,
+        DEFAULT_READER_MEMORY_BYTES,
+    )?;
     if receipt != config.expected_receipt
         || receipt.range_begin != range_begin
         || receipt.range_end != range_end
@@ -310,19 +289,24 @@ fn write_new_range_image(
     range_end: &[u8],
     target_version: u64,
     rows: &[RangeRow],
+    root_identity: [u8; 32],
 ) -> Result<String, String> {
     fs::create_dir_all(root).map_err(|error| error.to_string())?;
     let path = root.join(RANGE_IMAGE_NAME);
-    let bytes = encode_range_image(range_begin, range_end, target_version, rows)?;
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&path)
-        .map_err(|error| error.to_string())?;
-    file.write_all(&bytes).map_err(|error| error.to_string())?;
-    file.sync_all().map_err(|error| error.to_string())?;
+    let receipt = write_range_image(
+        &path,
+        &RangeImageIdentity {
+            target_version,
+            range_begin,
+            range_end,
+            row_count: u64::try_from(rows.len()).unwrap_or(u64::MAX),
+            root_identity_digest: root_identity,
+            image_identity_sha256: None,
+        },
+        rows,
+    )?;
     sync_parent(&path)?;
-    directory_digest(root, Some(READY_RECEIPT_NAME))
+    Ok(receipt.image_identity_sha256)
 }
 
 fn replace_range_image(
@@ -331,66 +315,33 @@ fn replace_range_image(
     range_end: &[u8],
     target_version: u64,
     rows: &[RangeRow],
+    root_identity: [u8; 32],
 ) -> Result<String, String> {
     let temporary = root.join("range-image.next");
     let path = root.join(RANGE_IMAGE_NAME);
-    let bytes = encode_range_image(range_begin, range_end, target_version, rows)?;
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&temporary)
-        .map_err(|error| error.to_string())?;
-    file.write_all(&bytes).map_err(|error| error.to_string())?;
-    file.sync_all().map_err(|error| error.to_string())?;
+    let receipt = write_range_image(
+        &temporary,
+        &RangeImageIdentity {
+            target_version,
+            range_begin,
+            range_end,
+            row_count: u64::try_from(rows.len()).unwrap_or(u64::MAX),
+            root_identity_digest: root_identity,
+            image_identity_sha256: None,
+        },
+        rows,
+    )?;
     fs::rename(&temporary, &path).map_err(|error| error.to_string())?;
     sync_parent(&path)?;
-    directory_digest(root, Some(READY_RECEIPT_NAME))
-}
-
-fn encode_range_image(
-    range_begin: &[u8],
-    range_end: &[u8],
-    target_version: u64,
-    rows: &[RangeRow],
-) -> Result<Vec<u8>, String> {
-    let payload_bytes = rows.iter().try_fold(0_usize, |total, (key, value)| {
-        total
-            .checked_add(8)
-            .and_then(|next| next.checked_add(key.len()))
-            .and_then(|next| next.checked_add(value.len()))
-            .ok_or_else(|| "range image size overflow".to_owned())
-    })?;
-    let capacity = 36_usize
-        .checked_add(range_begin.len())
-        .and_then(|next| next.checked_add(range_end.len()))
-        .and_then(|next| next.checked_add(payload_bytes))
-        .ok_or_else(|| "range image capacity overflow".to_owned())?;
-    let mut bytes = Vec::with_capacity(capacity);
-    bytes.extend_from_slice(RANGE_IMAGE_MAGIC);
-    bytes.extend_from_slice(&target_version.to_be_bytes());
-    append_length_prefixed(&mut bytes, range_begin)?;
-    append_length_prefixed(&mut bytes, range_end)?;
-    bytes.extend_from_slice(&u64::try_from(rows.len()).unwrap_or(u64::MAX).to_be_bytes());
-    for (key, value) in rows {
-        append_length_prefixed(&mut bytes, key)?;
-        append_length_prefixed(&mut bytes, value)?;
-    }
-    Ok(bytes)
-}
-
-fn append_length_prefixed(output: &mut Vec<u8>, value: &[u8]) -> Result<(), String> {
-    let length = u32::try_from(value.len())
-        .map_err(|_| "range image field exceeds u32 length".to_owned())?;
-    output.extend_from_slice(&length.to_be_bytes());
-    output.extend_from_slice(value);
-    Ok(())
+    Ok(receipt.image_identity_sha256)
 }
 
 fn open_range_image(
     root: &Path,
     assignment_epoch: u64,
     target_version: u64,
-) -> Result<(PlacedRangeReader, PlacedRangeReceipt), String> {
+    memory_budget_bytes: usize,
+) -> Result<(RangeImageReader, PlacedRangeReceipt), String> {
     let receipt: PlacedRangeReceipt = serde_json::from_slice(
         &fs::read(root.join(READY_RECEIPT_NAME)).map_err(|error| error.to_string())?,
     )
@@ -404,81 +355,20 @@ fn open_range_image(
     {
         return Err("placed range receipt does not authorize requested assignment".to_owned());
     }
-    let observed_digest = directory_digest(root, Some(READY_RECEIPT_NAME))?;
-    if receipt.local_image_digest != observed_digest {
-        return Err("placed range image digest mismatch".to_owned());
-    }
-    let bytes = fs::read(root.join(RANGE_IMAGE_NAME)).map_err(|error| error.to_string())?;
-    let (encoded_target, range_begin, range_end, rows) = decode_range_image(&bytes)?;
-    if encoded_target != target_version
-        || range_begin != receipt.range_begin
-        || range_end != receipt.range_end
-        || u64::try_from(rows.len()).unwrap_or(u64::MAX) != receipt.logical_row_count
-        || rows_digest(&rows) != receipt.oracle_digest
-    {
-        return Err("placed range image contents do not match ready receipt".to_owned());
-    }
-    Ok((
-        PlacedRangeReader {
-            rows: rows.into_iter().collect(),
-            range_begin,
-            range_end,
+    let root_identity = placed_root_identity(&receipt);
+    let (reader, _) = RangeImageReader::open(
+        &root.join(RANGE_IMAGE_NAME),
+        &RangeImageIdentity {
+            target_version,
+            range_begin: &receipt.range_begin,
+            range_end: &receipt.range_end,
+            row_count: receipt.logical_row_count,
+            root_identity_digest: root_identity,
+            image_identity_sha256: Some(&receipt.local_image_digest),
         },
-        receipt,
-    ))
-}
-
-fn decode_range_image(bytes: &[u8]) -> Result<DecodedRangeImage, String> {
-    let mut remaining = bytes;
-    let magic = take_bytes(&mut remaining, RANGE_IMAGE_MAGIC.len())?;
-    if magic != RANGE_IMAGE_MAGIC {
-        return Err("range image magic mismatch".to_owned());
-    }
-    let target_version = read_u64(&mut remaining)?;
-    let range_begin = read_length_prefixed(&mut remaining)?;
-    let range_end = read_length_prefixed(&mut remaining)?;
-    let row_count = usize::try_from(read_u64(&mut remaining)?)
-        .map_err(|_| "range image row count exceeds usize".to_owned())?;
-    let mut rows = Vec::with_capacity(row_count);
-    for _ in 0..row_count {
-        let key = read_length_prefixed(&mut remaining)?;
-        let value = read_length_prefixed(&mut remaining)?;
-        if key < range_begin || key >= range_end {
-            return Err("range image contains an out-of-range key".to_owned());
-        }
-        if rows.last().is_some_and(|(prior, _)| prior >= &key) {
-            return Err("range image keys are not strictly ordered".to_owned());
-        }
-        rows.push((key, value));
-    }
-    if !remaining.is_empty() {
-        return Err("range image has trailing bytes".to_owned());
-    }
-    Ok((target_version, range_begin, range_end, rows))
-}
-
-fn read_u64(input: &mut &[u8]) -> Result<u64, String> {
-    let bytes: [u8; 8] = take_bytes(input, 8)?
-        .try_into()
-        .map_err(|_| "range image u64 is truncated".to_owned())?;
-    Ok(u64::from_be_bytes(bytes))
-}
-
-fn read_length_prefixed(input: &mut &[u8]) -> Result<Vec<u8>, String> {
-    let length_bytes: [u8; 4] = take_bytes(input, 4)?
-        .try_into()
-        .map_err(|_| "range image length is truncated".to_owned())?;
-    let length = usize::try_from(u32::from_be_bytes(length_bytes)).unwrap_or(usize::MAX);
-    Ok(take_bytes(input, length)?.to_vec())
-}
-
-fn take_bytes<'a>(input: &mut &'a [u8], length: usize) -> Result<&'a [u8], String> {
-    if input.len() < length {
-        return Err("range image is truncated".to_owned());
-    }
-    let (head, tail) = input.split_at(length);
-    *input = tail;
-    Ok(head)
+        memory_budget_bytes,
+    )?;
+    Ok((reader, receipt))
 }
 
 fn expected_rows_at_target(
@@ -626,6 +516,10 @@ pub async fn run_assigned_range_placement_worker(
     )
     .await?;
     let descriptor = promote_provider_bound_persistent_range_base(&base_descriptor, provider)?;
+    let manifest_identity = format!(
+        "{}:{}:{}",
+        range_root.manifest.key, range_root.manifest.length, range_root.manifest.sha256
+    );
     let provider_store = Arc::new(ProviderBoundObjectStore::new(
         Arc::clone(&counted_store),
         ProviderKind::VersionedTest,
@@ -701,6 +595,12 @@ pub async fn run_assigned_range_placement_worker(
         &range_end,
         target_version,
         &hydrated,
+        image_root_identity(
+            &manifest_identity,
+            &descriptor.provider.closure_sha256,
+            target_version,
+            &hex_digest(&final_log_chain),
+        ),
     )?;
     if hydration_cache_root.exists() {
         fs::remove_dir_all(&hydration_cache_root).map_err(|error| error.to_string())?;
@@ -713,10 +613,6 @@ pub async fn run_assigned_range_placement_worker(
         .saturating_sub(hydration_before_provider.get_requests);
     let hydration_provider_bytes = hydration_io.read_byte_total();
     let oracle_digest = rows_digest(&expected);
-    let manifest_identity = format!(
-        "{}:{}:{}",
-        range_root.manifest.key, range_root.manifest.length, range_root.manifest.sha256
-    );
     let mut placed = PlacedRangeReceipt {
         format_version: FORMAT_VERSION,
         cell_id: CELL_ID,
@@ -725,7 +621,7 @@ pub async fn run_assigned_range_placement_worker(
         range_end: range_end.clone(),
         assignment_epoch: ASSIGNMENT_EPOCH,
         authority_generation: range_root.generation,
-        authority_manifest_identity: manifest_identity,
+        authority_manifest_identity: manifest_identity.clone(),
         provider_closure_digest: descriptor.provider.closure_sha256.clone(),
         target_version,
         final_log_chain_sha256: hex_digest(&final_log_chain),
@@ -751,7 +647,7 @@ pub async fn run_assigned_range_placement_worker(
     .map_err(|error| error.to_string())?;
     let mut ready_receipt_exact = persisted == placed;
 
-    let digest_before_pressure = directory_digest(&ready_root, Some(READY_RECEIPT_NAME))?;
+    let digest_before_pressure = placed.local_image_digest.clone();
     if config.apply_unrelated_pressure && config.logical_range_count > 1 {
         let pressure_range = (config.assigned_range_index + 1) % config.logical_range_count;
         let (pressure_begin, pressure_end, _, _) = bounds_for_range(config, pressure_range);
@@ -788,8 +684,13 @@ pub async fn run_assigned_range_placement_worker(
             fs::remove_dir_all(&pressure_cache_root).map_err(|error| error.to_string())?;
         }
     }
-    let local_image_digest_stable =
-        directory_digest(&ready_root, Some(READY_RECEIPT_NAME))? == digest_before_pressure;
+    let local_image_digest_stable = open_range_image(
+        &ready_root,
+        ASSIGNMENT_EPOCH,
+        target_version,
+        DEFAULT_READER_MEMORY_BYTES,
+    )
+    .is_ok_and(|(reader, _)| reader.image_identity_sha256() == digest_before_pressure);
 
     let mut old_ready_refused_after_advance = true;
     if config.root_advance {
@@ -820,6 +721,12 @@ pub async fn run_assigned_range_placement_worker(
                 &range_end,
                 target_version,
                 &expected,
+                image_root_identity(
+                    &manifest_identity,
+                    &descriptor.provider.closure_sha256,
+                    target_version,
+                    &hex_digest(&final_log_chain),
+                ),
             )?;
             placed.target_version = target_version;
             placed.final_log_chain_sha256 = hex_digest(&final_log_chain);
@@ -1313,36 +1220,6 @@ fn sync_parent(path: &Path) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn directory_digest(root: &Path, excluded_name: Option<&str>) -> Result<String, String> {
-    let mut paths = collect_files(root)?;
-    paths.retain(|path| {
-        excluded_name.is_none_or(|excluded| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_none_or(|name| name != excluded)
-        })
-    });
-    paths.sort();
-    let mut hasher = Sha256::new();
-    hasher.update(b"okv-placed-range-local-image-v1");
-    for path in paths {
-        let relative = path.strip_prefix(root).map_err(|error| error.to_string())?;
-        let name = relative.to_string_lossy();
-        hasher.update(u64::try_from(name.len()).unwrap_or(u64::MAX).to_be_bytes());
-        hasher.update(name.as_bytes());
-        let mut file = File::open(&path).map_err(|error| error.to_string())?;
-        let mut buffer = vec![0_u8; 65_536].into_boxed_slice();
-        loop {
-            let read = file.read(&mut buffer).map_err(|error| error.to_string())?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-        }
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
 fn directory_bytes(root: &Path, excluded_name: Option<&str>) -> Result<u64, String> {
     collect_files(root)?
         .into_iter()
@@ -1462,6 +1339,39 @@ fn hex_digest(digest: &[u8; 32]) -> String {
     output
 }
 
+fn image_root_identity(
+    manifest_identity: &str,
+    provider_closure_digest: &str,
+    target_version: u64,
+    final_log_chain_sha256: &str,
+) -> [u8; 32] {
+    let generation = GENERATION.to_be_bytes();
+    let target = target_version.to_be_bytes();
+    root_identity_digest(&[
+        &CELL_ID,
+        &TENANT_ID,
+        &generation,
+        manifest_identity.as_bytes(),
+        provider_closure_digest.as_bytes(),
+        &target,
+        final_log_chain_sha256.as_bytes(),
+    ])
+}
+
+fn placed_root_identity(receipt: &PlacedRangeReceipt) -> [u8; 32] {
+    let generation = receipt.authority_generation.to_be_bytes();
+    let target = receipt.target_version.to_be_bytes();
+    root_identity_digest(&[
+        &receipt.cell_id,
+        &receipt.tenant_id,
+        &generation,
+        receipt.authority_manifest_identity.as_bytes(),
+        receipt.provider_closure_digest.as_bytes(),
+        &target,
+        receipt.final_log_chain_sha256.as_bytes(),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1508,25 +1418,9 @@ mod tests {
         assert!(receipt.scratch_cleanup_complete);
         assert_eq!(
             receipt.placed.local_image_format,
-            "okv-derived-sorted-range-v1"
+            "okv-derived-sorted-range-v2"
         );
         assert_eq!(receipt.placed.oracle_digest.len(), 64);
-    }
-
-    #[test]
-    fn range_image_codec_is_deterministic_and_rejects_corruption() {
-        let rows = vec![
-            (key_for(8), vec![0x11; 1_024]),
-            (key_for(9), vec![0x22; 1_024]),
-        ];
-        let first = encode_range_image(&key_for(8), &key_for(10), 7, &rows).unwrap();
-        let second = encode_range_image(&key_for(8), &key_for(10), 7, &rows).unwrap();
-        assert_eq!(first, second);
-        assert_eq!(decode_range_image(&first).unwrap().3, rows);
-
-        let mut corrupt = first;
-        corrupt[0] ^= 0xff;
-        assert!(decode_range_image(&corrupt).is_err());
     }
 
     #[tokio::test]

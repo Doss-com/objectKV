@@ -40,6 +40,7 @@ mod publication_adapter;
 mod publisher_process;
 mod range_cache_eviction_process;
 mod range_cache_fault_process;
+mod range_image;
 mod range_read_client;
 mod range_read_process;
 mod range_read_service;
