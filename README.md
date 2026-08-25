@@ -214,6 +214,12 @@ needs explicit locally complete assigned-range images for hot-SLO reads, not a
 claim that arbitrary cell bytes become fast through LRU. Objects remain the
 authority and empty-disk rebuild source; local images remain disposable.
 
+`[ACTIVE-WORK]` RFC 0069 freezes the physical test of that direction. The
+current one-database, many-prefixes layout must place one logical assignment in
+at most `1.50x` its visible bytes, hydrate it with at most `2.00x` provider
+bytes, and serve exhaustive hot reads below 1 ms p99 with zero provider work
+after root-bound readiness. This is a contract, not a passing result.
+
 `[EXISTS]` Candidate `8fb20e5` moves the first PostgreSQL page reader through
 the actual routed process path. Three encoded 8 KiB pages span two ranges; one
 page advances through the authenticated txLog from objectKV version 1 to 2.
