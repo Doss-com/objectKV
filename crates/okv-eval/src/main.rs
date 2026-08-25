@@ -37,6 +37,10 @@ use okv_eval::config::{
     load_suite, BudgetKind, ConstraintOp, DatasetConfig, LaneConfig, LoadedSuite, ProfileConfig,
     WorkloadConfig,
 };
+use okv_eval::locality_feasibility::{
+    evaluate_locality_feasibility, LocalityDistribution, LocalityFeasibilityInput,
+    LocalityFeasibilityMode, LocalityFeasibilityReceipt,
+};
 use okv_eval::mvcc_gc_authority::{
     run_mvcc_gc_authority_collector_process, run_mvcc_gc_authority_composition,
     MvccGcAuthorityCollectorProcessConfig, MvccGcAuthorityCompositionMode,
@@ -211,6 +215,15 @@ struct ProviderCacheEconomicsArtifact<'a> {
     economics_mode: &'a str,
     receipts: &'a [RangeServingCurveReceipt],
     semantic_replay_receipt: &'a RangeServingCurveReceipt,
+}
+
+#[derive(Serialize)]
+struct ProviderLocalityFeasibilityArtifact<'a> {
+    contract_version: u32,
+    candidate_commit: &'a str,
+    workload: &'a str,
+    receipt: &'a LocalityFeasibilityReceipt,
+    replay_receipt: &'a LocalityFeasibilityReceipt,
 }
 
 #[derive(Serialize)]
@@ -1983,6 +1996,14 @@ fn execute_workload(
             dataset,
             profile,
         ),
+        "provider_bound_locality_feasibility" => run_provider_bound_locality_feasibility(
+            workload,
+            run_id,
+            candidate_commit,
+            backend,
+            dataset,
+            profile,
+        ),
         "cell_commit_visibility_contract" => run_cell_commit_visibility(workload, seeds, backend),
         "cell_tagged_log_certificate_contract" => {
             run_cell_tagged_log_certificate(workload, seeds, backend)
@@ -3413,6 +3434,21 @@ fn provider_cache_economics_artifact_path(
         .map_or_else(|| PathBuf::from("target/okv-eval-artifacts"), PathBuf::from);
     root.join(format!(
         "provider-cache-economics-{candidate}-{run}-{}.json",
+        workload.id
+    ))
+}
+
+fn provider_locality_feasibility_artifact_path(
+    run_id: &str,
+    candidate_commit: &str,
+    workload: &WorkloadConfig,
+) -> PathBuf {
+    let candidate = candidate_commit.replace(['+', '/'], "-");
+    let run = run_id.replace(['+', '/'], "-");
+    let root = std::env::var_os("OKV_EVAL_ARTIFACT_DIR")
+        .map_or_else(|| PathBuf::from("target/okv-eval-artifacts"), PathBuf::from);
+    root.join(format!(
+        "provider-locality-feasibility-{candidate}-{run}-{}.json",
         workload.id
     ))
 }
@@ -10231,6 +10267,22 @@ fn kv_runtime_profile_u64(profile: &ProfileConfig, key: &str) -> Result<u64, Str
 fn kv_runtime_profile_usize(profile: &ProfileConfig, key: &str) -> Result<usize, String> {
     usize::try_from(kv_runtime_profile_u64(profile, key)?)
         .map_err(|error| format!("KV Runtime profile {key} is too large: {error}"))
+}
+
+fn profile_f64(profile: &ProfileConfig, key: &str) -> Result<f64, String> {
+    let value = profile
+        .parameters
+        .get(key)
+        .ok_or_else(|| format!("profile requires numeric parameter {key}"))?;
+    if let Some(value) = value.as_float() {
+        return Ok(value);
+    }
+    let value = value
+        .as_integer()
+        .ok_or_else(|| format!("profile parameter {key} must be numeric"))?;
+    let value = i32::try_from(value)
+        .map_err(|_| format!("profile integer parameter {key} does not fit i32"))?;
+    Ok(f64::from(value))
 }
 
 fn kv_runtime_workload_usize(workload: &WorkloadConfig, key: &str) -> Result<usize, String> {
@@ -18242,6 +18294,271 @@ fn run_provider_bound_range_read(
                         .map(|receipt| receipt.scratch_objects_deleted)
                         .sum(),
                 ),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_provider_bound_locality_feasibility(
+    workload: &WorkloadConfig,
+    run_id: &str,
+    candidate_commit: &str,
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile: &ProfileConfig,
+) -> WorkloadExecution {
+    let Some(dataset) = dataset else {
+        return execution_from_result(Err(
+            "provider locality feasibility requires a dataset".to_owned()
+        ));
+    };
+    let workload_u32 = |key: &str| {
+        kv_runtime_workload_usize(workload, key).and_then(|value| {
+            u32::try_from(value)
+                .map_err(|_| format!("workload {} parameter {key} exceeds u32", workload.id))
+        })
+    };
+    let distribution = match workload
+        .parameters
+        .get("distribution")
+        .and_then(toml::Value::as_str)
+    {
+        Some("uniform") => LocalityDistribution::Uniform,
+        Some("zipfian") => match workload_u32("zipf_theta_milli") {
+            Ok(theta_milli) => LocalityDistribution::Zipfian { theta_milli },
+            Err(error) => return execution_from_result(Err(error)),
+        },
+        Some("moving_hotset") => {
+            let hotset_fraction_ppm = match workload_u32("hotset_fraction_ppm") {
+                Ok(value) => value,
+                Err(error) => return execution_from_result(Err(error)),
+            };
+            let hot_read_fraction_ppm = match workload_u32("hot_read_fraction_ppm") {
+                Ok(value) => value,
+                Err(error) => return execution_from_result(Err(error)),
+            };
+            LocalityDistribution::MovingHotset {
+                hotset_fraction_ppm,
+                hot_read_fraction_ppm,
+            }
+        }
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown provider locality distribution {other}"
+            )))
+        }
+        None => {
+            return execution_from_result(Err(
+                "provider locality feasibility requires distribution".to_owned(),
+            ))
+        }
+    };
+    let negative_control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("none");
+    let mode = match negative_control {
+        "none" | "correct" => LocalityFeasibilityMode::Correct,
+        "inflate_capacity" => LocalityFeasibilityMode::InflateCapacity,
+        "skip_probability_normalization" => LocalityFeasibilityMode::SkipProbabilityNormalization,
+        "ignore_background_reads" => LocalityFeasibilityMode::IgnoreBackgroundReads,
+        other => {
+            return execution_from_result(Err(format!(
+                "unknown provider locality feasibility control {other}"
+            )))
+        }
+    };
+    let cache_fraction_ppm = match workload_u32("cache_fraction_ppm") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let profile_values = (|| {
+        Ok::<_, String>((
+            kv_runtime_profile_u64(profile, "point_bytes")?,
+            profile_f64(profile, "provider_get_cost_per_million_usd")?,
+            profile_f64(profile, "target_request_cost_per_million_reads_usd")?,
+            profile_f64(profile, "expected_provider_miss_ratio")?,
+            profile_f64(profile, "probability_tolerance")?,
+        ))
+    })();
+    let (
+        point_bytes,
+        provider_get_cost_per_million_usd,
+        target_request_cost_per_million_reads_usd,
+        expected_provider_miss_ratio,
+        probability_tolerance,
+    ) = match profile_values {
+        Ok(values) => values,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let input = LocalityFeasibilityInput {
+        key_count: dataset.key_count,
+        logical_bytes: dataset.logical_bytes,
+        point_bytes,
+        cache_fraction_ppm,
+        distribution,
+        provider_get_cost_per_million_usd,
+        target_request_cost_per_million_reads_usd,
+        expected_provider_miss_ratio,
+        probability_tolerance,
+        mode,
+    };
+    let receipt = match evaluate_locality_feasibility(input) {
+        Ok(receipt) => receipt,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let replay = match evaluate_locality_feasibility(input) {
+        Ok(receipt) => receipt,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let deterministic_replay_exact = receipt.receipt_sha256 == replay.receipt_sha256
+        && receipt.receipt_sha256.len() == 64
+        && receipt.ideal_hit_ratio.to_bits() == replay.ideal_hit_ratio.to_bits()
+        && receipt.irreducible_miss_ratio.to_bits() == replay.irreducible_miss_ratio.to_bits();
+    let checks = [
+        (
+            "provider_bound.probability_mass_normalized",
+            receipt.probability_mass_normalized,
+        ),
+        (
+            "provider_bound.closed_form_matches_enumeration",
+            receipt.closed_form_matches_enumeration,
+        ),
+        (
+            "provider_bound.capacity_bound_held",
+            receipt.capacity_bound_held,
+        ),
+        (
+            "provider_bound.hit_plus_miss_equals_one",
+            receipt.hit_plus_miss_equals_one,
+        ),
+        (
+            "provider_bound.request_cost_target_reproduced",
+            receipt.request_cost_target_reproduced,
+        ),
+        (
+            "provider_bound.deterministic_replay_exact",
+            deterministic_replay_exact,
+        ),
+    ];
+    let anomalies = checks.iter().filter(|(_, passed)| !*passed).count();
+    let control_detected = mode == LocalityFeasibilityMode::Correct || anomalies > 0;
+    let clean_passed = mode == LocalityFeasibilityMode::Correct && anomalies == 0;
+    let result = if clean_passed { "pass" } else { "discard" };
+    let capacity = receipt.declared_capacity_bytes.to_string();
+    let common = |metric_result: &str| {
+        attributes(&[
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("backend", backend),
+            ("trace.distribution", receipt.distribution.as_str()),
+            ("cache.capacity", capacity.as_str()),
+            ("model", receipt.model.as_str()),
+            ("result", metric_result),
+        ])
+    };
+    let artifact_path =
+        provider_locality_feasibility_artifact_path(run_id, candidate_commit, workload);
+    let artifact = ProviderLocalityFeasibilityArtifact {
+        contract_version: 1,
+        candidate_commit,
+        workload: &workload.id,
+        receipt: &receipt,
+        replay_receipt: &replay,
+    };
+    if let Err(error) =
+        write_json_artifact(&artifact_path, &artifact, "provider locality feasibility")
+    {
+        return execution_from_result(Err(error));
+    }
+    let mut hard_gates = checks
+        .into_iter()
+        .map(|(id, passed)| HardGateResult {
+            id: id.to_owned(),
+            status: gate_status(passed),
+            detail: None,
+        })
+        .collect::<Vec<_>>();
+    hard_gates.push(HardGateResult {
+        id: "provider_bound.control_detected".to_owned(),
+        status: gate_status(control_detected),
+        detail: (mode != LocalityFeasibilityMode::Correct)
+            .then(|| format!("control={} failed {anomalies} clean-model gates", mode.id())),
+    });
+    let correctness_anomalies = if mode == LocalityFeasibilityMode::Correct {
+        bounded_usize(anomalies)
+    } else {
+        1.0
+    };
+    WorkloadExecution {
+        error: if mode == LocalityFeasibilityMode::Correct {
+            (!clean_passed).then(|| {
+                format!("provider locality feasibility model failed {anomalies} hard gates")
+            })
+        } else {
+            Some(if control_detected {
+                format!("provider locality feasibility control detected: {negative_control}")
+            } else {
+                format!("provider locality feasibility control escaped: {negative_control}")
+            })
+        },
+        measurements: vec![
+            Measurement {
+                metric: "correctness.anomalies",
+                value: correctness_anomalies,
+                attributes: attributes(&[
+                    ("lane", workload.lane.as_str()),
+                    ("workload", workload.id.as_str()),
+                    ("oracle", "provider-locality-feasibility-v0"),
+                    (
+                        "anomaly.class",
+                        if clean_passed {
+                            "none"
+                        } else if mode == LocalityFeasibilityMode::Correct {
+                            "model"
+                        } else {
+                            "control-detected"
+                        },
+                    ),
+                ]),
+            },
+            Measurement {
+                metric: "provider_bound.ideal_hit_ratio",
+                value: receipt.ideal_hit_ratio,
+                attributes: common(result),
+            },
+            Measurement {
+                metric: "provider_bound.irreducible_miss_ratio",
+                value: receipt.irreducible_miss_ratio,
+                attributes: common(result),
+            },
+            Measurement {
+                metric: "provider_bound.locality_target_gap",
+                value: receipt.locality_target_gap,
+                attributes: common(result),
+            },
+        ],
+        hard_gates,
+        budget_units: bounded_count(dataset.key_count.saturating_mul(2)),
+        artifact_refs: vec![artifact_path.display().to_string()],
+        secondary_metrics: BTreeMap::from([
+            (
+                "provider_bound.ideal_hit_ratio".to_owned(),
+                receipt.ideal_hit_ratio,
+            ),
+            (
+                "provider_bound.locality_target_gap".to_owned(),
+                receipt.locality_target_gap,
+            ),
+            (
+                "provider_bound.provider_request_cost_floor_per_million_reads_usd".to_owned(),
+                receipt.provider_request_cost_floor_per_million_reads_usd,
+            ),
+            (
+                "provider_bound.declared_capacity_bytes".to_owned(),
+                bounded_count(receipt.declared_capacity_bytes),
             ),
         ]),
     }
