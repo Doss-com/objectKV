@@ -34,6 +34,7 @@ mod cell_tlog_policy_transition;
 mod cell_tlog_repair;
 mod kv_runtime;
 mod persistent_range_serving;
+mod placed_range;
 mod provider_bound_range;
 mod publication_adapter;
 mod publisher_process;
@@ -95,6 +96,10 @@ pub use persistent_range_serving::{
     open_manifest_bound_persistent_range_view, open_persistent_range_view,
     persistent_range_delta_descriptor_sha256, PersistentRangeBaseConfig,
     PersistentRangeBaseDescriptor, PersistentRangeDeltaConfig, PersistentRangeDeltaDescriptor,
+};
+pub use placed_range::{
+    run_assigned_range_placement_worker, AssignedRangePlacementConfig, AssignedRangePlacementMode,
+    AssignedRangePlacementReceipt, PlacedRangeReceipt,
 };
 pub use provider_bound_range::{
     bind_provider_physical_manifest, load_provider_bound_persistent_range_base,

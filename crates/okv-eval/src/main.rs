@@ -62,15 +62,16 @@ use okv_model::{
 };
 use okv_object::{
     cleanup_range_serving_curve_gcs_scratch, filesystem_backend, gcs_backend_from_env,
-    memory_backend, minio_backend_from_env, run_cell_commit_proxy_process,
-    run_cell_commit_visibility_contract, run_cell_commit_visibility_worker_process,
-    run_cell_objectification_contract, run_cell_serving_authority_feed_contract,
-    run_cell_serving_authority_worker_process, run_cell_serving_recovery_contract,
-    run_cell_serving_tagged_tlog_contract, run_cell_serving_tagged_tlog_worker_process,
-    run_cell_serving_worker_process, run_cell_tagged_log_chunked_repair_contract,
-    run_cell_tagged_log_lag_ratekeeping_contract, run_cell_tagged_log_lag_worker_process,
-    run_cell_tagged_log_learner_repair_contract, run_cell_tagged_log_policy_transition_contract,
-    run_cell_tagged_log_repair_worker_process, run_conformance, run_publication_adapter_contract,
+    memory_backend, minio_backend_from_env, run_assigned_range_placement_worker,
+    run_cell_commit_proxy_process, run_cell_commit_visibility_contract,
+    run_cell_commit_visibility_worker_process, run_cell_objectification_contract,
+    run_cell_serving_authority_feed_contract, run_cell_serving_authority_worker_process,
+    run_cell_serving_recovery_contract, run_cell_serving_tagged_tlog_contract,
+    run_cell_serving_tagged_tlog_worker_process, run_cell_serving_worker_process,
+    run_cell_tagged_log_chunked_repair_contract, run_cell_tagged_log_lag_ratekeeping_contract,
+    run_cell_tagged_log_lag_worker_process, run_cell_tagged_log_learner_repair_contract,
+    run_cell_tagged_log_policy_transition_contract, run_cell_tagged_log_repair_worker_process,
+    run_conformance, run_publication_adapter_contract,
     run_publication_publisher_manifest_recovery_contract,
     run_publication_publisher_manifest_recovery_node, run_publication_publisher_process_contract,
     run_publication_publisher_process_node, run_publication_publisher_publish_recovery_contract,
@@ -82,23 +83,24 @@ use okv_object::{
     run_range_route_refresh_process_contract, run_range_serving_concurrency_contract,
     run_range_serving_concurrency_worker, run_range_serving_curve_worker,
     run_range_serving_handoff_contract, run_range_serving_handoff_worker_process,
-    run_tagged_log_process, validate_conformance_report, CaseStatus, CellCommitProxyProcessConfig,
-    CellCommitVisibilityMode, CellCommitVisibilityWorkerProcessConfig, CellObjectificationMode,
-    CellServingAuthorityFeedMode, CellServingAuthorityWorkerProcessConfig, CellServingRecoveryMode,
-    CellServingTaggedTlogMode, CellServingTaggedTlogWorkerProcessConfig,
-    CellServingWorkerProcessConfig, CellTaggedLogChunkedRepairMode,
-    CellTaggedLogLagRatekeepingMode, CellTaggedLogLagWorkerProcessConfig,
-    CellTaggedLogLearnerRepairMode, CellTaggedLogPolicyTransitionMode,
-    CellTaggedLogRepairWorkerProcessConfig, ConformanceOptions, ConformanceProfile, KvRuntime,
-    KvRuntimeAction, KvRuntimeAdmission, KvRuntimeConfig, KvRuntimeDecision,
-    ProviderCacheEconomicsConfig, ProviderCacheEconomicsMode, ProviderCacheTraceDistribution,
-    PublicationAdapterMode, PublicationRootGraphMode, PublisherManifestRecoveryMode,
-    PublisherManifestRecoveryProcessConfig, PublisherProcessConfig, PublisherProcessMode,
-    PublisherPublishRecoveryMode, PublisherPublishRecoveryProcessConfig, PublisherPutRecoveryMode,
-    PublisherPutRecoveryProcessConfig, RangeCacheEvictionBackend, RangeCacheEvictionConfig,
-    RangeCacheEvictionMode, RangeCacheEvictionReceipt, RangeCacheFaultMode,
-    RangeCacheFaultWorkerConfig, RangeEngineId, RangeEngineUsage, RangeReadProcessConfig,
-    RangeReadProcessMode, RangeRouteRefreshMode, RangeServingCacheMode,
+    run_tagged_log_process, validate_conformance_report, AssignedRangePlacementConfig,
+    AssignedRangePlacementMode, AssignedRangePlacementReceipt, CaseStatus,
+    CellCommitProxyProcessConfig, CellCommitVisibilityMode,
+    CellCommitVisibilityWorkerProcessConfig, CellObjectificationMode, CellServingAuthorityFeedMode,
+    CellServingAuthorityWorkerProcessConfig, CellServingRecoveryMode, CellServingTaggedTlogMode,
+    CellServingTaggedTlogWorkerProcessConfig, CellServingWorkerProcessConfig,
+    CellTaggedLogChunkedRepairMode, CellTaggedLogLagRatekeepingMode,
+    CellTaggedLogLagWorkerProcessConfig, CellTaggedLogLearnerRepairMode,
+    CellTaggedLogPolicyTransitionMode, CellTaggedLogRepairWorkerProcessConfig, ConformanceOptions,
+    ConformanceProfile, KvRuntime, KvRuntimeAction, KvRuntimeAdmission, KvRuntimeConfig,
+    KvRuntimeDecision, ProviderCacheEconomicsConfig, ProviderCacheEconomicsMode,
+    ProviderCacheTraceDistribution, PublicationAdapterMode, PublicationRootGraphMode,
+    PublisherManifestRecoveryMode, PublisherManifestRecoveryProcessConfig, PublisherProcessConfig,
+    PublisherProcessMode, PublisherPublishRecoveryMode, PublisherPublishRecoveryProcessConfig,
+    PublisherPutRecoveryMode, PublisherPutRecoveryProcessConfig, RangeCacheEvictionBackend,
+    RangeCacheEvictionConfig, RangeCacheEvictionMode, RangeCacheEvictionReceipt,
+    RangeCacheFaultMode, RangeCacheFaultWorkerConfig, RangeEngineId, RangeEngineUsage,
+    RangeReadProcessConfig, RangeReadProcessMode, RangeRouteRefreshMode, RangeServingCacheMode,
     RangeServingConcurrencyConfig, RangeServingConcurrencyMode, RangeServingCurveConfig,
     RangeServingCurveReceipt, RangeServingHandoffMode, RangeServingHandoffWorkerConfig,
     RangeServingObjectBackend, RangeServingProviderMode, TaggedLogProcessConfig,
@@ -224,6 +226,16 @@ struct ProviderLocalityFeasibilityArtifact<'a> {
     workload: &'a str,
     receipt: &'a LocalityFeasibilityReceipt,
     replay_receipt: &'a LocalityFeasibilityReceipt,
+}
+
+#[derive(Serialize)]
+struct AssignedRangePlacementArtifact<'a> {
+    contract_version: u32,
+    executable_sha256: &'a str,
+    workload: &'a str,
+    mode: &'a str,
+    receipts: &'a [AssignedRangePlacementReceipt],
+    semantic_replay_receipt: &'a AssignedRangePlacementReceipt,
 }
 
 #[derive(Serialize)]
@@ -808,6 +820,12 @@ enum Commands {
     /// Internal entrypoint used by the authority-bound range performance curve.
     #[command(hide = true)]
     RangeServingCurveNode {
+        #[arg(long)]
+        config_json: String,
+    },
+    /// Internal entrypoint for one assigned-range placement worker.
+    #[command(hide = true)]
+    AssignedRangePlacementNode {
         #[arg(long)]
         config_json: String,
     },
@@ -1425,6 +1443,14 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let receipt = runtime.block_on(run_range_serving_curve_worker(&config))?;
             println!("{}", serde_json::to_string(&receipt)?);
         }
+        Commands::AssignedRangePlacementNode { config_json } => {
+            let config = serde_json::from_str::<AssignedRangePlacementConfig>(&config_json)?;
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let receipt = runtime.block_on(run_assigned_range_placement_worker(&config))?;
+            println!("{}", serde_json::to_string(&receipt)?);
+        }
         Commands::MvccGcCurveNode { config_json, mode } => {
             let config = serde_json::from_str::<MvccGcCurveConfig>(&config_json)?;
             let mode = parse_mvcc_gc_curve_mode(&mode).map_err(std::io::Error::other)?;
@@ -2000,6 +2026,15 @@ fn execute_workload(
             workload,
             run_id,
             candidate_commit,
+            backend,
+            dataset,
+            profile,
+        ),
+        "provider_bound_assigned_range_placement" => run_provider_bound_assigned_range_placement(
+            workload,
+            run_id,
+            candidate_commit,
+            seeds,
             backend,
             dataset,
             profile,
@@ -3449,6 +3484,21 @@ fn provider_locality_feasibility_artifact_path(
         .map_or_else(|| PathBuf::from("target/okv-eval-artifacts"), PathBuf::from);
     root.join(format!(
         "provider-locality-feasibility-{candidate}-{run}-{}.json",
+        workload.id
+    ))
+}
+
+fn assigned_range_placement_artifact_path(
+    run_id: &str,
+    candidate_commit: &str,
+    workload: &WorkloadConfig,
+) -> PathBuf {
+    let candidate = candidate_commit.replace(['+', '/'], "-");
+    let run = run_id.replace(['+', '/'], "-");
+    let root = std::env::var_os("OKV_EVAL_ARTIFACT_DIR")
+        .map_or_else(|| PathBuf::from("target/okv-eval-artifacts"), PathBuf::from);
+    root.join(format!(
+        "assigned-range-placement-{candidate}-{run}-{}.json",
         workload.id
     ))
 }
@@ -18297,6 +18347,547 @@ fn run_provider_bound_range_read(
             ),
         ]),
     }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_provider_bound_assigned_range_placement(
+    workload: &WorkloadConfig,
+    run_id: &str,
+    candidate_commit: &str,
+    seeds: &[u64],
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile: &ProfileConfig,
+) -> WorkloadExecution {
+    const BACKEND: &str = "versioned-local-object-store";
+    let Some(dataset) = dataset else {
+        return execution_from_result(
+            Err("assigned-range placement requires a dataset".to_owned()),
+        );
+    };
+    if backend != BACKEND {
+        return execution_from_result(Err(format!(
+            "assigned-range placement has no backend adapter for {backend}"
+        )));
+    }
+    if seeds.len() < 5 {
+        return execution_from_result(Err(
+            "assigned-range placement requires at least five seeds".to_owned()
+        ));
+    }
+    let Ok(key_count) = usize::try_from(dataset.key_count) else {
+        return execution_from_result(Err(
+            "assigned-range placement key count does not fit usize".to_owned()
+        ));
+    };
+    if dataset.key_count == 0 || !dataset.logical_bytes.is_multiple_of(dataset.key_count) {
+        return execution_from_result(Err(
+            "assigned-range placement dataset dimensions are not integral".to_owned(),
+        ));
+    }
+    let Ok(value_bytes) = usize::try_from(dataset.logical_bytes / dataset.key_count) else {
+        return execution_from_result(Err(
+            "assigned-range placement value bytes do not fit usize".to_owned()
+        ));
+    };
+    let logical_range_count = match kv_runtime_workload_usize(workload, "logical_range_count") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let assigned_range_index = match kv_runtime_workload_usize(workload, "assigned_range_index") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let tail_records = match kv_runtime_workload_usize(workload, "tail_records") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let parameter_bool = |key: &str| {
+        workload
+            .parameters
+            .get(key)
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(false)
+    };
+    let process_reopen = parameter_bool("process_reopen");
+    let root_advance = parameter_bool("root_advance");
+    let point_reads = match kv_runtime_profile_usize(profile, "point_reads_per_repeat") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("none");
+    let mode = match control {
+        "none" | "correct" => AssignedRangePlacementMode::Correct,
+        "publish_before_verification" => AssignedRangePlacementMode::PublishBeforeVerification,
+        "reuse_stale_receipt" => AssignedRangePlacementMode::ReuseStaleReceipt,
+        "corrupt_local_part" => AssignedRangePlacementMode::CorruptLocalPart,
+        "accept_provider_fallback" => AssignedRangePlacementMode::AcceptProviderFallback,
+        other => {
+            return execution_from_result(Err(format!(
+                "unknown assigned-range placement control {other}"
+            )))
+        }
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            return execution_from_result(Err(format!(
+                "resolve assigned-range placement executable: {error}"
+            )))
+        }
+    };
+    let timeout_millis = 900_000_u64;
+    let config_for_seed = |seed| AssignedRangePlacementConfig {
+        key_count,
+        value_bytes,
+        logical_range_count,
+        assigned_range_index,
+        tail_records,
+        point_reads,
+        apply_unrelated_pressure: logical_range_count == 16,
+        reopen_retained_nvme: process_reopen,
+        root_advance,
+        mode,
+        seed,
+    };
+    let mut receipts = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        match run_assigned_range_placement_child(
+            &executable,
+            &config_for_seed(*seed),
+            timeout_millis,
+        ) {
+            Ok(receipt) => receipts.push(receipt),
+            Err(error) => return execution_from_result(Err(error)),
+        }
+    }
+    let replay = match run_assigned_range_placement_child(
+        &executable,
+        &config_for_seed(seeds[0]),
+        timeout_millis,
+    ) {
+        Ok(receipt) => receipt,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let dimensions_exact = receipts.iter().all(|receipt| {
+        receipt.key_count == key_count
+            && receipt.value_bytes == value_bytes
+            && receipt.logical_range_count == logical_range_count
+            && receipt.assigned_range_index == assigned_range_index
+            && receipt.tail_records == tail_records
+            && receipt.point_reads == point_reads
+    });
+    let verification_complete = receipts.iter().all(|receipt| receipt.verification_complete);
+    let reads_exact = receipts
+        .iter()
+        .all(|receipt| receipt.exact_points && receipt.exact_scan);
+    let outside_range_refused = receipts.iter().all(|receipt| receipt.outside_range_refused);
+    let ready_publication_exact = receipts.iter().all(|receipt| {
+        receipt.ready_publication_atomic
+            && receipt.ready_receipt_exact
+            && receipt.placed.local_image_digest.len() == 64
+            && receipt.placed.provider_closure_digest.len() == 64
+    });
+    let local_image_digest_stable = receipts
+        .iter()
+        .all(|receipt| receipt.local_image_digest_stable);
+    let root_advance_exact = !root_advance
+        || receipts
+            .iter()
+            .all(|receipt| receipt.old_ready_refused_after_advance);
+    let process_reopen_exact = !process_reopen
+        || receipts
+            .iter()
+            .all(|receipt| receipt.process_reopen_executed);
+    let scratch_cleanup_complete = receipts
+        .iter()
+        .all(|receipt| receipt.scratch_cleanup_complete);
+    let deterministic_replay_exact = receipts.first().is_some_and(|first| {
+        first.semantic_receipt_sha256.len() == 64
+            && first.semantic_receipt_sha256 == replay.semantic_receipt_sha256
+    });
+    let semantic_checks = [
+        dimensions_exact,
+        verification_complete,
+        reads_exact,
+        outside_range_refused,
+        ready_publication_exact,
+        local_image_digest_stable,
+        root_advance_exact,
+        process_reopen_exact,
+        scratch_cleanup_complete,
+        deterministic_replay_exact,
+    ];
+    let semantic_anomalies = semantic_checks.iter().filter(|passed| !**passed).count();
+    let placement_bound = receipts
+        .iter()
+        .all(|receipt| receipt.placed.placement_amplification <= 1.50);
+    let hydration_bound = receipts.iter().all(|receipt| {
+        ratio_u64(
+            receipt.placed.hydration_provider_bytes,
+            receipt.placed.logical_assigned_bytes,
+        ) <= 2.00
+    });
+    let post_ready_provider_zero = receipts.iter().all(|receipt| {
+        receipt.post_ready_provider_requests == 0 && receipt.post_ready_provider_bytes == 0
+    });
+    let point_p99_bound = receipts
+        .iter()
+        .all(|receipt| receipt.post_ready_point_p99_seconds <= 0.001);
+    let control_detected = match mode {
+        AssignedRangePlacementMode::Correct => true,
+        AssignedRangePlacementMode::PublishBeforeVerification => receipts
+            .iter()
+            .all(|receipt| !receipt.verification_complete),
+        AssignedRangePlacementMode::ReuseStaleReceipt => receipts
+            .iter()
+            .all(|receipt| !receipt.old_ready_refused_after_advance),
+        AssignedRangePlacementMode::CorruptLocalPart => {
+            receipts.iter().all(|receipt| receipt.corruption_detected)
+        }
+        AssignedRangePlacementMode::AcceptProviderFallback => receipts.iter().all(|receipt| {
+            receipt.unsafe_provider_fallback_accepted && receipt.post_ready_provider_requests > 0
+        }),
+    };
+    let performance_kept =
+        placement_bound && hydration_bound && post_ready_provider_zero && point_p99_bound;
+    let clean_semantics = mode == AssignedRangePlacementMode::Correct && semantic_anomalies == 0;
+    let result = if clean_semantics && performance_kept {
+        "pass"
+    } else {
+        "discard"
+    };
+    let executable_sha256 = match file_sha256(&executable) {
+        Ok(digest) => digest,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let artifact_path = assigned_range_placement_artifact_path(run_id, candidate_commit, workload);
+    let artifact = AssignedRangePlacementArtifact {
+        contract_version: 1,
+        executable_sha256: &executable_sha256,
+        workload: &workload.id,
+        mode: mode.id(),
+        receipts: &receipts,
+        semantic_replay_receipt: &replay,
+    };
+    if let Err(error) = write_json_artifact(&artifact_path, &artifact, "assigned-range placement") {
+        return execution_from_result(Err(error));
+    }
+    let correctness_anomalies = if mode == AssignedRangePlacementMode::Correct {
+        bounded_usize(semantic_anomalies)
+    } else {
+        1.0
+    };
+    let mut measurements = vec![Measurement {
+        metric: "correctness.anomalies",
+        value: correctness_anomalies,
+        attributes: attributes(&[
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("oracle", "assigned-range-placement-v0"),
+            (
+                "anomaly.class",
+                if clean_semantics {
+                    "none"
+                } else if mode == AssignedRangePlacementMode::Correct {
+                    "placement-contract"
+                } else {
+                    "control-detected"
+                },
+            ),
+        ]),
+    }];
+    for receipt in &receipts {
+        measurements.extend(assigned_range_placement_measurements(
+            workload, backend, receipt, result,
+        ));
+    }
+    let gate = |id: &str, passed: bool| HardGateResult {
+        id: id.to_owned(),
+        status: gate_status(passed),
+        detail: None,
+    };
+    WorkloadExecution {
+        error: if mode == AssignedRangePlacementMode::Correct {
+            (!clean_semantics).then(|| {
+                format!("assigned-range incumbent discarded on {semantic_anomalies} semantic gates")
+            })
+        } else {
+            Some(if control_detected {
+                format!("assigned-range placement control detected: {control}")
+            } else {
+                format!("assigned-range placement control escaped: {control}")
+            })
+        },
+        measurements,
+        hard_gates: vec![
+            gate("provider_bound.minimum_seeds", seeds.len() >= 5),
+            gate("provider_bound.dimensions_exact", dimensions_exact),
+            gate(
+                "provider_bound.placement_verification_complete",
+                verification_complete,
+            ),
+            gate("provider_bound.placed_reads_exact", reads_exact),
+            gate(
+                "provider_bound.outside_range_refused",
+                outside_range_refused,
+            ),
+            gate(
+                "provider_bound.ready_publication_exact",
+                ready_publication_exact,
+            ),
+            gate(
+                "provider_bound.local_image_digest_stable",
+                local_image_digest_stable,
+            ),
+            gate("provider_bound.root_advance_exact", root_advance_exact),
+            gate("provider_bound.process_reopen_exact", process_reopen_exact),
+            gate(
+                "provider_bound.scratch_cleanup_complete",
+                scratch_cleanup_complete,
+            ),
+            gate(
+                "provider_bound.deterministic_replay_exact",
+                deterministic_replay_exact,
+            ),
+            gate("provider_bound.placement_bound", placement_bound),
+            gate("provider_bound.hydration_bound", hydration_bound),
+            gate(
+                "provider_bound.post_ready_provider_zero",
+                post_ready_provider_zero,
+            ),
+            gate("provider_bound.post_ready_point_p99", point_p99_bound),
+            gate("provider_bound.control_detected", control_detected),
+        ],
+        budget_units: bounded_usize(point_reads.saturating_mul(seeds.len())),
+        artifact_refs: vec![artifact_path.display().to_string()],
+        secondary_metrics: BTreeMap::from([
+            (
+                "provider_bound.maximum_placement_amplification".to_owned(),
+                receipts
+                    .iter()
+                    .map(|receipt| receipt.placed.placement_amplification)
+                    .fold(0.0_f64, f64::max),
+            ),
+            (
+                "provider_bound.total_post_ready_requests".to_owned(),
+                bounded_count(
+                    receipts
+                        .iter()
+                        .map(|receipt| receipt.post_ready_provider_requests)
+                        .sum(),
+                ),
+            ),
+        ]),
+    }
+}
+
+fn run_assigned_range_placement_child(
+    executable: &Path,
+    config: &AssignedRangePlacementConfig,
+    timeout_millis: u64,
+) -> Result<AssignedRangePlacementReceipt, String> {
+    let config_json = serde_json::to_string(config).map_err(|error| error.to_string())?;
+    let mut child = Command::new(executable)
+        .arg("assigned-range-placement-node")
+        .arg("--config-json")
+        .arg(config_json)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let deadline = Duration::from_millis(timeout_millis.saturating_add(5_000));
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|error| error.to_string())?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "assigned-range placement child failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                }
+                return serde_json::from_slice(&output.stdout).map_err(|error| error.to_string());
+            }
+            Ok(None) if started.elapsed() <= deadline => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "assigned-range placement child exceeded {timeout_millis} ms"
+                ));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error.to_string());
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn assigned_range_placement_measurements(
+    workload: &WorkloadConfig,
+    backend: &str,
+    receipt: &AssignedRangePlacementReceipt,
+    result: &str,
+) -> Vec<Measurement> {
+    let range_count = receipt.logical_range_count.to_string();
+    let assignment_index = receipt.assigned_range_index.to_string();
+    let process_reopen = receipt.process_reopen_requested.to_string();
+    let image_format = receipt.placed.local_image_format.as_str();
+    let common = |metric_result: &str| {
+        attributes(&[
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("backend", backend),
+            ("range.count", range_count.as_str()),
+            ("assignment.index", assignment_index.as_str()),
+            ("image.format", image_format),
+            ("result", metric_result),
+        ])
+    };
+    let without_image = attributes(&[
+        ("lane", workload.lane.as_str()),
+        ("workload", workload.id.as_str()),
+        ("backend", backend),
+        ("range.count", range_count.as_str()),
+        ("assignment.index", assignment_index.as_str()),
+        ("result", result),
+    ]);
+    let point_or_scan = |metric_result: &str| {
+        attributes(&[
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("backend", backend),
+            ("range.count", range_count.as_str()),
+            ("assignment.index", assignment_index.as_str()),
+            ("image.format", image_format),
+            ("process.reopen", process_reopen.as_str()),
+            ("result", metric_result),
+        ])
+    };
+    let provider_request = attributes(&[
+        ("lane", workload.lane.as_str()),
+        ("workload", workload.id.as_str()),
+        ("backend", backend),
+        ("range.count", range_count.as_str()),
+        ("assignment.index", assignment_index.as_str()),
+        ("request.operation", "all"),
+        ("result", result),
+    ]);
+    vec![
+        Measurement {
+            metric: "provider_bound.placement_amplification",
+            value: receipt.placed.placement_amplification,
+            attributes: common(result),
+        },
+        Measurement {
+            metric: "provider_bound.hydration_byte_amplification",
+            value: ratio_u64(
+                receipt.placed.hydration_provider_bytes,
+                receipt.placed.logical_assigned_bytes,
+            ),
+            attributes: common(result),
+        },
+        Measurement {
+            metric: "provider_bound.placed_bytes",
+            value: bounded_count(receipt.placed.placed_bytes),
+            attributes: common(result),
+        },
+        Measurement {
+            metric: "provider_bound.logical_assigned_bytes",
+            value: bounded_count(receipt.placed.logical_assigned_bytes),
+            attributes: without_image.clone(),
+        },
+        Measurement {
+            metric: "provider_bound.projected_placed_bytes",
+            value: bounded_count(receipt.projected_one_copy_bytes),
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("backend", backend),
+                ("range.count", range_count.as_str()),
+                ("assignment.index", assignment_index.as_str()),
+                ("image.format", image_format),
+                ("replica.count", "1"),
+                ("result", result),
+            ]),
+        },
+        Measurement {
+            metric: "provider_bound.projected_placed_bytes",
+            value: bounded_count(receipt.projected_two_copy_bytes),
+            attributes: attributes(&[
+                ("lane", workload.lane.as_str()),
+                ("workload", workload.id.as_str()),
+                ("backend", backend),
+                ("range.count", range_count.as_str()),
+                ("assignment.index", assignment_index.as_str()),
+                ("image.format", image_format),
+                ("replica.count", "2"),
+                ("result", result),
+            ]),
+        },
+        Measurement {
+            metric: "provider_bound.hydration_duration",
+            value: receipt.placed.hydration_duration_seconds,
+            attributes: common(result),
+        },
+        Measurement {
+            metric: "provider_bound.hydration_throughput",
+            value: receipt.hydration_throughput_bytes_per_second,
+            attributes: common(result),
+        },
+        Measurement {
+            metric: "provider_bound.hydration_provider_requests",
+            value: bounded_count(receipt.placed.hydration_provider_requests),
+            attributes: provider_request.clone(),
+        },
+        Measurement {
+            metric: "provider_bound.hydration_provider_bytes",
+            value: bounded_count(receipt.placed.hydration_provider_bytes),
+            attributes: without_image.clone(),
+        },
+        Measurement {
+            metric: "provider_bound.post_ready_provider_requests",
+            value: bounded_count(receipt.post_ready_provider_requests),
+            attributes: provider_request,
+        },
+        Measurement {
+            metric: "provider_bound.post_ready_provider_bytes",
+            value: bounded_count(receipt.post_ready_provider_bytes),
+            attributes: without_image,
+        },
+        Measurement {
+            metric: "provider_bound.post_ready_point_p99",
+            value: receipt.post_ready_point_p99_seconds,
+            attributes: point_or_scan(result),
+        },
+        Measurement {
+            metric: "provider_bound.post_ready_scan_throughput",
+            value: receipt.post_ready_scan_rows_per_second,
+            attributes: point_or_scan(result),
+        },
+    ]
+}
+
+fn ratio_u64(numerator: u64, denominator: u64) -> f64 {
+    let numerator = u32::try_from(numerator.min(u64::from(u32::MAX))).unwrap_or(u32::MAX);
+    let denominator = u32::try_from(denominator.min(u64::from(u32::MAX)))
+        .unwrap_or(u32::MAX)
+        .max(1);
+    f64::from(numerator) / f64::from(denominator)
 }
 
 #[allow(clippy::too_many_lines)]
