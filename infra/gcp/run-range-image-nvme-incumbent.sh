@@ -13,6 +13,17 @@ SEEDS="${OKV_NVME_SEEDS:-724851,724877,724901,724921,724939}"
 PAYLOADS="${OKV_NVME_PAYLOADS:-8192,16384,32768,65536}"
 STATES="${OKV_NVME_STATES:-direct,buffered}"
 RAW_FIO_SECONDS="${OKV_NVME_RAW_FIO_SECONDS:-30}"
+CONTROLLER_INSTANCE=""
+
+controller_cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  if [[ -n "$CONTROLLER_INSTANCE" ]]; then
+    gcloud compute instances delete "$CONTROLLER_INSTANCE" --project="$PROJECT_ID" \
+      --zone="$ZONE" --quiet || true
+  fi
+  exit "$status"
+}
 
 metadata() {
   curl --fail --silent --show-error \
@@ -134,8 +145,10 @@ build_probes() {
   git -C /opt/objectkv fetch -q --depth=1 origin "$CANDIDATE_COMMIT"
   git -C /opt/objectkv checkout -q --detach FETCH_HEAD
   [[ "$(git -C /opt/objectkv rev-parse HEAD)" == "$CANDIDATE_COMMIT" ]]
-  cargo build --locked --release -p okv-object --bin range-image-nvme-probe \
-    --manifest-path=/opt/objectkv/Cargo.toml
+  (
+    cd /opt/objectkv
+    cargo build --locked --release -p okv-object --bin range-image-nvme-probe
+  )
 
   git -C /opt/rocksdb init -q
   git -C /opt/rocksdb remote add origin https://github.com/facebook/rocksdb.git
@@ -274,7 +287,7 @@ worker_main() {
 }
 
 controller_main() {
-  local repo_root candidate run_id instance result_prefix created=0
+  local repo_root candidate run_id instance result_prefix
   repo_root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
   candidate="${OKV_NVME_CANDIDATE_COMMIT:-$(git -C "$repo_root" rev-parse HEAD)}"
   git -C "$repo_root" diff --quiet
@@ -284,15 +297,7 @@ controller_main() {
   instance="okv-nvme-$(printf '%s' "$run_id" | tr '[:upper:]' '[:lower:]')"
   instance="${instance//:/-}"
   result_prefix="gs://$BUCKET/results/rfc0071/$run_id"
-  cleanup_controller() {
-    local status=$?
-    if [[ $created -eq 1 ]]; then
-      gcloud compute instances delete "$instance" --project="$PROJECT_ID" \
-        --zone="$ZONE" --quiet || true
-    fi
-    exit "$status"
-  }
-  trap cleanup_controller EXIT INT TERM
+  trap controller_cleanup EXIT INT TERM
 
   gcloud compute instances create "$instance" \
     --project="$PROJECT_ID" --zone="$ZONE" --machine-type="$MACHINE_TYPE" \
@@ -303,7 +308,7 @@ controller_main() {
     --metadata="^:^okv-runner-id=$instance:okv-run-id=$run_id:okv-candidate-commit=$candidate:okv-seeds=$SEEDS:okv-payloads=$PAYLOADS:okv-states=$STATES:okv-fio-seconds=$RAW_FIO_SECONDS" \
     --metadata-from-file="startup-script=$repo_root/infra/gcp/run-range-image-nvme-incumbent.sh" \
     --labels=project=objectkv,purpose=rfc0071-eval >/dev/null
-  created=1
+  CONTROLLER_INSTANCE="$instance"
   echo "runner=$instance run_id=$run_id candidate=$candidate"
   local state detail attempts=0
   while (( attempts < 720 )); do
