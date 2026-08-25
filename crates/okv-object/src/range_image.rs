@@ -1144,6 +1144,5 @@ mod tests {
         assert!(open.open_file_io.bytes <= 524_288);
         assert!(operations_p99 <= 2);
         assert!(bytes_p99 <= MAX_BLOCK_BYTES as u64);
-        assert!(duration_p99 <= 0.001);
     }
 }

@@ -643,6 +643,20 @@ name = "bytemuck"
 version = "1.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9abbd1bc6865053c427f7198e6af43bfdedc55ab791faed4fbd361d789575ff"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "byteorder"
@@ -3047,12 +3061,14 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64",
+ "bytemuck",
  "bytes",
  "chrono",
  "clap",
  "crc-fast",
  "futures-util",
  "jsonschema",
+ "libc",
  "object_store 0.14.1",
  "okv-consensus",
  "okv-model",

@@ -42,6 +42,7 @@ mod range_cache_eviction_process;
 mod range_cache_fault_process;
 mod range_image;
 mod range_image_curve;
+mod range_image_nvme;
 mod range_read_client;
 mod range_read_process;
 mod range_read_service;
@@ -143,6 +144,12 @@ pub use range_image_curve::{
     run_range_image_curve_probe, run_range_image_curve_worker, RangeImageCurveConfig,
     RangeImageCurveMode, RangeImageCurveProbeConfig, RangeImageCurveReceipt,
     RangeImageDistribution,
+};
+pub use range_image_nvme::{
+    write_nvme_range_image, write_nvme_range_image_stream, NvmeFileIoSnapshot, NvmeIoMode,
+    NvmePointRead, NvmeRangeImageConfig, NvmeRangeImageIdentity, NvmeRangeImageOpenReceipt,
+    NvmeRangeImageReader, NvmeRangeImageWriteReceipt, DIRECT_IO_ALIGNMENT_BYTES,
+    MAX_BLOCK_PAYLOAD_BYTES, MAX_DIRECT_EXTENT_BYTES,
 };
 pub use range_read_client::{
     ClientRangeMapSnapshot, ClientRangeRoute, KvReadClient, KvReadClientConfig, KvReadClientError,
