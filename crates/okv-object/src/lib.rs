@@ -146,9 +146,10 @@ pub use range_image_curve::{
     RangeImageDistribution,
 };
 pub use range_image_nvme::{
-    write_nvme_range_image, NvmeFileIoSnapshot, NvmeIoMode, NvmeRangeImageConfig,
-    NvmeRangeImageIdentity, NvmeRangeImageOpenReceipt, NvmeRangeImageReader,
-    NvmeRangeImageWriteReceipt,
+    write_nvme_range_image, write_nvme_range_image_stream, NvmeFileIoSnapshot, NvmeIoMode,
+    NvmePointRead, NvmeRangeImageConfig, NvmeRangeImageIdentity, NvmeRangeImageOpenReceipt,
+    NvmeRangeImageReader, NvmeRangeImageWriteReceipt, DIRECT_IO_ALIGNMENT_BYTES,
+    MAX_BLOCK_PAYLOAD_BYTES, MAX_DIRECT_EXTENT_BYTES,
 };
 pub use range_read_client::{
     ClientRangeMapSnapshot, ClientRangeRoute, KvReadClient, KvReadClientConfig, KvReadClientError,

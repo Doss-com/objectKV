@@ -125,6 +125,13 @@ pub struct NvmeRangeImageOpenReceipt {
     pub alignment_violations: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NvmePointRead {
+    pub value: Option<Vec<u8>>,
+    pub file_operations: u64,
+    pub physical_bytes: u64,
+}
+
 #[derive(Clone, Debug)]
 struct BlockIndexEntry {
     first_key: Vec<u8>,
@@ -393,6 +400,15 @@ impl NvmeRangeImageReader {
     ///
     /// Returns an error for out-of-range keys or invalid physical bytes.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, String> {
+        self.get_with_io(key).map(|read| read.value)
+    }
+
+    /// Return one value and the explicit file I/O attributable to this call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for out-of-range keys or invalid physical bytes.
+    pub fn get_with_io(&self, key: &[u8]) -> Result<NvmePointRead, String> {
         if key < self.range_begin.as_slice() || key >= self.range_end.as_slice() {
             return Err("point is outside aligned placed range".to_owned());
         }
@@ -400,12 +416,20 @@ impl NvmeRangeImageReader {
             .index
             .partition_point(|entry| entry.first_key.as_slice() <= key);
         if insertion == 0 {
-            return Ok(None);
+            return Ok(NvmePointRead {
+                value: None,
+                file_operations: 0,
+                physical_bytes: 0,
+            });
         }
         let block_number = u32::try_from(insertion - 1)
             .map_err(|_| "aligned range-image block number exceeds u32".to_owned())?;
-        let bytes = self.read_block(block_number)?;
-        find_value_in_block(&bytes, key)
+        let (bytes, file_operations, physical_bytes) = self.read_block(block_number)?;
+        Ok(NvmePointRead {
+            value: find_value_in_block(&bytes, key)?,
+            file_operations,
+            physical_bytes,
+        })
     }
 
     /// Stream an exact ordered range through bounded batches.
@@ -437,7 +461,7 @@ impl NvmeRangeImageReader {
             if emitted >= limit {
                 break;
             }
-            let bytes = self.read_block(
+            let (bytes, _, _) = self.read_block(
                 u32::try_from(block_number)
                     .map_err(|_| "aligned range-image block number exceeds u32".to_owned())?,
             )?;
@@ -493,14 +517,14 @@ impl NvmeRangeImageReader {
         &self.image_identity_sha256
     }
 
-    fn read_block(&self, block_number: u32) -> Result<Arc<[u8]>, String> {
+    fn read_block(&self, block_number: u32) -> Result<(Arc<[u8]>, u64, u64), String> {
         if let Some(bytes) = self
             .cache
             .lock()
             .map_err(|_| "aligned range-image cache lock poisoned".to_owned())?
             .get(block_number)
         {
-            return Ok(bytes);
+            return Ok((bytes, 0, 0));
         }
         let entry = self
             .index
@@ -537,7 +561,7 @@ impl NvmeRangeImageReader {
             .lock()
             .map_err(|_| "aligned range-image cache lock poisoned".to_owned())?
             .insert(block_number, bytes.clone());
-        Ok(bytes)
+        Ok((bytes, 1, u64::from(entry.physical_length)))
     }
 }
 
@@ -553,8 +577,29 @@ pub fn write_nvme_range_image(
     block_payload_bytes: usize,
     rows: &[(Vec<u8>, Vec<u8>)],
 ) -> Result<NvmeRangeImageWriteReceipt, String> {
+    if identity.row_count != u64::try_from(rows.len()).unwrap_or(u64::MAX) {
+        return Err("aligned range-image row count does not match identity".to_owned());
+    }
+    write_nvme_range_image_stream(path, identity, block_payload_bytes, rows.iter().cloned())
+}
+
+/// Stream sorted rows into one root-bound, aligned version-3 range image.
+///
+/// # Errors
+///
+/// Returns an error when identity, rows, block geometry, or file persistence is invalid.
+#[allow(clippy::too_many_lines)]
+pub fn write_nvme_range_image_stream<I>(
+    path: &Path,
+    identity: &NvmeRangeImageIdentity<'_>,
+    block_payload_bytes: usize,
+    rows: I,
+) -> Result<NvmeRangeImageWriteReceipt, String>
+where
+    I: IntoIterator<Item = (Vec<u8>, Vec<u8>)>,
+{
     if identity.image_identity_sha256.is_some()
-        || identity.row_count != u64::try_from(rows.len()).unwrap_or(u64::MAX)
+        || identity.row_count == 0
         || identity.range_begin >= identity.range_end
         || !matches!(
             block_payload_bytes,
@@ -563,7 +608,6 @@ pub fn write_nvme_range_image(
     {
         return Err("aligned range-image writer configuration is invalid".to_owned());
     }
-    validate_rows(identity, rows)?;
     let mut file = OpenOptions::new()
         .create_new(true)
         .read(true)
@@ -578,7 +622,18 @@ pub fn write_nvme_range_image(
     block.extend_from_slice(&0_u32.to_be_bytes());
     let mut block_rows = 0_u32;
     let mut first_key = Vec::new();
+    let mut previous_key: Option<Vec<u8>> = None;
+    let mut observed_rows = 0_u64;
     for (key, value) in rows {
+        if key.as_slice() < identity.range_begin
+            || key.as_slice() >= identity.range_end
+            || value.is_empty()
+            || previous_key
+                .as_ref()
+                .is_some_and(|previous| previous.as_slice() >= key.as_slice())
+        {
+            return Err("aligned range-image rows are invalid".to_owned());
+        }
         let row_bytes = 8_usize
             .checked_add(key.len())
             .and_then(|bytes| bytes.checked_add(value.len()))
@@ -594,11 +649,16 @@ pub fn write_nvme_range_image(
             )?;
         }
         if block_rows == 0 {
-            first_key.clone_from(key);
+            first_key.clone_from(&key);
         }
-        append_length_prefixed(&mut block, key)?;
-        append_length_prefixed(&mut block, value)?;
+        append_length_prefixed(&mut block, &key)?;
+        append_length_prefixed(&mut block, &value)?;
         block_rows = block_rows.saturating_add(1);
+        previous_key = Some(key);
+        observed_rows = observed_rows.saturating_add(1);
+    }
+    if observed_rows != identity.row_count {
+        return Err("aligned range-image streamed row count does not match identity".to_owned());
     }
     if block_rows > 0 {
         flush_block(
@@ -995,22 +1055,6 @@ fn decode_index(bytes: &[u8], header: &HeaderFields) -> Result<Vec<BlockIndexEnt
         return Err("aligned range-image index coverage mismatch".to_owned());
     }
     Ok(index)
-}
-
-fn validate_rows(
-    identity: &NvmeRangeImageIdentity<'_>,
-    rows: &[(Vec<u8>, Vec<u8>)],
-) -> Result<(), String> {
-    for (position, (key, value)) in rows.iter().enumerate() {
-        if key.as_slice() < identity.range_begin
-            || key.as_slice() >= identity.range_end
-            || value.is_empty()
-            || (position > 0 && rows[position - 1].0 >= *key)
-        {
-            return Err("aligned range-image rows are invalid".to_owned());
-        }
-    }
-    Ok(())
 }
 
 fn validate_block(bytes: &[u8], entry: &BlockIndexEntry) -> Result<(), String> {
