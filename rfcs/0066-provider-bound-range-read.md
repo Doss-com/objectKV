@@ -1,6 +1,6 @@
 # RFC 0066: Provider-bound range reads
 
-- Status: active work, local identity controls admitted
+- Status: in-region GCS cache states and identity controls admitted
 - Authors: objectKV contributors
 - Created: 2026-08-24
 - Supersedes: none
@@ -212,18 +212,31 @@ controller retry cleanup after worker failure or timeout. Focused tests and
 the local contract pass. This is implementation readiness, not a remote
 result.
 
-No GCS performance claim follows from this result. The current `gcloud`
-identity cannot refresh its token non-interactively; prior inventory could not
-access project `doss-objectkv-dev`, and candidate bucket
-`doss-objectkv-dev-okv-evals` was absent. GCS latency, OTel, cleanup, and price
-gates remain unexecuted. The 32 MiB profile also does not yet prove
-provider-bound activation-byte independence across dataset sizes or a
-production cache hit rate.
+## In-region GCS result
+
+Candidate `257fe2a` ran the frozen matrix from an ephemeral
+`n2-standard-8` worker in `us-central1-a` against the single-region
+`doss-objectkv-dev-okv-evals` bucket. Empty-cache first-point latency was 48.6
+ms median and 53.4 ms maximum across five seeds with one 64 KiB data GET.
+Metadata-warm but data-cold was 40.8 ms median. Persistent-NVMe first point was
+294.5 us median and issued zero serving-path provider reads. Warm p99 medians
+were 245 to 284 us.
+
+Every correct gate passed, including exact generation checks, semantic replay,
+request and byte accounting, RSS, OTel metrics, traces, logs, and live scratch
+cleanup. All six identity controls discarded. Bucket versioning and soft delete
+retained 218 deleted or noncurrent generations totaling 1,464,840,385 bytes,
+so zero live names is not zero retained storage cost.
+
+The GCS result admits the cache-first shape, not a production hit ratio. The 32
+MiB profile repeats a 128-point warmed working set. RFC 0067 owns cache
+capacity, access skew, reuse distance, and view-churn economics.
 
 ## Unresolved questions
 
-1. Does GCS in-region empty-cache p99 meet the bound without a regional cache?
-2. What fraction of reads hit persistent NVMe at realistic worker churn?
+1. What fraction of reads hit persistent NVMe at realistic capacity and reuse
+   distance?
+2. Does full empty-cache replacement stay bounded as dataset size grows?
 3. Is provider generation plus publication SHA-256 sufficient for the target
    threat model, or must the SST format add authenticated blocks?
 4. Should a failed background audit drain existing readers or revoke them

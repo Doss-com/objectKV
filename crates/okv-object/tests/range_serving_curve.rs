@@ -1,5 +1,6 @@
 use okv_object::{
-    run_range_serving_curve_worker, RangeServingCacheMode, RangeServingCurveConfig,
+    run_range_serving_curve_worker, ProviderCacheEconomicsConfig, ProviderCacheEconomicsMode,
+    ProviderCacheTraceDistribution, RangeServingCacheMode, RangeServingCurveConfig,
     RangeServingObjectBackend, RangeServingProviderMode,
 };
 
@@ -22,6 +23,7 @@ async fn measures_exact_authority_base_plus_certified_tail() {
         scratch_prefix: None,
         warmup_reads: 0,
         measured_reads: 0,
+        economics: None,
         seed: 1103,
     }))
     .await
@@ -55,6 +57,7 @@ async fn shared_cache_removes_backend_requests_from_repeated_points() {
         scratch_prefix: None,
         warmup_reads: 0,
         measured_reads: 0,
+        economics: None,
         seed: 2207,
     }))
     .await
@@ -86,6 +89,7 @@ async fn decoded_ram_cold_reopen_reads_from_persistent_nvme_cache() {
         scratch_prefix: None,
         warmup_reads: 0,
         measured_reads: 0,
+        economics: None,
         seed: 3301,
     }))
     .await
@@ -129,6 +133,7 @@ async fn provider_bound_curve_checks_every_backend_get_revision() {
         scratch_prefix: None,
         warmup_reads: 8,
         measured_reads: 16,
+        economics: None,
         seed: 4409,
     }))
     .await
@@ -165,6 +170,7 @@ async fn provider_controls_refuse_changed_revision_and_detect_unversioned_fallba
         scratch_prefix: None,
         warmup_reads: 4,
         measured_reads: 8,
+        economics: None,
         seed: 5519,
     };
 
@@ -222,6 +228,7 @@ async fn gcs_backend_refuses_an_unguarded_scratch_scope_before_network_io() {
         scratch_prefix: Some("unscoped-eval".to_owned()),
         warmup_reads: 2,
         measured_reads: 2,
+        economics: None,
         seed: 6619,
     };
 
@@ -229,4 +236,57 @@ async fn gcs_backend_refuses_an_unguarded_scratch_scope_before_network_io() {
         .await
         .expect_err("unguarded GCS prefix must fail closed");
     assert!(error.contains("guarded scratch prefix"), "{error}");
+}
+
+#[tokio::test]
+async fn provider_cache_economics_classifies_every_bounded_point_read() {
+    let receipt = Box::pin(run_range_serving_curve_worker(&RangeServingCurveConfig {
+        base_key_count: 256,
+        value_bytes: 1_024,
+        tail_records: 0,
+        point_samples: 128,
+        scan_rows: 1,
+        max_rss_bytes: 1_073_741_824,
+        cache_mode: RangeServingCacheMode::SharedRamNvme,
+        decoded_cache_bytes: 65_536,
+        nvme_cache_bytes: 131_072,
+        nvme_part_bytes: 65_536,
+        nvme_open_file_handles: 16,
+        provider_mode: RangeServingProviderMode::Correct,
+        object_backend: RangeServingObjectBackend::Local,
+        scratch_prefix: None,
+        warmup_reads: 64,
+        measured_reads: 128,
+        economics: Some(ProviderCacheEconomicsConfig {
+            distribution: ProviderCacheTraceDistribution::Uniform,
+            zipf_theta_milli: 0,
+            hotset_fraction_ppm: 0,
+            hot_read_fraction_ppm: 0,
+            hotset_shift_every: 0,
+            view_reopen_every: 64,
+            provider_get_cost_nano_usd: 400,
+            mode: ProviderCacheEconomicsMode::Correct,
+        }),
+        seed: 7727,
+    }))
+    .await
+    .expect("provider cache economics worker executes");
+
+    let economics = receipt
+        .economics
+        .expect("provider cache economics receipt exists");
+    assert_eq!(economics.logical_reads, 128);
+    assert_eq!(economics.cache_hits + economics.cache_misses, 128);
+    assert_eq!(economics.oracle_checks, 128);
+    assert!(economics.oracle_exact);
+    assert_eq!(economics.oracle_sha256, economics.observed_sha256);
+    assert!(economics.cache_bound_enabled);
+    assert!(economics.cache_bound_held);
+    assert!(economics.settled_cache_bytes <= economics.cache_capacity_bytes);
+    assert_eq!(economics.view_reopens, 1);
+    assert_eq!(
+        receipt.provider_get_requests,
+        receipt.provider_revision_checks
+    );
+    assert!(receipt.scratch_cleanup_complete);
 }

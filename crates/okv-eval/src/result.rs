@@ -121,9 +121,31 @@ pub fn median_absolute_deviation(samples: &[f64], sample_median: f64) -> f64 {
     median(&deviations)
 }
 
+/// Reduce one recorded metric series with the statistic vocabulary accepted by
+/// eval-suite lane contracts.
+#[must_use]
+pub fn statistic(samples: &[f64], name: &str) -> Option<f64> {
+    if samples.is_empty() {
+        return None;
+    }
+    match name {
+        "median" | "p50" | "per_operation" => Some(median(samples)),
+        "p99" => {
+            let mut values = samples.to_vec();
+            values.sort_by(f64::total_cmp);
+            let index = values.len().saturating_sub(1).saturating_mul(99) / 100;
+            Some(values[index])
+        }
+        "minimum" => samples.iter().copied().reduce(f64::min),
+        "maximum" => samples.iter().copied().reduce(f64::max),
+        "total" | "passed" => Some(samples.iter().sum()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{median, median_absolute_deviation};
+    use super::{median, median_absolute_deviation, statistic};
 
     #[test]
     fn calculates_median_and_mad() {
@@ -131,5 +153,17 @@ mod tests {
         let median = median(&samples);
         assert!((median - 3.0).abs() < f64::EPSILON);
         assert!((median_absolute_deviation(&samples, median) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn reduces_supported_lane_statistics() {
+        let samples = [1.0, 2.0, 3.0, 100.0];
+        assert_eq!(statistic(&samples, "p50"), Some(2.5));
+        assert_eq!(statistic(&samples, "p99"), Some(3.0));
+        assert_eq!(statistic(&samples, "minimum"), Some(1.0));
+        assert_eq!(statistic(&samples, "maximum"), Some(100.0));
+        assert_eq!(statistic(&samples, "total"), Some(106.0));
+        assert_eq!(statistic(&samples, "unknown"), None);
+        assert_eq!(statistic(&[], "total"), None);
     }
 }

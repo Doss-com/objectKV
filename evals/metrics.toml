@@ -1001,6 +1001,71 @@ attributes = ["lane", "workload", "backend", "cache.state", "price.snapshot", "c
 required_attributes = ["lane", "workload", "backend", "cache.state", "price.snapshot", "cost.class"]
 
 [[metrics]]
+id = "provider_bound.cache_miss_ratio"
+otel_name = "okv.eval.provider_bound.cache_miss_ratio"
+kind = "gauge"
+unit = "1"
+description = "Measured logical point reads that required at least one provider request"
+attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "result"]
+required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "result"]
+
+[[metrics]]
+id = "provider_bound.cache_hit_ratio"
+otel_name = "okv.eval.provider_bound.cache_hit_ratio"
+kind = "gauge"
+unit = "1"
+description = "Measured logical point reads served without a provider request"
+attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "result"]
+required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "result"]
+
+[[metrics]]
+id = "provider_bound.point_duration"
+otel_name = "okv.eval.provider_bound.point.duration"
+kind = "histogram"
+unit = "s"
+description = "Exact provider-bound logical point-read latency classified by serving tier"
+attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "cache.result", "result"]
+required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "cache.result", "result"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "provider_bound.logical_reads"
+otel_name = "okv.eval.provider_bound.logical_reads"
+kind = "counter"
+unit = "{read}"
+description = "Measured exact logical point reads classified by cache result"
+attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "cache.result", "result"]
+required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "cache.result", "result"]
+
+[[metrics]]
+id = "provider_bound.reuse_distance"
+otel_name = "okv.eval.provider_bound.reuse_distance"
+kind = "histogram"
+unit = "{point}"
+description = "Logical distinct-key reuse distance in the frozen deterministic access trace"
+attributes = ["lane", "workload", "trace.distribution"]
+required_attributes = ["lane", "workload", "trace.distribution"]
+boundaries = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+
+[[metrics]]
+id = "provider_bound.cache_resident_bytes"
+otel_name = "okv.eval.provider_bound.cache_resident_bytes"
+kind = "gauge"
+unit = "By"
+description = "Settled persistent-cache bytes under the fixed physical capacity"
+attributes = ["lane", "workload", "backend", "cache.capacity", "result"]
+required_attributes = ["lane", "workload", "backend", "cache.capacity", "result"]
+
+[[metrics]]
+id = "provider_bound.view_reopens"
+otel_name = "okv.eval.provider_bound.view_reopens"
+kind = "counter"
+unit = "{reopen}"
+description = "Immutable view reopens with fresh decoded RAM and retained persistent cache"
+attributes = ["lane", "workload", "backend", "trace.distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "trace.distribution", "result"]
+
+[[metrics]]
 id = "postgres.objectification_input_bytes"
 otel_name = "okv.eval.postgres.objectification_input_bytes"
 kind = "counter"

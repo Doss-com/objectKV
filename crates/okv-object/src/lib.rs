@@ -152,9 +152,10 @@ pub use range_serving_concurrency::{
     RANGE_SERVING_FIXTURE_TENANT_ID,
 };
 pub use range_serving_curve::{
-    cleanup_range_serving_curve_gcs_scratch, run_range_serving_curve_worker, RangeServingCacheMode,
-    RangeServingCurveConfig, RangeServingCurveReceipt, RangeServingObjectBackend,
-    RangeServingProviderMode,
+    cleanup_range_serving_curve_gcs_scratch, run_range_serving_curve_worker,
+    ProviderCacheEconomicsConfig, ProviderCacheEconomicsMode, ProviderCacheEconomicsReceipt,
+    ProviderCacheTraceDistribution, RangeServingCacheMode, RangeServingCurveConfig,
+    RangeServingCurveReceipt, RangeServingObjectBackend, RangeServingProviderMode,
 };
 pub use range_serving_handoff::{
     run_range_serving_handoff_contract, run_range_serving_handoff_worker_process,

@@ -2937,3 +2937,79 @@ skew, concurrency, worker churn, and larger datasets. In parallel, measure
 sustained objectification and compaction. Continue only if a practical RAM and
 NVMe budget holds the required hit ratio and if request, byte, compute, and
 storage costs beat the replicated-local incumbent for a named workload.
+
+## D99. Freeze cache economics before changing cache policy
+
+Status: `[DECIDED]` and `[EXISTS]` for the RFC and eval contract,
+`[ACTIVE-WORK]` for implementation and first local curve, 2026-08-24.
+
+Decision: freeze RFC 0067 and suite `provider-bound-cache-economics-v0` before
+changing cache admission, eviction, part size, or prefetch. Measure uniform,
+Zipfian `0.99`, and moving-hotset traces against persistent-NVMe capacities of
+1, 5, 10, and 25 percent of logical data. Keep decoded RAM fixed separately.
+Use provider miss ratio as the sole primary metric.
+
+Optimizes for: exposing whether the admitted GCS shape is economical under a
+fixed physical budget, preserving exact provider identity, and producing a
+curve that cache-policy candidates can improve without changing workload or
+hardware.
+
+Gives up: claiming that one synthetic trace predicts every PostgreSQL, Redis,
+or search workload. The first churn point reopens decoded views in one process
+while retaining persistent cache; it does not prove replacement-process or
+cross-host cache reuse.
+
+The frozen request-cost threshold is a 2.5 percent provider miss ratio. This is
+equivalent to $0.01 per million logical reads when every miss costs one Class B
+GET under snapshot `gcs-us-central1-standard-2026-08-24`. The separate latency
+goal is stricter because a 40 to 50 ms miss must occur in fewer than one percent
+of reads to stay outside a sub-millisecond p99.
+
+Four unsafe controls disable the persistent-cache bound, skip the exact-result
+oracle, skip provider-revision enforcement, or perturb replay. A semantically
+correct workload that exceeds the economic threshold is still discarded and
+recorded. Do not increase cache capacity, runtime, or hardware to turn that
+result green.
+
+Next decision: implement the frozen process worker without changing the suite,
+run the local curve and controls, then select only representative boundary
+points for GCS. If 25 percent persistent capacity cannot approach the target on
+the named skewed or moving-hotset trace, revisit workload scope before cache
+optimization.
+
+## D100. Reject passive demand caching as the complete serving policy
+
+Status: `[DECIDED]` and `[EXISTS]` for two 25-percent-local stop points and four
+unsafe controls, `[ACTIVE-WORK]` for an explicit-locality candidate,
+2026-08-25.
+
+Decision: retain object storage as the authoritative durability and rebuild
+tier, and retain RAM plus NVMe as the hot serving path. Reject generic passive
+demand caching alone as the serving policy for the declared OLTP economics.
+Do not spend on another remote replay until a local mechanism materially
+improves the frozen miss curve.
+
+Optimizes for: honest request economics, sub-millisecond hit latency, bounded
+local capacity, and an experiment sequence that can falsify the product thesis
+before adding distributed-system complexity.
+
+Gives up: the assumption that a small local cache automatically makes object
+storage behave like RocksDB. At 25 percent persistent-NVMe capacity, Zipfian
+`0.99` missed 26.820 percent and the moving 10-percent hotset missed 14.535
+percent. The frozen ceiling is 2.5 percent for request cost, while a
+sub-millisecond p99 needs remote misses below one percent.
+
+Evidence: candidate `5545bf5`, suite
+`provider-bound-cache-economics-v0`, Zipfian run
+`75309877-2447-4e25-aabb-075ccb9e2078`, and moving-hotset run
+`8cfa5363-f1a3-4b09-8b24-4f5c19a84e56`. Projected GCS request cost was
+$0.11566 and $0.06226 per million logical reads, 11.6x and 6.2x the target.
+Every semantic, identity, bound, replay, and cleanup gate passed. Unbounded
+cache, skipped oracle, skipped provider revision, and perturbed replay all
+discarded. The runner's previously missing lane-constraint execution was fixed
+before these results were admitted.
+
+Next decision: freeze an orthogonal explicit-locality hypothesis, starting
+with range-aware placement or prefetch at the same 25-percent capacity and
+without changing the suite. If no practical placement policy approaches the
+target, narrow objectKV to colder or locality-declared workloads.
