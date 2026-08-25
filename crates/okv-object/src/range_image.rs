@@ -62,6 +62,14 @@ pub(crate) struct RangeImageOpenReceipt {
     pub accounted_resident_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum RangeImageOpenMode {
+    #[default]
+    Correct,
+    AcceptCorruptIndexChecksum,
+    SkipBlockChecksum,
+}
+
 #[derive(Clone, Debug)]
 struct BlockIndexEntry {
     first_key: Vec<u8>,
@@ -132,9 +140,8 @@ pub(crate) struct RangeImageReader {
     file_read_operations: AtomicU64,
     file_read_bytes: AtomicU64,
     base_resident_bytes: usize,
-    image_bytes: u64,
     image_identity_sha256: String,
-    index_bytes: u64,
+    verify_block_checksum: bool,
 }
 
 impl RangeImageReader {
@@ -142,6 +149,21 @@ impl RangeImageReader {
         path: &Path,
         expected: &RangeImageIdentity<'_>,
         memory_budget_bytes: usize,
+    ) -> Result<(Self, RangeImageOpenReceipt), String> {
+        Self::open_with_mode(
+            path,
+            expected,
+            memory_budget_bytes,
+            RangeImageOpenMode::Correct,
+        )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub fn open_with_mode(
+        path: &Path,
+        expected: &RangeImageIdentity<'_>,
+        memory_budget_bytes: usize,
+        mode: RangeImageOpenMode,
     ) -> Result<(Self, RangeImageOpenReceipt), String> {
         let file = File::open(path).map_err(|error| error.to_string())?;
         let image_bytes = file.metadata().map_err(|error| error.to_string())?.len();
@@ -176,7 +198,9 @@ impl RangeImageReader {
             &counter_refs,
         )?;
         let index_sha256: [u8; 32] = Sha256::digest(&index_bytes).into();
-        if index_sha256 != footer_fields.index_sha256 {
+        if index_sha256 != footer_fields.index_sha256
+            && mode != RangeImageOpenMode::AcceptCorruptIndexChecksum
+        {
             return Err("range image index checksum mismatch".to_owned());
         }
         let header_fields = decode_header(&header)?;
@@ -205,6 +229,7 @@ impl RangeImageReader {
         if expected
             .image_identity_sha256
             .is_some_and(|identity| identity != image_identity_sha256)
+            && mode != RangeImageOpenMode::AcceptCorruptIndexChecksum
         {
             return Err("range image identity does not match ready receipt".to_owned());
         }
@@ -236,9 +261,8 @@ impl RangeImageReader {
                 file_read_operations: AtomicU64::new(open_file_io.operations),
                 file_read_bytes: AtomicU64::new(open_file_io.bytes),
                 base_resident_bytes,
-                image_bytes,
                 image_identity_sha256,
-                index_bytes: footer_fields.index_bytes,
+                verify_block_checksum: mode != RangeImageOpenMode::SkipBlockChecksum,
             },
             receipt,
         ))
@@ -334,16 +358,21 @@ impl RangeImageReader {
         u64::try_from(self.base_resident_bytes.saturating_add(cache_bytes)).unwrap_or(u64::MAX)
     }
 
-    pub fn image_bytes(&self) -> u64 {
-        self.image_bytes
-    }
-
     pub fn image_identity_sha256(&self) -> &str {
         &self.image_identity_sha256
     }
 
-    pub fn index_bytes(&self) -> u64 {
-        self.index_bytes
+    pub fn get_linear_uncached(&self, key: &[u8]) -> Result<Option<Vec<u8>>, String> {
+        if key < self.range_begin.as_slice() || key >= self.range_end.as_slice() {
+            return Err("point is outside placed range".to_owned());
+        }
+        for entry in &self.index {
+            let bytes = self.read_block_uncached(entry)?;
+            if let Some(value) = find_value_in_block(&bytes, key)? {
+                return Ok(Some(value));
+            }
+        }
+        Ok(None)
     }
 
     fn read_block(&self, block_number: u32) -> Result<Arc<[u8]>, String> {
@@ -359,20 +388,26 @@ impl RangeImageReader {
             .index
             .get(block_number as usize)
             .ok_or_else(|| "range image block number is outside index".to_owned())?;
-        let counters = (&self.file_read_operations, &self.file_read_bytes);
-        let bytes =
-            read_exact_at_counted(&self.file, entry.offset, entry.length as usize, &counters)?;
-        let observed: [u8; 32] = Sha256::digest(&bytes).into();
-        if observed != entry.sha256 {
-            return Err("range image data-block checksum mismatch".to_owned());
-        }
-        validate_block(&bytes, entry)?;
-        let bytes: Arc<[u8]> = bytes.into();
+        let bytes = self.read_block_uncached(entry)?;
         self.cache
             .lock()
             .map_err(|_| "range image block cache lock poisoned".to_owned())?
             .insert(block_number, bytes.clone());
         Ok(bytes)
+    }
+
+    fn read_block_uncached(&self, entry: &BlockIndexEntry) -> Result<Arc<[u8]>, String> {
+        let counters = (&self.file_read_operations, &self.file_read_bytes);
+        let bytes =
+            read_exact_at_counted(&self.file, entry.offset, entry.length as usize, &counters)?;
+        if self.verify_block_checksum {
+            let observed: [u8; 32] = Sha256::digest(&bytes).into();
+            if observed != entry.sha256 {
+                return Err("range image data-block checksum mismatch".to_owned());
+            }
+        }
+        validate_block(&bytes, entry)?;
+        Ok(bytes.into())
     }
 }
 
@@ -471,6 +506,51 @@ pub(crate) fn root_identity_digest(parts: &[&[u8]]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+pub(crate) fn corrupt_index_checksum(path: &Path) -> Result<(), String> {
+    let mut bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    if bytes.len() < FOOTER_BYTES {
+        return Err("range image is shorter than its footer".to_owned());
+    }
+    let checksum_byte = bytes
+        .len()
+        .checked_sub(1)
+        .ok_or_else(|| "range image checksum byte is missing".to_owned())?;
+    bytes[checksum_byte] ^= 0x01;
+    std::fs::write(path, bytes).map_err(|error| error.to_string())
+}
+
+pub(crate) fn corrupt_first_block_value(path: &Path) -> Result<(), String> {
+    let mut bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    if bytes.len() < FOOTER_BYTES {
+        return Err("range image is shorter than its footer".to_owned());
+    }
+    let footer_start = bytes.len().saturating_sub(FOOTER_BYTES);
+    let footer = decode_footer(&bytes[footer_start..])?;
+    let block_start = usize::try_from(footer.header_bytes)
+        .map_err(|_| "range image header exceeds usize".to_owned())?;
+    let block_end = usize::try_from(footer.index_offset)
+        .map_err(|_| "range image index offset exceeds usize".to_owned())?;
+    let mut cursor = block_start;
+    let _row_count = read_u32_at(&bytes, cursor)?;
+    cursor = cursor.saturating_add(4);
+    let key_length = read_u32_at(&bytes, cursor)? as usize;
+    cursor = cursor.saturating_add(4).saturating_add(key_length);
+    let value_length = read_u32_at(&bytes, cursor)? as usize;
+    cursor = cursor.saturating_add(4);
+    let value_end = cursor.saturating_add(value_length);
+    if value_end > block_end {
+        return Err("range image first value is outside first block".to_owned());
+    }
+    let value = bytes
+        .get_mut(cursor..value_end)
+        .ok_or_else(|| "range image first value is outside file".to_owned())?;
+    let first = value
+        .first_mut()
+        .ok_or_else(|| "range image first value is empty".to_owned())?;
+    *first ^= 0x01;
+    std::fs::write(path, bytes).map_err(|error| error.to_string())
+}
+
 fn validate_rows(identity: &RangeImageIdentity<'_>, rows: &[RangeRow]) -> Result<(), String> {
     for (index, (key, value)) in rows.iter().enumerate() {
         if key.as_slice() < identity.range_begin || key.as_slice() >= identity.range_end {
@@ -559,7 +639,11 @@ fn encode_header(identity: &RangeImageIdentity<'_>, block_count: u32) -> Result<
     bytes.extend_from_slice(&identity.target_version.to_be_bytes());
     bytes.extend_from_slice(&identity.row_count.to_be_bytes());
     bytes.extend_from_slice(&block_count.to_be_bytes());
-    bytes.extend_from_slice(&(MAX_BLOCK_BYTES as u32).to_be_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(MAX_BLOCK_BYTES)
+            .map_err(|_| "maximum range-image block bytes exceed u32".to_owned())?
+            .to_be_bytes(),
+    );
     append_length_prefixed(&mut bytes, identity.range_begin)?;
     append_length_prefixed(&mut bytes, identity.range_end)?;
     bytes.extend_from_slice(&identity.root_identity_digest);
@@ -838,6 +922,16 @@ fn take_bytes<'a>(input: &mut &'a [u8], length: usize) -> Result<&'a [u8], Strin
     Ok(head)
 }
 
+fn read_u32_at(input: &[u8], offset: usize) -> Result<u32, String> {
+    Ok(u32::from_be_bytes(
+        input
+            .get(offset..offset.saturating_add(4))
+            .ok_or_else(|| "range image u32 offset is truncated".to_owned())?
+            .try_into()
+            .map_err(|_| "range image u32 offset is truncated".to_owned())?,
+    ))
+}
+
 fn read_exact_at_counted(
     file: &File,
     offset: u64,
@@ -912,7 +1006,7 @@ mod tests {
             .collect()
     }
 
-    fn identity<'a>(rows: &'a [RangeRow]) -> RangeImageIdentity<'a> {
+    fn identity(rows: &[RangeRow]) -> RangeImageIdentity<'_> {
         RangeImageIdentity {
             target_version: 7,
             range_begin: &rows[0].0,
@@ -958,7 +1052,9 @@ mod tests {
         let mut expected = identity(&expected_rows);
         expected.image_identity_sha256 = Some(&write.image_identity_sha256);
         let mut bytes = fs::read(&path).unwrap();
-        let index_offset = bytes.len() - FOOTER_BYTES - write.index_bytes as usize;
+        let index_offset = bytes.len()
+            - FOOTER_BYTES
+            - usize::try_from(write.index_bytes).expect("test index fits usize");
         bytes[index_offset + 8] ^= 0x01;
         fs::write(&path, &bytes).unwrap();
         assert!(RangeImageReader::open(&path, &expected, 524_288).is_err());
@@ -1025,8 +1121,10 @@ mod tests {
         let operations_p99 = operations[p99(operations.len())];
         let bytes_p99 = bytes[p99(bytes.len())];
         let accounted = reader.accounted_resident_bytes();
-        let image_to_memory = write.image_bytes as f64 / MEMORY_BUDGET as f64;
-        let hit_ratio = hits as f64 / 4_096.0;
+        let image_to_memory =
+            f64::from(u32::try_from(write.image_bytes).expect("test image bytes fit u32"))
+                / f64::from(u32::try_from(MEMORY_BUDGET).expect("test budget fits u32"));
+        let hit_ratio = f64::from(u32::try_from(hits).expect("test hits fit u32")) / 4_096.0;
         eprintln!(
             "range_image_full image={} ratio={image_to_memory:.3} accounted={} index={} blocks={} open_ops={} open_bytes={} open_us={:.3} point_ops_p99={} point_bytes_p99={} point_us_p99={:.3} hit_ratio={hit_ratio:.3}",
             write.image_bytes,
