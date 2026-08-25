@@ -2501,8 +2501,8 @@ remote misses dominate the OLTP latency distribution.
 
 ## Provider-bound cache-economics gate
 
-`[EXISTS]` RFC 0067 and suite `provider-bound-cache-economics-v0` freeze the
-next economic falsifier before implementation. The suite measures exact
+`[EXISTS]` RFC 0067 and suite `provider-bound-cache-economics-v0` implement the
+next economic falsifier. The suite measures exact
 provider-bound point reads over uniform, Zipfian `0.99`, and moving-hotset
 traces while persistent NVMe is fixed at 1, 5, 10, or 25 percent of the 32 MiB
 logical dataset. Decoded RAM is fixed separately. One workload reopens the
@@ -2527,6 +2527,19 @@ first representative cloud points are the 10 percent Zipfian workload, the 25
 percent moving-hotset workload, and the decoded-view churn workload. Full
 replacement-process churn, concurrent tenants, mixed scans, and sustained
 writes remain outside this contract.
+
+`[EXISTS]` The first five-seed local stop points discard passive demand caching
+as the complete serving policy. With persistent NVMe equal to 25 percent of
+logical data, Zipfian `0.99` missed 26.820 percent of reads and the moving
+10-percent hotset missed 14.535 percent. Their projected GCS request costs were
+$0.11566 and $0.06226 per million logical reads, against the frozen $0.01
+target. Every semantic, provider-identity, physical-bound, trace-replay, RSS,
+and cleanup gate passed. All four controls produced schema-valid discards.
+
+`[EXISTS]` Lane constraints are now executed, not only schema-validated. Each
+constraint emits a named hard gate with the observed statistic, operator, and
+target. A semantically correct workload that misses its economic ceiling is a
+`discard`, as required by the research program.
 
 ## Noise and effect rule
 

@@ -1,15 +1,18 @@
 # Provider-bound performance readout
 
-Status: `[EXISTS]` five-seed local and in-region GCS cache curves, six GCS
-identity controls, OTel export, and zero-live-object cleanup. `[ACTIVE-WORK]`
-realistic reuse-distance, cache-capacity, concurrency, and dataset-size curves.
+Status: `[EXISTS]` five-seed local and in-region GCS cache curves, the first two
+realistic 25-percent cache stop points, all cache-economics controls, OTel
+export, and zero-live-object cleanup. `[ACTIVE-WORK]` explicit locality,
+concurrency, and dataset-size curves.
 
 ## Verdict
 
-Continue, with a cache-first architecture. The measured local and GCS curves
-support objectKV as a cached compute system whose authoritative rebuild state
-lives on objects. They reject an architecture that performs object-store I/O
-on every OLTP operation.
+Continue the object-authority architecture, but reject passive demand caching
+as the complete serving policy. The measured local and GCS curves support
+objectKV as a compute system whose authoritative rebuild state lives on
+objects. The realistic cache-capacity results now show that fast RAM/NVMe hits
+alone do not make the current policy economical. Locality must be created
+through placement, prefetch, or a larger declared local-data fraction.
 
 The strongest result is that relation size is no longer on the first-read
 critical path. A fresh process opened an exact 512 MiB PostgreSQL relation view
@@ -26,11 +29,12 @@ view open still required 71.7 to 382.5 ms median, depending on cache state.
 Object storage is therefore a credible durability and rebuild tier, but not a
 credible direct hot-read tier.
 
-The economic result remains conditional on hit rate. RAM and persistent NVMe
-remove backend data GETs after a 128-point working set is filled. Eviction
-causes backend refill, so reuse distance, cache capacity, and the 64 KiB cache
-part size are controlling variables. The cloud run proves the mechanism, not a
-production hit ratio.
+The economic condition is now measured for two stop points. At 25 percent
+persistent-NVMe capacity, Zipfian `0.99` missed 26.820 percent of logical reads
+and a moving 10-percent hotset missed 14.535 percent. Both are far above the
+2.5-percent request-cost ceiling. The cloud run proves the hit and miss
+mechanisms; the local trace proves that the current passive cache policy does
+not produce a production hit ratio.
 
 ## Provider-bound local baseline
 
@@ -149,6 +153,40 @@ KB per logical read. The results stayed exact and the cache stayed bounded, but
 this is the remote-refill curve that can make the product slow if working sets
 do not fit the RAM and NVMe budget.
 
+## First realistic cache-economics stop points
+
+The frozen cache-economics suite extended the run to 2,000 warmup and 20,000
+measured reads per seed. It retained the 32 MiB, 4,096-key fixture, used five
+fixed seeds, and bounded persistent NVMe to 25 percent of logical data. Every
+semantic identity, exact-result, deterministic-replay, cache-bound, and cleanup
+gate passed.
+
+| Workload | Provider miss ratio p50 | Provider GETs/read p50 | Bytes/miss p50 | Projected GCS request cost per million reads | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Zipfian theta 0.99 | 26.820% | 0.28915 | about 70,976 B | $0.11566 | discard |
+| Moving 10% hotset, shift every 1,000 reads | 14.535% | 0.15565 | about 70,415 B | $0.06226 | discard |
+
+The request-cost projections apply the frozen $0.40 per million Class B GETs.
+They are 11.6x and 6.2x the $0.01 target. Both miss ratios also put remote
+latency directly inside p99. Using the measured 40 to 50 ms in-region miss as a
+simple mixture model, the Zipfian point would average roughly 12 ms and the
+moving-hotset point roughly 7 ms before queueing. That is an inference, not a
+measured cloud distribution.
+
+The cache settled below its declared 8 MiB physical bound. Result digests,
+trace digests, and reuse-distance digests matched their oracles. Four unsafe
+controls also discarded: unbounded cache, skipped exact-result oracle, skipped
+provider revision, and perturbed replay. During this experiment, the runner
+exposed that configured lane constraints were validated but not evaluated. The
+generic runner now executes and reports each constraint, and the corrected
+results explicitly fail `provider_miss_ratio_p50 <= 0.025`.
+
+This result rejects one mechanism, not the product thesis. The next candidate
+must create locality through explicit range placement, workload-informed
+prefetch and admission, or a larger declared local-data fraction. Another
+remote GCS replay of the unchanged passive policy would add cost without
+changing this decision.
+
 Compaction is currently favorable locally. The admitted 8 MiB path read 8.61
 MB, wrote 8.62 MB, and produced 1.027x maintenance write amplification through
 both local filesystem and MinIO. Public-cloud compaction throughput and cost
@@ -240,17 +278,18 @@ curves.
 
 ## Next exact experiment
 
-Add a reuse-distance and cache-capacity curve. The current
-1,000 measured reads repeat a 128-point warmed working set and therefore prove
-the cache-hit path, not a production hit ratio. Also repeat provider-bound
-activation at multiple dataset sizes. The existing suite bounds 32 MiB startup
-bytes but does not yet prove that provider-bound pre-first-read bytes stay flat
-as the closure grows.
+Freeze one orthogonal locality candidate while keeping the cache-economics
+suite unchanged. The first candidate should place or prefetch immutable parts
+by key range, because SQL indexes, Redis partitions, and search postings expose
+range ownership that uniform object-part demand caching ignores. Compare it to
+the discarded passive baseline at the same 25-percent NVMe bound. Do not tune
+the workload, threshold, seeds, or hardware after seeing the result.
 
-The next admission matrix should vary RAM and NVMe capacity, Zipfian skew,
-working-set size, concurrency, worker churn, and dataset size. Report logical
-operations per second, cache hit ratio, GCS GETs, GCS bytes, p50/p99 latency,
-CPU, RSS, and request cost together. In parallel, measure objectification and
-compaction under sustained writes. The next decision is whether a practical
-cache budget can hold at least the frozen 97.5 percent hit ratio without
-making compute more expensive than the storage it replaces.
+Only after a local candidate materially improves the miss curve should it use
+the GCS playground. Then add concurrency, worker churn, and larger dataset
+curves, reporting operations per second, miss ratio, GCS requests and bytes,
+p50/p99 latency, CPU, RSS, local-storage fraction, and request cost together.
+In parallel, measure objectification and compaction under sustained writes.
+The next decision is whether explicit locality can hold at least 97.5 percent
+hits at a local-data fraction that still gives objectKV an economic advantage
+over a replicated-local incumbent.

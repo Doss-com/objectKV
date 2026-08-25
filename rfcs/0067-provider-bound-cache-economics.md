@@ -1,6 +1,6 @@
 # RFC 0067: Provider-bound cache economics
 
-- Status: proposed, eval frozen before implementation
+- Status: implemented; first local 25 percent stop-condition points discard
 - Authors: objectKV contributors
 - Created: 2026-08-24
 - Supersedes: none
@@ -128,6 +128,39 @@ the request-cost target under the named skewed or moving-hotset trace. Revisit
 the 64 KiB part size when provider bytes per miss exceed the bound or byte
 amplification dominates request cost. Do not hide an uneconomic curve with a
 larger machine or cache profile.
+
+## First local stop-condition results
+
+`[EXISTS]` Candidate `5545bf5` ran both 25 percent stop-condition workloads
+through five fresh worker processes and one exact trace replay. Every value,
+provider identity, physical cache bound, trace, reuse-distance, RSS, and scratch
+cleanup gate passed. Both economic constraints discarded.
+
+| Trace | Miss ratio p50 | MAD | Provider GETs / logical read p50 | Projected GCS request cost / million reads | Decision |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Zipfian `0.99`, 25 percent NVMe | 26.820% | 0.165 pp | 0.28915 | $0.11566 | discard |
+| Moving 10 percent hotset, 25 percent NVMe | 14.535% | 0.075 pp | 0.15565 | $0.06226 | discard |
+
+The request-cost projection applies the frozen $0.40 per million GCS Class B
+GET price to the measured provider GETs per logical read. It is not a remote
+latency measurement. Median provider bytes per miss were about 71 KiB for both
+traces, below the 128 KiB bound. Transfer amplification is therefore not the
+dominant failure in these subjects. Insufficient locality under passive demand
+caching is.
+
+The result rejects passive demand caching as the complete serving policy. It
+does not reject object storage as the authoritative durability and rebuild
+tier. The next mechanism must change locality explicitly, for example through
+range placement, workload-informed prefetch, or a declared larger local-data
+fraction. Do not spend a GCS run on the same admitted-bad miss curve.
+
+Candidate `b9c8078` also made all four controls produce schema-valid discard
+receipts. Disabled cache bounds, skipped exact-result checks, skipped provider
+revision enforcement, and perturbed replay traces were each detected. During
+this run the generic eval runner was also corrected to enforce lane metric
+constraints. Before candidate `5545bf5`, a 26.71 percent miss result could be
+incorrectly labeled `keep` because lane constraints were validated but not
+executed.
 
 ## Alternatives
 

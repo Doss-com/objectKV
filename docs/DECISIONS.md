@@ -2976,3 +2976,40 @@ run the local curve and controls, then select only representative boundary
 points for GCS. If 25 percent persistent capacity cannot approach the target on
 the named skewed or moving-hotset trace, revisit workload scope before cache
 optimization.
+
+## D100. Reject passive demand caching as the complete serving policy
+
+Status: `[DECIDED]` and `[EXISTS]` for two 25-percent-local stop points and four
+unsafe controls, `[ACTIVE-WORK]` for an explicit-locality candidate,
+2026-08-25.
+
+Decision: retain object storage as the authoritative durability and rebuild
+tier, and retain RAM plus NVMe as the hot serving path. Reject generic passive
+demand caching alone as the serving policy for the declared OLTP economics.
+Do not spend on another remote replay until a local mechanism materially
+improves the frozen miss curve.
+
+Optimizes for: honest request economics, sub-millisecond hit latency, bounded
+local capacity, and an experiment sequence that can falsify the product thesis
+before adding distributed-system complexity.
+
+Gives up: the assumption that a small local cache automatically makes object
+storage behave like RocksDB. At 25 percent persistent-NVMe capacity, Zipfian
+`0.99` missed 26.820 percent and the moving 10-percent hotset missed 14.535
+percent. The frozen ceiling is 2.5 percent for request cost, while a
+sub-millisecond p99 needs remote misses below one percent.
+
+Evidence: candidate `5545bf5`, suite
+`provider-bound-cache-economics-v0`, Zipfian run
+`75309877-2447-4e25-aabb-075ccb9e2078`, and moving-hotset run
+`8cfa5363-f1a3-4b09-8b24-4f5c19a84e56`. Projected GCS request cost was
+$0.11566 and $0.06226 per million logical reads, 11.6x and 6.2x the target.
+Every semantic, identity, bound, replay, and cleanup gate passed. Unbounded
+cache, skipped oracle, skipped provider revision, and perturbed replay all
+discarded. The runner's previously missing lane-constraint execution was fixed
+before these results were admitted.
+
+Next decision: freeze an orthogonal explicit-locality hypothesis, starting
+with range-aware placement or prefetch at the same 25-percent capacity and
+without changing the suite. If no practical placement policy approaches the
+target, narrow objectKV to colder or locality-declared workloads.
