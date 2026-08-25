@@ -564,7 +564,9 @@ pub async fn run_assigned_range_placement_worker(
             corruption_detected = true;
             exact_scan = false;
         }
-        let outside_key = if config.assigned_range_index == 0 {
+        let outside_key = if config.logical_range_count == 1 {
+            b"outside-assigned-range".to_vec()
+        } else if config.assigned_range_index == 0 {
             key_for(assigned_end.min(config.key_count.saturating_sub(1)))
         } else {
             key_for(assigned_first.saturating_sub(1))
@@ -1197,6 +1199,19 @@ mod tests {
         assert!(receipt.ready_receipt_exact);
         assert!(receipt.scratch_cleanup_complete);
         assert_eq!(receipt.placed.oracle_digest.len(), 64);
+    }
+
+    #[tokio::test]
+    async fn full_range_uses_a_key_outside_the_logical_keyspace() {
+        let mut config = tiny(AssignedRangePlacementMode::Correct);
+        config.logical_range_count = 1;
+        config.assigned_range_index = 0;
+        config.apply_unrelated_pressure = false;
+        config.point_reads = config.key_count;
+
+        let receipt = run_assigned_range_placement_worker(&config).await.unwrap();
+
+        assert!(receipt.outside_range_refused);
     }
 
     #[tokio::test]
