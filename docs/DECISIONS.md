@@ -3061,3 +3061,42 @@ post-ready provider-work, or 1 ms point-p99 thresholds. If the incumbent
 discards, measure a derived range-local image under the same contract. Compare
 one and two disposable local serving copies plus object authority against one,
 two, and three local RocksDB replicas after a local candidate passes.
+
+## D102. Advance the sparse range image to a controlled NVMe curve
+
+Status: `[DECIDED]` and `[EXISTS]` for bounded application memory and explicit
+local-file I/O, `[ACTIVE-WORK]` for physical NVMe and whole-worker bounds,
+2026-08-25.
+
+Decision: keep the sparse-index, independently checksummed block-image
+mechanism for the next hardware experiment. Do not select the custom format as
+permanent, report its OS-page-cache result as physical NVMe latency, or advance
+to remote hydration before measuring its local throughput envelope.
+
+Optimizes for: exact provider-free serving from a disposable local image,
+bounded application memory, cheap fresh-process open, and a falsifiable path
+from object authority to hot local reads.
+
+Gives up: the decoded-RAM reader's sub-microsecond lookup and any assumption
+that a 64 KiB-class block automatically supports high-QPS uniform OLTP. The
+current uniform trace averages about 49.6 KiB of explicit local-file traffic
+per logical read after cache effects, which projects to about 484 MiB/s at
+10,000 reads/s and 4.73 GiB/s at 100,000 reads/s.
+
+Evidence: candidate
+`7e7247053e832ab7ca188c4d69da42e3052e6412`, suite
+`provider-bound-range-image-io-v0`, and five fixed seeds. A 33,704,472-byte
+image used 4,142,150 audited reader bytes, opened with three reads and 41,200
+bytes, and served the uniform curve at 124.25 us local-file point p99 median
+with one 57,530-byte read at p99. The ordered scan sustained 65,714 rows/s
+median. All correct runs used zero post-ready provider work. Complete decode,
+linear scan, corrupt-index acceptance, and skipped block verification each
+produced a schema-valid discard. OS page-cache state was uncontrolled and
+uniform median peak process RSS delta was 40.4 MB.
+
+Next decision: freeze a same-host NVMe experiment across 8, 16, 32, and 64
+KiB-class blocks, cold and warm states, concurrency and queue depth, total RSS,
+CPU, checksum cost, and a RocksDB or TiKV incumbent. Select a block geometry
+only if it clears exactness, memory, random-read throughput, and scan-throughput
+gates together. Then run exact-format GCS hydration and replacement-worker
+economics.

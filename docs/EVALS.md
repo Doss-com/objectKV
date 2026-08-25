@@ -2589,6 +2589,36 @@ provider fallback after readiness must each produce a schema-valid discard.
 No GCS performance claim is allowed until one local subject passes readiness,
 exactness, post-ready provider isolation, and cleanup.
 
+## Bounded range-image I/O gate
+
+`[EXISTS]` RFC 0070 and suite `provider-bound-range-image-io-v0` test whether
+the derived assigned-range image remains viable when it cannot be decoded
+completely into application RAM. Candidate `7e72470` uses a checksummed sparse
+index, 586 independently checksummed data blocks, and a bounded decoded-block
+cache over a retained 33,704,472-byte image.
+
+All five correct workloads kept across five fixed seeds. The full uniform
+curve used 4,142,150 audited reader bytes, opened with three explicit reads
+and 41,200 bytes, and served points with one 57,530-byte read at p99. Local-file
+point latency p99 was 124.25 us median, with 4.71 us median absolute deviation
+and a 119.54 to 136.75 us range. The fresh-process result was 128.17 us median.
+The 1 MiB quarter-range workload used 992,580 audited bytes and reached 118.13
+us. No correct workload issued an object-provider request after readiness.
+
+The ordered scan sustained 65,714 rows/s median, about 513 MiB/s of logical
+8 KiB values. Complete decode reached 37,846,622 audited bytes, linear point
+scan reached 33,367,400 file bytes p99 and 61.90 ms latency p99, corrupt-index
+acceptance failed identity and checksum gates, and skipped block verification
+failed exact-read and checksum gates. All four controls discarded.
+
+This admits bounded application memory and explicit file I/O, not physical
+NVMe or whole-worker memory. OS page-cache state was uncontrolled, and median
+peak process RSS delta was 40.4 MB on the uniform workload. The next gate is a
+hardware-controlled block-size, concurrency, queue-depth, bandwidth, CPU, and
+RSS matrix against a same-host RocksDB or TiKV incumbent. Full evidence and
+limits are in
+[`research/provider-bound-range-image-io-2026-08-25.md`](research/provider-bound-range-image-io-2026-08-25.md).
+
 ## Noise and effect rule
 
 1. Run a candidate at least five times before promotion in a performance lane.
