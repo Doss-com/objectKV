@@ -1562,3 +1562,121 @@ unit = "By"
 description = "Live immutable SST bytes before or after retained-history compaction"
 attributes = ["lane", "workload", "backend", "history.depth", "retention.window", "state"]
 required_attributes = ["lane", "workload", "backend", "history.depth", "retention.window", "state"]
+
+[[metrics]]
+id = "range_image.image_bytes"
+otel_name = "okv.eval.range_image.image_bytes"
+kind = "gauge"
+unit = "By"
+description = "Complete retained assigned-range image bytes excluding the placed-ready receipt"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.image_to_memory_ratio"
+otel_name = "okv.eval.range_image.image_to_memory_ratio"
+kind = "gauge"
+unit = "1"
+description = "Retained image bytes divided by the configured application reader-memory budget"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.accounted_resident_bytes"
+otel_name = "okv.eval.range_image.accounted_resident_bytes"
+kind = "gauge"
+unit = "By"
+description = "Peak deterministic bytes retained by the sparse index, application block cache, decoded entries, and reader bookkeeping"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.sparse_index_bytes"
+otel_name = "okv.eval.range_image.sparse_index_bytes"
+kind = "gauge"
+unit = "By"
+description = "Decoded sparse-index bytes retained by one opened range-image reader"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.peak_rss_delta_bytes"
+otel_name = "okv.eval.range_image.peak_rss_delta_bytes"
+kind = "gauge"
+unit = "By"
+description = "Observed process peak RSS increase from before reader open through completion"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.open_duration"
+otel_name = "okv.eval.range_image.open_duration"
+kind = "histogram"
+unit = "s"
+description = "Time to authenticate the ready receipt and open a bounded-memory retained range-image reader"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+boundaries = [0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "range_image.open_file_read_operations"
+otel_name = "okv.eval.range_image.open_file_read_operations"
+kind = "gauge"
+unit = "{operation}"
+description = "Explicit local-file read operations completed before the first requested key"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.open_file_read_bytes"
+otel_name = "okv.eval.range_image.open_file_read_bytes"
+kind = "gauge"
+unit = "By"
+description = "Explicit local-file bytes read before the first requested key"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.point_file_read_operations_p99"
+otel_name = "okv.eval.range_image.point_file_read_operations_p99"
+kind = "gauge"
+unit = "{operation}/{point}"
+description = "P99 explicit positional local-file read operations attributable to one measured exact point"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.point_file_read_bytes_p99"
+otel_name = "okv.eval.range_image.point_file_read_bytes_p99"
+kind = "gauge"
+unit = "By"
+description = "P99 explicit positional local-file bytes attributable to one measured exact point"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.point_p99"
+otel_name = "okv.eval.range_image.point_p99"
+kind = "gauge"
+unit = "s"
+description = "P99 exact point latency through the bounded-memory retained local-file reader"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.application_cache_hit_ratio"
+otel_name = "okv.eval.range_image.application_cache_hit_ratio"
+kind = "gauge"
+unit = "1"
+description = "Fraction of measured points completed without an explicit local-file read after open"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+
+[[metrics]]
+id = "range_image.scan_throughput"
+otel_name = "okv.eval.range_image.scan_throughput"
+kind = "gauge"
+unit = "{row}/s"
+description = "Exact ordered rows emitted per second through bounded output batches"
+attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]
+required_attributes = ["lane", "workload", "backend", "image.format", "distribution", "result"]

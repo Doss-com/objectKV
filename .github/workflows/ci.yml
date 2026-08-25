@@ -47,6 +47,8 @@ jobs:
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-contract.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-physical.toml
       - run: cargo run -p okv-eval -- validate-suite evals/suites/htap-streaming.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/provider-bound-assigned-range-placement.toml
+      - run: cargo run -p okv-eval -- validate-suite evals/suites/provider-bound-range-image-io.toml
       - name: Verify generated MVCC histories and negative control
         run: |
           cargo run --quiet -p okv-eval -- run evals/suites/model-history.toml --profile generated-dev --workload generated-mvcc-history --backend model --output /tmp/okv-model-history.json

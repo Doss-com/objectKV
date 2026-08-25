@@ -1,0 +1,235 @@
+schema_version = 1
+id = "provider-bound-range-image-io-v0"
+status = "frozen-before-implementation"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0070-bounded-range-image-io.md",
+  "../../rfcs/0069-assigned-range-placement.md",
+  "../../rfcs/0066-provider-bound-range-read.md",
+]
+dataset_generator = "provider-bound-range-image-io-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-path]
+logical_bytes = 33554432
+key_count = 4096
+value_bytes = 8192
+seeds = [724851, 724877, 724901, 724921, 724939]
+
+[profiles.local-path]
+budget_kind = "seconds"
+budget_limit = 900
+repeats = 1
+backend = "retained-local-range-image-process"
+warmup_point_reads = 256
+measured_point_reads = 4096
+maximum_block_bytes = 65536
+maximum_open_read_operations = 4
+maximum_open_read_bytes = 524288
+maximum_point_read_operations_p99 = 2
+maximum_point_read_bytes_p99 = 65536
+maximum_point_p99_seconds = 0.001
+os_page_cache_controlled = false
+scratch_root_env = "OKV_EVAL_SCRATCH_ROOT"
+scratch_cleanup_required = true
+
+[[lanes]]
+id = "provider-bound-range-image-io"
+objective = "Minimize explicit local-file bytes per exact point while enforcing bounded application memory and zero provider work."
+primary_metric = "range_image.point_file_read_bytes_p99"
+statistic = "p50"
+direction = "lower"
+practical_improvement_fraction = 0.25
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "range_image.image_to_memory_ratio"
+statistic = "p50"
+op = "ge"
+value = 8.0
+
+[[lanes.constraints]]
+metric = "range_image.accounted_resident_bytes"
+statistic = "max"
+op = "le"
+value = 4194304.0
+
+[[lanes.constraints]]
+metric = "range_image.open_file_read_operations"
+statistic = "max"
+op = "le"
+value = 4.0
+
+[[lanes.constraints]]
+metric = "range_image.open_file_read_bytes"
+statistic = "max"
+op = "le"
+value = 524288.0
+
+[[lanes.constraints]]
+metric = "range_image.point_file_read_operations_p99"
+statistic = "max"
+op = "le"
+value = 2.0
+
+[[lanes.constraints]]
+metric = "range_image.point_file_read_bytes_p99"
+statistic = "max"
+op = "le"
+value = 65536.0
+
+[[lanes.constraints]]
+metric = "range_image.point_p99"
+statistic = "p50"
+op = "le"
+value = 0.001
+
+[[lanes.constraints]]
+metric = "provider_bound.post_ready_provider_requests"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "provider_bound.post_ready_provider_bytes"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "range-image-full-uniform-4m"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 1
+assigned_range_index = 0
+reader_memory_budget_bytes = 4194304
+distribution = "uniform"
+process_reopen = false
+scan = false
+
+[[workloads]]
+id = "range-image-full-zipf099-4m"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 1
+assigned_range_index = 0
+reader_memory_budget_bytes = 4194304
+distribution = "zipf_0_99"
+process_reopen = false
+scan = false
+
+[[workloads]]
+id = "range-image-quarter-uniform-1m"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 4
+assigned_range_index = 1
+reader_memory_budget_bytes = 1048576
+distribution = "uniform"
+process_reopen = false
+scan = false
+
+[[workloads]]
+id = "range-image-full-process-reopen"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 1
+assigned_range_index = 0
+reader_memory_budget_bytes = 4194304
+distribution = "uniform"
+process_reopen = true
+scan = false
+
+[[workloads]]
+id = "range-image-full-sequential-scan"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 1
+assigned_range_index = 0
+reader_memory_budget_bytes = 4194304
+distribution = "sequential"
+process_reopen = true
+scan = true
+
+[[workloads]]
+id = "range-image-decode-whole-control"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 1
+assigned_range_index = 0
+reader_memory_budget_bytes = 4194304
+distribution = "uniform"
+negative_control = "decode_whole_image"
+
+[[workloads]]
+id = "range-image-linear-point-control"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 1
+assigned_range_index = 0
+reader_memory_budget_bytes = 4194304
+distribution = "uniform"
+negative_control = "linear_point_scan"
+
+[[workloads]]
+id = "range-image-corrupt-index-control"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 1
+assigned_range_index = 0
+reader_memory_budget_bytes = 4194304
+distribution = "uniform"
+negative_control = "accept_corrupt_index"
+
+[[workloads]]
+id = "range-image-skip-block-checksum-control"
+lane = "provider-bound-range-image-io"
+operation = "provider_bound_range_image_io_curve"
+logical_range_count = 1
+assigned_range_index = 0
+reader_memory_budget_bytes = 4194304
+distribution = "uniform"
+negative_control = "skip_block_checksum"
+
+[hard_gates]
+exact_points_and_scans = true
+outside_range_reads_refused = true
+image_to_memory_ratio_at_least = 8
+accounted_memory_budget_enforced = true
+open_file_io_bounded = true
+point_file_io_bounded = true
+post_ready_provider_requests_zero = true
+post_ready_provider_bytes_zero = true
+fresh_process_reopen_exact = true
+root_bound_receipt_exact = true
+index_and_block_checksums_exact = true
+deterministic_replay_exact = true
+negative_controls_must_discard = 4
+scratch_cleanup_required = true
+schema_valid = true
+budget_must_hold = true
+
+[calibration_targets]
+reader_memory_budget_bytes = 4194304
+minimum_image_to_memory_ratio = 8.0
+maximum_open_file_read_operations = 4
+maximum_open_file_read_bytes = 524288
+maximum_point_file_read_operations_p99 = 2
+maximum_point_file_read_bytes_p99 = 65536
+maximum_point_p99_seconds = 0.001
+post_ready_provider_requests = 0
+post_ready_provider_bytes = 0
+os_page_cache_controlled = false
+physical_nvme_claimed = false
+cloud_claimed = false
