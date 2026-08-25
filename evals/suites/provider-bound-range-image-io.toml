@@ -61,31 +61,31 @@ value = 8.0
 
 [[lanes.constraints]]
 metric = "range_image.accounted_resident_bytes"
-statistic = "max"
+statistic = "maximum"
 op = "le"
 value = 4194304.0
 
 [[lanes.constraints]]
 metric = "range_image.open_file_read_operations"
-statistic = "max"
+statistic = "maximum"
 op = "le"
 value = 4.0
 
 [[lanes.constraints]]
 metric = "range_image.open_file_read_bytes"
-statistic = "max"
+statistic = "maximum"
 op = "le"
 value = 524288.0
 
 [[lanes.constraints]]
 metric = "range_image.point_file_read_operations_p99"
-statistic = "max"
+statistic = "maximum"
 op = "le"
 value = 2.0
 
 [[lanes.constraints]]
 metric = "range_image.point_file_read_bytes_p99"
-statistic = "max"
+statistic = "maximum"
 op = "le"
 value = 65536.0
 
