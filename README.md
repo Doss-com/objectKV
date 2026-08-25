@@ -204,6 +204,16 @@ completed. The 128-point warmed working set is not a production hit ratio;
 reuse-distance, cache-capacity, concurrency, and write economics remain
 `[ACTIVE-WORK]`.
 
+`[EXISTS]` The follow-on cache-economics gate now rejects passive demand
+caching as the complete serving policy. With persistent NVMe bounded to 25
+percent of logical bytes, Zipfian `0.99` missed 26.820 percent and a moving
+10-percent hotset missed 14.535 percent, versus the 2.5-percent request-cost
+ceiling. Candidate `d64a14f` then gave ideal placement the same capacity. Even
+that oracle has 16.170-percent and 7.5-percent miss floors. objectKV therefore
+needs explicit locally complete assigned-range images for hot-SLO reads, not a
+claim that arbitrary cell bytes become fast through LRU. Objects remain the
+authority and empty-disk rebuild source; local images remain disposable.
+
 `[EXISTS]` Candidate `8fb20e5` moves the first PostgreSQL page reader through
 the actual routed process path. Three encoded 8 KiB pages span two ranges; one
 page advances through the authenticated txLog from objectKV version 1 to 2.

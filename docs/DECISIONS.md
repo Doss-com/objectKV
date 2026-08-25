@@ -3013,3 +3013,50 @@ Next decision: freeze an orthogonal explicit-locality hypothesis, starting
 with range-aware placement or prefetch at the same 25-percent capacity and
 without changing the suite. If no practical placement policy approaches the
 target, narrow objectKV to colder or locality-declared workloads.
+
+## D101. Make assigned-range placement the hot-serving contract
+
+Status: `[DECIDED]` for the serving-model direction, `[EXISTS]` for the
+locality-feasibility gate, and `[PROPOSED]` for placed-range hydration and
+routing, 2026-08-25.
+
+Decision: do not treat shared passive cache residency as the contract for
+hot-SLO reads. A Range Engine receives an explicit key-range assignment,
+authenticates the authority-selected root, hydrates and verifies the required
+immutable range image into disposable local NVMe, and publishes a
+root-specific `placed-ready` receipt. Hot-SLO routing begins only after that
+receipt. Unplaced reads use a separately declared cold SLO or trigger
+recruitment and hydration before routing.
+
+Object storage remains authoritative for durability, immutable history, and
+empty-disk reconstruction. Local range images remain disposable and cannot
+authorize a root. Recent MVCC state remains a bounded overlay above the placed
+image.
+
+Optimizes for: predictable sub-millisecond read latency, explicit capacity and
+placement accounting, safe empty-disk rebuild, and an economic comparison that
+does not depend on accidental LRU survival.
+
+Gives up: arbitrary any-key sub-millisecond service from a local tier holding
+only 25 percent of cell bytes. A fully active dataset may need nearly one
+complete local serving copy. objectKV must earn its advantage through fewer
+authoritative local replicas, disposable compute, cold unplaced ranges,
+object-native history, and measured reconstruction rather than claiming local
+bytes disappear.
+
+Evidence: contract `255d890`, candidate `d64a14f`, suite
+`provider-bound-locality-feasibility-v0`, and exact clean runs
+`c8deb119-5606-4455-badd-e08631e8b53a`,
+`e5d41aa8-2c40-43ae-bf3a-57e383c30774`, and
+`dc9a51a0-447c-42a0-80ad-12c529a39d52`. At 25 percent capacity,
+uniform, Zipfian `0.99`, and moving-hotset irreducible miss floors are 75,
+16.1701, and 7.5 percent. The latter two are 6.47x and 3x the 2.5-percent
+target. All clean model gates passed before the lane constraint discarded the
+workload-target pairs. Capacity inflation, skipped normalization, and ignored
+background reads each discarded through an independent gate.
+
+Next decision: freeze an assigned-range hydration and `placed-ready` contract.
+Measure empty-disk provider bytes, requests, and duration; steady local p99;
+root advance and overlay catch-up; process restart; reassignment; and corrupted
+local-image repair. Compare one disposable local serving image plus object
+authority against one, two, and three local RocksDB replicas.

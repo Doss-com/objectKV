@@ -181,6 +181,12 @@ exposed that configured lane constraints were validated but not evaluated. The
 generic runner now executes and reports each constraint, and the corrected
 results explicitly fail `provider_miss_ratio_p50 <= 0.025`.
 
+The follow-on feasibility gate gives perfect placement the same capacity.
+Zipfian `0.99` still has a 16.170-percent miss floor, 6.47x the target. The
+moving hotset still has a 7.5-percent floor, 3x the target. Passive caching has
+10.65 and 7.04 percentage points of avoidable policy regret, but eliminating
+all of that regret would still not meet the frozen economics.
+
 This result rejects one mechanism, not the product thesis. The next candidate
 must create locality through explicit range placement, workload-informed
 prefetch and admission, or a larger declared local-data fraction. Another
@@ -278,18 +284,15 @@ curves.
 
 ## Next exact experiment
 
-Freeze one orthogonal locality candidate while keeping the cache-economics
-suite unchanged. The first candidate should place or prefetch immutable parts
-by key range, because SQL indexes, Redis partitions, and search postings expose
-range ownership that uniform object-part demand caching ignores. Compare it to
-the discarded passive baseline at the same 25-percent NVMe bound. Do not tune
-the workload, threshold, seeds, or hardware after seeing the result.
+Freeze the assigned-range hydration contract. Give one Range Engine a complete
+immutable image for one assigned range, retain the 64 KiB provider part and
+exact revision checks, and measure empty-disk hydration bytes, GETs, duration,
+steady hit p99, objectification catch-up, restart reuse, reassignment, and
+corrupt-part repair. Hot-SLO routing must begin only after a signed
+`placed-ready` receipt for the selected root.
 
-Only after a local candidate materially improves the miss curve should it use
-the GCS playground. Then add concurrency, worker churn, and larger dataset
-curves, reporting operations per second, miss ratio, GCS requests and bytes,
-p50/p99 latency, CPU, RSS, local-storage fraction, and request cost together.
-In parallel, measure objectification and compaction under sustained writes.
-The next decision is whether explicit locality can hold at least 97.5 percent
-hits at a local-data fraction that still gives objectKV an economic advantage
-over a replicated-local incumbent.
+Vary active assigned bytes per worker and worker count rather than pretending
+25 percent of arbitrary cell bytes can cover 97.5 percent of the frozen
+traffic. Compare one disposable local serving copy plus object authority to
+one, two, and three local RocksDB replicas. The economic question is now how
+much active data needs a local serving copy, not whether active data needs one.

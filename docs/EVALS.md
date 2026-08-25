@@ -2543,11 +2543,11 @@ target. A semantically correct workload that misses its economic ceiling is a
 
 ## Provider-bound locality-feasibility gate
 
-`[PROPOSED]` RFC 0068 and suite
-`provider-bound-locality-feasibility-v0` freeze a preflight before another
-physical cache or prefetch candidate. The gate computes the greatest access
-probability mass any capacity-respecting ideal placement can cover, then
-compares its irreducible provider miss ratio to the declared target.
+`[EXISTS]` RFC 0068, suite `provider-bound-locality-feasibility-v0`, and
+candidate `d64a14f` implement a preflight before another physical cache or
+prefetch candidate. The gate computes the greatest access probability mass
+any capacity-respecting ideal placement can cover, then compares its
+irreducible provider miss ratio to the declared target.
 
 At 25 percent local coverage, the RFC 0067 Zipfian `0.99` distribution has an
 ideal hit ceiling of `0.838299212912`, so at least `0.161700787088` of reads
@@ -2560,7 +2560,7 @@ The gate does not replace a physical eval. It prevents the autonomous loop
 from tuning a mechanism against an impossible target. A feasible pair must
 still pass provider identity, request, byte, latency, memory, deterministic
 replay, and cleanup gates. Capacity inflation, skipped normalization, and
-ignored background reads are unsafe controls that must discard.
+ignored background reads each produced a schema-valid discard.
 
 ## Noise and effect rule
 

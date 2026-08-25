@@ -75,6 +75,6 @@ not harden until their RFC is accepted.
 | 0065 | PostgreSQL replacement-worker readiness | accepted for local OS-warm evaluation; production policy unchanged | bind provider integrity, then replay the cache-state curve on GCS |
 | 0066 | Provider-bound range reads | in-region GCS cache states admitted | measure realistic cache reuse and capacity |
 | 0067 | Provider-bound cache economics | implemented, first 25-percent stop points discarded | replace passive caching with an explicit feasible locality model |
-| 0068 | Provider-bound locality feasibility | proposed, eval frozen before implementation | reject impossible workload, capacity, and miss-target combinations before physical tuning |
+| 0068 | Provider-bound locality feasibility | implemented, all 25-percent pairs discarded | define a feasible assigned-range placement and hydration curve |
 
 Use `0000-template.md` for new proposals.

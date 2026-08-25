@@ -15,10 +15,14 @@ metric. Do not optimize a blended system score.
    RFCs owning the chosen lane.
 2. Select one lane and record its primary metric, hard gates, fixed budget,
    practical improvement threshold, candidate edit surface, and frozen surfaces.
-3. Verify the baseline command and result-schema validation.
-4. Create `research/<lane>/<tag>` from the exact incumbent commit.
-5. Run the incumbent in the same environment and append the baseline result.
-6. Run a negative control that must fail one hard gate. Stop if it passes.
+3. For a capacity, locality, or cost target with a calculable feasibility
+   bound, run the frozen bound first. Stop mechanism tuning when even the ideal
+   subject cannot meet the target. Record the workload-target pair as
+   discarded without weakening either side.
+4. Verify the baseline command and result-schema validation.
+5. Create `research/<lane>/<tag>` from the exact incumbent commit.
+6. Run the incumbent in the same environment and append the baseline result.
+7. Run a negative control that must fail one hard gate. Stop if it passes.
 
 ## Allowed
 
@@ -35,6 +39,8 @@ metric. Do not optimize a blended system score.
 - Weaken an assertion or remove a workload to improve a score.
 - Increase hardware, concurrency, runtime, cache capacity, or object-store
   privileges beyond the fixed profile.
+- Tune a physical mechanism against a target already below its admitted
+  feasibility bound.
 - Merge separate hypotheses into one candidate.
 - delete or rewrite failed experiment history.
 - Publish a benchmark without its exact profile and commit identity.

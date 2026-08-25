@@ -384,6 +384,43 @@ foreground data after bootstrap
   -> object storage only on local data miss
 ```
 
+### Placement, not accidental cache residency
+
+`[EXISTS]` RFC 0068 proves that the 25-percent cell-wide cache experiment
+cannot meet its 97.5-percent hit target even with ideal placement. Zipfian
+`0.99` has a 16.170-percent miss floor. The moving hotset has a 7.5-percent
+miss floor because 10 percent of reads remain uniform. The measured passive
+policy is worse, but neither gap can be closed to 2.5 percent by eviction or
+prefetch tuning alone.
+
+`[PROPOSED]` The production serving contract should therefore be:
+
+```text
+RangeMap assignment
+  -> authenticate selected immutable range root
+  -> hydrate and verify the assigned range image into local NVMe
+  -> publish placed-ready(range, root, local-image-digest)
+  -> route hot-SLO reads only after placed-ready
+
+hot read
+  -> recent MVCC overlay
+  -> decoded RAM
+  -> placed local range image
+  -> no provider data request
+
+unplaced read
+  -> explicit cold-read SLO, or
+  -> recruit/hydrate a Range Engine before routing
+```
+
+Local NVMe remains disposable and never authorizes a root. An active assigned
+range is intentionally complete enough to serve its declared SLO, rather than
+hoping its blocks survive a shared LRU. This gives up arbitrary any-key
+sub-millisecond reads from 25 percent of cell bytes. It retains the objectKV
+advantages that objects are authoritative, history can remain cold, workers
+can rebuild from empty disks, and only active assigned ranges need local
+serving copies.
+
 `[EXISTS]` Candidate `63c9531` corrupts every persisted data part before a
 fresh decoded-RAM reopen. The focused gate rejects any wrong value. The current
 path detects the corrupt data and re-fetches exact range bytes from the backing

@@ -1,6 +1,6 @@
 # RFC 0068: Provider-bound locality feasibility
 
-- Status: proposed, eval frozen before implementation
+- Status: implemented; all 25-percent workload-target pairs discarded
 - Authors: objectKV contributors
 - Created: 2026-08-25
 - Supersedes: none
@@ -210,6 +210,32 @@ The RFC, suite, metric registry, result schema, equations, distribution
 parameters, capacity, target, controls, and budget are frozen during the
 implementation experiment. A discovered contract defect starts a new contract
 commit before another candidate; it is not repaired inside a measured result.
+
+### First result
+
+`[EXISTS]` Candidate `d64a14f` executed all three correct models and all three
+controls from one clean commit. Every correct model passed probability,
+independent enumeration, capacity, complement, price-target, replay, budget,
+and schema gates. The unchanged 2.5-percent lane constraint then discarded all
+three workload-target pairs.
+
+| Distribution | Ideal hit ceiling | Irreducible miss floor | Request-cost floor per million reads | Gap above 2.5% target |
+| --- | ---: | ---: | ---: | ---: |
+| Uniform | 25.0000% | 75.0000% | $0.30000 | 72.5000 pp |
+| Zipfian `0.99` | 83.8299% | 16.1701% | $0.06468 | 13.6701 pp |
+| Moving 10-percent hotset | 92.5000% | 7.5000% | $0.03000 | 5.0000 pp |
+
+The passive policy still has avoidable regret. Its Zipfian miss ratio was
+26.820 percent against a 16.170-percent ideal floor, and its moving-hotset miss
+ratio was 14.535 percent against a 7.5-percent floor. A better placement policy
+can remove roughly 10.65 and 7.04 percentage points respectively. It cannot
+reach 2.5 percent under these workload and capacity contracts.
+
+The inflated-capacity control failed the physical bound. The unnormalized
+Zipfian control failed normalization and independent enumeration. The
+ignored-background control claimed a perfect moving-hotset hit ratio and
+failed independent enumeration. Every control produced a schema-valid
+`discard`.
 
 ## Compatibility and migration
 
