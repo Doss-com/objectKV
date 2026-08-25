@@ -98,8 +98,9 @@ pub use persistent_range_serving::{
     PersistentRangeBaseDescriptor, PersistentRangeDeltaConfig, PersistentRangeDeltaDescriptor,
 };
 pub use placed_range::{
-    run_assigned_range_placement_worker, AssignedRangePlacementConfig, AssignedRangePlacementMode,
-    AssignedRangePlacementReceipt, PlacedRangeReceipt,
+    run_assigned_range_image_probe, run_assigned_range_placement_worker,
+    AssignedRangeImageProbeConfig, AssignedRangeImageProbeReceipt, AssignedRangePlacementConfig,
+    AssignedRangePlacementMode, AssignedRangePlacementReceipt, PlacedRangeReceipt,
 };
 pub use provider_bound_range::{
     bind_provider_physical_manifest, load_provider_bound_persistent_range_base,

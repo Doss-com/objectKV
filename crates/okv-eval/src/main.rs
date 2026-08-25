@@ -62,16 +62,16 @@ use okv_model::{
 };
 use okv_object::{
     cleanup_range_serving_curve_gcs_scratch, filesystem_backend, gcs_backend_from_env,
-    memory_backend, minio_backend_from_env, run_assigned_range_placement_worker,
-    run_cell_commit_proxy_process, run_cell_commit_visibility_contract,
-    run_cell_commit_visibility_worker_process, run_cell_objectification_contract,
-    run_cell_serving_authority_feed_contract, run_cell_serving_authority_worker_process,
-    run_cell_serving_recovery_contract, run_cell_serving_tagged_tlog_contract,
-    run_cell_serving_tagged_tlog_worker_process, run_cell_serving_worker_process,
-    run_cell_tagged_log_chunked_repair_contract, run_cell_tagged_log_lag_ratekeeping_contract,
-    run_cell_tagged_log_lag_worker_process, run_cell_tagged_log_learner_repair_contract,
-    run_cell_tagged_log_policy_transition_contract, run_cell_tagged_log_repair_worker_process,
-    run_conformance, run_publication_adapter_contract,
+    memory_backend, minio_backend_from_env, run_assigned_range_image_probe,
+    run_assigned_range_placement_worker, run_cell_commit_proxy_process,
+    run_cell_commit_visibility_contract, run_cell_commit_visibility_worker_process,
+    run_cell_objectification_contract, run_cell_serving_authority_feed_contract,
+    run_cell_serving_authority_worker_process, run_cell_serving_recovery_contract,
+    run_cell_serving_tagged_tlog_contract, run_cell_serving_tagged_tlog_worker_process,
+    run_cell_serving_worker_process, run_cell_tagged_log_chunked_repair_contract,
+    run_cell_tagged_log_lag_ratekeeping_contract, run_cell_tagged_log_lag_worker_process,
+    run_cell_tagged_log_learner_repair_contract, run_cell_tagged_log_policy_transition_contract,
+    run_cell_tagged_log_repair_worker_process, run_conformance, run_publication_adapter_contract,
     run_publication_publisher_manifest_recovery_contract,
     run_publication_publisher_manifest_recovery_node, run_publication_publisher_process_contract,
     run_publication_publisher_process_node, run_publication_publisher_publish_recovery_contract,
@@ -83,9 +83,9 @@ use okv_object::{
     run_range_route_refresh_process_contract, run_range_serving_concurrency_contract,
     run_range_serving_concurrency_worker, run_range_serving_curve_worker,
     run_range_serving_handoff_contract, run_range_serving_handoff_worker_process,
-    run_tagged_log_process, validate_conformance_report, AssignedRangePlacementConfig,
-    AssignedRangePlacementMode, AssignedRangePlacementReceipt, CaseStatus,
-    CellCommitProxyProcessConfig, CellCommitVisibilityMode,
+    run_tagged_log_process, validate_conformance_report, AssignedRangeImageProbeConfig,
+    AssignedRangePlacementConfig, AssignedRangePlacementMode, AssignedRangePlacementReceipt,
+    CaseStatus, CellCommitProxyProcessConfig, CellCommitVisibilityMode,
     CellCommitVisibilityWorkerProcessConfig, CellObjectificationMode, CellServingAuthorityFeedMode,
     CellServingAuthorityWorkerProcessConfig, CellServingRecoveryMode, CellServingTaggedTlogMode,
     CellServingTaggedTlogWorkerProcessConfig, CellServingWorkerProcessConfig,
@@ -829,6 +829,12 @@ enum Commands {
         #[arg(long)]
         config_json: String,
     },
+    /// Internal fresh-process probe for one retained assigned-range image.
+    #[command(hide = true)]
+    AssignedRangeImageProbe {
+        #[arg(long)]
+        config_json: String,
+    },
     /// Internal entrypoint used by the retained-history compaction controller.
     #[command(hide = true)]
     MvccGcCurveNode {
@@ -1449,6 +1455,11 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 .enable_all()
                 .build()?;
             let receipt = runtime.block_on(run_assigned_range_placement_worker(&config))?;
+            println!("{}", serde_json::to_string(&receipt)?);
+        }
+        Commands::AssignedRangeImageProbe { config_json } => {
+            let config = serde_json::from_str::<AssignedRangeImageProbeConfig>(&config_json)?;
+            let receipt = run_assigned_range_image_probe(&config)?;
             println!("{}", serde_json::to_string(&receipt)?);
         }
         Commands::MvccGcCurveNode { config_json, mode } => {
@@ -18453,6 +18464,7 @@ fn run_provider_bound_assigned_range_placement(
         root_advance,
         mode,
         seed,
+        process_probe_executable: Some(executable.clone()),
     };
     let mut receipts = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -18614,7 +18626,7 @@ fn run_provider_bound_assigned_range_placement(
     WorkloadExecution {
         error: if mode == AssignedRangePlacementMode::Correct {
             (!clean_semantics).then(|| {
-                format!("assigned-range incumbent discarded on {semantic_anomalies} semantic gates")
+                format!("assigned-range candidate discarded on {semantic_anomalies} semantic gates")
             })
         } else {
             Some(if control_detected {

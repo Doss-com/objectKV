@@ -1,4 +1,4 @@
-//! Root-bound assigned-range placement over the incumbent shared `SlateDB` cache.
+//! Root-bound assigned-range placement into a derived provider-free local image.
 
 use crate::{
     bind_provider_physical_manifest, promote_provider_bound_persistent_range_base,
@@ -6,7 +6,7 @@ use crate::{
     PersistentRangeBaseDescriptor, ProviderBoundObjectStore, ProviderKind,
 };
 use object_store::local::LocalFileSystem;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 use okv_consensus::{
     sign_tagged_log_statement, tagged_log_public_key, CellLogSetMember, CellLogSetPolicy,
     CellMutation, CellTaggedLogCertificate, CellTaggedLogStatement, RequestIdentity,
@@ -28,6 +28,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -42,8 +43,15 @@ const PROVIDER_NAMESPACE: &str = "local-versioned-assigned-range";
 const CACHE_PART_BYTES: usize = 65_536;
 const DECODED_CACHE_BYTES: u64 = 1_048_576;
 const READY_RECEIPT_NAME: &str = "placed-ready.json";
+const RANGE_IMAGE_NAME: &str = "range-image.okv";
+const RANGE_IMAGE_MAGIC: &[u8; 8] = b"OKVRI001";
+const LOCAL_IMAGE_FORMAT: &str = "okv-derived-sorted-range-v1";
 
-/// Correct incumbent subject or one deliberately unsafe placement control.
+type RangeRow = (Vec<u8>, Vec<u8>);
+type RangeRows = Vec<RangeRow>;
+type DecodedRangeImage = (u64, Vec<u8>, Vec<u8>, RangeRows);
+
+/// Correct derived-image subject or one deliberately unsafe placement control.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssignedRangePlacementMode {
@@ -83,6 +91,29 @@ pub struct AssignedRangePlacementConfig {
     pub root_advance: bool,
     pub mode: AssignedRangePlacementMode,
     pub seed: u64,
+    #[serde(default)]
+    pub process_probe_executable: Option<PathBuf>,
+}
+
+/// Inputs passed to a fresh process that may only inspect a retained local image.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct AssignedRangeImageProbeConfig {
+    pub placement: AssignedRangePlacementConfig,
+    pub ready_root: PathBuf,
+    pub target_version: u64,
+    pub expected_receipt: PlacedRangeReceipt,
+}
+
+/// Result from a provider-free retained-image process probe.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct AssignedRangeImageProbeReceipt {
+    pub exact_points: bool,
+    pub exact_scan: bool,
+    pub outside_range_refused: bool,
+    pub local_image_digest: String,
+    pub point_p99_seconds: f64,
+    pub scan_rows_per_second: f64,
+    pub scan_rows: u64,
 }
 
 /// Exact local publication identity for one assigned range.
@@ -192,52 +223,331 @@ impl Drop for GuardedScratchRoot {
 }
 
 struct PlacedRangeReader {
-    view: AuthorityBoundRangeView,
+    rows: BTreeMap<Vec<u8>, Vec<u8>>,
     range_begin: Vec<u8>,
     range_end: Vec<u8>,
-    assignment_epoch: u64,
-    target_version: u64,
 }
 
 impl PlacedRangeReader {
-    fn validate_identity(&self, assignment_epoch: u64, target_version: u64) -> Result<(), String> {
-        if self.assignment_epoch != assignment_epoch || self.target_version != target_version {
-            return Err("placed range receipt does not authorize requested assignment".to_owned());
-        }
-        Ok(())
-    }
-
-    async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, String> {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, String> {
         if key < self.range_begin.as_slice() || key >= self.range_end.as_slice() {
             return Err("point is outside placed range".to_owned());
         }
-        self.view
-            .get_at(key, self.target_version)
-            .await
-            .map_err(|error| error.to_string())
+        Ok(self.rows.get(key).cloned())
     }
 
-    async fn scan(
-        &self,
-        start: &[u8],
-        end: &[u8],
-        limit: usize,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, String> {
+    fn scan(&self, start: &[u8], end: &[u8], limit: usize) -> Result<RangeRows, String> {
         if start < self.range_begin.as_slice() || end > self.range_end.as_slice() || start >= end {
             return Err("scan is outside placed range".to_owned());
         }
-        self.view
-            .scan_at(start, end, self.target_version, limit)
-            .await
-            .map_err(|error| error.to_string())
-    }
-
-    async fn close(self) -> Result<(), String> {
-        self.view.close().await.map_err(|error| error.to_string())
+        Ok(self
+            .rows
+            .range(start.to_vec()..end.to_vec())
+            .take(limit)
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect())
     }
 }
 
-/// Execute the direct shared-cache incumbent for one assigned logical range.
+/// Open and exhaustively verify a retained derived image without constructing
+/// an object-store client.
+///
+/// # Errors
+///
+/// Returns an error when the ready receipt, image digest, deterministic
+/// fixture, point reads, or complete scan disagree.
+pub fn run_assigned_range_image_probe(
+    config: &AssignedRangeImageProbeConfig,
+) -> Result<AssignedRangeImageProbeReceipt, String> {
+    validate_config(&config.placement)?;
+    let (range_begin, range_end, assigned_first, assigned_end) =
+        assignment_bounds(&config.placement);
+    let expected = expected_rows_at_target(&config.placement, config.target_version)?;
+    let (reader, receipt) =
+        open_range_image(&config.ready_root, ASSIGNMENT_EPOCH, config.target_version)?;
+    if receipt != config.expected_receipt
+        || receipt.range_begin != range_begin
+        || receipt.range_end != range_end
+        || receipt.oracle_digest != rows_digest(&expected)
+        || receipt.logical_row_count != u64::try_from(expected.len()).unwrap_or(u64::MAX)
+    {
+        return Err("retained range image does not match independent oracle identity".to_owned());
+    }
+
+    let mut exact_points = true;
+    let mut point_seconds = Vec::with_capacity(config.placement.point_reads);
+    for ordinal in point_order(&config.placement, assigned_first, assigned_end) {
+        let key = key_for(ordinal);
+        let started = Instant::now();
+        let observed = reader.get(&key)?;
+        point_seconds.push(started.elapsed().as_secs_f64());
+        exact_points &= observed.as_ref() == expected_value(&expected, &key);
+    }
+    point_seconds.sort_by(f64::total_cmp);
+
+    let scan_started = Instant::now();
+    let observed = reader.scan(&range_begin, &range_end, expected.len())?;
+    let scan_seconds = scan_started.elapsed().as_secs_f64();
+    let scan_rows = u64::try_from(observed.len()).unwrap_or(u64::MAX);
+    let scan_rows_per_second = f64::from(u32::try_from(observed.len()).unwrap_or(u32::MAX))
+        / scan_seconds.max(f64::EPSILON);
+    let outside_range_refused = reader.get(&outside_key(&config.placement)).is_err();
+
+    Ok(AssignedRangeImageProbeReceipt {
+        exact_points,
+        exact_scan: observed == expected,
+        outside_range_refused,
+        local_image_digest: receipt.local_image_digest,
+        point_p99_seconds: percentile_or_zero(&point_seconds, 99),
+        scan_rows_per_second,
+        scan_rows,
+    })
+}
+
+fn write_new_range_image(
+    root: &Path,
+    range_begin: &[u8],
+    range_end: &[u8],
+    target_version: u64,
+    rows: &[RangeRow],
+) -> Result<String, String> {
+    fs::create_dir_all(root).map_err(|error| error.to_string())?;
+    let path = root.join(RANGE_IMAGE_NAME);
+    let bytes = encode_range_image(range_begin, range_end, target_version, rows)?;
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    file.write_all(&bytes).map_err(|error| error.to_string())?;
+    file.sync_all().map_err(|error| error.to_string())?;
+    sync_parent(&path)?;
+    directory_digest(root, Some(READY_RECEIPT_NAME))
+}
+
+fn replace_range_image(
+    root: &Path,
+    range_begin: &[u8],
+    range_end: &[u8],
+    target_version: u64,
+    rows: &[RangeRow],
+) -> Result<String, String> {
+    let temporary = root.join("range-image.next");
+    let path = root.join(RANGE_IMAGE_NAME);
+    let bytes = encode_range_image(range_begin, range_end, target_version, rows)?;
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary)
+        .map_err(|error| error.to_string())?;
+    file.write_all(&bytes).map_err(|error| error.to_string())?;
+    file.sync_all().map_err(|error| error.to_string())?;
+    fs::rename(&temporary, &path).map_err(|error| error.to_string())?;
+    sync_parent(&path)?;
+    directory_digest(root, Some(READY_RECEIPT_NAME))
+}
+
+fn encode_range_image(
+    range_begin: &[u8],
+    range_end: &[u8],
+    target_version: u64,
+    rows: &[RangeRow],
+) -> Result<Vec<u8>, String> {
+    let payload_bytes = rows.iter().try_fold(0_usize, |total, (key, value)| {
+        total
+            .checked_add(8)
+            .and_then(|next| next.checked_add(key.len()))
+            .and_then(|next| next.checked_add(value.len()))
+            .ok_or_else(|| "range image size overflow".to_owned())
+    })?;
+    let capacity = 36_usize
+        .checked_add(range_begin.len())
+        .and_then(|next| next.checked_add(range_end.len()))
+        .and_then(|next| next.checked_add(payload_bytes))
+        .ok_or_else(|| "range image capacity overflow".to_owned())?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(RANGE_IMAGE_MAGIC);
+    bytes.extend_from_slice(&target_version.to_be_bytes());
+    append_length_prefixed(&mut bytes, range_begin)?;
+    append_length_prefixed(&mut bytes, range_end)?;
+    bytes.extend_from_slice(&u64::try_from(rows.len()).unwrap_or(u64::MAX).to_be_bytes());
+    for (key, value) in rows {
+        append_length_prefixed(&mut bytes, key)?;
+        append_length_prefixed(&mut bytes, value)?;
+    }
+    Ok(bytes)
+}
+
+fn append_length_prefixed(output: &mut Vec<u8>, value: &[u8]) -> Result<(), String> {
+    let length = u32::try_from(value.len())
+        .map_err(|_| "range image field exceeds u32 length".to_owned())?;
+    output.extend_from_slice(&length.to_be_bytes());
+    output.extend_from_slice(value);
+    Ok(())
+}
+
+fn open_range_image(
+    root: &Path,
+    assignment_epoch: u64,
+    target_version: u64,
+) -> Result<(PlacedRangeReader, PlacedRangeReceipt), String> {
+    let receipt: PlacedRangeReceipt = serde_json::from_slice(
+        &fs::read(root.join(READY_RECEIPT_NAME)).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    if receipt.format_version != FORMAT_VERSION
+        || receipt.cell_id != CELL_ID
+        || receipt.tenant_id != TENANT_ID
+        || receipt.local_image_format != LOCAL_IMAGE_FORMAT
+        || receipt.assignment_epoch != assignment_epoch
+        || receipt.target_version != target_version
+    {
+        return Err("placed range receipt does not authorize requested assignment".to_owned());
+    }
+    let observed_digest = directory_digest(root, Some(READY_RECEIPT_NAME))?;
+    if receipt.local_image_digest != observed_digest {
+        return Err("placed range image digest mismatch".to_owned());
+    }
+    let bytes = fs::read(root.join(RANGE_IMAGE_NAME)).map_err(|error| error.to_string())?;
+    let (encoded_target, range_begin, range_end, rows) = decode_range_image(&bytes)?;
+    if encoded_target != target_version
+        || range_begin != receipt.range_begin
+        || range_end != receipt.range_end
+        || u64::try_from(rows.len()).unwrap_or(u64::MAX) != receipt.logical_row_count
+        || rows_digest(&rows) != receipt.oracle_digest
+    {
+        return Err("placed range image contents do not match ready receipt".to_owned());
+    }
+    Ok((
+        PlacedRangeReader {
+            rows: rows.into_iter().collect(),
+            range_begin,
+            range_end,
+        },
+        receipt,
+    ))
+}
+
+fn decode_range_image(bytes: &[u8]) -> Result<DecodedRangeImage, String> {
+    let mut remaining = bytes;
+    let magic = take_bytes(&mut remaining, RANGE_IMAGE_MAGIC.len())?;
+    if magic != RANGE_IMAGE_MAGIC {
+        return Err("range image magic mismatch".to_owned());
+    }
+    let target_version = read_u64(&mut remaining)?;
+    let range_begin = read_length_prefixed(&mut remaining)?;
+    let range_end = read_length_prefixed(&mut remaining)?;
+    let row_count = usize::try_from(read_u64(&mut remaining)?)
+        .map_err(|_| "range image row count exceeds usize".to_owned())?;
+    let mut rows = Vec::with_capacity(row_count);
+    for _ in 0..row_count {
+        let key = read_length_prefixed(&mut remaining)?;
+        let value = read_length_prefixed(&mut remaining)?;
+        if key < range_begin || key >= range_end {
+            return Err("range image contains an out-of-range key".to_owned());
+        }
+        if rows.last().is_some_and(|(prior, _)| prior >= &key) {
+            return Err("range image keys are not strictly ordered".to_owned());
+        }
+        rows.push((key, value));
+    }
+    if !remaining.is_empty() {
+        return Err("range image has trailing bytes".to_owned());
+    }
+    Ok((target_version, range_begin, range_end, rows))
+}
+
+fn read_u64(input: &mut &[u8]) -> Result<u64, String> {
+    let bytes: [u8; 8] = take_bytes(input, 8)?
+        .try_into()
+        .map_err(|_| "range image u64 is truncated".to_owned())?;
+    Ok(u64::from_be_bytes(bytes))
+}
+
+fn read_length_prefixed(input: &mut &[u8]) -> Result<Vec<u8>, String> {
+    let length_bytes: [u8; 4] = take_bytes(input, 4)?
+        .try_into()
+        .map_err(|_| "range image length is truncated".to_owned())?;
+    let length = usize::try_from(u32::from_be_bytes(length_bytes)).unwrap_or(usize::MAX);
+    Ok(take_bytes(input, length)?.to_vec())
+}
+
+fn take_bytes<'a>(input: &mut &'a [u8], length: usize) -> Result<&'a [u8], String> {
+    if input.len() < length {
+        return Err("range image is truncated".to_owned());
+    }
+    let (head, tail) = input.split_at(length);
+    *input = tail;
+    Ok(head)
+}
+
+fn expected_rows_at_target(
+    config: &AssignedRangePlacementConfig,
+    target_version: u64,
+) -> Result<RangeRows, String> {
+    let (_, mut oracle) = base_fixture(config);
+    for tail_index in 0..config.tail_records {
+        let sequence = u64::try_from(tail_index)
+            .unwrap_or(u64::MAX)
+            .saturating_add(2);
+        let ordinal = tail_ordinal(config.seed, tail_index, config.key_count);
+        oracle.insert(key_for(ordinal), value_for(config, ordinal, sequence));
+    }
+    let base_target = u64::try_from(config.tail_records)
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    if target_version == base_target.saturating_add(1) && config.root_advance {
+        let (_, _, assigned_first, assigned_end) = assignment_bounds(config);
+        let ordinal = assigned_first.min(assigned_end.saturating_sub(1));
+        oracle.insert(key_for(ordinal), value_for(config, ordinal, target_version));
+    } else if target_version != base_target {
+        return Err("range image probe target is not derivable from frozen fixture".to_owned());
+    }
+    let (range_begin, range_end, _, _) = assignment_bounds(config);
+    Ok(expected_range(&oracle, &range_begin, &range_end))
+}
+
+fn expected_value<'a>(rows: &'a [RangeRow], key: &[u8]) -> Option<&'a Vec<u8>> {
+    rows.binary_search_by(|(candidate, _)| candidate.as_slice().cmp(key))
+        .ok()
+        .map(|index| &rows[index].1)
+}
+
+fn outside_key(config: &AssignedRangePlacementConfig) -> Vec<u8> {
+    let (_, _, assigned_first, assigned_end) = assignment_bounds(config);
+    if config.logical_range_count == 1 {
+        b"outside-assigned-range".to_vec()
+    } else if config.assigned_range_index == 0 {
+        key_for(assigned_end.min(config.key_count.saturating_sub(1)))
+    } else {
+        key_for(assigned_first.saturating_sub(1))
+    }
+}
+
+fn run_image_probe_child(
+    executable: &Path,
+    config: &AssignedRangeImageProbeConfig,
+) -> Result<AssignedRangeImageProbeReceipt, String> {
+    let config_json = serde_json::to_string(config).map_err(|error| error.to_string())?;
+    let output = Command::new(executable)
+        .arg("assigned-range-image-probe")
+        .arg("--config-json")
+        .arg(config_json)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!(
+            "assigned-range image probe failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())
+}
+
+/// Execute the derived immutable-image candidate for one assigned logical range.
 ///
 /// # Errors
 ///
@@ -251,6 +561,8 @@ pub async fn run_assigned_range_placement_worker(
     validate_config(config)?;
     let scratch = GuardedScratchRoot::new(config.seed)?;
     let object_root = scratch.0.join("objects");
+    let hydration_cache_root = scratch.0.join("hydration-cache");
+    let pressure_cache_root = scratch.0.join("pressure-cache");
     let staging_root = scratch.0.join("placed.staging");
     let ready_root = scratch.0.join("placed.ready");
     fs::create_dir_all(&object_root).map_err(|error| error.to_string())?;
@@ -353,8 +665,12 @@ pub async fn run_assigned_range_placement_worker(
     let hydration_before_io = counters.total();
     let hydration_before_provider = provider_store.stats();
     let hydration_started = Instant::now();
-    let staging_store =
-        build_cached_store(&staging_root, Arc::clone(&provider_source), cache_limit).await?;
+    let staging_store = build_cached_store(
+        &hydration_cache_root,
+        Arc::clone(&provider_source),
+        cache_limit,
+    )
+    .await?;
     let hydration_view = open_view(
         Arc::clone(&staging_store),
         range_root.clone(),
@@ -379,6 +695,16 @@ pub async fn run_assigned_range_placement_worker(
         .await
         .map_err(|error| error.to_string())?;
     drop(staging_store);
+    let local_image_digest = write_new_range_image(
+        &staging_root,
+        &range_begin,
+        &range_end,
+        target_version,
+        &hydrated,
+    )?;
+    if hydration_cache_root.exists() {
+        fs::remove_dir_all(&hydration_cache_root).map_err(|error| error.to_string())?;
+    }
     let hydration_duration_seconds = hydration_started.elapsed().as_secs_f64();
     let hydration_io = counters.total().difference_since(&hydration_before_io);
     let hydration_provider_requests = provider_store
@@ -387,7 +713,6 @@ pub async fn run_assigned_range_placement_worker(
         .saturating_sub(hydration_before_provider.get_requests);
     let hydration_provider_bytes = hydration_io.read_byte_total();
     let oracle_digest = rows_digest(&expected);
-    let local_image_digest = directory_digest(&staging_root, Some(READY_RECEIPT_NAME))?;
     let manifest_identity = format!(
         "{}:{}:{}",
         range_root.manifest.key, range_root.manifest.length, range_root.manifest.sha256
@@ -404,7 +729,7 @@ pub async fn run_assigned_range_placement_worker(
         provider_closure_digest: descriptor.provider.closure_sha256.clone(),
         target_version,
         final_log_chain_sha256: hex_digest(&final_log_chain),
-        local_image_format: "slatedb-cached-object-store-v0".to_owned(),
+        local_image_format: LOCAL_IMAGE_FORMAT.to_owned(),
         local_image_digest: local_image_digest.clone(),
         logical_row_count,
         logical_assigned_bytes,
@@ -430,8 +755,12 @@ pub async fn run_assigned_range_placement_worker(
     if config.apply_unrelated_pressure && config.logical_range_count > 1 {
         let pressure_range = (config.assigned_range_index + 1) % config.logical_range_count;
         let (pressure_begin, pressure_end, _, _) = bounds_for_range(config, pressure_range);
-        let pressure_store =
-            build_cached_store(&ready_root, Arc::clone(&provider_source), cache_limit).await?;
+        let pressure_store = build_cached_store(
+            &pressure_cache_root,
+            Arc::clone(&provider_source),
+            cache_limit,
+        )
+        .await?;
         let pressure_view = open_view(
             pressure_store,
             range_root.clone(),
@@ -455,6 +784,9 @@ pub async fn run_assigned_range_placement_worker(
             .close()
             .await
             .map_err(|error| error.to_string())?;
+        if pressure_cache_root.exists() {
+            fs::remove_dir_all(&pressure_cache_root).map_err(|error| error.to_string())?;
+        }
     }
     let local_image_digest_stable =
         directory_digest(&ready_root, Some(READY_RECEIPT_NAME))? == digest_before_pressure;
@@ -482,10 +814,18 @@ pub async fn run_assigned_range_placement_worker(
         if config.mode == AssignedRangePlacementMode::ReuseStaleReceipt {
             old_ready_refused_after_advance = false;
         } else {
+            placed.local_image_digest = replace_range_image(
+                &ready_root,
+                &range_begin,
+                &range_end,
+                target_version,
+                &expected,
+            )?;
             placed.target_version = target_version;
             placed.final_log_chain_sha256 = hex_digest(&final_log_chain);
             placed.oracle_digest = rows_digest(&expected);
             placed.logical_row_count = u64::try_from(expected.len()).unwrap_or(u64::MAX);
+            placed.logical_assigned_bytes = logical_bytes(&expected);
             placed.published_at_unix_millis = now_unix_millis();
             atomic_replace_receipt(&ready_root, &mut placed)?;
             ready_receipt_exact &= serde_json::from_slice::<PlacedRangeReceipt>(
@@ -502,92 +842,65 @@ pub async fn run_assigned_range_placement_worker(
         AssignedRangePlacementMode::CorruptLocalPart
             | AssignedRangePlacementMode::AcceptProviderFallback
     ) {
-        corrupt_first_cache_part(&ready_root)?;
+        corrupt_range_image(&ready_root)?;
     }
 
     let post_before_io = counters.total();
     let post_before_provider = provider_store.stats();
-    let ready_store = build_cached_store(&ready_root, provider_source, cache_limit).await?;
-    let ready_view = open_view(
-        ready_store,
-        range_root,
+    let mut probe_config = config.clone();
+    probe_config.process_probe_executable = None;
+    let image_probe = AssignedRangeImageProbeConfig {
+        placement: probe_config,
+        ready_root: ready_root.clone(),
         target_version,
-        records,
-        &policies,
-        config.seed ^ 0xa554,
-    )
-    .await;
-    let mut point_seconds = Vec::with_capacity(config.point_reads);
-    let mut exact_points = true;
-    let exact_scan;
-    let mut outside_range_refused = false;
-    let mut scan_rows = 0_u64;
-    let mut scan_rows_per_second = 0.0_f64;
-    let mut corruption_detected = false;
-    if let Ok(view) = ready_view {
-        let reader = PlacedRangeReader {
-            view,
-            range_begin: range_begin.clone(),
-            range_end: range_end.clone(),
-            assignment_epoch: ASSIGNMENT_EPOCH,
-            target_version,
-        };
-        let identity_checked = if config.mode == AssignedRangePlacementMode::ReuseStaleReceipt {
-            true
+        expected_receipt: placed.clone(),
+    };
+    let mut process_reopen_executed = false;
+    let probe = if config.reopen_retained_nvme {
+        if let Some(executable) = config.process_probe_executable.as_deref() {
+            process_reopen_executed = true;
+            run_image_probe_child(executable, &image_probe)
         } else {
-            reader
-                .validate_identity(ASSIGNMENT_EPOCH, placed.target_version)
-                .is_ok()
-        };
-        exact_points &= identity_checked;
-        let order = point_order(config, assigned_first, assigned_end);
-        for ordinal in order {
-            let key = key_for(ordinal);
-            let started = Instant::now();
-            if let Ok(observed) = reader.get(&key).await {
-                point_seconds.push(started.elapsed().as_secs_f64());
-                exact_points &= observed.as_ref() == oracle.get(&key);
-            } else {
-                corruption_detected = true;
-                exact_points = false;
-                break;
-            }
+            run_assigned_range_image_probe(&image_probe)
         }
-        let scan_started = Instant::now();
-        if let Ok(observed) = reader.scan(&range_begin, &range_end, expected.len()).await {
-            let elapsed = scan_started.elapsed().as_secs_f64();
-            scan_rows = u64::try_from(observed.len()).unwrap_or(u64::MAX);
-            scan_rows_per_second = f64::from(u32::try_from(observed.len()).unwrap_or(u32::MAX))
-                / elapsed.max(f64::EPSILON);
-            exact_scan = observed == expected;
-        } else {
-            corruption_detected = true;
-            exact_scan = false;
-        }
-        let outside_key = if config.logical_range_count == 1 {
-            b"outside-assigned-range".to_vec()
-        } else if config.assigned_range_index == 0 {
-            key_for(assigned_end.min(config.key_count.saturating_sub(1)))
-        } else {
-            key_for(assigned_first.saturating_sub(1))
-        };
-        outside_range_refused = reader.get(&outside_key).await.is_err();
-        reader.close().await?;
     } else {
-        corruption_detected = true;
-        exact_points = false;
-        exact_scan = false;
+        run_assigned_range_image_probe(&image_probe)
+    };
+    let probe_failed = probe.is_err();
+    let (
+        exact_points,
+        exact_scan,
+        outside_range_refused,
+        post_ready_point_p99_seconds,
+        scan_rows_per_second,
+        scan_rows,
+    ) = match probe {
+        Ok(receipt) => (
+            receipt.exact_points,
+            receipt.exact_scan,
+            receipt.outside_range_refused,
+            receipt.point_p99_seconds,
+            receipt.scan_rows_per_second,
+            receipt.scan_rows,
+        ),
+        Err(_) => (false, false, false, 0.0, 0.0, 0),
+    };
+    let mut corruption_detected = probe_failed;
+    if config.mode == AssignedRangePlacementMode::AcceptProviderFallback {
+        let manifest_path = object_store::path::Path::from(range_root.manifest.key.clone());
+        let fallback = provider_source
+            .get(&manifest_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let _ = fallback.bytes().await.map_err(|error| error.to_string())?;
     }
-    point_seconds.sort_by(f64::total_cmp);
-    let post_ready_point_p99_seconds = percentile_or_zero(&point_seconds, 99);
     let post_io = counters.total().difference_since(&post_before_io);
     let post_ready_provider_requests = provider_store
         .stats()
         .get_requests
         .saturating_sub(post_before_provider.get_requests);
     let post_ready_provider_bytes = post_io.read_byte_total();
-    if config.mode == AssignedRangePlacementMode::CorruptLocalPart
-        && (post_ready_provider_requests > 0 || !exact_points || !exact_scan)
+    if config.mode == AssignedRangePlacementMode::CorruptLocalPart && (!exact_points || !exact_scan)
     {
         corruption_detected = true;
     }
@@ -621,7 +934,7 @@ pub async fn run_assigned_range_placement_worker(
         tail_records: config.tail_records,
         point_reads: config.point_reads,
         process_reopen_requested: config.reopen_retained_nvme,
-        process_reopen_executed: false,
+        process_reopen_executed,
         root_advance_requested: config.root_advance,
         placed,
         hydration_throughput_bytes_per_second,
@@ -1072,19 +1385,12 @@ fn collect_files_into(root: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<
     Ok(())
 }
 
-fn corrupt_first_cache_part(root: &Path) -> Result<(), String> {
-    let path = collect_files(root)?
-        .into_iter()
-        .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("_part"))
-        })
-        .ok_or_else(|| "placed range has no cache part to corrupt".to_owned())?;
+fn corrupt_range_image(root: &Path) -> Result<(), String> {
+    let path = root.join(RANGE_IMAGE_NAME);
     let mut bytes = fs::read(&path).map_err(|error| error.to_string())?;
     let first = bytes
         .first_mut()
-        .ok_or_else(|| "placed range cache part is empty".to_owned())?;
+        .ok_or_else(|| "placed range image is empty".to_owned())?;
     *first ^= 0xff;
     fs::write(path, bytes).map_err(|error| error.to_string())
 }
@@ -1173,6 +1479,7 @@ mod tests {
             root_advance: true,
             mode,
             seed: 724_851,
+            process_probe_executable: None,
         }
     }
 
@@ -1186,7 +1493,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn incumbent_emits_exact_root_bound_receipt() {
+    async fn derived_image_emits_exact_root_bound_receipt() {
         let receipt = Box::pin(run_assigned_range_placement_worker(&tiny(
             AssignedRangePlacementMode::Correct,
         )))
@@ -1199,7 +1506,50 @@ mod tests {
         assert!(receipt.ready_publication_atomic);
         assert!(receipt.ready_receipt_exact);
         assert!(receipt.scratch_cleanup_complete);
+        assert_eq!(
+            receipt.placed.local_image_format,
+            "okv-derived-sorted-range-v1"
+        );
         assert_eq!(receipt.placed.oracle_digest.len(), 64);
+    }
+
+    #[test]
+    fn range_image_codec_is_deterministic_and_rejects_corruption() {
+        let rows = vec![
+            (key_for(8), vec![0x11; 1_024]),
+            (key_for(9), vec![0x22; 1_024]),
+        ];
+        let first = encode_range_image(&key_for(8), &key_for(10), 7, &rows).unwrap();
+        let second = encode_range_image(&key_for(8), &key_for(10), 7, &rows).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(decode_range_image(&first).unwrap().3, rows);
+
+        let mut corrupt = first;
+        corrupt[0] ^= 0xff;
+        assert!(decode_range_image(&corrupt).is_err());
+    }
+
+    #[tokio::test]
+    async fn corrupt_image_is_detected_without_provider_fallback() {
+        let receipt = Box::pin(run_assigned_range_placement_worker(&tiny(
+            AssignedRangePlacementMode::CorruptLocalPart,
+        )))
+        .await
+        .unwrap();
+        assert!(receipt.corruption_detected);
+        assert_eq!(receipt.post_ready_provider_requests, 0);
+    }
+
+    #[tokio::test]
+    async fn unsafe_provider_fallback_control_issues_provider_work() {
+        let receipt = Box::pin(run_assigned_range_placement_worker(&tiny(
+            AssignedRangePlacementMode::AcceptProviderFallback,
+        )))
+        .await
+        .unwrap();
+        assert!(receipt.unsafe_provider_fallback_accepted);
+        assert!(receipt.post_ready_provider_requests > 0);
+        assert!(receipt.post_ready_provider_bytes > 0);
     }
 
     #[tokio::test]
