@@ -2562,6 +2562,33 @@ still pass provider identity, request, byte, latency, memory, deterministic
 replay, and cleanup gates. Capacity inflation, skipped normalization, and
 ignored background reads each produced a schema-valid discard.
 
+## Assigned-range placement gate
+
+`[ACTIVE-WORK]` RFC 0069 and suite
+`provider-bound-assigned-range-placement-v0` freeze the first physical test of
+the explicit-locality direction. One 32 MiB high-entropy database is divided
+into 1, 4, or 16 logical ranges. One range is assigned, hydrated, verified, and
+published through a root-specific `placed-ready` receipt.
+
+The primary metric is placed local bytes divided by visible logical bytes in
+the assignment. The frozen ceiling is `1.50x`. Hydration may read at most
+`2.00x` assigned logical bytes. After readiness, a fresh decoded-RAM view must
+open, exhaustively point-read, scan, survive unrelated-range pressure, and
+reopen from retained NVMe with zero provider requests and bytes. Post-ready
+point p99 must remain at or below 1 ms.
+
+The first implementation measures the current one-database, many-prefixes
+SlateDB layout through direct range hydration. This is an incumbent test, not
+an assumption that cached blocks form a complete or pinned range image. If it
+discards, the first orthogonal candidate is a separate derived range-local
+image under the same frozen oracle, workload, and byte thresholds.
+
+The suite also exercises a 64-record authenticated overlay and one root
+advance. Premature readiness, stale receipt reuse, corrupted local state, and
+provider fallback after readiness must each produce a schema-valid discard.
+No GCS performance claim is allowed until one local subject passes readiness,
+exactness, post-ready provider isolation, and cleanup.
+
 ## Noise and effect rule
 
 1. Run a candidate at least five times before promotion in a performance lane.

@@ -1,0 +1,188 @@
+schema_version = 1
+id = "provider-bound-assigned-range-placement-v0"
+status = "frozen-before-implementation"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0069-assigned-range-placement.md",
+  "../../rfcs/0068-provider-bound-locality-feasibility.md",
+  "../../rfcs/0066-provider-bound-range-read.md",
+  "../../rfcs/0057-kv-runtime-physical-density.md",
+]
+dataset_generator = "provider-bound-assigned-range-mvcc-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-path]
+logical_bytes = 33554432
+key_count = 4096
+value_bytes = 8192
+seeds = [724851, 724877, 724901, 724921, 724939]
+
+[profiles.local-path]
+budget_kind = "seconds"
+budget_limit = 900
+repeats = 1
+backend = "versioned-local-object-store"
+point_reads_per_repeat = 8192
+post_ready_pressure_fraction_ppm = 2000000
+scratch_root_env = "OKV_EVAL_SCRATCH_ROOT"
+scratch_cleanup_required = true
+
+[[lanes]]
+id = "provider-bound-assigned-range-placement"
+objective = "Minimize complete assigned-range placed bytes while preserving root-bound zero-provider hot reads."
+primary_metric = "provider_bound.placement_amplification"
+statistic = "p50"
+direction = "lower"
+practical_improvement_fraction = 0.25
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "provider_bound.placement_amplification"
+statistic = "p50"
+op = "le"
+value = 1.50
+
+[[lanes.constraints]]
+metric = "provider_bound.hydration_byte_amplification"
+statistic = "p50"
+op = "le"
+value = 2.00
+
+[[lanes.constraints]]
+metric = "provider_bound.post_ready_provider_requests"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "provider_bound.post_ready_provider_bytes"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "provider_bound.post_ready_point_p99"
+statistic = "p50"
+op = "le"
+value = 0.001
+
+[[workloads]]
+id = "placed-one-of-one"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 1
+assigned_range_index = 0
+tail_records = 0
+process_reopen = false
+root_advance = false
+
+[[workloads]]
+id = "placed-one-of-four-tail64"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 4
+assigned_range_index = 1
+tail_records = 64
+process_reopen = false
+root_advance = false
+
+[[workloads]]
+id = "placed-one-of-sixteen-tail64-pressure"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 16
+assigned_range_index = 7
+tail_records = 64
+process_reopen = false
+root_advance = false
+
+[[workloads]]
+id = "placed-one-of-four-process-reopen"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 4
+assigned_range_index = 1
+tail_records = 64
+process_reopen = true
+root_advance = false
+
+[[workloads]]
+id = "placed-one-of-four-root-advance"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 4
+assigned_range_index = 1
+tail_records = 64
+process_reopen = true
+root_advance = true
+
+[[workloads]]
+id = "placed-publish-before-verify-control"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 4
+assigned_range_index = 1
+tail_records = 64
+negative_control = "publish_before_verification"
+
+[[workloads]]
+id = "placed-stale-receipt-control"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 4
+assigned_range_index = 1
+tail_records = 64
+negative_control = "reuse_stale_receipt"
+
+[[workloads]]
+id = "placed-corrupt-part-control"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 4
+assigned_range_index = 1
+tail_records = 64
+negative_control = "corrupt_local_part"
+
+[[workloads]]
+id = "placed-provider-fallback-control"
+lane = "provider-bound-assigned-range-placement"
+operation = "provider_bound_assigned_range_placement"
+logical_range_count = 4
+assigned_range_index = 1
+tail_records = 64
+negative_control = "accept_provider_fallback"
+
+[hard_gates]
+exact_logical_results = true
+authority_root_identity_exact = true
+assignment_epoch_exact = true
+ready_publication_atomic = true
+placed_image_digest_exact = true
+outside_range_reads_refused = true
+post_ready_provider_requests_zero = true
+post_ready_provider_bytes_zero = true
+root_advance_withdraws_old_ready = true
+scratch_cleanup_required = true
+deterministic_replay_exact = true
+negative_controls_must_discard = 4
+schema_valid = true
+budget_must_hold = true
+
+[calibration_targets]
+placement_amplification = 1.50
+hydration_byte_amplification = 2.00
+post_ready_point_p99_seconds = 0.001
+post_ready_provider_requests = 0
+post_ready_provider_bytes = 0
+cloud_claimed = false

@@ -3017,8 +3017,8 @@ target, narrow objectKV to colder or locality-declared workloads.
 ## D101. Make assigned-range placement the hot-serving contract
 
 Status: `[DECIDED]` for the serving-model direction, `[EXISTS]` for the
-locality-feasibility gate, and `[PROPOSED]` for placed-range hydration and
-routing, 2026-08-25.
+locality-feasibility gate, `[ACTIVE-WORK]` for the frozen placed-range contract,
+and `[PROPOSED]` for placed-range implementation and routing, 2026-08-25.
 
 Decision: do not treat shared passive cache residency as the contract for
 hot-SLO reads. A Range Engine receives an explicit key-range assignment,
@@ -3055,8 +3055,9 @@ target. All clean model gates passed before the lane constraint discarded the
 workload-target pairs. Capacity inflation, skipped normalization, and ignored
 background reads each discarded through an independent gate.
 
-Next decision: freeze an assigned-range hydration and `placed-ready` contract.
-Measure empty-disk provider bytes, requests, and duration; steady local p99;
-root advance and overlay catch-up; process restart; reassignment; and corrupted
-local-image repair. Compare one disposable local serving image plus object
-authority against one, two, and three local RocksDB replicas.
+Next decision: execute RFC 0069 against the current one-database, many-prefixes
+layout without changing its `1.50x` placement, `2.00x` hydration, zero
+post-ready provider-work, or 1 ms point-p99 thresholds. If the incumbent
+discards, measure a derived range-local image under the same contract. Compare
+one and two disposable local serving copies plus object authority against one,
+two, and three local RocksDB replicas after a local candidate passes.

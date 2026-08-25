@@ -1046,6 +1046,124 @@ attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capaci
 required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "model", "result"]
 
 [[metrics]]
+id = "provider_bound.placement_amplification"
+otel_name = "okv.eval.provider_bound.placement_amplification"
+kind = "gauge"
+unit = "1"
+description = "All retained local bytes reserved by one ready assignment divided by its visible logical key and value bytes"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+
+[[metrics]]
+id = "provider_bound.hydration_byte_amplification"
+otel_name = "okv.eval.provider_bound.hydration_byte_amplification"
+kind = "gauge"
+unit = "1"
+description = "Provider bytes read while hydrating and verifying one assignment divided by its visible logical key and value bytes"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+
+[[metrics]]
+id = "provider_bound.placed_bytes"
+otel_name = "okv.eval.provider_bound.placed_bytes"
+kind = "gauge"
+unit = "By"
+description = "All retained local bytes reserved by one root-bound ready assignment after staging cleanup"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+
+[[metrics]]
+id = "provider_bound.logical_assigned_bytes"
+otel_name = "okv.eval.provider_bound.logical_assigned_bytes"
+kind = "gauge"
+unit = "By"
+description = "Visible logical key and value bytes in one assigned range at the receipt target version"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "result"]
+
+[[metrics]]
+id = "provider_bound.projected_placed_bytes"
+otel_name = "okv.eval.provider_bound.projected_placed_bytes"
+kind = "gauge"
+unit = "By"
+description = "Placed local bytes projected at a declared count of simultaneously ready serving copies"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "replica.count", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "replica.count", "result"]
+
+[[metrics]]
+id = "provider_bound.hydration_duration"
+otel_name = "okv.eval.provider_bound.hydration.duration"
+kind = "histogram"
+unit = "s"
+description = "Time from an authenticated assignment to atomic publication of its verified local ready image"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
+
+[[metrics]]
+id = "provider_bound.hydration_throughput"
+otel_name = "okv.eval.provider_bound.hydration.throughput"
+kind = "gauge"
+unit = "By/s"
+description = "Visible logical assigned bytes divided by authenticated hydration and ready-publication duration"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "result"]
+
+[[metrics]]
+id = "provider_bound.hydration_provider_requests"
+otel_name = "okv.eval.provider_bound.hydration.provider_requests"
+kind = "counter"
+unit = "{request}"
+description = "Backing object-store requests issued while hydrating and verifying one assigned range"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "request.operation", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "request.operation", "result"]
+
+[[metrics]]
+id = "provider_bound.hydration_provider_bytes"
+otel_name = "okv.eval.provider_bound.hydration.provider_bytes"
+kind = "counter"
+unit = "By"
+description = "Backing object-store bytes read while hydrating and verifying one assigned range"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "result"]
+
+[[metrics]]
+id = "provider_bound.post_ready_provider_requests"
+otel_name = "okv.eval.provider_bound.post_ready.provider_requests"
+kind = "counter"
+unit = "{request}"
+description = "Backing object-store requests issued while opening or reading a root-bound ready assignment"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "request.operation", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "request.operation", "result"]
+
+[[metrics]]
+id = "provider_bound.post_ready_provider_bytes"
+otel_name = "okv.eval.provider_bound.post_ready.provider_bytes"
+kind = "counter"
+unit = "By"
+description = "Backing object-store bytes read while opening or reading a root-bound ready assignment"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "result"]
+
+[[metrics]]
+id = "provider_bound.post_ready_point_p99"
+otel_name = "okv.eval.provider_bound.post_ready.point_p99"
+kind = "gauge"
+unit = "s"
+description = "P99 exact point-read latency after root-bound assigned-range readiness"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "process.reopen", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "process.reopen", "result"]
+
+[[metrics]]
+id = "provider_bound.post_ready_scan_throughput"
+otel_name = "okv.eval.provider_bound.post_ready.scan_throughput"
+kind = "gauge"
+unit = "{row}/s"
+description = "Visible ordered rows returned per second by an exhaustive assigned-range scan after readiness"
+attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "process.reopen", "result"]
+required_attributes = ["lane", "workload", "backend", "range.count", "assignment.index", "image.format", "process.reopen", "result"]
+
+[[metrics]]
 id = "provider_bound.point_duration"
 otel_name = "okv.eval.provider_bound.point.duration"
 kind = "histogram"
