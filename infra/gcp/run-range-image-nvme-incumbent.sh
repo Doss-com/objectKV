@@ -155,6 +155,8 @@ build_probes() {
   git -C /opt/rocksdb fetch -q --depth=1 origin "$ROCKSDB_COMMIT"
   git -C /opt/rocksdb checkout -q --detach FETCH_HEAD
   [[ "$(git -C /opt/rocksdb rev-parse HEAD)" == "$ROCKSDB_COMMIT" ]]
+  c++ -std=c++20 -fsyntax-only -I/opt/rocksdb -I/opt/rocksdb/include \
+    /opt/objectkv/experiments/range-image-nvme/rocksdb_probe.cc
   make -C /opt/rocksdb -j"$(nproc)" static_lib \
     PORTABLE=1 DEBUG_LEVEL=0 USE_RTTI=1 USE_GFLAGS=0 DISABLE_WARNING_AS_ERROR=1
   c++ -std=c++20 -O3 -DNDEBUG \

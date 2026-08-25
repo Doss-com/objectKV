@@ -216,8 +216,8 @@ std::string Sha256Bytes(const std::vector<unsigned char>& bytes) {
 Trace LoadTrace(const std::filesystem::path& path) {
   std::ifstream input(path, std::ios::binary);
   if (!input) throw std::runtime_error("open trace");
-  const std::vector<unsigned char> bytes(std::istreambuf_iterator<char>(input),
-                                         std::istreambuf_iterator<char>());
+  const std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(input),
+                                         std::istreambuf_iterator<char>()};
   if (bytes.size() < kTraceHeaderBytes ||
       std::string_view(reinterpret_cast<const char*>(bytes.data()), 8) != kTraceMagic) {
     throw std::runtime_error("trace header is invalid");
@@ -320,11 +320,10 @@ rocksdb::Options OptionsFor(const Args& args, bool create,
 std::string Populate(const Args& args, const Trace& trace) {
   if (std::filesystem::exists(args.db)) throw std::runtime_error("database path already exists");
   std::filesystem::create_directories(args.db.parent_path());
-  rocksdb::DB* raw = nullptr;
   auto statistics = rocksdb::CreateDBStatistics();
   auto options = OptionsFor(args, true, statistics);
-  Check(rocksdb::DB::Open(options, args.db.string(), &raw), "open database for population");
-  std::unique_ptr<rocksdb::DB> db(raw);
+  std::unique_ptr<rocksdb::DB> db;
+  Check(rocksdb::DB::Open(options, args.db.string(), &db), "open database for population");
   rocksdb::WriteOptions write_options;
   write_options.disableWAL = true;
   Sha256 fixture;
@@ -358,9 +357,9 @@ struct OpenedDb {
 OpenedDb OpenReadOnly(const Args& args) {
   auto statistics = rocksdb::CreateDBStatistics();
   auto options = OptionsFor(args, false, statistics);
-  rocksdb::DB* raw = nullptr;
-  Check(rocksdb::DB::OpenForReadOnly(options, args.db.string(), &raw), "open read-only database");
-  return {std::unique_ptr<rocksdb::DB>(raw), statistics};
+  std::unique_ptr<rocksdb::DB> db;
+  Check(rocksdb::DB::OpenForReadOnly(options, args.db.string(), &db), "open read-only database");
+  return {std::move(db), statistics};
 }
 
 Usage CurrentUsage() {
@@ -451,7 +450,7 @@ PointCurve RunPointCurve(const Args& args, const Trace& trace, std::size_t concu
     std::unique_lock lock(gate_mutex);
     gate_cv.wait(lock, [&] { return ready == concurrency; });
   }
-  const auto bytes_before = Ticker(opened.statistics, rocksdb::BLOCK_READ_BYTE);
+  const auto bytes_before = Ticker(opened.statistics, rocksdb::BYTES_READ);
   const auto hits_before = Ticker(opened.statistics, rocksdb::BLOCK_CACHE_DATA_HIT);
   const auto misses_before = Ticker(opened.statistics, rocksdb::BLOCK_CACHE_DATA_MISS);
   const auto usage_before = CurrentUsage();
@@ -470,7 +469,7 @@ PointCurve RunPointCurve(const Args& args, const Trace& trace, std::size_t concu
     latencies.insert(latencies.end(), worker.begin(), worker.end());
   }
   std::sort(latencies.begin(), latencies.end());
-  const auto physical_bytes = Ticker(opened.statistics, rocksdb::BLOCK_READ_BYTE) - bytes_before;
+  const auto physical_bytes = Ticker(opened.statistics, rocksdb::BYTES_READ) - bytes_before;
   const auto hits = Ticker(opened.statistics, rocksdb::BLOCK_CACHE_DATA_HIT) - hits_before;
   const auto misses = Ticker(opened.statistics, rocksdb::BLOCK_CACHE_DATA_MISS) - misses_before;
   const auto cache_accesses = hits + misses;
@@ -502,7 +501,7 @@ ScanCurve RunScan(const Args& args, const Trace& trace) {
   auto opened = OpenReadOnly(args);
   rocksdb::ReadOptions read_options;
   read_options.verify_checksums = true;
-  const auto bytes_before = Ticker(opened.statistics, rocksdb::BLOCK_READ_BYTE);
+  const auto bytes_before = Ticker(opened.statistics, rocksdb::BYTES_READ);
   Sha256 digest;
   std::size_t ordinal = 0;
   bool exact = true;
@@ -519,7 +518,7 @@ ScanCurve RunScan(const Args& args, const Trace& trace) {
   const auto duration = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
   exact = exact && ordinal == trace.key_count;
   const auto logical_bytes = static_cast<std::uint64_t>(trace.key_count) * args.value_bytes;
-  const auto physical_bytes = Ticker(opened.statistics, rocksdb::BLOCK_READ_BYTE) - bytes_before;
+  const auto physical_bytes = Ticker(opened.statistics, rocksdb::BYTES_READ) - bytes_before;
   return {ordinal,
           logical_bytes,
           physical_bytes,
