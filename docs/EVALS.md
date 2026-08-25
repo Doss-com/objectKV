@@ -2541,6 +2541,27 @@ constraint emits a named hard gate with the observed statistic, operator, and
 target. A semantically correct workload that misses its economic ceiling is a
 `discard`, as required by the research program.
 
+## Provider-bound locality-feasibility gate
+
+`[PROPOSED]` RFC 0068 and suite
+`provider-bound-locality-feasibility-v0` freeze a preflight before another
+physical cache or prefetch candidate. The gate computes the greatest access
+probability mass any capacity-respecting ideal placement can cover, then
+compares its irreducible provider miss ratio to the declared target.
+
+At 25 percent local coverage, the RFC 0067 Zipfian `0.99` distribution has an
+ideal hit ceiling of `0.838299212912`, so at least `0.161700787088` of reads
+miss. The moving 10-percent hotset with 10-percent uniform background has an
+ideal hit ceiling of `0.925`, so at least `0.075` of reads miss. Both workload,
+capacity, and 2.5-percent-target combinations are infeasible before mechanism
+overhead.
+
+The gate does not replace a physical eval. It prevents the autonomous loop
+from tuning a mechanism against an impossible target. A feasible pair must
+still pass provider identity, request, byte, latency, memory, deterministic
+replay, and cleanup gates. Capacity inflation, skipped normalization, and
+ignored background reads are unsafe controls that must discard.
+
 ## Noise and effect rule
 
 1. Run a candidate at least five times before promotion in a performance lane.

@@ -1019,6 +1019,33 @@ attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capaci
 required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "result"]
 
 [[metrics]]
+id = "provider_bound.ideal_hit_ratio"
+otel_name = "okv.eval.provider_bound.ideal_hit_ratio"
+kind = "gauge"
+unit = "1"
+description = "Maximum access probability mass coverable by an ideal capacity-respecting local placement"
+attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "model", "result"]
+required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "model", "result"]
+
+[[metrics]]
+id = "provider_bound.irreducible_miss_ratio"
+otel_name = "okv.eval.provider_bound.irreducible_miss_ratio"
+kind = "gauge"
+unit = "1"
+description = "Provider miss probability remaining under ideal capacity-respecting local placement"
+attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "model", "result"]
+required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "model", "result"]
+
+[[metrics]]
+id = "provider_bound.locality_target_gap"
+otel_name = "okv.eval.provider_bound.locality_target_gap"
+kind = "gauge"
+unit = "1"
+description = "Irreducible provider miss ratio minus the declared provider miss target"
+attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "model", "result"]
+required_attributes = ["lane", "workload", "backend", "trace.distribution", "cache.capacity", "model", "result"]
+
+[[metrics]]
 id = "provider_bound.point_duration"
 otel_name = "okv.eval.provider_bound.point.duration"
 kind = "histogram"

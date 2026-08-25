@@ -74,6 +74,7 @@ not harden until their RFC is accepted.
 | 0064 | Incremental PostgreSQL object-delta segments | active work, local crossover admitted | replace JSON v1, bound layer growth, and verify remote objects |
 | 0065 | PostgreSQL replacement-worker readiness | accepted for local OS-warm evaluation; production policy unchanged | bind provider integrity, then replay the cache-state curve on GCS |
 | 0066 | Provider-bound range reads | in-region GCS cache states admitted | measure realistic cache reuse and capacity |
-| 0067 | Provider-bound cache economics | proposed, eval frozen before implementation | measure miss ratio under bounded capacity, skew, reuse distance, and view churn |
+| 0067 | Provider-bound cache economics | implemented, first 25-percent stop points discarded | replace passive caching with an explicit feasible locality model |
+| 0068 | Provider-bound locality feasibility | proposed, eval frozen before implementation | reject impossible workload, capacity, and miss-target combinations before physical tuning |
 
 Use `0000-template.md` for new proposals.

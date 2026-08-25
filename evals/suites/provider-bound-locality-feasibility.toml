@@ -1,0 +1,123 @@
+schema_version = 1
+id = "provider-bound-locality-feasibility-v0"
+status = "frozen-before-implementation"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0068-provider-bound-locality-feasibility.md",
+  "../../rfcs/0067-provider-bound-cache-economics.md",
+  "provider-bound-cache-economics.toml",
+]
+dataset_generator = "provider-bound-locality-probability-model-v0"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-model]
+logical_bytes = 33554432
+key_count = 4096
+seeds = [724841]
+
+[profiles.local-model]
+budget_kind = "events"
+budget_limit = 100000
+repeats = 1
+backend = "closed-form-locality-feasibility-model"
+point_bytes = 8192
+provider_get_cost_per_million_usd = 0.40
+target_request_cost_per_million_reads_usd = 0.01
+expected_provider_miss_ratio = 0.025
+probability_tolerance = 1e-12
+
+[[lanes]]
+id = "provider-bound-locality-feasibility"
+objective = "Minimize the irreducible provider miss ratio under ideal capacity-respecting placement."
+primary_metric = "provider_bound.irreducible_miss_ratio"
+statistic = "p50"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "provider_bound.irreducible_miss_ratio"
+statistic = "p50"
+op = "le"
+value = 0.025
+
+[[workloads]]
+id = "locality-uniform-25pct"
+lane = "provider-bound-locality-feasibility"
+operation = "provider_bound_locality_feasibility"
+distribution = "uniform"
+cache_fraction_ppm = 250000
+
+[[workloads]]
+id = "locality-zipf099-25pct"
+lane = "provider-bound-locality-feasibility"
+operation = "provider_bound_locality_feasibility"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 250000
+
+[[workloads]]
+id = "locality-moving-hotset-25pct"
+lane = "provider-bound-locality-feasibility"
+operation = "provider_bound_locality_feasibility"
+distribution = "moving_hotset"
+hotset_fraction_ppm = 100000
+hot_read_fraction_ppm = 900000
+cache_fraction_ppm = 250000
+
+[[workloads]]
+id = "locality-inflate-capacity-control"
+lane = "provider-bound-locality-feasibility"
+operation = "provider_bound_locality_feasibility"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 250000
+negative_control = "inflate_capacity"
+
+[[workloads]]
+id = "locality-skip-normalization-control"
+lane = "provider-bound-locality-feasibility"
+operation = "provider_bound_locality_feasibility"
+distribution = "zipfian"
+zipf_theta_milli = 990
+cache_fraction_ppm = 250000
+negative_control = "skip_probability_normalization"
+
+[[workloads]]
+id = "locality-ignore-background-control"
+lane = "provider-bound-locality-feasibility"
+operation = "provider_bound_locality_feasibility"
+distribution = "moving_hotset"
+hotset_fraction_ppm = 100000
+hot_read_fraction_ppm = 900000
+cache_fraction_ppm = 250000
+negative_control = "ignore_background_reads"
+
+[hard_gates]
+probability_mass_normalized = true
+closed_form_matches_enumeration = true
+capacity_bound_must_hold = true
+hit_plus_miss_equals_one = true
+request_cost_target_reproduced = true
+deterministic_replay_exact = true
+negative_controls_must_discard = 3
+schema_valid = true
+budget_must_hold = true
+
+[calibration_targets]
+provider_miss_ratio = 0.025
+provider_hit_ratio = 0.975
+provider_get_cost_per_million_usd = 0.40
+target_request_cost_per_million_reads_usd = 0.01
+cloud_claimed = false
