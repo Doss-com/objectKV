@@ -281,7 +281,7 @@ controller_main() {
   git -C "$repo_root" diff --cached --quiet
   git -C "$repo_root" branch -r --contains "$candidate" | grep -q 'origin/'
   run_id="$(date -u +%Y%m%dT%H%M%SZ)-${candidate:0:12}"
-  instance="okv-nvme-${run_id,,}"
+  instance="okv-nvme-$(printf '%s' "$run_id" | tr '[:upper:]' '[:lower:]')"
   instance="${instance//:/-}"
   result_prefix="gs://$BUCKET/results/rfc0071/$run_id"
   cleanup_controller() {
