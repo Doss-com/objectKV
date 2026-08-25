@@ -13,6 +13,7 @@ SEEDS="${OKV_NVME_SEEDS:-724851,724877,724901,724921,724939}"
 PAYLOADS="${OKV_NVME_PAYLOADS:-8192,16384,32768,65536}"
 STATES="${OKV_NVME_STATES:-direct,buffered}"
 RAW_FIO_SECONDS="${OKV_NVME_RAW_FIO_SECONDS:-30}"
+SKIP_FIO="${OKV_NVME_SKIP_FIO:-false}"
 CONTROLLER_INSTANCE=""
 
 controller_cleanup() {
@@ -118,14 +119,14 @@ run_fio() {
     for queue in 1 8 32 128; do
       fio --name="randread-${block}-${queue}" --filename="$DEVICE" --rw=randread \
         --bs="$block" --ioengine=libaio --iodepth="$queue" --direct=1 \
-        --numjobs=1 --runtime="$RAW_FIO_SECONDS" --time_based=1 --readonly=1 \
+        --numjobs=1 --runtime="$RAW_FIO_SECONDS" --time_based=1 --readonly \
         --group_reporting --output-format=json \
         --output="$RESULTS/fio-randread-${block}-${queue}.json"
     done
   done
   fio --name=seqread-1m --filename="$DEVICE" --rw=read --bs=1M \
     --ioengine=libaio --iodepth=32 --direct=1 --numjobs=1 \
-    --runtime="$RAW_FIO_SECONDS" --time_based=1 --readonly=1 --group_reporting \
+    --runtime="$RAW_FIO_SECONDS" --time_based=1 --readonly --group_reporting \
     --output-format=json --output="$RESULTS/fio-seqread-1048576-32.json"
 }
 
@@ -257,6 +258,7 @@ worker_main() {
   PAYLOADS="$(metadata instance/attributes/okv-payloads)"
   STATES="$(metadata instance/attributes/okv-states)"
   RAW_FIO_SECONDS="$(metadata instance/attributes/okv-fio-seconds)"
+  SKIP_FIO="$(metadata instance/attributes/okv-skip-fio)"
   RESULT_PREFIX="gs://$BUCKET/results/rfc0071/$RUN_ID"
   RESULTS="/var/lib/objectkv-rfc0071-results"
   STATUS_FILE="/var/lib/objectkv-rfc0071-status.json"
@@ -267,7 +269,11 @@ worker_main() {
   started_epoch="$(date +%s)"
   build_probes
   device_guard
-  run_fio
+  if [[ "$SKIP_FIO" == "true" ]]; then
+    worker_status running "raw calibration skipped for shakedown"
+  else
+    run_fio
+  fi
   prepare_filesystem
   run_matrix
   local stopped_epoch
@@ -275,10 +281,12 @@ worker_main() {
   jq -n \
     --arg run_id "$RUN_ID" --arg runner "$RUNNER_ID" --arg candidate "$CANDIDATE_COMMIT" \
     --arg rocksdb "$ROCKSDB_COMMIT" --arg seeds "$SEEDS" --arg payloads "$PAYLOADS" \
-    --arg states "$STATES" --argjson started "$started_epoch" --argjson stopped "$stopped_epoch" \
+    --arg states "$STATES" --arg skip_fio "$SKIP_FIO" \
+    --argjson started "$started_epoch" --argjson stopped "$stopped_epoch" \
     '{run_id:$run_id,runner:$runner,candidate_commit:$candidate,rocksdb_commit:$rocksdb,
       seeds:$seeds,payloads:$payloads,states:$states,started_epoch:$started,
-      stopped_epoch:$stopped,provisioned_seconds:($stopped-$started),complete:true}' \
+      stopped_epoch:$stopped,provisioned_seconds:($stopped-$started),
+      raw_calibration_skipped:($skip_fio=="true"),complete:true}' \
     >"$RESULTS/run.json"
   gcloud storage cp --quiet --recursive "$RESULTS" "$RESULT_PREFIX/"
   worker_status complete "results uploaded"
@@ -307,7 +315,7 @@ controller_main() {
     --service-account="$SERVICE_ACCOUNT" --scopes=cloud-platform \
     --image-family=debian-12 --image-project=debian-cloud --boot-disk-size=100GB \
     --boot-disk-type=pd-balanced --local-ssd=interface=NVME \
-    --metadata="^:^okv-runner-id=$instance:okv-run-id=$run_id:okv-candidate-commit=$candidate:okv-seeds=$SEEDS:okv-payloads=$PAYLOADS:okv-states=$STATES:okv-fio-seconds=$RAW_FIO_SECONDS" \
+    --metadata="^:^okv-runner-id=$instance:okv-run-id=$run_id:okv-candidate-commit=$candidate:okv-seeds=$SEEDS:okv-payloads=$PAYLOADS:okv-states=$STATES:okv-fio-seconds=$RAW_FIO_SECONDS:okv-skip-fio=$SKIP_FIO" \
     --metadata-from-file="startup-script=$repo_root/infra/gcp/run-range-image-nvme-incumbent.sh" \
     --labels=project=objectkv,purpose=rfc0071-eval >/dev/null
   CONTROLLER_INSTANCE="$instance"
