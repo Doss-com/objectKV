@@ -9,6 +9,7 @@ const NEGATIVE_CONTROL: &str = "accept_stale_source_incarnation";
 
 /// One GCP and FoundationDB provider identity.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderIdentity {
     pub cluster_id: String,
     pub cluster_file_sha256: String,
@@ -22,6 +23,7 @@ pub struct ProviderIdentity {
 
 /// Named immutable closure reconstructed by the destination.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectClosure {
     pub manifest_uri: String,
     pub manifest_generation: String,
@@ -38,6 +40,7 @@ pub struct ObjectClosure {
 
 /// Provider-local fence observation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceFence {
     pub started_at: String,
     pub finished_at: String,
@@ -50,10 +53,12 @@ pub struct SourceFence {
 
 /// Destination activation observation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Activation {
     pub started_at: String,
     pub finished_at: String,
     pub authority_trace_sha256: String,
+    pub source_fence_receipt_sha256: String,
     pub source_fence_provider_stamp: String,
     pub state_digest: String,
     pub fresh_commit_succeeded: bool,
@@ -62,8 +67,11 @@ pub struct Activation {
 
 /// Probe executed after the source VM restarts with the same media.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Resurrection {
     pub probed_at: String,
+    pub activation_receipt_sha256: String,
+    pub restart_observation_sha256: String,
     pub fence_value: String,
     pub fence_provider_stamp: String,
     pub fence_persisted: bool,
@@ -72,6 +80,7 @@ pub struct Resurrection {
 
 /// Source VM stop/start observation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Restart {
     pub stopped_at: String,
     pub started_at: String,
@@ -82,6 +91,7 @@ pub struct Restart {
 
 /// One named provider-incarnation assertion.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Gate {
     pub id: String,
     pub passed: bool,
@@ -90,6 +100,7 @@ pub struct Gate {
 
 /// Controller-assembled real-provider receipt.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Receipt {
     pub schema_version: u64,
     pub kind: String,
@@ -201,13 +212,30 @@ impl Receipt {
         ] {
             parse_timestamp(name, value)?;
         }
-        if parse_timestamp("fence finish", &fence.finished_at)?
-            > parse_timestamp("activation start", &activation.started_at)?
-            || parse_timestamp("activation finish", &activation.finished_at)?
-                > parse_timestamp("resurrection probe", &resurrection.probed_at)?
+        if parse_timestamp("fence start", &fence.started_at)?
+            > parse_timestamp("fence finish", &fence.finished_at)?
+            || parse_timestamp("activation start", &activation.started_at)?
+                > parse_timestamp("activation finish", &activation.finished_at)?
+            || parse_timestamp("restart stop", &restart.stopped_at)?
+                > parse_timestamp("restart start", &restart.started_at)?
         {
-            return Err("provider-incarnation receipt timeline is out of order".to_owned());
+            return Err("provider-incarnation same-host timeline is out of order".to_owned());
         }
+        validate_hex(
+            "source fence receipt digest",
+            &activation.source_fence_receipt_sha256,
+            64,
+        )?;
+        validate_hex(
+            "activation receipt digest",
+            &resurrection.activation_receipt_sha256,
+            64,
+        )?;
+        validate_hex(
+            "restart observation digest",
+            &resurrection.restart_observation_sha256,
+            64,
+        )?;
         for (name, value) in [
             ("fence provider stamp", fence.fence_provider_stamp.as_str()),
             (
@@ -243,9 +271,20 @@ impl Receipt {
                 activation.fresh_commit_succeeded
                     && activation.state_digest == self.object_closure.state_digest
                     && activation.authority_trace_sha256 == self.authority_trace_sha256
+                    && activation.source_fence_provider_stamp
+                        == self
+                            .source_fence
+                            .as_ref()
+                            .map_or("", |fence| fence.fence_provider_stamp.as_str())
             })
             && self.resurrection.as_ref().is_some_and(|resurrection| {
-                resurrection.fence_persisted && resurrection.stale_source_adapter_commit_rejected
+                resurrection.fence_persisted
+                    && resurrection.stale_source_adapter_commit_rejected
+                    && resurrection.fence_provider_stamp
+                        == self
+                            .source_fence
+                            .as_ref()
+                            .map_or("", |fence| fence.fence_provider_stamp.as_str())
             })
             && self.restart.as_ref().is_some_and(|restart| {
                 restart.stop_succeeded && restart.start_succeeded && restart.identities_retained
@@ -371,6 +410,7 @@ mod tests {
                 started_at: "2026-08-27T14:00:02Z".to_owned(),
                 finished_at: "2026-08-27T14:00:03Z".to_owned(),
                 authority_trace_sha256: "f".repeat(64),
+                source_fence_receipt_sha256: "a".repeat(64),
                 source_fence_provider_stamp: "1".repeat(20),
                 state_digest: "e".repeat(64),
                 fresh_commit_succeeded: true,
@@ -378,6 +418,8 @@ mod tests {
             }),
             resurrection: Some(Resurrection {
                 probed_at: "2026-08-27T14:00:05Z".to_owned(),
+                activation_receipt_sha256: "b".repeat(64),
+                restart_observation_sha256: "c".repeat(64),
                 fence_value: "fenced:2".to_owned(),
                 fence_provider_stamp: "1".repeat(20),
                 fence_persisted: true,
@@ -424,6 +466,25 @@ mod tests {
         validator
             .validate(&serde_json::to_value(positive()).unwrap())
             .unwrap();
+    }
+
+    #[test]
+    fn positive_receipt_rejects_unknown_nested_fields() {
+        let mut value = serde_json::to_value(positive()).unwrap();
+        value["activation"]["unexpected"] = serde_json::json!(true);
+        let encoded = serde_json::to_vec(&value).unwrap();
+        assert!(Receipt::from_json(&encoded).is_err());
+    }
+
+    #[test]
+    fn positive_receipt_requires_one_source_fence_stamp() {
+        let mut receipt = positive();
+        receipt
+            .activation
+            .as_mut()
+            .unwrap()
+            .source_fence_provider_stamp = "9".repeat(20);
+        assert!(!receipt.positive_passed());
     }
 
     #[test]

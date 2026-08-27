@@ -206,7 +206,8 @@ route, and publication poison with complete OTel signals. `[CODE-COMPLETE]`
 the next real-infrastructure rung creates source and destination FoundationDB
 providers simultaneously, installs the source fence, activates the exact
 destination, restarts the source with unchanged disk identities, and formally
-checks the resurrected adapter. `[EVALUATING]` that leased run. GP3.1 compares
+checks the resurrected adapter. Phase order is bound by exact receipt digests,
+not cross-VM clock comparison. `[EVALUATING]` that leased run. GP3.1 compares
 mandatory retained-write overhead against direct FoundationDB only after this
 correctness gate passes.
 

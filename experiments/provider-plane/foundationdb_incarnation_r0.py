@@ -13,7 +13,6 @@ import argparse
 import hashlib
 import json
 import time
-from datetime import datetime
 from typing import Any
 
 import fdb
@@ -49,8 +48,8 @@ NEGATIVE_CONTROL = "accept_stale_source_incarnation"
 FENCE_VALUE = b"fenced:2"
 
 
-def parse_time(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+def document_sha256(value: dict[str, Any]) -> str:
+    return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
 def same_cluster(expected: dict[str, str], actual: dict[str, str]) -> bool:
@@ -258,8 +257,13 @@ def activate_phase(arguments: argparse.Namespace) -> int:
     authority = read_json(arguments.authority_report)
     if not valid_authority_report(authority):
         raise AssertionError("external authority report did not authorize activation")
-    if parse_time(fence["finished_at"]) > parse_time(started_at):
-        raise AssertionError("destination activation started before source fence")
+    if (
+        fence.get("kind") != FENCE_KIND
+        or fence.get("run_id") != arguments.run_id
+        or not fence.get("concurrent_stale_commit_rejected")
+        or not fence.get("post_fence_adapter_commit_rejected")
+    ):
+        raise AssertionError("destination activation did not consume a valid source fence")
     if restore.get("kind") != RESTORE_KIND or not restore["ready_not_active"]:
         raise AssertionError("destination is not ready and inactive")
     if restore["restored_state_digest"] != source["object_closure"]["state_digest"]:
@@ -287,6 +291,7 @@ def activate_phase(arguments: argparse.Namespace) -> int:
         "finished_at": utc_now(),
         "cluster": cluster_identity(arguments.cluster_file),
         "authority_trace_sha256": authority["trace_sha256"],
+        "source_fence_receipt_sha256": document_sha256(fence),
         "source_fence_provider_stamp": fence["fence_provider_stamp"],
         "state_digest": restore["restored_state_digest"],
         "fresh_commit_succeeded": bool(fresh_stamp),
@@ -303,8 +308,18 @@ def resurrect_phase(arguments: argparse.Namespace) -> int:
     source = read_json(arguments.source_receipt)
     fence = read_json(arguments.fence_receipt)
     activation = read_json(arguments.activation_receipt)
-    if parse_time(activation["finished_at"]) > parse_time(probed_at):
-        raise AssertionError("source resurrection probe preceded activation")
+    restart = read_json(arguments.restart_observation)
+    if (
+        activation.get("kind") != ACTIVATION_KIND
+        or activation.get("run_id") != arguments.run_id
+        or not activation.get("fresh_commit_succeeded")
+    ):
+        raise AssertionError("source resurrection did not consume a valid activation")
+    if not all(
+        restart.get(item) is True
+        for item in ["stop_succeeded", "start_succeeded", "identities_retained"]
+    ):
+        raise AssertionError("source resurrection did not consume a valid restart")
     database = (
         fdb.open(arguments.cluster_file) if arguments.cluster_file else fdb.open()
     )
@@ -337,6 +352,8 @@ def resurrect_phase(arguments: argparse.Namespace) -> int:
         "run_id": arguments.run_id,
         "probed_at": probed_at,
         "cluster": identity,
+        "activation_receipt_sha256": document_sha256(activation),
+        "restart_observation_sha256": document_sha256(restart),
         "fence_value": fence_value.decode("ascii"),
         "fence_provider_stamp": fence_stamp,
         "fence_persisted": True,
@@ -379,17 +396,19 @@ def assemble_positive(arguments: argparse.Namespace) -> int:
     same_destination = same_cluster(restore["cluster"], destination) and same_cluster(
         activation["cluster"], destination
     )
-    fence_before_activation = parse_time(fence["finished_at"]) <= parse_time(
-        activation["started_at"]
-    )
-    activation_before_probe = parse_time(activation["finished_at"]) <= parse_time(
-        resurrection["probed_at"]
-    )
-    restart_is_ordered = (
-        parse_time(activation["finished_at"])
-        <= parse_time(restart["stopped_at"])
-        <= parse_time(restart["started_at"])
-        <= parse_time(resurrection["probed_at"])
+    activation_consumed_fence = activation.get(
+        "source_fence_receipt_sha256"
+    ) == document_sha256(fence)
+    resurrection_consumed_activation = resurrection.get(
+        "activation_receipt_sha256"
+    ) == document_sha256(activation)
+    resurrection_consumed_restart = resurrection.get(
+        "restart_observation_sha256"
+    ) == document_sha256(restart)
+    matching_fence_stamp = (
+        activation.get("source_fence_provider_stamp")
+        == fence.get("fence_provider_stamp")
+        == resurrection.get("fence_provider_stamp")
     )
     exact = (
         restore["restored_state_digest"] == source["object_closure"]["state_digest"]
@@ -400,10 +419,10 @@ def assemble_positive(arguments: argparse.Namespace) -> int:
         gate("provider_identities_distinct", distinct, "source and destination provider media differ"),
         gate("external_authority_process_contract", valid_authority_report(authority), f"trace={authority.get('trace_sha256')}"),
         gate("source_provider_fence_committed", fence["concurrent_stale_commit_rejected"] and fence["post_fence_adapter_commit_rejected"], f"stamp={fence['fence_provider_stamp']}"),
-        gate("source_fence_precedes_destination_activation", fence_before_activation, f"fence={fence['finished_at']} activation={activation['started_at']}"),
+        gate("source_fence_precedes_destination_activation", activation_consumed_fence and matching_fence_stamp, f"fence_receipt_sha256={document_sha256(fence)}"),
         gate("destination_exact_and_writable", exact and same_destination and activation["fresh_commit_succeeded"], f"digest={activation['state_digest']}"),
-        gate("source_vm_restarted_without_media_replacement", restart.get("stop_succeeded") is True and restart.get("start_succeeded") is True and restart.get("identities_retained") is True and same_source and restart_is_ordered, "source instance and disks retained their IDs across the ordered restart"),
-        gate("resurrection_follows_destination_activation", activation_before_probe, f"activation={activation['finished_at']} probe={resurrection['probed_at']}"),
+        gate("source_vm_restarted_without_media_replacement", restart.get("stop_succeeded") is True and restart.get("start_succeeded") is True and restart.get("identities_retained") is True and same_source and resurrection_consumed_restart, "source instance and disks retained their IDs; resurrection consumed the restart receipt"),
+        gate("resurrection_follows_destination_activation", resurrection_consumed_activation, f"activation_receipt_sha256={document_sha256(activation)}"),
         gate("newer_incarnation_fences_old_commit_authority", resurrection["fence_persisted"] and resurrection["stale_source_adapter_commit_rejected"], "resurrected source adapter rejected generation one"),
         gate("newer_incarnation_fences_old_routing", bool(checks.get("newer_incarnation_fences_old_routing")), "external route rejected generation one"),
         gate("newer_incarnation_fences_old_object_publication", bool(checks.get("newer_incarnation_fences_old_object_publication")), "external publisher rejected generation one"),
@@ -419,10 +438,53 @@ def assemble_positive(arguments: argparse.Namespace) -> int:
         "destination": destination,
         "object_closure": source["object_closure"],
         "authority_trace_sha256": authority["trace_sha256"],
-        "source_fence": fence,
-        "activation": activation,
-        "resurrection": resurrection,
-        "restart": restart,
+        "source_fence": {
+            item: fence[item]
+            for item in [
+                "started_at",
+                "finished_at",
+                "fence_value",
+                "fence_provider_stamp",
+                "concurrent_stale_commit_error_code",
+                "concurrent_stale_commit_rejected",
+                "post_fence_adapter_commit_rejected",
+            ]
+        },
+        "activation": {
+            item: activation[item]
+            for item in [
+                "started_at",
+                "finished_at",
+                "authority_trace_sha256",
+                "source_fence_receipt_sha256",
+                "source_fence_provider_stamp",
+                "state_digest",
+                "fresh_commit_succeeded",
+                "fresh_commit_provider_stamp",
+            ]
+        },
+        "resurrection": {
+            item: resurrection[item]
+            for item in [
+                "probed_at",
+                "activation_receipt_sha256",
+                "restart_observation_sha256",
+                "fence_value",
+                "fence_provider_stamp",
+                "fence_persisted",
+                "stale_source_adapter_commit_rejected",
+            ]
+        },
+        "restart": {
+            item: restart[item]
+            for item in [
+                "stopped_at",
+                "started_at",
+                "stop_succeeded",
+                "start_succeeded",
+                "identities_retained",
+            ]
+        },
         "correctness_anomalies": len(failures),
         "incarnation_fencing_verified": not failures,
         "negative_control": None,
@@ -514,6 +576,7 @@ def parser() -> argparse.ArgumentParser:
     resurrect.add_argument("--source-receipt", required=True)
     resurrect.add_argument("--fence-receipt", required=True)
     resurrect.add_argument("--activation-receipt", required=True)
+    resurrect.add_argument("--restart-observation", required=True)
     resurrect.add_argument("--output", required=True)
     resurrect.set_defaults(handler=resurrect_phase)
 

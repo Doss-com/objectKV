@@ -148,9 +148,11 @@ remote_exec "${source_instance}" \
 "${repo_root}/infra/gcp/benchmark/provider-media-topology.sh" \
   capture "${run_label}" source "${output_root}/source-identity-after.json"
 
-copy_to "${source_instance}" /tmp/ "${output_root}/activation-phase.json"
+copy_to "${source_instance}" /tmp/ \
+  "${output_root}/activation-phase.json" \
+  "${output_root}/restart-observation.json"
 remote_exec "${source_instance}" \
-  "sudo env '${provider_env}' '${provider_python}' /tmp/foundationdb_incarnation_r0.py resurrect --run-id '${run_id}' --source-receipt '${receipt_root}/source-phase.json' --fence-receipt '${receipt_root}/fence-phase.json' --activation-receipt /tmp/activation-phase.json --output '${receipt_root}/resurrection-phase.json'"
+  "sudo env '${provider_env}' '${provider_python}' /tmp/foundationdb_incarnation_r0.py resurrect --run-id '${run_id}' --source-receipt '${receipt_root}/source-phase.json' --fence-receipt '${receipt_root}/fence-phase.json' --activation-receipt /tmp/activation-phase.json --restart-observation /tmp/restart-observation.json --output '${receipt_root}/resurrection-phase.json'"
 copy_from "${source_instance}" "${receipt_root}/resurrection-phase.json" \
   "${output_root}/resurrection-phase.json"
 

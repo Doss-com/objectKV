@@ -111,7 +111,9 @@ controller and external authority roots
   -> quiesce and durably fence S without deleting disk S
   -> destination FoundationDB D on provider disk D
   -> exact named-object reconstruction and activation of G2
+       activation binds the exact source-fence receipt digest
   -> recreate source process from disk S
+       resurrection binds the activation and restart receipt digests
   -> attempt stale commit, route, and publication from S
   -> collect positive and poison receipts
   -> destroy both provider identities and authority compute
@@ -121,6 +123,12 @@ The source disk in this rung is intentionally retained through resurrection.
 That differs from GP2.5.3, where every source provider byte was deleted before
 restore. The two gates together cover object-closure sufficiency and stale
 same-media provider fencing.
+
+Cross-provider ordering is proven by hash-bound receipt dependencies and the
+controller's blocking command sequence. Wall clocks remain diagnostic only;
+clock skew between the source and destination cannot admit or reject the gate.
+The final receipt projects a closed set of fields, and both its JSON schema and
+Rust decoder reject unknown nested fields.
 
 ## Scope boundary
 

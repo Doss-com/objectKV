@@ -172,9 +172,10 @@ publication fences and received `discard` with exactly three anomalies. Both
 run IDs occur in OTel logs, metrics, and traces. `[CODE-COMPLETE]` GP2.5.4b now
 has a simultaneous dual-provider Terraform shape, a FoundationDB source-fence
 and resurrection probe, a strict controller receipt, and formal positive and
-poison evaluator workloads. `[EVALUATING]` the real GCP run is blocked on a
-fresh operator authentication token. GP3.1 remains closed until that receipt
-passes.
+poison evaluator workloads. Activation binds the exact source-fence receipt;
+resurrection binds the activation and restart receipts, so VM clock skew is not
+an admission input. `[EVALUATING]` the real GCP run is blocked on a fresh
+operator authentication token. GP3.1 remains closed until that receipt passes.
 
 `[VERIFIED]` The SSD mechanism now composes with the public kernel on real R0
 infrastructure. `SingleRange` verifies the complete GCS closure, activates a

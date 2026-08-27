@@ -1221,9 +1221,10 @@ does not put an external coordinator call on every FoundationDB commit.
 external Prepare(G2)
   -> source FoundationDB fence transaction
   -> exact destination reconstruction and ready digest
-  -> external Activate(G2)
+  -> external Activate(G2), bound to source-fence receipt digest
   -> destination activation
   -> restart source with the same disks
+  -> source resurrection consumes activation and restart receipt digests
   -> reject source commit, route, and publication
 ```
 
@@ -1242,6 +1243,8 @@ stale-source control received `discard` with exactly three anomalies across
 commit, route, and publication. Both run IDs occur in captured OTel logs,
 metrics, and traces. The simultaneous source and destination Terraform shape,
 phase-separated FoundationDB probe, strict receipt schema, and controller are
-code complete. Real GCP execution remains required. Contract and local receipt:
+code complete. Cross-provider order uses hash-bound receipt dependencies rather
+than source and destination wall-clock comparisons. Real GCP execution remains
+required. Contract and local receipt:
 `docs/research/provider-incarnation-gp2.5.4.md` and
 `docs/artifacts/eval-receipts/provider-incarnation-local-r0-2026-08-27/README.md`.

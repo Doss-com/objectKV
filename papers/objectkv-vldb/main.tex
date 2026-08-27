@@ -1163,6 +1163,9 @@ provider composition: a source FoundationDB fence must persist across a VM
 restart after a distinct destination activates. The code-complete GCP harness
 retains both provider disks, orders source fence before destination activation,
 restarts the source without replacing its media, and emits a strict receipt.
+Activation binds the exact source-fence receipt digest, while resurrection
+binds the activation and restart receipt digests. Cross-provider wall clocks are
+diagnostic rather than admission inputs.
 
 \section{Limitations and Open Questions}
 

@@ -132,6 +132,7 @@
     },
     "sourceFence": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "started_at",
         "finished_at",
@@ -153,10 +154,12 @@
     },
     "activation": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "started_at",
         "finished_at",
         "authority_trace_sha256",
+        "source_fence_receipt_sha256",
         "source_fence_provider_stamp",
         "state_digest",
         "fresh_commit_succeeded",
@@ -166,6 +169,7 @@
         "started_at": { "type": "string", "format": "date-time" },
         "finished_at": { "type": "string", "format": "date-time" },
         "authority_trace_sha256": { "$ref": "#/$defs/sha256" },
+        "source_fence_receipt_sha256": { "$ref": "#/$defs/sha256" },
         "source_fence_provider_stamp": { "$ref": "#/$defs/providerStamp" },
         "state_digest": { "$ref": "#/$defs/sha256" },
         "fresh_commit_succeeded": { "type": "boolean" },
@@ -174,8 +178,11 @@
     },
     "resurrection": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "probed_at",
+        "activation_receipt_sha256",
+        "restart_observation_sha256",
         "fence_value",
         "fence_provider_stamp",
         "fence_persisted",
@@ -183,6 +190,8 @@
       ],
       "properties": {
         "probed_at": { "type": "string", "format": "date-time" },
+        "activation_receipt_sha256": { "$ref": "#/$defs/sha256" },
+        "restart_observation_sha256": { "$ref": "#/$defs/sha256" },
         "fence_value": { "const": "fenced:2" },
         "fence_provider_stamp": { "$ref": "#/$defs/providerStamp" },
         "fence_persisted": { "type": "boolean" },
@@ -191,6 +200,7 @@
     },
     "restart": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "stopped_at",
         "started_at",
