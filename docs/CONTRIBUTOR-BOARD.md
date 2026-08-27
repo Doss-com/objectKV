@@ -559,6 +559,38 @@ become one GitHub issue.
   real receipt. Native concurrent-read and replicated-commit work proceed under
   separate gates.
 
+### T26. Verify the native concurrent-read curve `[EVALUATING]`
+
+- Scope: GP3.1.1 native and matched direct RocksDB reads at 1, 8, and 32
+  clients, with the exact GP3.1 recovery topology and owned-value boundary.
+- Done when: both process orders run from one clean revision on GCP R0; every
+  8-client and 32-client pair retains at least 0.80x control throughput and at
+  most 1.20x control p99; every run reports its exact client and operation
+  counts, zero wrong values, zero measured object operations, and all OTel
+  signals; all leased resources are removed.
+- Dependency: T24, D56, D57, and RFC-0042.
+- Review focus: synchronized start, exact operation partitioning, percentile
+  aggregation, scheduler oversubscription, paired order, and whether native and
+  control use the same RocksDB and value-ownership boundary.
+- Current result: `[CODE-COMPLETE]` the deterministic 1, 8, and 32-client
+  runner, six-workload suite, receipt client count, and operation-budget gate.
+  A dirty 32-client AB/BA diagnostic reached 0.9835x and 1.0324x control
+  throughput. Native p99 was 0.8321x and 0.8717x control, with all runtime hard
+  gates passing. The real GCP R0 curve is `[EVALUATING]`.
+
+### T27. Freeze the native cache-pressure curve `[PROPOSED]`
+
+- Scope: one explicit block-cache budget shared by native and direct control,
+  a reusable immutable object fixture larger than that budget, and metrics for
+  CPU time, cache hit ratio, physical bytes read, read amplification,
+  throughput, and p99.
+- Done when: cache configuration is part of resident activation and the direct
+  control, the fixture is content-addressed and reused across samples, and the
+  suite separates warm, mixed, and eviction-heavy points without rebuilding
+  fixture state for every measurement.
+- Dependency: T26 clean receipt. Do not combine this with the first concurrency
+  gate.
+
 ## Opens after Gate 1
 
 - Promote the externally versioned SlateDB spike into the stable engine contract.

@@ -52,6 +52,11 @@ FoundationDB remains the semantic oracle and fallback profile. The immutable
 evidence is under
 `docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/`.
 
+`[CODE-COMPLETE]` GP3.1.1 freezes the concurrent-read curve at 1, 8, and 32
+clients. The clean R0 receipt is `[EVALUATING]`. Cache pressure follows as a
+separate gate with an explicit cache budget and reusable larger-than-cache
+fixture.
+
 ### What the goal optimizes for
 
 - One small, composable ordered transaction substrate for distributed

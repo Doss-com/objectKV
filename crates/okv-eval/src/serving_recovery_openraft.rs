@@ -24,7 +24,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
+use std::thread;
 use std::time::{Duration, Instant};
 use tempfile::{Builder as TempDirBuilder, TempDir};
 
@@ -120,6 +121,12 @@ pub struct OpenRaftHotReadProfile {
     pub value_bytes: usize,
     pub warmup_operations: usize,
     pub measured_operations: usize,
+    #[serde(default = "single_hot_read_client")]
+    pub concurrent_clients: usize,
+}
+
+const fn single_hot_read_client() -> usize {
+    1
 }
 
 /// Point-read implementation measured after the same full recovery topology.
@@ -135,6 +142,7 @@ pub enum OpenRaftHotReadSubject {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OpenRaftHotReadReport {
     pub subject: OpenRaftHotReadSubject,
+    pub concurrent_clients: u64,
     pub warmup_operations: u64,
     pub measured_operations: u64,
     pub elapsed_seconds: f64,
@@ -673,6 +681,9 @@ async fn run_integrated_hot_reads(
     read_version: u64,
     profile: &OpenRaftHotReadProfile,
 ) -> Result<OpenRaftHotReadReport, String> {
+    if profile.concurrent_clients != 1 {
+        return Err("external-overlay hot reads support one client only".to_owned());
+    }
     let object_requests_before = total_request_count(&range.object_stats());
     let mut correctness_failures = 0_u64;
     for key_id in 16..profile.key_count {
@@ -736,6 +747,7 @@ async fn run_integrated_hot_reads(
         total_request_count(&range.object_stats()).saturating_sub(object_requests_before);
     Ok(OpenRaftHotReadReport {
         subject: OpenRaftHotReadSubject::NativeSnapshot,
+        concurrent_clients: u64::try_from(profile.concurrent_clients).unwrap_or(u64::MAX),
         warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
         measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
         elapsed_seconds,
@@ -776,53 +788,26 @@ fn run_native_hot_reads(
         .into_iter()
         .map(key_bytes)
         .collect::<Vec<_>>();
-    let mut checksum = 0_u64;
-    for key in keys.iter().cycle().take(profile.warmup_operations) {
-        match snapshot.get(key).map_err(|error| error.to_string())? {
-            ReadOutcome::Value(value) => checksum = fold_hot_value(checksum, &value),
-            ReadOutcome::Tombstone | ReadOutcome::Absent => {
-                correctness_failures = correctness_failures.saturating_add(1);
-            }
-        }
-    }
-
-    let measured_started = Instant::now();
-    let mut latencies = Vec::with_capacity(profile.measured_operations);
-    for key in keys.iter().cycle().take(profile.measured_operations) {
-        let read_started = Instant::now();
-        match snapshot.get(key).map_err(|error| error.to_string())? {
-            ReadOutcome::Value(value) => checksum = fold_hot_value(checksum, &value),
-            ReadOutcome::Tombstone | ReadOutcome::Absent => {
-                correctness_failures = correctness_failures.saturating_add(1);
-            }
-        }
-        latencies.push(
-            read_started
-                .elapsed()
-                .as_nanos()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        );
-    }
-    let elapsed_seconds = measured_started.elapsed().as_secs_f64();
-    latencies.sort_unstable();
+    let window = run_parallel_hot_read_window(&keys, profile, &|key| snapshot.get(key))?;
+    correctness_failures = correctness_failures.saturating_add(window.correctness_failures);
     let object_requests =
         total_request_count(&range.object_stats()).saturating_sub(object_requests_before);
     Ok(OpenRaftHotReadReport {
         subject: OpenRaftHotReadSubject::NativeSnapshot,
+        concurrent_clients: u64::try_from(profile.concurrent_clients).unwrap_or(u64::MAX),
         warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
         measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
-        elapsed_seconds,
+        elapsed_seconds: window.elapsed_seconds,
         operations_per_second: count_as_f64(
             u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
-        ) / elapsed_seconds,
-        latency_ns_p50: percentile(&latencies, 50, 100),
-        latency_ns_p95: percentile(&latencies, 95, 100),
-        latency_ns_p99: percentile(&latencies, 99, 100),
-        latency_ns_p999: percentile(&latencies, 999, 1_000),
+        ) / window.elapsed_seconds,
+        latency_ns_p50: percentile(&window.latencies, 50, 100),
+        latency_ns_p95: percentile(&window.latencies, 95, 100),
+        latency_ns_p99: percentile(&window.latencies, 99, 100),
+        latency_ns_p999: percentile(&window.latencies, 999, 1_000),
         correctness_failures,
         object_requests,
-        checksum: std::hint::black_box(checksum),
+        checksum: std::hint::black_box(window.checksum),
     })
 }
 
@@ -869,54 +854,172 @@ fn run_matched_direct_hot_reads(
         .into_iter()
         .map(key_bytes)
         .collect::<Vec<_>>();
-    let mut checksum = 0_u64;
-    for key in keys.iter().cycle().take(profile.warmup_operations) {
-        match database
+    let window = run_parallel_hot_read_window(&keys, profile, &|key| {
+        database
             .get(key)
-            .map_err(|error| format!("warm matched direct RocksDB control: {error}"))?
-        {
-            Some(value) => checksum = fold_hot_value(checksum, &value),
-            None => correctness_failures = correctness_failures.saturating_add(1),
-        }
-    }
-
-    let measured_started = Instant::now();
-    let mut latencies = Vec::with_capacity(profile.measured_operations);
-    for key in keys.iter().cycle().take(profile.measured_operations) {
-        let read_started = Instant::now();
-        match database
-            .get(key)
-            .map_err(|error| format!("read matched direct RocksDB control: {error}"))?
-        {
-            Some(value) => checksum = fold_hot_value(checksum, &value),
-            None => correctness_failures = correctness_failures.saturating_add(1),
-        }
-        latencies.push(
-            read_started
-                .elapsed()
-                .as_nanos()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        );
-    }
-    let elapsed_seconds = measured_started.elapsed().as_secs_f64();
-    latencies.sort_unstable();
+            .map(|value| value.map_or(ReadOutcome::Absent, ReadOutcome::Value))
+            .map_err(|error| format!("read matched direct RocksDB control: {error}"))
+    })?;
+    correctness_failures = correctness_failures.saturating_add(window.correctness_failures);
     Ok(OpenRaftHotReadReport {
         subject: OpenRaftHotReadSubject::DirectOwnedRocksdb,
+        concurrent_clients: u64::try_from(profile.concurrent_clients).unwrap_or(u64::MAX),
         warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
         measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
-        elapsed_seconds,
+        elapsed_seconds: window.elapsed_seconds,
         operations_per_second: count_as_f64(
             u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
-        ) / elapsed_seconds,
-        latency_ns_p50: percentile(&latencies, 50, 100),
-        latency_ns_p95: percentile(&latencies, 95, 100),
-        latency_ns_p99: percentile(&latencies, 99, 100),
-        latency_ns_p999: percentile(&latencies, 999, 1_000),
+        ) / window.elapsed_seconds,
+        latency_ns_p50: percentile(&window.latencies, 50, 100),
+        latency_ns_p95: percentile(&window.latencies, 95, 100),
+        latency_ns_p99: percentile(&window.latencies, 99, 100),
+        latency_ns_p999: percentile(&window.latencies, 999, 1_000),
         correctness_failures,
         object_requests: 0,
-        checksum: std::hint::black_box(checksum),
+        checksum: std::hint::black_box(window.checksum),
     })
+}
+
+struct HotReadWindow {
+    elapsed_seconds: f64,
+    latencies: Vec<u64>,
+    correctness_failures: u64,
+    checksum: u64,
+}
+
+struct HotReadThreadWindow {
+    latencies: Vec<u64>,
+    correctness_failures: u64,
+    checksum: u64,
+}
+
+fn run_parallel_hot_read_window<F>(
+    keys: &[Vec<u8>],
+    profile: &OpenRaftHotReadProfile,
+    read: &F,
+) -> Result<HotReadWindow, String>
+where
+    F: Fn(&[u8]) -> Result<ReadOutcome, String> + Sync,
+{
+    if keys.is_empty()
+        || profile.concurrent_clients == 0
+        || profile.warmup_operations < profile.concurrent_clients
+        || profile.measured_operations < profile.concurrent_clients
+    {
+        return Err("hot-read concurrency requires at least one operation per client".to_owned());
+    }
+
+    let ready_barrier = Arc::new(Barrier::new(profile.concurrent_clients.saturating_add(1)));
+    let start_barrier = Arc::new(Barrier::new(profile.concurrent_clients.saturating_add(1)));
+    let (elapsed_seconds, thread_windows) = thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(profile.concurrent_clients);
+        for client in 0..profile.concurrent_clients {
+            let ready_barrier = Arc::clone(&ready_barrier);
+            let start_barrier = Arc::clone(&start_barrier);
+            handles.push(scope.spawn(move || -> Result<HotReadThreadWindow, String> {
+                let (warmup_start, warmup_count) = partition_operations(
+                    profile.warmup_operations,
+                    profile.concurrent_clients,
+                    client,
+                );
+                let (measured_start, measured_count) = partition_operations(
+                    profile.measured_operations,
+                    profile.concurrent_clients,
+                    client,
+                );
+                let mut checksum = 0_u64;
+                let mut correctness_failures = 0_u64;
+                let mut warmup_error = None;
+                for operation in warmup_start..warmup_start.saturating_add(warmup_count) {
+                    match read(&keys[operation % keys.len()]) {
+                        Ok(ReadOutcome::Value(value)) => {
+                            checksum = fold_hot_value(checksum, &value);
+                        }
+                        Ok(ReadOutcome::Tombstone | ReadOutcome::Absent) => {
+                            correctness_failures = correctness_failures.saturating_add(1);
+                        }
+                        Err(error) => {
+                            warmup_error = Some(error);
+                            break;
+                        }
+                    }
+                }
+                ready_barrier.wait();
+                start_barrier.wait();
+                if let Some(error) = warmup_error {
+                    return Err(error);
+                }
+
+                let mut latencies = Vec::with_capacity(measured_count);
+                for operation in measured_start..measured_start.saturating_add(measured_count) {
+                    let read_started = Instant::now();
+                    match read(&keys[operation % keys.len()])? {
+                        ReadOutcome::Value(value) => {
+                            checksum = fold_hot_value(checksum, &value);
+                        }
+                        ReadOutcome::Tombstone | ReadOutcome::Absent => {
+                            correctness_failures = correctness_failures.saturating_add(1);
+                        }
+                    }
+                    latencies.push(
+                        read_started
+                            .elapsed()
+                            .as_nanos()
+                            .try_into()
+                            .unwrap_or(u64::MAX),
+                    );
+                }
+                Ok(HotReadThreadWindow {
+                    latencies,
+                    correctness_failures,
+                    checksum,
+                })
+            }));
+        }
+        ready_barrier.wait();
+        let measured_started = Instant::now();
+        start_barrier.wait();
+        let mut windows = Vec::with_capacity(handles.len());
+        for handle in handles {
+            windows.push(
+                handle
+                    .join()
+                    .map_err(|_| "hot-read client thread panicked".to_owned())??,
+            );
+        }
+        Ok::<_, String>((measured_started.elapsed().as_secs_f64(), windows))
+    })?;
+
+    let mut latencies = Vec::with_capacity(profile.measured_operations);
+    let mut correctness_failures = 0_u64;
+    let mut checksum = 0_u64;
+    for (client, mut window) in thread_windows.into_iter().enumerate() {
+        latencies.append(&mut window.latencies);
+        correctness_failures = correctness_failures.saturating_add(window.correctness_failures);
+        checksum ^= window
+            .checksum
+            .rotate_left(u32::try_from(client % 64).unwrap_or(0));
+    }
+    if latencies.len() != profile.measured_operations {
+        return Err("hot-read clients did not execute the exact operation budget".to_owned());
+    }
+    latencies.sort_unstable();
+    Ok(HotReadWindow {
+        elapsed_seconds,
+        latencies,
+        correctness_failures,
+        checksum,
+    })
+}
+
+fn partition_operations(total: usize, clients: usize, client: usize) -> (usize, usize) {
+    let base = total / clients;
+    let remainder = total % clients;
+    let count = base + usize::from(client < remainder);
+    let start = client
+        .saturating_mul(base)
+        .saturating_add(client.min(remainder));
+    (start, count)
 }
 
 #[cfg(not(feature = "resident-rocksdb"))]
@@ -1973,6 +2076,10 @@ fn validate_hot_read_profile(
         || hot_read.key_count <= 16
         || hot_read.warmup_operations == 0
         || hot_read.measured_operations == 0
+        || hot_read.concurrent_clients == 0
+        || hot_read.concurrent_clients > 256
+        || hot_read.warmup_operations < hot_read.concurrent_clients
+        || hot_read.measured_operations < hot_read.concurrent_clients
     {
         return Err("invalid OpenRaft public-kernel hot-read profile".to_owned());
     }
@@ -2052,7 +2159,10 @@ fn count_as_f64(value: u64) -> f64 {
 mod tests {
     use super::{key_bytes, OpenRaftServingRecoveryMode, TailOverlay};
     #[cfg(feature = "resident-rocksdb")]
-    use super::{run_matched_direct_hot_reads, OpenRaftHotReadProfile, OpenRaftHotReadSubject};
+    use super::{
+        partition_operations, run_matched_direct_hot_reads, OpenRaftHotReadProfile,
+        OpenRaftHotReadSubject,
+    };
     use crate::serving_recovery::ServingReadOutcome;
     use okv_consensus::{RetainedTransactionRecord, TransactionMutation};
     use okv_transaction::{KeyRange, TransactionCommand};
@@ -2098,6 +2208,7 @@ mod tests {
                 value_bytes: 128,
                 warmup_operations: 128,
                 measured_operations: 256,
+                concurrent_clients: 4,
             },
         )
         .expect("run matched topology control");
@@ -2106,6 +2217,17 @@ mod tests {
         assert_eq!(report.correctness_failures, 0);
         assert_eq!(report.object_requests, 0);
         assert_eq!(report.measured_operations, 256);
+        assert_eq!(report.concurrent_clients, 4);
         assert!(report.operations_per_second.is_finite());
+    }
+
+    #[cfg(feature = "resident-rocksdb")]
+    #[test]
+    fn concurrent_clients_partition_the_exact_operation_budget() {
+        let partitions = (0..3)
+            .map(|client| partition_operations(10, 3, client))
+            .collect::<Vec<_>>();
+        assert_eq!(partitions, vec![(0, 4), (4, 3), (7, 3)]);
+        assert_eq!(partitions.iter().map(|(_, count)| count).sum::<usize>(), 10);
     }
 }

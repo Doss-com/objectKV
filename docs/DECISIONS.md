@@ -1304,3 +1304,35 @@ current native performance boundary. RFC-0041 and the FoundationDB receipts
 remain the semantic and lifecycle controls. Neither set of receipts verifies a
 complete native distributed cell. See
 `docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md`.
+
+## D57. Separate concurrent-read admission from cache-pressure admission
+
+Status: `[CODE-COMPLETE]` concurrent runner and frozen suite; `[EVALUATING]`
+GCP R0 receipt, 2026-08-27.
+
+Decision: GP3.1.1 changes only concurrent point-read clients at the admitted
+single-range native snapshot boundary. It runs native and matched direct
+RocksDB at 1, 8, and 32 clients. The operation budget is total across clients,
+clients enter one synchronized window, and receipt percentiles merge every
+measured operation.
+
+Cache budget, larger-than-cache fixtures, CPU time, and RocksDB read
+amplification remain a separate next gate. They do not enter the first
+concurrency receipt.
+
+The corrected dirty local 32-client diagnostic executed exactly 50,000
+measured reads per subject in both process orders. Native versus control was
+5.168 versus 5.255 million reads/s in AB order and 5.266 versus 5.101 million
+reads/s in BA order. Native p99 was 79.500 versus 95.541 microseconds and
+88.875 versus 101.958 microseconds. The throughput ratios were 0.9835x and
+1.0324x; p99 ratios were 0.8321x and 0.8717x. All runtime hard gates passed.
+This is implementation evidence, not a performance admission.
+
+Optimizes for: attributing a regression to parallel reader contention before
+changing cache policy or working-set size.
+
+Gives up: one combined concurrency and eviction result. GP3.1.1 must pass on
+clean GCP R0 before its curve is generalized.
+
+Evidence: RFC-0042 and
+`evals/suites/single-range-native-concurrency-admission.toml`.

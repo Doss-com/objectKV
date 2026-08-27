@@ -84,6 +84,14 @@ confounder. The fourth frozen run matched the full six-process recovery
 topology. Native retained 0.9089x and 0.9197x throughput, while p99 was 0.913x
 control in both orders. GP3.1 now admits the single-range native read boundary.
 
+`[CODE-COMPLETE]` GP3.1.1 now partitions one exact operation budget across 1,
+8, or 32 synchronized clients for native and matched direct RocksDB subjects.
+The dirty 32-client AB/BA diagnostic reached 5.168 versus 5.255 and 5.266
+versus 5.101 million native versus control reads/s. Native p99 was 79.500
+versus 95.541 and 88.875 versus 101.958 microseconds. These 0.9835x and 1.0324x
+throughput ratios and 0.8321x and 0.8717x p99 ratios are implementation
+evidence, not admission. The clean GCP R0 curve is `[EVALUATING]`.
+
 ## Current checkpoint
 
 `[VERIFIED]` The program has exact model, local stable-file, pinned local MinIO,

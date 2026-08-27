@@ -184,6 +184,23 @@ evidence = ["../../docs/artifacts/eval-receipts/single-range-native-matched-gcp-
 control = { id = "direct-rocksdb-matched-topology", suite = "../suites/single-range-native-resident-matched-admission.toml", profile = "gcp-r0-nvme", workload = "direct-rocksdb-matched-topology-control", backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme", lane = "hot-ssd-native-matched" }
 
 [[phases.gates]]
+id = "GP3.1.1"
+status = "code_complete"
+kind = "performance"
+claim = "At 8 and 32 concurrent clients, the native version-bound snapshot preserves at least eighty percent of matched direct RocksDB throughput and keeps p99 within twenty percent in both process orders."
+falsifier = "Native throughput falls below eighty percent or p99 exceeds one hundred twenty percent of matched control at 8 or 32 clients after operation count, topology, source, machine, and process order are matched."
+requirement_ids = ["MVCC-001", "MVCC-002", "SRV-001", "SRV-002", "EVAL-007", "EVAL-008"]
+suite = "../suites/single-range-native-concurrency-admission.toml"
+profile = "gcp-r0-nvme"
+workload = "native-snapshot-concurrency-32"
+backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme"
+lane = "hot-ssd-native-concurrency"
+checkpoint = "ssd-resident"
+negative_controls = []
+evidence = []
+control = { id = "direct-rocksdb-concurrency-32", suite = "../suites/single-range-native-concurrency-admission.toml", profile = "gcp-r0-nvme", workload = "direct-rocksdb-concurrency-32-control", backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme", lane = "hot-ssd-native-concurrency" }
+
+[[phases.gates]]
 id = "GP3.2"
 status = "proposed"
 kind = "performance"
@@ -292,7 +309,7 @@ control = { id = "single-group-cell", suite = "../suites/product-thesis.toml", p
 
 [[phases]]
 id = "GP5"
-name = "Prove composable consumer models"
+name = "Prove composable okv-fabric adapters"
 objective = "Use one committed history for retained logs, Redis semantics, and version-aligned inverted search without adding protocol modes to the kernel."
 depends_on = ["GP4"]
 

@@ -47,7 +47,8 @@ not harden until their RFC is accepted.
 | 0037 | Manifested multi-layout LSM | `[PROPOSED]`, evaluation contract frozen | row, Parquet, random-access columnar, and hybrid object-layout fork before G4.11b |
 | 0038 | First integrated single-range kernel API | `[PROPOSED]`, implementation code complete, local receipt evaluating | public object-base plus versionstamp-safe txLog-tail composition |
 | 0039 | SingleRange serving-image boundary | `[CODE-COMPLETE]`, `[EVALUATING]` | provider-neutral hot-state activation and the public SSD point-read curve |
-| 0040 | Native resident-engine data plane | `[EVALUATING]`, measured candidate rejected | preserve the prototype as evidence and select TiKV or FoundationDB for the resident transaction plane |
-| 0041 | Incumbent transaction-plane adapter | `[CODE-COMPLETE]` contract and source-pinned preflight, `[EVALUATING]` live selection | semantic preflight, object continuity, and TiKV versus FoundationDB provider selection |
+| 0040 | Native resident-engine data plane | `[VERIFIED]` topology-matched single-range read boundary under D56 | native concurrency and replicated-commit gates, with FoundationDB retained as oracle and fallback |
+| 0041 | Incumbent transaction-plane adapter | `[CODE-COMPLETE]` contract and source-pinned preflight, `[EVALUATING]` fallback lifecycle | semantic oracle, object continuity control, and fallback profile |
+| 0042 | Native resident concurrent-read curve | `[CODE-COMPLETE]` runner and suite, `[EVALUATING]` GCP R0 | 1, 8, and 32-client paired curve before cache pressure |
 
 Use `0000-template.md` for new proposals.

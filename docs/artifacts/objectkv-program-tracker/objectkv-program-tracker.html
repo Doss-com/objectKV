@@ -189,7 +189,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
       <span>objectKV</span>
       <span>Technical program tracker</span>
       <span>Branch research/native-matched-topology-r0</span>
-      <span>Base 418b776</span>
+      <span>Base def98f5</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
     <p class="lede">The matched-topology native GP3.1 candidate retained 90.89% and 91.97% of direct RocksDB throughput. Native p99 was 8.66% and 8.68% lower than control. The single-range resident read boundary is verified; concurrency, cache pressure, multi-range behavior, and replicated commit remain evaluating.</p>
@@ -207,7 +207,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
     <article class="summary-card"><span class="label">Highest verified rung</span><span class="value">R0 mechanism</span><p>Private GCP runner, local NVMe, regional GCS, OTel, killed-worker recovery, and paired receipts.</p></article>
     <article class="summary-card"><span class="label">Cloud comparison pairs</span><span class="value">2</span><p>AB and BA on one private GCP runner, regional GCS, local NVMe, required OTel, and complete teardown.</p></article>
     <article class="summary-card"><span class="label">Working paper</span><span class="value">14 pp.</span><p>PVLDB Vol. 20 format, architecture, evidence, curves, and limitations.</p></article>
-    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">Native stress</span><p>Measure the same read boundary under concurrency and cache pressure, with CPU and read amplification in the receipt.</p></article>
+    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">GP3.1.1</span><p>Run the code-complete 1, 8, and 32-client native curve on clean GCP R0. Cache pressure follows separately.</p></article>
     <article class="summary-card"><span class="label">Golden-path checkpoints</span><span class="value">2 / 16 verified</span><p>One frozen artifact DAG across kernel, storage, distribution, consumers, PostgreSQL, HTAP, and economics.</p></article>
   </div>
 
@@ -226,7 +226,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
 <a href="#decisions"><span>10</span>Active decisions</a>
 <a href="#work-log"><span>11</span>Work in progress log</a>
 <a href="#next-review"><span>12</span>Next architecture review</a></nav>
-      <p class="side-note">Generated 2026-08-27 18:56 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
+      <p class="side-note">Generated 2026-08-27 19:23 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
     </aside>
 
     <article class="content">
@@ -317,7 +317,7 @@ Arrow batches at T</pre></article>
 <tr><td>2</td><td><strong>Acknowledged commit frontier</strong><br><span class="muted"><code>durable-tail</code></span></td><td>durability</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP1.1</code></td><td><span class="muted">commit-frontier, durable-outcomes</span></td></tr>
 <tr><td>3</td><td><strong>Published object closure</strong><br><span class="muted"><code>object-base</code></span></td><td>object-authority</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP2.1</code></td><td><span class="muted">manifest-root, object-watermark</span></td></tr>
 <tr><td>4</td><td><strong>Selected incumbent transaction plane</strong><br><span class="muted"><code>resident-plane</code></span></td><td>transaction-plane</td><td><span class="status verified">VERIFIED</span></td><td><code>GP2.5.1, GP2.5.2, GP2.5.3, GP2.5.4</code></td><td><span class="muted">resident-plane-receipt, provider-selection-decision</span></td></tr>
-<tr><td>5</td><td><strong>SSD resident range</strong><br><span class="muted"><code>ssd-resident</code></span></td><td>serving</td><td><span class="status verified">VERIFIED</span></td><td><code>GP3.1</code></td><td><span class="muted">ssd-serving-receipt</span></td></tr>
+<tr><td>5</td><td><strong>SSD resident range</strong><br><span class="muted"><code>ssd-resident</code></span></td><td>serving</td><td><span class="status verified">VERIFIED</span></td><td><code>GP3.1, GP3.1.1</code></td><td><span class="muted">ssd-serving-receipt</span></td></tr>
 <tr><td>6</td><td><strong>RAM resident range</strong><br><span class="muted"><code>ram-resident</code></span></td><td>serving</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.2</code></td><td><span class="muted">ram-serving-receipt</span></td></tr>
 <tr><td>7</td><td><strong>Serving profile handoff</strong><br><span class="muted"><code>profile-handoff</code></span></td><td>serving</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.3</code></td><td><span class="muted">profile-handoff-receipt</span></td></tr>
 <tr><td>8</td><td><strong>Empty-worker recovery</strong><br><span class="muted"><code>empty-worker</code></span></td><td>serving</td><td><span class="status evaluating">EVALUATING</span></td><td><code>GP3.4, GP3.6</code></td><td><span class="muted">empty-worker-receipt</span></td></tr>
@@ -432,6 +432,7 @@ Arrow batches at T</pre></article>
       <section>
         <h2 id="work-log"><span class="section-id">[11]</span>Work in progress log</h2>
         <div class="log">
+          <article class="log-entry"><time>2026-08-27</time><h3>GP3.1.1 concurrent-read runner is code complete</h3><p>The runner partitions one exact operation budget across 1, 8, or 32 synchronized clients. A dirty 32-client AB/BA diagnostic reached 0.9835x and 1.0324x matched-control throughput. Native p99 was 0.8321x and 0.8717x control, with all runtime hard gates passing. Clean GCP R0 evaluation remains open.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>Matched-topology native GP3.1 passes its envelope</h3><p>Across 15 samples per subject and order, native retained 90.89% and 91.97% of direct RocksDB throughput. Native p99 was 8.66% and 8.68% lower. All 64 hard-gate evaluations passed, every run appeared in traces, metrics, and logs, and the private GCP environment was fully torn down.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>First unmatched GP3.1 control rejected as a program decision</h3><p>The earlier candidate retained 84.11% and 82.68% of a bare direct RocksDB control and missed p99 at 1.210x and 1.272x. D56 supersedes the D52 pivot because the control did not pay for the recovered topology, authority processes, and owned-value boundary carried by the native subject.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1 throughput enters, p99 fails, read boundary changes</h3><p>Manifest-bypass improved candidate throughput 11.18%. AB and BA retained 80.68% and 80.02% of direct RocksDB throughput, while p99 remained 1.353x and 1.300x control. The executable p99 gate failed twice, all mechanism and OTel gates passed, and the next subject is an engine-native resident data plane.</p></article>
@@ -459,7 +460,7 @@ Arrow batches at T</pre></article>
     </article>
   </div>
 
-  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-27 18:56 UTC</span></footer>
+  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-27 19:23 UTC</span></footer>
 </main>
 
 </body>

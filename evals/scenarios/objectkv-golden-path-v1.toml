@@ -1,6 +1,6 @@
 schema_version = 1
 id = "objectkv-golden-path-v1"
-description = "One deterministic commerce-ledger history replayed from ordered transactions through durability, object publication, SSD and RAM serving, distribution, consumer models, PostgreSQL, exact HTAP, and product economics."
+description = "One deterministic commerce-ledger history replayed from ordered transactions through durability, object publication, SSD and RAM serving, distribution, okv-fabric adapters, PostgreSQL, exact HTAP, and product economics."
 generator = "deterministic-commerce-ledger-v1"
 seeds = [1103, 2207, 3301]
 initial_artifacts = ["scenario-spec"]

@@ -2493,6 +2493,8 @@ fn run_openraft_serving_worker_recovery(
     const LOCAL_BACKEND: &str = "object-store-local-fs+authority-openraft+data-openraft";
     const SSD_BACKEND: &str =
         "object-store-local-fs+authority-openraft+data-openraft+rocksdb-local-fs";
+    const NATIVE_SSD_LOCAL_BACKEND: &str =
+        "object-store-local-fs+authority-openraft+data-openraft+rocksdb-native-resident-local-fs";
     const SSD_GCS_BACKEND: &str =
         "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-nvme";
     const NATIVE_SSD_GCS_BACKEND: &str =
@@ -2501,10 +2503,15 @@ fn run_openraft_serving_worker_recovery(
         "object-store-gcs+authority-openraft-local-process+data-openraft-local-process";
     if !matches!(
         backend,
-        LOCAL_BACKEND | SSD_BACKEND | SSD_GCS_BACKEND | NATIVE_SSD_GCS_BACKEND | GCS_BACKEND
+        LOCAL_BACKEND
+            | SSD_BACKEND
+            | NATIVE_SSD_LOCAL_BACKEND
+            | SSD_GCS_BACKEND
+            | NATIVE_SSD_GCS_BACKEND
+            | GCS_BACKEND
     ) {
         return execution_from_result(Err(format!(
-            "OpenRaft serving recovery requires {LOCAL_BACKEND}, {SSD_BACKEND}, {SSD_GCS_BACKEND}, {NATIVE_SSD_GCS_BACKEND}, or {GCS_BACKEND}, got {backend}"
+            "OpenRaft serving recovery requires {LOCAL_BACKEND}, {SSD_BACKEND}, {NATIVE_SSD_LOCAL_BACKEND}, {SSD_GCS_BACKEND}, {NATIVE_SSD_GCS_BACKEND}, or {GCS_BACKEND}, got {backend}"
         )));
     }
     let Some(dataset) = dataset else {
@@ -2621,6 +2628,23 @@ fn run_openraft_serving_worker_recovery(
     } else {
         None
     };
+    let hot_read_concurrent_clients = match workload
+        .parameters
+        .get("concurrent_clients")
+        .or_else(|| profile.parameters.get("concurrent_clients"))
+        .and_then(toml::Value::as_integer)
+    {
+        Some(value) => match usize::try_from(value) {
+            Ok(value) if value > 0 => value,
+            Ok(_) => {
+                return execution_from_result(Err(
+                    "hot-read concurrent clients must be positive".to_owned()
+                ))
+            }
+            Err(error) => return execution_from_result(Err(error.to_string())),
+        },
+        None => 1,
+    };
     let hot_read_subject = match workload
         .parameters
         .get("hot_read_subject")
@@ -2652,6 +2676,7 @@ fn run_openraft_serving_worker_recovery(
                     value_bytes: recovery_profile.value_bytes,
                     warmup_operations,
                     measured_operations,
+                    concurrent_clients: hot_read_concurrent_clients,
                 }
             });
             match run_openraft_serving_recovery_contract_with_hot_reads(
@@ -2676,6 +2701,7 @@ fn run_openraft_serving_worker_recovery(
             value_bytes: recovery_profile.value_bytes,
             warmup_operations,
             measured_operations,
+            concurrent_clients: hot_read_concurrent_clients,
         }
     });
     let replay = match run_openraft_serving_recovery_contract_with_hot_reads(
@@ -2705,6 +2731,13 @@ fn serving_recovery_object_backend(
     } else {
         OpenRaftServingObjectBackend::LocalFilesystem
     }
+}
+
+fn first_hot_read_clients(reports: &[OpenRaftServingRecoveryReport]) -> Option<u64> {
+    reports
+        .first()
+        .and_then(|report| report.process.hot_read.as_ref())
+        .map(|hot_read| hot_read.concurrent_clients)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2819,12 +2852,25 @@ fn openraft_serving_recovery_execution(
         || reports.iter().all(|report| {
             report.process.hot_read.as_ref().is_some_and(|hot_read| {
                 hot_read.measured_operations > 0
+                    && hot_read.concurrent_clients > 0
+                    && hot_read.concurrent_clients <= 256
                     && hot_read.correctness_failures == 0
                     && hot_read.object_requests == 0
                     && hot_read.operations_per_second.is_finite()
                     && hot_read.operations_per_second > 0.0
             })
         });
+    let hot_read_clients_exact = first_hot_read_clients(reports).is_some_and(|clients| {
+        clients > 0
+            && clients <= 256
+            && reports.iter().all(|report| {
+                report
+                    .process
+                    .hot_read
+                    .as_ref()
+                    .is_some_and(|hot_read| hot_read.concurrent_clients == clients)
+            })
+    });
     let exact_values = anomaly_count == 0 && reports.iter().all(|report| report.exact_replay);
     let error = if !exact_values {
         Some(format!(
@@ -2842,6 +2888,7 @@ fn openraft_serving_recovery_execution(
         || !serving_image_exact
         || !resident_engine_exact
         || !hot_read_exact
+        || (resident_hot_mode && !hot_read_clients_exact)
     {
         Some("OpenRaft replacement exceeded its authoritative object-read path".to_owned())
     } else if !exact_replay {
@@ -3110,6 +3157,11 @@ fn openraft_serving_recovery_execution(
             status: gate_status(true),
             detail: Some(ownership_detail.to_owned()),
         });
+        hard_gates.push(HardGateResult {
+            id: "bounded_concurrent_hot_read_clients_executed".to_owned(),
+            status: gate_status(hot_read_clients_exact),
+            detail: first_hot_read_clients(reports).map(|clients| clients.to_string()),
+        });
     }
     let durations = reports
         .iter()
@@ -3173,6 +3225,16 @@ fn openraft_serving_recovery_execution(
                 .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p999))
         })
         .collect::<Vec<_>>();
+    let hot_concurrent_clients = reports
+        .iter()
+        .filter_map(|report| {
+            report
+                .process
+                .hot_read
+                .as_ref()
+                .map(|hot_read| resident_count_as_f64(hot_read.concurrent_clients))
+        })
+        .collect::<Vec<_>>();
     let mut secondary_metrics = BTreeMap::from([
         (
             "serving_recovery_openraft.first_read_seconds.median".to_owned(),
@@ -3215,6 +3277,10 @@ fn openraft_serving_recovery_execution(
         secondary_metrics.insert(
             "single_range.hot_read_p999_ns.median".to_owned(),
             median(&hot_p999_ns),
+        );
+        secondary_metrics.insert(
+            "single_range.hot_read_concurrent_clients.median".to_owned(),
+            median(&hot_concurrent_clients),
         );
     }
     WorkloadExecution {

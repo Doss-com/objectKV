@@ -22,7 +22,7 @@
     <article class="summary-card"><span class="label">Highest verified rung</span><span class="value">R0 mechanism</span><p>Private GCP runner, local NVMe, regional GCS, OTel, killed-worker recovery, and paired receipts.</p></article>
     <article class="summary-card"><span class="label">Cloud comparison pairs</span><span class="value">2</span><p>AB and BA on one private GCP runner, regional GCS, local NVMe, required OTel, and complete teardown.</p></article>
     <article class="summary-card"><span class="label">Working paper</span><span class="value">14 pp.</span><p>PVLDB Vol. 20 format, architecture, evidence, curves, and limitations.</p></article>
-    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">Native stress</span><p>Measure the same read boundary under concurrency and cache pressure, with CPU and read amplification in the receipt.</p></article>
+    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">GP3.1.1</span><p>Run the code-complete 1, 8, and 32-client native curve on clean GCP R0. Cache pressure follows separately.</p></article>
     <article class="summary-card"><span class="label">Golden-path checkpoints</span><span class="value">{{GOLDEN_PATH_SUMMARY}}</span><p>One frozen artifact DAG across kernel, storage, distribution, consumers, PostgreSQL, HTAP, and economics.</p></article>
   </div>
 
@@ -212,6 +212,7 @@ Arrow batches at T</pre></article>
       <section>
         <h2 id="work-log" data-toc>Work in progress log</h2>
         <div class="log">
+          <article class="log-entry"><time>2026-08-27</time><h3>GP3.1.1 concurrent-read runner is code complete</h3><p>The runner partitions one exact operation budget across 1, 8, or 32 synchronized clients. A dirty 32-client AB/BA diagnostic reached 0.9835x and 1.0324x matched-control throughput. Native p99 was 0.8321x and 0.8717x control, with all runtime hard gates passing. Clean GCP R0 evaluation remains open.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>Matched-topology native GP3.1 passes its envelope</h3><p>Across 15 samples per subject and order, native retained 90.89% and 91.97% of direct RocksDB throughput. Native p99 was 8.66% and 8.68% lower. All 64 hard-gate evaluations passed, every run appeared in traces, metrics, and logs, and the private GCP environment was fully torn down.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>First unmatched GP3.1 control rejected as a program decision</h3><p>The earlier candidate retained 84.11% and 82.68% of a bare direct RocksDB control and missed p99 at 1.210x and 1.272x. D56 supersedes the D52 pivot because the control did not pay for the recovered topology, authority processes, and owned-value boundary carried by the native subject.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1 throughput enters, p99 fails, read boundary changes</h3><p>Manifest-bypass improved candidate throughput 11.18%. AB and BA retained 80.68% and 80.02% of direct RocksDB throughput, while p99 remained 1.353x and 1.300x control. The executable p99 gate failed twice, all mechanism and OTel gates passed, and the next subject is an engine-native resident data plane.</p></article>

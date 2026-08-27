@@ -360,11 +360,27 @@ the latest head, historical versions, and resident metadata. One atomic engine
 batch applies data and advances the visible frontier. A first run found thirty
 anomalies because object first and last keys were incorrectly used as serving
 range bounds; separating object closure span from authority-owned assigned
-range removed the anomalies. In the final candidate-then-control order, native
+range removed the anomalies. In the first candidate-then-control order, native
 and control measured 589,717 and 701,119 reads/s with 2,226 and 1,839 ns p99.
 In the reverse order they measured 587,199 and 710,184 reads/s with 2,261 and
 1,778 ns p99. Throughput passed twice; p99 was 1.210x and 1.272x control and
-failed twice. The custom resident transaction plane therefore stops here.
+failed twice. That control did not pay for the native subject's recovered
+six-process authority topology.
+
+A fourth frozen run placed native and direct owned-value RocksDB reads inside
+the same recovered topology. Native retained 0.9089x and 0.9197x control
+throughput in opposite process orders. Its p99 was 0.9134x and 0.9132x control.
+All four workloads passed sixteen hard gates and emitted correlated OTel logs,
+metrics, and traces. This admits the single-range native snapshot boundary, not
+replicated commit or a complete cell.
+
+The next runner partitions one exact read budget across 1, 8, and 32 clients
+behind shared ready and start barriers. A dirty 32-client AB/BA diagnostic
+produced native-to-control throughput ratios of 0.9835x and 1.0324x. Native
+p99 ratios were 0.8321x and 0.8717x. This only establishes that the concurrent
+runner operates. Clean paired infrastructure receipts remain required. Cache
+pressure is isolated into a later gate with explicit cache sizing and a
+reusable larger-than-cache fixture.
 
 \subsection{Objectification and publication}
 

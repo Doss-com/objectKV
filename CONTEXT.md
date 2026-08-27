@@ -163,6 +163,12 @@ performance or operational claim.
   and emitted OTel logs, metrics, and traces. This admits the single-range read
   boundary, not replicated commit or a complete cell. D56 keeps the plane
   native-first; FoundationDB remains the semantic oracle and fallback profile.
+- `[CODE-COMPLETE]` GP3.1.1 runs the same native and direct RocksDB boundaries
+  with exact operation budgets across 1, 8, and 32 synchronized clients. A
+  dirty 32-client local diagnostic produced 0.9835x and 1.0324x control
+  throughput in opposite process orders. Native p99 was 0.8321x and 0.8717x
+  control, with every runtime gate passing. Clean GCP R0 evaluation is pending;
+  cache pressure is a separate gate.
 - `[CODE-COMPLETE]` RFC-0041 and `okv-plane` freeze the incumbent adapter,
   provider stamp, generation, retained-change, object-frontier, and restore
   boundaries. The source-pinned preflight models FoundationDB 7.4.6 and TiKV
