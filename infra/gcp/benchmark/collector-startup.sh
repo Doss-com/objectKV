@@ -49,8 +49,22 @@ config_b64="$(curl -fsS -H 'Metadata-Flavor: Google' http://metadata.google.inte
 collector_image="$(curl -fsS -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/attributes/objectkv-collector-image)"
 printf '%s' "${config_b64}" | base64 -d >"${mount_point}/otel/collector.yaml"
 
+image_ready=false
+for _ in $(seq 1 12); do
+  if docker image inspect "${collector_image}" >/dev/null 2>&1 || docker pull "${collector_image}"; then
+    image_ready=true
+    break
+  fi
+  sleep 5
+done
+if [[ "${image_ready}" != "true" ]]; then
+  echo "OpenTelemetry collector image was not available after bounded retries" >&2
+  exit 1
+fi
+
 docker rm -f objectkv-otel >/dev/null 2>&1 || true
 docker run -d \
+  --pull never \
   --name objectkv-otel \
   --restart always \
   --network host \
