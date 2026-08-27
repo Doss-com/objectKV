@@ -13759,11 +13759,14 @@ fn run_foundationdb_logical_lifecycle(
                 .saturating_add(receipt.restored_chunks)
                 .saturating_add(receipt.replayed_chunks),
         ),
-        artifact_refs: vec![
+        artifact_refs: [
             output_path.display().to_string(),
             receipt.closure_uri.clone(),
             receipt.manifest_uri.clone(),
-        ],
+        ]
+        .into_iter()
+        .filter(|artifact| !artifact.is_empty())
+        .collect(),
         secondary_metrics: BTreeMap::from([
             (
                 "foundationdb_lifecycle.duration_seconds".to_owned(),
