@@ -36,7 +36,7 @@ server_sha=78694510c1e99f36a51cc32c84bed45e214899771e42ad2b604b254665d5d9cf
 release_root=https://github.com/apple/foundationdb/releases/download/7.4.6
 
 apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl jq python3-venv
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git jq python3-venv
 curl -fsSL "${release_root}/${clients_name}" -o "${package_scratch}/${clients_name}"
 curl -fsSL "${release_root}/${server_name}" -o "${package_scratch}/${server_name}"
 printf '%s  %s\n' "${clients_sha}" "${package_scratch}/${clients_name}" | sha256sum --check --status
@@ -49,7 +49,11 @@ systemctl stop foundationdb || true
 install -d -m 0750 -o foundationdb -g foundationdb "${provider_root}" "${provider_log_root}"
 install -d -m 0755 /etc/foundationdb
 cluster_id="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-description="objectkv-${run_label}-${phase}"
+description="objectkv_${run_label//-/_}_${phase}"
+if [[ ! "${description}" =~ ^[A-Za-z0-9_]+$ ]]; then
+  echo "FoundationDB cluster description contains a disallowed character" >&2
+  exit 64
+fi
 printf '%s:%s@127.0.0.1:4500\n' "${description}" "${cluster_id}" >"${cluster_file}"
 chown foundationdb:foundationdb "${cluster_file}"
 chmod 0640 "${cluster_file}"
