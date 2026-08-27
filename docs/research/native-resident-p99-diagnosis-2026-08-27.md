@@ -1,6 +1,6 @@
 # Native resident p99 diagnosis, 2026-08-27
 
-Status: `[EVALUATING]` local mechanism diagnosis. No cloud admission claim.
+Status: `[VERIFIED]` local diagnosis and topology-matched GCP R0 admission.
 
 ## Question
 
@@ -76,6 +76,20 @@ p95 on this host. The local p99 is order-sensitive and is not sufficient to
 accept or reject it. GP3.1 now uses a separate matched-topology suite with the
 original `0.80x` throughput floor and `1.20x` p99 ceiling.
 
-Next action: run both orders from one clean revision on the existing GCP R0
-local-NVMe topology, with fifteen samples per subject, one machine receipt, one
-batch per order, and required OTel logs, metrics, and traces.
+## GCP R0 result
+
+The clean topology-matched run used fifteen samples per subject and order on
+one private `n2-standard-8` runner with local NVMe and required OTel signals.
+
+| Order | Native | Matched control | Throughput ratio | Native p99 | Control p99 | P99 ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| AB | 656,662 reads/s | 722,443 reads/s | 0.9089x | 1,920 ns | 2,102 ns | 0.9134x |
+| BA | 660,783 reads/s | 718,492 reads/s | 0.9197x | 1,883 ns | 2,062 ns | 0.9132x |
+
+Both throughput and p99 constraints passed in both orders. All four workloads
+passed 16 hard gates and emitted correlated logs, metrics, and traces. This
+admits the single-range native snapshot boundary. It also confirms that the
+unmatched process topology was a material confounder in the earlier p99 result.
+
+Next action: measure concurrent and cache-pressure read curves, then the native
+three-node replicated commit path against a same-durability control.

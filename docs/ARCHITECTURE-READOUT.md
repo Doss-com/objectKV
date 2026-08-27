@@ -294,7 +294,8 @@ into one system claim.
 | Public SingleRange, RocksDB serving image | 824,252 reads/s and 1.583 microseconds p99 over 100,000 reads; 0 post-activation object operations | `[EVALUATING]`, dirty debug build, 256 keys, named local Apple NVMe without isolated-load control |
 | Public SingleRange versus direct RocksDB, GCP R0 | 516,973 versus 702,142 reads/s; 2.482 versus 1.749 microseconds median p99; 15 samples each; 0 measured object operations | `[VERIFIED]` mechanism and comparison validity; GP3.1 is `[EVALUATING]` after a 26.37% throughput and 41.91% p99 miss |
 | Optimized public SingleRange versus direct RocksDB, GCP R0 AB and BA | 575,498 versus 713,304 and 573,999 versus 717,362 reads/s; p99 ratios 1.353x and 1.300x; 15 samples per subject and order | `[VERIFIED]` optimization and comparison validity; throughput entered the envelope, executable p99 failed twice, GP3.1 remains `[EVALUATING]` |
-| Native resident engine versus owned-value direct RocksDB, GCP R0 AB and BA | 589,717 versus 701,119 and 587,199 versus 710,184 reads/s; p99 ratios 1.210x and 1.272x; 15 samples per subject and order | `[VERIFIED]` candidate, comparison, and pivot trigger; throughput passed, p99 failed twice, custom resident plane stopped |
+| Native resident engine versus bare owned-value direct RocksDB, GCP R0 AB and BA | 589,717 versus 701,119 and 587,199 versus 710,184 reads/s; p99 ratios 1.210x and 1.272x; 15 samples per subject and order | `[VERIFIED]` historical unmatched-topology result; its permanent pivot conclusion is superseded by D56 and the matched control below |
+| Native resident engine versus topology-matched owned-value direct RocksDB, GCP R0 AB and BA | 656,662 versus 722,443 and 660,783 versus 718,492 reads/s; p99 ratios 0.913x and 0.913x; 15 samples per subject and order | `[VERIFIED]` GP3.1 single-range mechanism admission; all throughput, p99, correctness, object-operation, identity, and OTel constraints passed twice |
 | Commit-proxy batch32 | 1,157.369 median tx/s and 76.101 ms maximum p99, 6.356x one-entry control | `[EVALUATING]`, dirty single-host isolated contract |
 | DataFusion columnar range source | 2.544M rows/s, 54 projection requests versus 1,761 one-stripe requests | `[EVALUATING]`, dirty release-local isolated contract |
 | Prior R0 GCS infrastructure smoke | 6.925 s wall time, 24 gates, all three OTel signals | `[VERIFIED]` infrastructure plumbing, not performance |
@@ -313,11 +314,11 @@ start, authority reads, txLog catch-up, and three remote object operations from
 an uncontrolled client machine.
 
 The third execution corrected the direct control to return owned values and
-built the native resident boundary. A diagnostic showed the old wrapper at
-1.092x the corrected control p99, so the earlier pinned-slice comparison was not
-a clean estimate of wrapper cost. The native engine then failed the corrected
-1.20x p99 ceiling in both final process orders. This is the program's stopping
-signal, not another optimization prompt.
+built the native resident boundary, but it still compared a full six-process
+native recovery path with a bare direct RocksDB process. The fourth execution
+put both read subjects inside the same recovered topology. Native passed the
+throughput and p99 envelope in both orders. This admits one read boundary; it
+does not admit replicated commit, range distribution, or a complete cell.
 
 ## Performance curves that decide the project
 
@@ -352,23 +353,23 @@ from the GCS profile fails before workload execution and creates no receipt.
 
 ## Program call
 
-Continue the object-native lifecycle, but stop building a custom resident
-transaction plane. The native boundary passed its throughput and correctness
-checks but failed the frozen p99 gate in both process orders. TiKV or
-FoundationDB now owns resident MVCC and transaction processing. Do not add
-MultiRaft, a metacluster, RAM admission, or application engines until that
-provider and adapter boundary are selected.
+Continue the native objectKV lane. The topology-matched single-range read
+boundary is admitted, while FoundationDB remains the semantic oracle and
+fallback profile. Do not infer a distributed-system admission from a resident
+read result.
 
 Next sequence:
 
-1. Freeze the smallest resident-plane adapter for versioned reads, ordered
-   commits, retained change capture, snapshot export, and restore.
-2. Implement the same bounded single-range objectification and rebuild spike
-   against TiKV and FoundationDB.
-3. Select one using semantic fit, operational ownership, change-feed and backup
-   seams, and matched-infra lifecycle receipts.
-4. Reframe GP3.1 around the selected plane and verify that objectKV adds no
-   material hot-path regression.
+1. Add concurrent-client, CPU-per-read, and cache-pressure curves without
+   weakening the admitted GP3.1 semantics.
+2. Split the resident-kernel eval binary from the full DataFusion build and
+   record the Rust toolchain rather than `unknown` in real-infrastructure
+   receipts.
+3. Run the native three-node replicated commit path against a same-durability
+   control, including leader loss and recovery.
+4. Keep FoundationDB current as the strict-serializability and lifecycle
+   control while the native transaction plane is admitted one gate at a time.
 5. Add reusable content-addressed fixtures and restore the 64 MiB and 10 GiB
    cache-pressure points without replaying fixture commits for every sample.
-6. Admit RAM, PostgreSQL, and HTAP only after the resident plane is stable.
+6. Admit RAM, multi-range, PostgreSQL, and HTAP only after the native commit
+   path is stable.

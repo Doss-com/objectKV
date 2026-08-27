@@ -7,7 +7,7 @@
       <span>Base {{REVISION}}</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
-    <p class="lede">The native GP3.1 candidate retained 84.11% and 82.68% of owned-value direct RocksDB throughput, but p99 was 1.210x and 1.272x control. The frozen stop rule fired. objectKV keeps its log, object lifecycle, branching, reconstruction, and HTAP layers, while the next bounded gate selects TiKV or FoundationDB for resident transactions.</p>
+    <p class="lede">The matched-topology native GP3.1 candidate retained 90.89% and 91.97% of direct RocksDB throughput. Native p99 was 8.66% and 8.68% lower than control. The single-range resident read boundary is verified; concurrency, cache pressure, multi-range behavior, and replicated commit remain evaluating.</p>
     <div class="hero-actions">
       <a class="button primary" href="../../../papers/objectkv-vldb/objectkv-vldb.pdf">Open PVLDB paper</a>
       <a class="button" href="../../../papers/objectkv-vldb/main.tex">Paper source</a>
@@ -22,7 +22,7 @@
     <article class="summary-card"><span class="label">Highest verified rung</span><span class="value">R0 mechanism</span><p>Private GCP runner, local NVMe, regional GCS, OTel, killed-worker recovery, and paired receipts.</p></article>
     <article class="summary-card"><span class="label">Cloud comparison pairs</span><span class="value">2</span><p>AB and BA on one private GCP runner, regional GCS, local NVMe, required OTel, and complete teardown.</p></article>
     <article class="summary-card"><span class="label">Working paper</span><span class="value">14 pp.</span><p>PVLDB Vol. 20 format, architecture, evidence, curves, and limitations.</p></article>
-    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">Incumbent plane</span><p>Freeze the adapter, run the same objectification and rebuild slice over TiKV and FoundationDB, then select one.</p></article>
+    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">Native stress</span><p>Measure the same read boundary under concurrency and cache pressure, with CPU and read amplification in the receipt.</p></article>
     <article class="summary-card"><span class="label">Golden-path checkpoints</span><span class="value">{{GOLDEN_PATH_SUMMARY}}</span><p>One frozen artifact DAG across kernel, storage, distribution, consumers, PostgreSQL, HTAP, and economics.</p></article>
   </div>
 
@@ -37,11 +37,11 @@
       <section>
         <h2 id="program-call" data-toc>Program call</h2>
         <div class="callout">
-          <div><span class="label">Current decision</span><h3>Keep the object-native lifecycle, stop rebuilding the transaction plane</h3></div>
-          <p>The native candidate passed exact reads, zero-object serving, bounded bytes, and both throughput constraints. It failed the corrected p99 constraint in both process orders. D52 now puts TiKV or FoundationDB below objectKV's retained log and object lifecycle; RAM, MultiRaft, PostgreSQL, and HTAP performance remain blocked until that provider is selected.</p>
+          <div><span class="label">Current decision</span><h3>Keep objectKV native-first while the measured envelope holds</h3></div>
+          <p>The matched-topology candidate passed exact reads, zero-object serving, bounded bytes, telemetry, throughput, and p99 constraints in both process orders. D56 keeps the native resident read path active and retains FoundationDB as a correctness oracle and fallback. It does not admit a distributed transaction cell.</p>
         </div>
         <h3>What has changed</h3>
-        <p>The project separates execution, transaction durability, and permanent object state. The R0 mechanism reconstructs a complete resident image from regional GCS plus retained history, survives worker replacement, and performs zero object operations in the measured read window. The comparison engine caught both a value-ownership confounder and an object-span correctness bug. The remaining question is whether the retained object lifecycle creates enough leverage above a mature transaction plane.</p>
+        <p>The project separates execution, transaction durability, and permanent object state. The R0 mechanism reconstructs a complete resident image from regional GCS plus retained history, survives worker replacement, and performs zero object operations in the measured read window. The matched control now pays for the same recovered topology, authority processes, and owned-value boundary. The next question is whether the native advantage survives concurrency and a working set larger than memory.</p>
       </section>
 
       <section>
@@ -204,7 +204,7 @@ Arrow batches at T</pre></article>
             <tr><td>D-P3</td><td>SSD and RAM implement one serving contract; durability is selected separately per tenant generation.</td><td>Workload-specific hot-state choices without hidden acknowledgement changes.</td><td>One physical profile and simpler placement.</td></tr>
             <tr><td>D-P4</td><td>Range-local consensus, cell-level transactionality, no cross-cell transaction.</td><td>Scale inside a bounded semantic and failure domain.</td><td>One global transaction history.</td></tr>
             <tr><td>D-P5</td><td>One logical history may have separate row and column layouts.</td><td>Exact HTAP without pretending one format serves every access path.</td><td>One universal swappable physical file format.</td></tr>
-            <tr><td>D52</td><td>TiKV or FoundationDB supplies resident MVCC and transaction processing.</td><td>Prove object lifecycle leverage without first rebuilding a production distributed database.</td><td>Direct control of the resident engine and transaction internals.</td></tr>
+            <tr><td>D56</td><td>Keep the native resident path while each bounded gate stays inside its matched-control envelope; use FoundationDB as oracle and fallback.</td><td>Portability, independent scaling, and direct control of the unified object-native kernel.</td><td>A mature incumbent transaction plane today; native work stops at the first repeated hard-gate failure.</td></tr>
           </tbody>
         </table></div>
       </section>
@@ -212,7 +212,8 @@ Arrow batches at T</pre></article>
       <section>
         <h2 id="work-log" data-toc>Work in progress log</h2>
         <div class="log">
-          <article class="log-entry"><time>2026-08-27</time><h3>Native GP3.1 fails p99 twice; incumbent-plane pivot fires</h3><p>The native candidate passed both throughput constraints at 0.8411x and 0.8268x control. P99 failed at 1.210x and 1.272x. Exact reads, bounded state, zero measured object operations, and OTel passed. D52 preserves objectKV's log and lifecycle layers and moves resident transactions to a TiKV or FoundationDB selection.</p></article>
+          <article class="log-entry"><time>2026-08-27</time><h3>Matched-topology native GP3.1 passes its envelope</h3><p>Across 15 samples per subject and order, native retained 90.89% and 91.97% of direct RocksDB throughput. Native p99 was 8.66% and 8.68% lower. All 64 hard-gate evaluations passed, every run appeared in traces, metrics, and logs, and the private GCP environment was fully torn down.</p></article>
+          <article class="log-entry"><time>2026-08-27</time><h3>First unmatched GP3.1 control rejected as a program decision</h3><p>The earlier candidate retained 84.11% and 82.68% of a bare direct RocksDB control and missed p99 at 1.210x and 1.272x. D56 supersedes the D52 pivot because the control did not pay for the recovered topology, authority processes, and owned-value boundary carried by the native subject.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1 throughput enters, p99 fails, read boundary changes</h3><p>Manifest-bypass improved candidate throughput 11.18%. AB and BA retained 80.68% and 80.02% of direct RocksDB throughput, while p99 remained 1.353x and 1.300x control. The executable p99 gate failed twice, all mechanism and OTel gates passed, and the next subject is an engine-native resident data plane.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1 real-infrastructure comparison misses parity</h3><p>The public SingleRange path passed recovery, generation, cursor, byte-bound, and zero-object-read gates on a named GCP local NVMe device. It reached 516,973 reads/s and 2.482 microseconds p99 versus 702,142 reads/s and 1.749 microseconds for direct RocksDB. GP3.1 stays Evaluating while one bounded optimization cycle targets the 26.37% throughput and 41.91% p99 gaps.</p></article>
           <article class="log-entry"><time>2026-08-26</time><h3>G4.10b composition clears its local gates</h3><p>The 25% conflict candidate reached 1,075.343 resolved outcomes/s, 104.274 ms maximum p99, and 28.776x the one-entry control while exact object-plus-suffix recovery, committed and conflicted retry, both leader failovers, voter restart, fresh-client reconstruction, and both unsafe controls passed.</p></article>

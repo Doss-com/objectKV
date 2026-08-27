@@ -58,7 +58,7 @@ of database protocols inside one server:
 └───────────────────────────────┬─────────────────────────────────────┘
                                 ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Consumer kits                                                       │
+│ okv-fabric adapters                                                 │
 │ page/row adapters │ indexes │ application logs │ typed projections │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 ↓
@@ -89,7 +89,8 @@ may use different caches, indexes, or physical layouts, but they do not create
 independent database truths.
 
 The public kernel remains value-native. PostgreSQL pages, logical rows, Redis
-expiry, posting lists, table schemas, and Arrow types belong to consumer kits.
+expiry, posting lists, table schemas, and Arrow types belong to `okv-fabric`
+adapters.
 Typed namespaces may opt into columnar run capabilities only after they pass
 the same exact point-read, recovery, media, and compaction controls as the
 opaque row format.

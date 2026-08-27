@@ -1,0 +1,11 @@
+sha256	object
+faefa31d393db478b7bbefe376bc90497e84a90966ea4b5cc30f1317bf6494c5	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/receipts/gp31match-r0-ab-native.json
+ca6fd3c79e694efc247b38512f5e5db0ea02398d599c5a1c7783c3e3a3a7d97b	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/receipts/gp31match-r0-ab-control.json
+9ff6e219323ad877fdd9409b1562497c8201dc4a92283e761a4812006b921a6e	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/receipts/gp31match-r0-ab-comparison.json
+881d02eb82bd2ad1e4d34e5dc9aab81dd508fd0455af7eba942b7d364a13f914	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/receipts/gp31match-r0-ba-native.json
+75c57e7b61c8cc3748df131d799ecdce86638488592b9822c91150111a89a2b1	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/receipts/gp31match-r0-ba-control.json
+0751d7a7f4a7e6f59a62c8ec47be728675a47cb83dfb284bc204c18b4edfa0a2	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/receipts/gp31match-r0-ba-comparison.json
+d73768b2493c8a36841f2c1d877b742a2fbcb191f1014a8fa4f55be1efcb2e07	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/receipts/machine-418b776.json
+5432e34652fa14537682243c25a3b928c4d470f5ac47cabe7b618c091ab4b2f4	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/receipts/gp31match-r0-plan-418b776.json
+6f38c31aaedbb1b2c11dc9a548a3715c0165e3ff817ed408e09339884208f3ca	gs://doss-objectkv-dev-okv-evals/runs/gp31match-r0-20260827/telemetry/gp31match-r0-otel-jsonl.tgz
+2d0ab77679a2b2e05fb9057e3562e3cbef62835e7757367cfd86eac36a07e7ac	gs://doss-objectkv-dev-okv-evals/bundles/native-matched/418b776.bundle

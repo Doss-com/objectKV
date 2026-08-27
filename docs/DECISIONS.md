@@ -1251,8 +1251,8 @@ required. Contract and local receipt:
 
 ## D56. Keep objectKV native-first and expose applications through okv-fabric
 
-Status: `[EVALUATING]` architecture direction and native-plane admission,
-2026-08-27.
+Status: `[VERIFIED]` single-range native read boundary; `[EVALUATING]` native
+transaction-plane admission, 2026-08-27.
 
 Decision: objectKV is the fixed product program. Evaluations select mechanisms,
 serving profiles, and transaction-plane implementations; they do not decide
@@ -1276,14 +1276,14 @@ PostgreSQL | Redis | search | filesystem | DataFusion | applications
                   immutable S3-compatible state
 ```
 
-The GP3.1 result is close enough to justify another bounded native pass, but it
-does not show that the distributed system is nearly complete. AB p99 was 1.210x
-against a 1.20x ceiling, a 0.83 percent relative miss. BA p99 was 1.272x, a 6.0
-percent relative miss. Throughput passed at 0.8411x and 0.8268x. The next native
-sequence separates three claims:
+The topology-matched GP3.1 rerun admits the single-range native snapshot
+boundary, but it does not show that the distributed system is nearly complete.
+Native retained 0.9089x and 0.9197x direct RocksDB throughput in opposite
+process orders. Its p99 was 0.9134x and 0.9132x control. Both frozen constraints
+passed twice. The next native sequence separates three claims:
 
-1. reproduce and profile the single-range tail with clean-source matched ABBA
-   receipts;
+1. measure concurrent-client, CPU-per-read, and cache-pressure curves without
+   weakening the admitted single-range semantics;
 2. measure one three-node replicated commit path against a same-durability
    control;
 3. prove strict serializability, failover, object-frontier safety, and empty
@@ -1299,7 +1299,8 @@ FoundationDB the default plane. Consensus operations, MVCC, resolver scaling,
 range placement, repair, and production failure handling remain objectKV work
 and must be admitted one bounded claim at a time.
 
-Evidence: RFC-0040 and the GP3.1 AB/BA receipts establish the current native
-performance boundary. RFC-0041 and the FoundationDB receipts remain the
-semantic and lifecycle controls. Neither set of receipts verifies a complete
-native distributed cell.
+Evidence: RFC-0040 and the topology-matched GP3.1 AB/BA receipt establish the
+current native performance boundary. RFC-0041 and the FoundationDB receipts
+remain the semantic and lifecycle controls. Neither set of receipts verifies a
+complete native distributed cell. See
+`docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md`.

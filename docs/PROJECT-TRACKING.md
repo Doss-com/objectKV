@@ -55,9 +55,9 @@ MAD-based noise.
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
-GP3.1 p99 constraint rejected both real-infrastructure comparisons even though
-throughput entered its 20 percent envelope. Missing secondary metrics invalidate
-the comparison rather than silently dropping the constraint.
+topology-matched GP3.1 throughput and p99 constraints passed in both process
+orders. Missing secondary metrics invalidate the comparison rather than
+silently dropping the constraint.
 
 `[CODE-COMPLETE]` The isolated GCP benchmark root defines a private
 `n2-standard-8` runner with a 200 GiB `pd-ssd` and a separate private OTel
@@ -68,9 +68,8 @@ layout profile requires five repeats.
 `[VERIFIED]` R0 now has a clean frozen-source machine receipt for one private
 `n2-standard-8`, a 375 GiB local NVMe serving volume, a 200 GiB persistent
 `pd-ssd`, regional GCS, and a separate OTel collector. All nine leased resources
-were destroyed after the receipts were copied. The first paired GP3.1 run is
-valid and has a `worse` verdict, so the infrastructure is admitted while the
-SSD performance gate remains `[EVALUATING]`.
+were destroyed after the receipts were copied. The first paired GP3.1 run is a
+valid historical `worse` result that motivated the subsequent matched controls.
 
 `[VERIFIED]` The optimization run used the same R0 shape and a second frozen
 source bundle. It executed candidate then control and control then candidate,
@@ -80,9 +79,10 @@ the receipts were copied.
 
 `[VERIFIED]` The native resident-engine decision run used a third frozen source
 and an owned-value control. Both throughput comparisons passed; both p99
-comparisons failed. The frozen stop rule moved resident MVCC and transaction
-processing to an incumbent TiKV or FoundationDB selection. The custom engine is
-retained as a correctness prototype.
+comparisons failed. D56 then identified process topology as a remaining
+confounder. The fourth frozen run matched the full six-process recovery
+topology. Native retained 0.9089x and 0.9197x throughput, while p99 was 0.913x
+control in both orders. GP3.1 now admits the single-range native read boundary.
 
 ## Current checkpoint
 
@@ -96,13 +96,12 @@ validates locally. The PVLDB working paper renders in the official Vol. 20
 template. The `okv-log` pure ordered-record substrate is implemented below
 `okv-wal`.
 
-`[CODE-COMPLETE]` The golden-path scenario now includes an incumbent transaction
-plane between object publication and resident serving. Its GP2.5 gates require
-semantic elimination before a live lifecycle spike, and GP3.1 now measures the
-mandatory objectKV write cost against direct FoundationDB. The graph rejects
-missing checkpoint coverage, forward dependencies, and undeclared artifact
-inputs. No checkpoint has a verified end-to-end golden-path receipt yet; prior
-component receipts remain separately scoped.
+`[CODE-COMPLETE]` The golden-path scenario keeps the FoundationDB GP2.5 branch
+as semantic oracle and fallback evidence while GP3.1 measures the native
+resident read boundary against direct RocksDB. The graph rejects missing
+checkpoint coverage, forward dependencies, and undeclared artifact inputs. No
+checkpoint has a verified end-to-end golden-path receipt yet; prior component
+receipts remain separately scoped.
 
 `[VERIFIED]` The paired Tetris and Chess developer path now passes GP-G0 through
 GP-G6 in bounded local scopes. It covers exact differential replay, seven
@@ -129,11 +128,12 @@ The first run caught an object-span versus assigned-range bug; the corrected
 engine completed both final orders with zero anomalies and zero measured object
 operations.
 
-`[EVALUATING]` GP3.1 did not admit the custom resident data plane. Final AB
-retained 84.11 percent of control throughput with 1.210x p99. Final BA retained
-82.68 percent with 1.272x p99. The frozen p99 ceiling failed twice, so D52 stops
-custom transaction-plane expansion. The next golden-path slice selects TiKV or
-FoundationDB and freezes the adapter above it. RAM remains blocked.
+`[VERIFIED]` The topology-matched GP3.1 rerun admits the single-range native
+read boundary. Final AB retained 90.89 percent of control throughput with
+0.913x p99. Final BA retained 91.97 percent with 0.913x p99. All four runs
+passed 16 hard gates and emitted correlated OTel logs, metrics, and traces.
+D56 supersedes D52's permanent pivot conclusion. FoundationDB remains the
+semantic oracle and fallback profile; native replicated commit is next.
 
 `[VERIFIED]` The first leased R0 semantic run reduced the provider branch to
 FoundationDB. FoundationDB 7.4.6 passed five implemented semantic gates with
@@ -161,8 +161,8 @@ distinct provider and GCP identities restored and replayed five chunks,
 matched the exact digest and row count, activated after ready, and committed a
 fresh transaction. The formal positive received `keep` with 16 passing gates;
 the executed same-cluster hidden-media control received `discard`. OTel logs,
-metrics, and traces contain both run IDs. GP2.5.4 incarnation authority and
-GP3.1 retained-write overhead remain open.
+metrics, and traces contain both run IDs. At that checkpoint, GP2.5.4
+incarnation authority and GP3.1 retained-write overhead were still open.
 
 `[VERIFIED]` GP2.5.4a now has a clean local-process receipt at candidate
 `b415d502665eff9b6df4c095e33480b628348db2`. The combined generation and
@@ -175,7 +175,8 @@ and resurrection probe, a strict controller receipt, and formal positive and
 poison evaluator workloads. Activation binds the exact source-fence receipt;
 resurrection binds the activation and restart receipts, so VM clock skew is not
 an admission input. `[EVALUATING]` the real GCP run is blocked on a fresh
-operator authentication token. GP3.1 remains closed until that receipt passes.
+operator authentication token. The FoundationDB fallback overhead pair remains
+closed until that receipt passes; the native GP3.1 lane is independent.
 
 `[VERIFIED]` The SSD mechanism now composes with the public kernel on real R0
 infrastructure. `SingleRange` verifies the complete GCS closure, activates a
@@ -185,7 +186,7 @@ Across 15 samples it produced 516,973 reads/s median, 2.482 microseconds median
 p99, zero object operations, zero anomalies, and a 4,351,739-byte serving
 image. Direct RocksDB produced 702,142 reads/s and 1.749 microseconds p99. The
 paired result is 26.37 percent worse on throughput and 41.91 percent worse on
-p99, so GP3.1 stays `[EVALUATING]`. The receipt is
+p99, so this earlier wrapper candidate kept GP3.1 `[EVALUATING]`. The receipt is
 `docs/artifacts/eval-receipts/single-range-ssd-gcp-r0-2026-08-27/README.md`.
 
 `[VERIFIED]` The follow-up optimization bypasses manifest lookup and object

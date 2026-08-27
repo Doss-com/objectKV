@@ -493,7 +493,7 @@ become one GitHub issue.
   cardinality; then decide Cell v0 admission before serving leases, scans, GCS
   product claims, PostgreSQL, or HTAP expansion.
 
-### T24. Implement the native resident-engine boundary `[VERIFIED]` experiment, admission rejected
+### T24. Implement the native resident-engine boundary `[VERIFIED]`
 
 - Scope: RFC-0040 empty activation, base plus retained-suffix materialization,
   atomic live advancement, version-bound engine snapshots, and direct resident
@@ -511,22 +511,25 @@ become one GitHub issue.
 - Stop: if both reversed-order receipts fail p99 again, use TiKV or
   FoundationDB for the resident and transaction data plane. Keep `okv-log`,
   publication, branching, reconstruction, and historical views above it.
-- Result: throughput passed at 0.8411x and 0.8268x control. P99 failed at
-  1.210x and 1.272x control. The stop fired. Preserve the prototype and its
-  regression tests; do not expand it into MultiRaft or a custom resolver plane.
+- Result: the first unmatched-topology control produced 0.8411x and 0.8268x
+  throughput with 1.210x and 1.272x p99. D56 reopened the native lane because
+  the control omitted the six-process recovery topology. The matched AB and BA
+  rerun passed at 0.9089x and 0.9197x throughput with 0.913x p99 in both
+  orders. All four runs passed 16 hard gates and emitted all three OTel
+  signals. The single-range read boundary is admitted; replicated commit and
+  MultiRaft are separate gates.
 
-### T25. Select the incumbent resident transaction plane `[EVALUATING]`
+### T25. Maintain the incumbent fallback transaction plane `[EVALUATING]`
 
-- Scope: freeze one minimal adapter that supports ordered commits, versioned
+- Scope: keep one minimal adapter that supports ordered commits, versioned
   reads, retained change capture, objectification frontier, and empty-worker
-  restore. Run both candidates through the same semantic preflight. Implement
-  lifecycle and hot-path work only for candidates that pass it.
+  restore. Use it as the semantic oracle, lifecycle control, and fallback while
+  the native path advances.
 - Done when: both source-pinned candidates have executable semantic receipts,
   every survivor runs the same frozen history and lifecycle suite on R0,
-  limitations are explicit, one provider is selected by a recorded decision,
-  and GP3.1 runs against that provider without weakening its hot-path or
-  correctness constraints.
-- Dependency: D52 and the RFC-0040 decision receipt.
+  limitations are explicit, and one fallback profile is selected by a recorded
+  decision without weakening native-path gates.
+- Dependency: D56, RFC-0040, and the native GP3.1 receipt.
 - Review focus: transaction semantics, version mapping, change-feed retention,
   snapshot/export seams, restore ownership, operational complexity, license,
   and whether objectKV can stay off the incumbent hot path.
@@ -539,7 +542,7 @@ become one GitHub issue.
   `[CODE-COMPLETE]`. `[VERIFIED]` the R0 FoundationDB probe rejected write skew
   and aligned commit, change, and outcome stamps. The R0 TiKV probe committed
   both disjoint writers and is removed from lifecycle work. FoundationDB is the
-  sole remaining candidate, not yet the selected provider. `[VERIFIED]`
+  sole remaining fallback profile. `[VERIFIED]`
   GP2.5.2 repeated exact closure, named GET, object-frontier CAS,
   empty-generation restore, chunk replay, digest, and stale-generation gates
   under the frozen `ca919518` evaluator and private GCP machine receipt. All
@@ -552,8 +555,9 @@ become one GitHub issue.
   direct-FoundationDB overhead pair. `[VERIFIED]` GP2.5.4's local authority
   composition now rejects stale commit, route, and publication operations and
   detects the corresponding three-surface poison. `[CODE-COMPLETE]` the
-  dual-provider GCP resurrection harness. The next owned action is its real
-  receipt; no contributor should start GP3.1 before that result.
+  dual-provider GCP resurrection harness. The next owned fallback action is its
+  real receipt. Native concurrent-read and replicated-commit work proceed under
+  separate gates.
 
 ## Opens after Gate 1
 

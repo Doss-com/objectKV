@@ -87,8 +87,10 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   the only permanent database copy.
 - **serving profile**: the selected hot-state implementation for a range.
   `ssd_resident` is `[CODE-COMPLETE]` as a bounded RocksDB image on disposable
-  local media and `[EVALUATING]` on named NVMe; `ram_resident` is `[PROPOSED]`
-  as a bounded DRAM image with no data files or swap.
+  local media and `[VERIFIED]` for the topology-matched single-range named-NVMe
+  read boundary; concurrent cache-pressure curves remain `[EVALUATING]`.
+  `ram_resident` is `[PROPOSED]` as a bounded DRAM image with no data files or
+  swap.
 - **durability provider**: `[PROPOSED]` the implementation that makes a commit
   envelope and required consensus state recoverable before `COMMITTED`. The
   default is a regional stable-media txLog; synchronous object acknowledgement
@@ -154,12 +156,13 @@ performance or operational claim.
   runner, local persisted-WAL contracts, a pinned OpenRaft per-node storage
   adapter, a deterministic three-node OpenRaft failover contract, and
   planning/RFC scaffolding.
-- `[VERIFIED]` The final native GP3.1 candidate preserved exact recovery,
-  bounded resident bytes, and zero measured object operations, but failed the
-  frozen p99 ceiling in both process orders at 1.210x and 1.272x direct RocksDB.
-  D52 stopped that exact candidate sequence. D56 reopened the native plane
-  through a topology-matched admission suite. The original throughput ratios
-  were 0.8411x and 0.8268x.
+- `[VERIFIED]` GP3.1 now compares the native version-bound snapshot with direct
+  owned-value RocksDB inside the same recovered six-authority-process topology.
+  Native retained 0.9089x and 0.9197x throughput in opposite process orders,
+  while p99 was 0.9134x and 0.9132x control. All four runs passed 16 hard gates
+  and emitted OTel logs, metrics, and traces. This admits the single-range read
+  boundary, not replicated commit or a complete cell. D56 keeps the plane
+  native-first; FoundationDB remains the semantic oracle and fallback profile.
 - `[CODE-COMPLETE]` RFC-0041 and `okv-plane` freeze the incumbent adapter,
   provider stamp, generation, retained-change, object-frontier, and restore
   boundaries. The source-pinned preflight models FoundationDB 7.4.6 and TiKV
@@ -177,8 +180,8 @@ performance or operational claim.
   boot disk, and provider SSD before reproducing the exact 950-record digest on
   a fresh cluster. Its formal positive passed 16 gates and its hidden-media
   control was discarded, with both run IDs in all three OTel signals. These
-  receipts do not make FoundationDB the default plane. The native lane remains
-  `[EVALUATING]` through GP3.1 and subsequent replicated-commit gates.
+  receipts do not make FoundationDB the default plane. The native transaction
+  plane remains `[EVALUATING]` through the subsequent replicated-commit gates.
 - `[CODE-COMPLETE]` The unpublished `okv` crate exposes the first integrated
   `SingleRange` kernel API. It selects a generation-fenced publication root,
   verifies one immutable row-object base, catches up through the logical txLog

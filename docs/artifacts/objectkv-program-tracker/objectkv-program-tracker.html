@@ -188,11 +188,11 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
     <div class="kicker">
       <span>objectKV</span>
       <span>Technical program tracker</span>
-      <span>Branch research/object-publication/process-recovery-v1</span>
-      <span>Base a56442a</span>
+      <span>Branch research/native-matched-topology-r0</span>
+      <span>Base 418b776</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
-    <p class="lede">The native GP3.1 candidate retained 84.11% and 82.68% of owned-value direct RocksDB throughput, but p99 was 1.210x and 1.272x control. The frozen stop rule fired. objectKV keeps its log, object lifecycle, branching, reconstruction, and HTAP layers, while the next bounded gate selects TiKV or FoundationDB for resident transactions.</p>
+    <p class="lede">The matched-topology native GP3.1 candidate retained 90.89% and 91.97% of direct RocksDB throughput. Native p99 was 8.66% and 8.68% lower than control. The single-range resident read boundary is verified; concurrency, cache pressure, multi-range behavior, and replicated commit remain evaluating.</p>
     <div class="hero-actions">
       <a class="button primary" href="../../../papers/objectkv-vldb/objectkv-vldb.pdf">Open PVLDB paper</a>
       <a class="button" href="../../../papers/objectkv-vldb/main.tex">Paper source</a>
@@ -207,8 +207,8 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
     <article class="summary-card"><span class="label">Highest verified rung</span><span class="value">R0 mechanism</span><p>Private GCP runner, local NVMe, regional GCS, OTel, killed-worker recovery, and paired receipts.</p></article>
     <article class="summary-card"><span class="label">Cloud comparison pairs</span><span class="value">2</span><p>AB and BA on one private GCP runner, regional GCS, local NVMe, required OTel, and complete teardown.</p></article>
     <article class="summary-card"><span class="label">Working paper</span><span class="value">14 pp.</span><p>PVLDB Vol. 20 format, architecture, evidence, curves, and limitations.</p></article>
-    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">Incumbent plane</span><p>Freeze the adapter, run the same objectification and rebuild slice over TiKV and FoundationDB, then select one.</p></article>
-    <article class="summary-card"><span class="label">Golden-path checkpoints</span><span class="value">0 / 15 verified</span><p>One frozen artifact DAG across kernel, storage, distribution, consumers, PostgreSQL, HTAP, and economics.</p></article>
+    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">Native stress</span><p>Measure the same read boundary under concurrency and cache pressure, with CPU and read amplification in the receipt.</p></article>
+    <article class="summary-card"><span class="label">Golden-path checkpoints</span><span class="value">2 / 16 verified</span><p>One frozen artifact DAG across kernel, storage, distribution, consumers, PostgreSQL, HTAP, and economics.</p></article>
   </div>
 
   <div class="layout">
@@ -226,18 +226,18 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
 <a href="#decisions"><span>10</span>Active decisions</a>
 <a href="#work-log"><span>11</span>Work in progress log</a>
 <a href="#next-review"><span>12</span>Next architecture review</a></nav>
-      <p class="side-note">Generated 2026-08-27 11:16 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
+      <p class="side-note">Generated 2026-08-27 18:56 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
     </aside>
 
     <article class="content">
       <section>
         <h2 id="program-call"><span class="section-id">[01]</span>Program call</h2>
         <div class="callout">
-          <div><span class="label">Current decision</span><h3>Keep the object-native lifecycle, stop rebuilding the transaction plane</h3></div>
-          <p>The native candidate passed exact reads, zero-object serving, bounded bytes, and both throughput constraints. It failed the corrected p99 constraint in both process orders. D52 now puts TiKV or FoundationDB below objectKV's retained log and object lifecycle; RAM, MultiRaft, PostgreSQL, and HTAP performance remain blocked until that provider is selected.</p>
+          <div><span class="label">Current decision</span><h3>Keep objectKV native-first while the measured envelope holds</h3></div>
+          <p>The matched-topology candidate passed exact reads, zero-object serving, bounded bytes, telemetry, throughput, and p99 constraints in both process orders. D56 keeps the native resident read path active and retains FoundationDB as a correctness oracle and fallback. It does not admit a distributed transaction cell.</p>
         </div>
         <h3>What has changed</h3>
-        <p>The project separates execution, transaction durability, and permanent object state. The R0 mechanism reconstructs a complete resident image from regional GCS plus retained history, survives worker replacement, and performs zero object operations in the measured read window. The comparison engine caught both a value-ownership confounder and an object-span correctness bug. The remaining question is whether the retained object lifecycle creates enough leverage above a mature transaction plane.</p>
+        <p>The project separates execution, transaction durability, and permanent object state. The R0 mechanism reconstructs a complete resident image from regional GCS plus retained history, survives worker replacement, and performs zero object operations in the measured read window. The matched control now pays for the same recovered topology, authority processes, and owned-value boundary. The next question is whether the native advantage survives concurrency and a working set larger than memory.</p>
       </section>
 
       <section>
@@ -316,18 +316,19 @@ Arrow batches at T</pre></article>
           <tbody><tr><td>1</td><td><strong>Exact logical history</strong><br><span class="muted"><code>semantic-history</code></span></td><td>kernel</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP0.1</code></td><td><span class="muted">history-digest, oracle-snapshots</span></td></tr>
 <tr><td>2</td><td><strong>Acknowledged commit frontier</strong><br><span class="muted"><code>durable-tail</code></span></td><td>durability</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP1.1</code></td><td><span class="muted">commit-frontier, durable-outcomes</span></td></tr>
 <tr><td>3</td><td><strong>Published object closure</strong><br><span class="muted"><code>object-base</code></span></td><td>object-authority</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP2.1</code></td><td><span class="muted">manifest-root, object-watermark</span></td></tr>
-<tr><td>4</td><td><strong>SSD resident range</strong><br><span class="muted"><code>ssd-resident</code></span></td><td>serving</td><td><span class="status evaluating">EVALUATING</span></td><td><code>GP3.1</code></td><td><span class="muted">ssd-serving-receipt</span></td></tr>
-<tr><td>5</td><td><strong>RAM resident range</strong><br><span class="muted"><code>ram-resident</code></span></td><td>serving</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.2</code></td><td><span class="muted">ram-serving-receipt</span></td></tr>
-<tr><td>6</td><td><strong>Serving profile handoff</strong><br><span class="muted"><code>profile-handoff</code></span></td><td>serving</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.3</code></td><td><span class="muted">profile-handoff-receipt</span></td></tr>
-<tr><td>7</td><td><strong>Empty-worker recovery</strong><br><span class="muted"><code>empty-worker</code></span></td><td>serving</td><td><span class="status evaluating">EVALUATING</span></td><td><code>GP3.4, GP3.6</code></td><td><span class="muted">empty-worker-receipt</span></td></tr>
-<tr><td>8</td><td><strong>Metadata-scale branch</strong><br><span class="muted"><code>branch-root</code></span></td><td>lifecycle</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.5</code></td><td><span class="muted">branch-manifest-root, branch-receipt</span></td></tr>
-<tr><td>9</td><td><strong>Strict-serializable distributed cell</strong><br><span class="muted"><code>multi-range-cell</code></span></td><td>distribution</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP4.1</code></td><td><span class="muted">distributed-history-digest, cell-receipt</span></td></tr>
-<tr><td>10</td><td><strong>Retained application log</strong><br><span class="muted"><code>application-log</code></span></td><td>application-log</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.1</code></td><td><span class="muted">application-log-cursor, application-log-root</span></td></tr>
-<tr><td>11</td><td><strong>Redis differential model</strong><br><span class="muted"><code>redis-model</code></span></td><td>redis</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.2</code></td><td><span class="muted">redis-receipt</span></td></tr>
-<tr><td>12</td><td><strong>Version-aligned inverted search</strong><br><span class="muted"><code>search-model</code></span></td><td>search</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.3</code></td><td><span class="muted">search-receipt</span></td></tr>
-<tr><td>13</td><td><strong>PostgreSQL page history</strong><br><span class="muted"><code>postgres-page</code></span></td><td>postgres</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP6.1</code></td><td><span class="muted">postgres-page-history, postgres-receipt</span></td></tr>
-<tr><td>14</td><td><strong>Exact PostgreSQL to DataFusion snapshot</strong><br><span class="muted"><code>exact-htap</code></span></td><td>htap</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP6.2</code></td><td><span class="muted">htap-snapshot-digest, htap-receipt</span></td></tr>
-<tr><td>15</td><td><strong>Go or stop decision</strong><br><span class="muted"><code>product-economics</code></span></td><td>economics</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP7.1</code></td><td><span class="muted">product-decision</span></td></tr></tbody>
+<tr><td>4</td><td><strong>Selected incumbent transaction plane</strong><br><span class="muted"><code>resident-plane</code></span></td><td>transaction-plane</td><td><span class="status verified">VERIFIED</span></td><td><code>GP2.5.1, GP2.5.2, GP2.5.3, GP2.5.4</code></td><td><span class="muted">resident-plane-receipt, provider-selection-decision</span></td></tr>
+<tr><td>5</td><td><strong>SSD resident range</strong><br><span class="muted"><code>ssd-resident</code></span></td><td>serving</td><td><span class="status verified">VERIFIED</span></td><td><code>GP3.1</code></td><td><span class="muted">ssd-serving-receipt</span></td></tr>
+<tr><td>6</td><td><strong>RAM resident range</strong><br><span class="muted"><code>ram-resident</code></span></td><td>serving</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.2</code></td><td><span class="muted">ram-serving-receipt</span></td></tr>
+<tr><td>7</td><td><strong>Serving profile handoff</strong><br><span class="muted"><code>profile-handoff</code></span></td><td>serving</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.3</code></td><td><span class="muted">profile-handoff-receipt</span></td></tr>
+<tr><td>8</td><td><strong>Empty-worker recovery</strong><br><span class="muted"><code>empty-worker</code></span></td><td>serving</td><td><span class="status evaluating">EVALUATING</span></td><td><code>GP3.4, GP3.6</code></td><td><span class="muted">empty-worker-receipt</span></td></tr>
+<tr><td>9</td><td><strong>Metadata-scale branch</strong><br><span class="muted"><code>branch-root</code></span></td><td>lifecycle</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.5</code></td><td><span class="muted">branch-manifest-root, branch-receipt</span></td></tr>
+<tr><td>10</td><td><strong>Strict-serializable distributed cell</strong><br><span class="muted"><code>multi-range-cell</code></span></td><td>distribution</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP4.1</code></td><td><span class="muted">distributed-history-digest, cell-receipt</span></td></tr>
+<tr><td>11</td><td><strong>Retained application log</strong><br><span class="muted"><code>application-log</code></span></td><td>application-log</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.1</code></td><td><span class="muted">application-log-cursor, application-log-root</span></td></tr>
+<tr><td>12</td><td><strong>Redis differential model</strong><br><span class="muted"><code>redis-model</code></span></td><td>redis</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.2</code></td><td><span class="muted">redis-receipt</span></td></tr>
+<tr><td>13</td><td><strong>Version-aligned inverted search</strong><br><span class="muted"><code>search-model</code></span></td><td>search</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.3</code></td><td><span class="muted">search-receipt</span></td></tr>
+<tr><td>14</td><td><strong>PostgreSQL page history</strong><br><span class="muted"><code>postgres-page</code></span></td><td>postgres</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP6.1</code></td><td><span class="muted">postgres-page-history, postgres-receipt</span></td></tr>
+<tr><td>15</td><td><strong>Exact PostgreSQL to DataFusion snapshot</strong><br><span class="muted"><code>exact-htap</code></span></td><td>htap</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP6.2</code></td><td><span class="muted">htap-snapshot-digest, htap-receipt</span></td></tr>
+<tr><td>16</td><td><strong>Go or stop decision</strong><br><span class="muted"><code>product-economics</code></span></td><td>economics</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP7.1</code></td><td><span class="muted">product-decision</span></td></tr></tbody>
         </table></div>
       </section>
 
@@ -423,7 +424,7 @@ Arrow batches at T</pre></article>
             <tr><td>D-P3</td><td>SSD and RAM implement one serving contract; durability is selected separately per tenant generation.</td><td>Workload-specific hot-state choices without hidden acknowledgement changes.</td><td>One physical profile and simpler placement.</td></tr>
             <tr><td>D-P4</td><td>Range-local consensus, cell-level transactionality, no cross-cell transaction.</td><td>Scale inside a bounded semantic and failure domain.</td><td>One global transaction history.</td></tr>
             <tr><td>D-P5</td><td>One logical history may have separate row and column layouts.</td><td>Exact HTAP without pretending one format serves every access path.</td><td>One universal swappable physical file format.</td></tr>
-            <tr><td>D52</td><td>TiKV or FoundationDB supplies resident MVCC and transaction processing.</td><td>Prove object lifecycle leverage without first rebuilding a production distributed database.</td><td>Direct control of the resident engine and transaction internals.</td></tr>
+            <tr><td>D56</td><td>Keep the native resident path while each bounded gate stays inside its matched-control envelope; use FoundationDB as oracle and fallback.</td><td>Portability, independent scaling, and direct control of the unified object-native kernel.</td><td>A mature incumbent transaction plane today; native work stops at the first repeated hard-gate failure.</td></tr>
           </tbody>
         </table></div>
       </section>
@@ -431,7 +432,8 @@ Arrow batches at T</pre></article>
       <section>
         <h2 id="work-log"><span class="section-id">[11]</span>Work in progress log</h2>
         <div class="log">
-          <article class="log-entry"><time>2026-08-27</time><h3>Native GP3.1 fails p99 twice; incumbent-plane pivot fires</h3><p>The native candidate passed both throughput constraints at 0.8411x and 0.8268x control. P99 failed at 1.210x and 1.272x. Exact reads, bounded state, zero measured object operations, and OTel passed. D52 preserves objectKV's log and lifecycle layers and moves resident transactions to a TiKV or FoundationDB selection.</p></article>
+          <article class="log-entry"><time>2026-08-27</time><h3>Matched-topology native GP3.1 passes its envelope</h3><p>Across 15 samples per subject and order, native retained 90.89% and 91.97% of direct RocksDB throughput. Native p99 was 8.66% and 8.68% lower. All 64 hard-gate evaluations passed, every run appeared in traces, metrics, and logs, and the private GCP environment was fully torn down.</p></article>
+          <article class="log-entry"><time>2026-08-27</time><h3>First unmatched GP3.1 control rejected as a program decision</h3><p>The earlier candidate retained 84.11% and 82.68% of a bare direct RocksDB control and missed p99 at 1.210x and 1.272x. D56 supersedes the D52 pivot because the control did not pay for the recovered topology, authority processes, and owned-value boundary carried by the native subject.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1 throughput enters, p99 fails, read boundary changes</h3><p>Manifest-bypass improved candidate throughput 11.18%. AB and BA retained 80.68% and 80.02% of direct RocksDB throughput, while p99 remained 1.353x and 1.300x control. The executable p99 gate failed twice, all mechanism and OTel gates passed, and the next subject is an engine-native resident data plane.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1 real-infrastructure comparison misses parity</h3><p>The public SingleRange path passed recovery, generation, cursor, byte-bound, and zero-object-read gates on a named GCP local NVMe device. It reached 516,973 reads/s and 2.482 microseconds p99 versus 702,142 reads/s and 1.749 microseconds for direct RocksDB. GP3.1 stays Evaluating while one bounded optimization cycle targets the 26.37% throughput and 41.91% p99 gaps.</p></article>
           <article class="log-entry"><time>2026-08-26</time><h3>G4.10b composition clears its local gates</h3><p>The 25% conflict candidate reached 1,075.343 resolved outcomes/s, 104.274 ms maximum p99, and 28.776x the one-entry control while exact object-plus-suffix recovery, committed and conflicted retry, both leader failovers, voter restart, fresh-client reconstruction, and both unsafe controls passed.</p></article>
@@ -457,7 +459,7 @@ Arrow batches at T</pre></article>
     </article>
   </div>
 
-  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-27 11:16 UTC</span></footer>
+  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-27 18:56 UTC</span></footer>
 </main>
 
 </body>

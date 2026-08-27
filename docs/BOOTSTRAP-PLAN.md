@@ -39,19 +39,18 @@ objectKV remains a research program rather than an admitted database product.
 plus a retained txLog suffix into bounded local NVMe, survives worker loss, and
 performs zero object operations during the measured hot-read window.
 
-`[VERIFIED]` The GP3.1 native experiment reached its stop condition. The final
-candidate retained 84.11 and 82.68 percent of owned-value direct RocksDB
-throughput, passing the frozen floor. P99 was 1.210x and 1.272x control, failing
-the ceiling in both process orders. Exact replay, bounded native state, empty-
-worker reconstruction, zero measured object operations, and all three OTel
-signals passed.
+`[VERIFIED]` The topology-matched GP3.1 rerun admitted the single-range native
+read boundary. Native retained 90.89 and 91.97 percent of owned-value direct
+RocksDB throughput in opposite process orders. P99 was 0.913x control in both
+orders. Exact replay, bounded native state, empty-worker reconstruction, zero
+measured object operations, and all three OTel signals passed.
 
-`[EVALUATING]` The next rung is the incumbent-plane selection, not RAM,
-MultiRaft, PostgreSQL, or HTAP. objectKV retains `okv-log`, `okv-wal`, immutable
-publication, branching, reconstruction, versioned history, and DataFusion
-projection. TiKV or FoundationDB supplies resident MVCC and transaction
-processing. The immutable evidence is under
-`docs/artifacts/eval-receipts/single-range-native-resident-gcp-r2-2026-08-27/`.
+`[EVALUATING]` The next native rungs are concurrent and cache-pressure read
+curves, then three-node replicated commit against a same-durability control.
+RAM, multi-range, PostgreSQL, and HTAP remain blocked on those gates.
+FoundationDB remains the semantic oracle and fallback profile. The immutable
+evidence is under
+`docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/`.
 
 ### What the goal optimizes for
 
