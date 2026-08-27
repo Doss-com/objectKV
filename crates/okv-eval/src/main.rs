@@ -13814,6 +13814,15 @@ fn run_foundationdb_media_loss_lifecycle(
             "FoundationDB media-loss lifecycle requires subject foundationdb-7.4.6, got {subject:?}"
         )));
     }
+    let receipt_schema = profile
+        .parameters
+        .get("provider_receipt_schema")
+        .and_then(toml::Value::as_str);
+    if receipt_schema != Some("../schema/provider-media-loss-receipt-v1.schema.json") {
+        return execution_from_result(Err(format!(
+            "FoundationDB media-loss lifecycle requires the frozen provider receipt schema, got {receipt_schema:?}"
+        )));
+    }
     let Some(receipt_env) = workload
         .parameters
         .get("receipt_env")
