@@ -176,12 +176,12 @@ requirement_ids = ["MVCC-001", "MVCC-002", "TXN-003", "TXN-004", "LOG-003", "SRV
 suite = "../suites/single-range-native-resident-matched-admission.toml"
 profile = "gcp-r0-nvme"
 workload = "native-snapshot-matched-topology"
-backend = "object-store-gcs+authority-openraft+data-openraft+rocksdb-local-nvme"
+backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme"
 lane = "hot-ssd-native-matched"
 checkpoint = "ssd-resident"
 negative_controls = []
 evidence = []
-control = { id = "direct-rocksdb-matched-topology", suite = "../suites/single-range-native-resident-matched-admission.toml", profile = "gcp-r0-nvme", workload = "direct-rocksdb-matched-topology-control", backend = "object-store-gcs+authority-openraft+data-openraft+rocksdb-local-nvme", lane = "hot-ssd-native-matched" }
+control = { id = "direct-rocksdb-matched-topology", suite = "../suites/single-range-native-resident-matched-admission.toml", profile = "gcp-r0-nvme", workload = "direct-rocksdb-matched-topology-control", backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme", lane = "hot-ssd-native-matched" }
 
 [[phases.gates]]
 id = "GP3.2"
