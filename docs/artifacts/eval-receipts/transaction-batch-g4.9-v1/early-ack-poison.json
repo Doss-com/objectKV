@@ -1,0 +1,120 @@
+{
+  "artifact_refs": [
+    "okv-eval://transaction-batch-v1/early_ack_poison/4901/1df2b091cf367f31283b58ae381a71a80c8f9f457f124a43830865d5016d8ad6",
+    "okv-eval://transaction-batch-v1/early_ack_poison/4902/b6a908016f51d70fde5ff9a35da692946da9648470b95a03f3f4972357f5b4d4",
+    "okv-eval://transaction-batch-v1/early_ack_poison/4903/1b6552298afc0d8f06049a7602855df64d83ea20ccac910bd6a67e4a052c1586",
+    "/private/tmp/okv-g49-poison.json"
+  ],
+  "backend": "data-openraft-local-process+stable-journal",
+  "budget": {
+    "kind": "seconds",
+    "limit": 120.0,
+    "observed": 1.986261
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T12:28:35.018768+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    },
+    {
+      "detail": "committed=0,versionstamps=true,stream=true,retry=true,failover=true,restart=true",
+      "id": "transaction_batch_recovery_contract",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=400,observed=[22870.767299948682, 12938.00190350353, 13179.571663920922]",
+      "id": "candidate_min_transactions_per_second",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=8,observed=[0.0, 0.0, 0.0]",
+      "id": "candidate_min_logical_transactions_per_append",
+      "status": "pass"
+    },
+    {
+      "detail": "maximum=0.1,observed=[0.000699583, 0.001236667, 0.001214]",
+      "id": "candidate_max_commit_p99_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=early_ack_poison",
+      "id": "duplicate_identity_control_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=early_ack_poison",
+      "id": "early_ack_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "1df2b091cf367f31283b58ae381a71a80c8f9f457f124a43830865d5016d8ad6",
+      "id": "fresh_controller_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "transaction-batch",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 241.5697604173929,
+    "median": 13179.571663920922,
+    "name": "okv.eval.commit.throughput",
+    "samples": [
+      22870.767299948682,
+      12938.00190350353,
+      13179.571663920922
+    ],
+    "statistic": "median",
+    "unit": "{transaction}/s",
+    "value": 13179.571663920922
+  },
+  "profile": {
+    "hash": "8dbf4d754f07ee26f3182015ca4fd8965803d00e25ebb1e479c5af24ec00afc5",
+    "id": "local-process",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "early batch acknowledgement was absent from recovered quorum state",
+  "run_id": "13ab1d24-fce2-4d61-8727-2b42c48d8dc0",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 1.986261,
+    "transaction_batch.logical_transactions_per_append.minimum": 0.0,
+    "transaction_batch.p99_seconds.maximum": 0.001236667,
+    "transaction_batch.throughput.median": 13179.571663920922,
+    "transaction_batch.wall_seconds": 1.986151459
+  },
+  "seeds": [
+    4901,
+    4902,
+    4903
+  ],
+  "suite": "transaction-batch-v1",
+  "suite_hash": "c34b47eb5965dedf95d529c9b72a6fe8af4c73adc58bdec45060b6816862f585",
+  "verdict": "discard"
+}

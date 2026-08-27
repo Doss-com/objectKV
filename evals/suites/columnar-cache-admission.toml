@@ -1,0 +1,85 @@
+schema_version = 1
+id = "columnar-cache-admission-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0037-manifested-multi-layout-lsm.md",
+  "../../docs/research/cloudjump-iii-objectkv-review-2026-08-26.md",
+]
+dataset_generator = "storage-layout-mvcc-history-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 2097152
+key_count = 4096
+seeds = [5701, 5702, 5703]
+
+[profiles.local-fs]
+budget_kind = "seconds"
+budget_limit = 120
+repeats = 3
+backend = "columnar-cache+local-fs-range-stripes"
+key_count = 4096
+canonical_live_row_bytes = 512
+opaque_payload_bytes = 480
+base_version = 1
+delta_cycles = 4
+update_fraction = 0.125
+delete_fraction = 0.01
+point_operations = 2048
+target_run_object_bytes = 2097152
+row_block_bytes = 65536
+columnar_block_rows = 128
+overlay_cache_bytes = 1048576
+
+[[lanes]]
+id = "columnar-cache-post-scan-hit-ratio"
+primary_metric = "cache.hit_ratio"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "c5-cache-full-admit-20pct-a1.4"
+lane = "columnar-cache-post-scan-hit-ratio"
+operation = "columnar_cache_admission_contract"
+cache_admission = "full_admit"
+cache_ratio_percent = 20
+zipf_alpha = 1.4
+
+[[workloads]]
+id = "c5-cache-never-admit-control-20pct-a1.4"
+lane = "columnar-cache-post-scan-hit-ratio"
+operation = "columnar_cache_admission_contract"
+cache_admission = "never_admit_control"
+cache_ratio_percent = 20
+zipf_alpha = 1.4
+
+[[workloads]]
+id = "c5-cache-ghost-two-chance-20pct-a1.4"
+lane = "columnar-cache-post-scan-hit-ratio"
+operation = "columnar_cache_admission_contract"
+cache_admission = "ghost_two_chance"
+cache_ratio_percent = 20
+zipf_alpha = 1.4
+
+[hard_gates]
+point_results_are_exact = true
+cache_capacity_is_bounded = true
+scan_pollution_is_exercised = true
+admission_state_matches_policy = true
+trace_is_repeatable = true
+schema_valid = true
+budget_must_hold = true

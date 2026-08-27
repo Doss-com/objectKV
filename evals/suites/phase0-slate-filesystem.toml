@@ -1,6 +1,6 @@
 schema_version = 1
 id = "phase0-slate-filesystem-v1"
-status = "active-work"
+status = "evaluating"
 metric_registry = "../metrics.toml"
 result_schema = "../schema/result.schema.json"
 contract_files = [

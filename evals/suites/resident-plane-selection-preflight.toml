@@ -1,0 +1,80 @@
+schema_version = 1
+id = "resident-plane-selection-preflight-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/PRODUCT-SPEC-SHEET.md",
+  "../../docs/REAL-INFRA-EVALS.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0027-retained-transaction-stream.md",
+  "../../rfcs/0040-native-resident-engine-data-plane.md",
+  "../../rfcs/0041-incumbent-transaction-plane-adapter.md",
+]
+provider_server_revisions = [
+  "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "tikv-8.5.7@3f446cfa9eb1d5c653031d261e185911495d0359",
+]
+provider_client_revisions = [
+  "foundationdb-c-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "tikv-client@88688d6eb3a55a864885d7bccc8abf428dce076c",
+]
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.source-pinned-model]
+logical_bytes = 4
+key_count = 2
+seeds = [1103]
+
+[profiles.source-pinned-model]
+budget_kind = "events"
+budget_limit = 10
+repeats = 1
+topology = "deterministic-provider-semantics-model"
+durability_profile = "not-a-live-provider-receipt"
+
+[[lanes]]
+id = "resident-plane-semantic-fit"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "foundationdb-7.4.6-contract-preflight"
+lane = "resident-plane-semantic-fit"
+operation = "provider_semantic_preflight"
+subject = "foundationdb-7.4.6"
+
+[[workloads]]
+id = "tikv-8.5.7-snapshot-isolation-negative"
+lane = "resident-plane-semantic-fit"
+operation = "provider_semantic_preflight"
+subject = "tikv-8.5.7"
+
+[[workloads]]
+id = "tikv-false-serializable-label-negative"
+lane = "resident-plane-semantic-fit"
+operation = "provider_semantic_preflight"
+subject = "tikv-false-serializable-label"
+
+[hard_gates]
+correctness_anomalies = 0
+strict_serializable_write_skew = true
+all_required_capabilities = true
+atomic_retained_change_and_outcome = true
+eligible_for_live_spike = true
+provider_revisions_are_pinned = true
+schema_valid = true
+budget_must_hold = true

@@ -162,7 +162,7 @@ and latency as `T - W_p` grows. Freshness lag is not a proxy for overlay cost.
 
 ## Executable contract model
 
-`[EXISTS]` `crates/okv-model/src/htap.rs` and
+`[VERIFIED]` `crates/okv-model/src/htap.rs` and
 `evals/suites/htap-contract.toml` make the exactness rules executable before a
 DataFusion operator exists. Five deterministic seeds cover:
 

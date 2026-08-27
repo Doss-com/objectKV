@@ -1,0 +1,101 @@
+schema_version = 1
+id = "single-range-ssd-admission-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/PRODUCT-SPEC-SHEET.md",
+  "../../docs/REAL-INFRA-EVALS.md",
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0027-retained-transaction-stream.md",
+  "../../rfcs/0038-single-range-kernel-api.md",
+  "../../rfcs/0039-single-range-serving-image.md",
+  "../schema/benchmark-machine-receipt-v1.schema.json",
+]
+dataset_generator = "deterministic-single-range-object-base-plus-versionstamped-tail-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcp-r0-nvme"]
+
+[dataset.gcp-r0-nvme]
+logical_bytes = 4194304
+key_count = 4096
+seeds = [1103, 2207, 3301]
+
+[profiles.gcp-r0-nvme]
+budget_kind = "operations"
+budget_limit = 3000000
+repeats = 5
+cache_state = "complete-range-rocksdb-on-local-nvme"
+serving_profile = "ssd_resident"
+durability_profile = "openraft-local-process-mechanism-diagnostic"
+max_local_bytes = 134217728
+local_byte_budget = 134217728
+row_object_target_bytes = 8388608
+row_object_block_bytes = 65536
+retained_stream_page_records = 2
+hot_read_warmup_operations = 100000
+hot_read_operations = 200000
+measurement_operations = 200000
+warmup_operations = 100000
+machine_receipt_env = "OKV_EVAL_MACHINE_RECEIPT"
+machine_receipt_schema = "../schema/benchmark-machine-receipt-v1.schema.json"
+required_hot_scratch_interface = "nvme"
+serving_scratch_env = "OKV_EVAL_SERVING_SCRATCH_ROOT"
+
+[[lanes]]
+id = "hot-ssd"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.20
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.comparison_constraints]]
+id = "public_hot_read_p99"
+candidate_metric = "single_range.hot_read_p99_ns.median"
+control_metric = "resident.latency_ns.p99"
+unit = "ns"
+direction = "lower"
+max_regression_fraction = 0.20
+
+[[workloads]]
+id = "public-single-range-rocksdb"
+lane = "hot-ssd"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "integrated_kernel_rocksdb"
+distribution = "hotset-80-20"
+value_bytes = 1024
+
+[[workloads]]
+id = "direct-rocksdb-control"
+lane = "hot-ssd"
+operation = "direct_rocksdb_hot_control"
+distribution = "hotset-80-20"
+value_bytes = 1024
+
+[hard_gates]
+correctness_anomalies = 0
+candidate_and_control_share_machine_receipt = true
+candidate_and_control_share_batch_id = true
+candidate_and_control_share_source_and_lockfile = true
+complete_object_base_is_verified_before_activation = true
+rocksdb_serving_image_is_generation_and_coverage_bound = true
+rocksdb_local_bytes_at_most_128_mib = true
+measured_reads_issue_zero_object_operations = true
+public_kernel_throughput_at_least_80_percent_of_direct_rocksdb = true
+public_kernel_p99_at_most_120_percent_of_direct_rocksdb = true
+minimum_samples_per_subject = 5
+machine_receipt_names_local_nvme = true
+otel_logs_metrics_traces = true
+schema_valid = true
+budget_must_hold = true

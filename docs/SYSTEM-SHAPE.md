@@ -1,7 +1,14 @@
 # objectKV system shape and constraint map
 
-Status: `[ACTIVE-WORK]` architecture thesis for expert review. The executable
+Status: `[EVALUATING]` architecture thesis for expert review. The executable
 surfaces are enumerated below; the complete distributed cell remains proposed.
+
+Architecture decision in review: the
+[product specification](PRODUCT-SPEC.md) recommends range-local Raft groups
+plus a cell transaction coordinator as the target data plane. This document's
+single ordered log remains the Cell v0 correctness control. RFC-0011 is not
+superseded unless that product-spec decision is audited and its cross-range
+serializability protocol is accepted.
 
 ## Target shape
 
@@ -36,6 +43,91 @@ The cell boundary limits fleet size, recovery, and operations. It does not make
 one key, range, segment, or tenant the unit of the storage architecture. The
 normal tenant transaction may span arbitrary ranges inside its cell.
 
+## Long-term platform-kernel boundary
+
+Status: `[PROPOSED]` product boundary. The component mechanisms are
+`[EVALUATING]`; no complete platform kernel is admitted.
+
+objectKV should be the narrow shared waist beneath data platforms, not a bundle
+of database protocols inside one server:
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│ Data platforms                                                      │
+│ PostgreSQL │ Redis subset │ search │ workflow/log │ DataFusion      │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ Consumer kits                                                       │
+│ page/row adapters │ indexes │ application logs │ typed projections │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ objectKV public waist                                               │
+│ ordered bytes │ bounded transactions │ exact versions │ lifecycle  │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ One bounded cell                                                    │
+│ transaction plane ↔ serving plane ↔ object-state plane             │
+│ quorum txLog       bounded RangeEngine   manifested object LSM      │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                ↓
+             immutable S3-compatible objects + fenced control root
+```
+
+The authoritative state at committed version `C` is always:
+
+```text
+ManifestedObjectState(O) + txLog(O, C]
+```
+
+This equation is the intended platform leverage. Recovery, branching, time
+travel, empty-worker startup, transactional point reads, and typed analytical
+reads all begin from one versioned object closure and one bounded suffix. They
+may use different caches, indexes, or physical layouts, but they do not create
+independent database truths.
+
+The public kernel remains value-native. PostgreSQL pages, logical rows, Redis
+expiry, posting lists, table schemas, and Arrow types belong to consumer kits.
+Typed namespaces may opt into columnar run capabilities only after they pass
+the same exact point-read, recovery, media, and compaction controls as the
+opaque row format.
+
+### Long-term golden path
+
+| Stage | Outcome | Admission boundary |
+| --- | --- | --- |
+| 1. Integrated cell slice | Tetris uses the unchanged boundary over replicated commit, bounded serving, authenticated GCS state, recovery, and branching | GP-G7 receipt with OTel and same-durability RAM/SSD controls |
+| 2. Object engine | An embedded or single-range deployment exposes exact transactions, versions, snapshots, branches, and object recovery | Bounded objectification debt, cold lookup work, recovery time, and total media |
+| 3. Production cell | One tenant transaction domain spans automatically managed ranges on independent machines | Strict serializability, host-loss recovery, scale curve, and bounded control state |
+| 4. Platform toolkit | Application log, index builders, typed projection builders, and serving profiles reuse one committed history | Independent retention, exact version alignment, resource bounds, and no new authority |
+| 5. Database consumers | PostgreSQL, search, Redis, and DataFusion prove compatibility and workload-specific leverage | Independent semantic oracles plus paired performance and cost controls |
+| 6. Cell fleet | A metacluster places and moves tenant databases between bounded cells | No cross-cell transaction, fenced routing, snapshot-plus-tail movement, and bounded unavailable time |
+
+Stage 1 is the current decision gate. Failure there selects a mature hot kernel
+such as TiKV, FoundationDB, or PostgreSQL while retaining any admitted object,
+branch, and analytical layers. Multi-range distribution and fleet control do
+not compensate for a failed single-cell economic shape.
+
+### Product leverage and limits
+
+The platform case is strong only where immutable state creates leverage that a
+conventional replicated LSM plus object backup does not provide:
+
+- new compute can serve before restoring the complete database;
+- branches, snapshots, backups, and tenant movement reuse immutable objects;
+- row and columnar readers share a commit history and object frontier;
+- capacity bytes outlive serving machines and can move across providers;
+- telemetry can attribute latency and cost to commit, cache, object, recovery,
+  compaction, or query work independently.
+
+The kernel is not trying to win by removing fast media from low-latency commit.
+It is trying to make fast media bounded and replaceable while permanent state
+is portable, versioned, branchable, and directly consumable by several compute
+models. If that does not produce a material recovery, lifecycle, HTAP, or cost
+advantage, owning the transaction kernel is not justified.
+
 ## Current module and caller map
 
 The repository currently proves contracts below the complete-cell line. The
@@ -44,26 +136,33 @@ exist.
 
 | Module or caller | State | Owns now | Intended downstream caller |
 |---|---|---|---|
-| `okv-model` | `[EXISTS]` | cell-scoped versions, canonical batches, point/range MVCC, exact reads, retention, differential oracle, and ZebraDB base-plus-tail exactness oracle | transaction, storage, and analytical adapters use it as semantic reference, never as production authority |
-| `okv-slate` | `[EXISTS]` spike | externally versioned point mutations and durable logical-version metadata over pinned SlateDB | cell substrate storage adapter after range-clear and historical-read seams exist |
-| `okv-object` | `[EXISTS]` | named-object, conditional-publication, fault, request, byte, and provider-conformance boundary | segment builders, manifest authority, materializers, and evals |
-| `okv-sim` | `[EXISTS]` contract models | exact seeded generation fencing, canonical replay, and the Cell v0 commit envelope, quorum, recovery, retry, resolver, tag, and generation contract | generation authority, WAL, resolvers, materializers, and recovery protocol |
-| `okv-wal` | `[EXISTS]` local persistence primitives | local quorum frames plus a per-node vote, commit, append, truncate, and purge journal with compatibility fixtures | networked replicated log and deterministic disk fault seam |
-| `okv-consensus` | `[EXISTS]` bootstrap contract | pinned OpenRaft adapter, per-node durable storage, real-process and Turmoil TCP transports, quorum replication, durable retry outcomes, an external three-node generation authority, generation-fenced commits, quiesced voter-set takeover, and Ed25519 data-quorum recovery certificates | root reconciliation, replica repair, and bounded recovery |
-| `okv-eval` | `[EXISTS]` | suite configuration, semantic runners, hard gates, receipts, and OTel signals | CI, contributor experiments, and the autonomous research loop |
-| cell substrate | `[ACTIVE-WORK]` | versioned storage, object publication contracts, local quorum frames, and an admitted per-node consensus store | consensus replication and bounded recovery root |
-| `GenerationAuthority` plus `DurableLog` | `[ACTIVE-WORK]` | replicated per-cell generation state, active/fencing/recovering phases, pinned transaction-system membership, a replicated data-log fence barrier, exact-position quorum certificates, one ordered replicated log, and quiesced membership handoff | read-version and commit proxies, recovery, ratekeeper |
+| `okv` | `[CODE-COMPLETE]` experimental single-range slice | generation/publication/generation open, verified row-object base, versionstamp-safe txLog catch-up, fenced commit call, exact point read, and bounded counters | application probes now; future range routing and stable client API after admission |
+| `okv-model` | `[VERIFIED]` | cell-scoped versions, canonical batches, point/range MVCC, exact reads, retention, differential oracle, and ZebraDB base-plus-tail exactness oracle | transaction, storage, and analytical adapters use it as semantic reference, never as production authority |
+| `okv-slate` | `[VERIFIED]` spike | externally versioned point mutations and durable logical-version metadata over pinned SlateDB | cell substrate storage adapter after range-clear and historical-read seams exist |
+| `okv-object` | `[VERIFIED]` | named-object, conditional-publication, fault, request, byte, and provider-conformance boundary | segment builders, manifest authority, materializers, and evals |
+| `okv-sim` | `[VERIFIED]` contract models | exact seeded generation fencing, canonical replay, and the Cell v0 commit envelope, quorum, recovery, retry, resolver, tag, and generation contract | generation authority, WAL, resolvers, materializers, and recovery protocol |
+| `okv-log` | `[CODE-COMPLETE]` pure state machine | ordered opaque entries, explicit suffix replacement, purge identity, exact and clamped reads, prefix-closed replay, and fail-closed history validation | WAL adapters first; transactional application-log adapters later |
+| `okv-wal` | `[VERIFIED]` local persistence primitives | local quorum frames plus a per-node vote, commit, append, truncate, and purge journal with compatibility fixtures | networked replicated log and deterministic disk fault seam |
+| `okv-consensus` | `[VERIFIED]` bootstrap contract | pinned OpenRaft adapter, per-node durable storage, real-process and Turmoil TCP transports, quorum replication, durable retry outcomes, an external three-node generation authority, generation-fenced commits, quiesced voter-set takeover, and Ed25519 data-quorum recovery certificates | root reconciliation, replica repair, and bounded recovery |
+| `okv-eval` | `[VERIFIED]` | suite configuration, semantic runners, hard gates, receipts, and OTel signals | CI, contributor experiments, and the autonomous research loop |
+| cell substrate | `[EVALUATING]` | versioned storage, object publication contracts, local quorum frames, and an admitted per-node consensus store | consensus replication and bounded recovery root |
+| `GenerationAuthority` plus `DurableLog` | `[EVALUATING]` | replicated per-cell generation state, active/fencing/recovering phases, pinned transaction-system membership, a replicated data-log fence barrier, exact-position quorum certificates, one ordered replicated log, and quiesced membership handoff | read-version and commit proxies, recovery, ratekeeper |
 | `ReadVersionService` plus `CommitProxy` plus `Resolver` | `[PROPOSED]` | strict-serializable tenant transactions across ranges | Redis, search, PostgreSQL, and ZebraDB record adapters |
 | `RangeMap` plus `ServingWorker` plus `DataDistributor` | `[PROPOSED]` | direct exact reads, range placement, split, movement, and empty-cache service | transaction clients and materializers |
 | ZebraDB record and change layer | `[FUTURE]` | schema history, transactional projections, complete analytical change capture | Parquet/Vortex materializers and DataFusion snapshot provider |
 | `SnapshotOverlayExec` | `[FUTURE]` | exact base plus tail at one leased `T` | DataFusion joins, aggregates, and certified analytical decisions |
 | metacluster directory | `[FUTURE]` | tenant-to-cell placement and routing epochs | client bootstrap and tenant movement, not ordinary cell commit or recovery |
 
-The present call path is `suite -> okv-eval -> model/object/sim runner -> OTel
-and receipt`. The first complete-cell path will be `tenant session -> read
-version or range map -> serving worker`, and `tenant session -> commit proxy ->
-version authority -> all required resolvers -> all required log sets -> storage
-materializers`.
+The present paths are `suite -> okv-eval -> model/object/sim runner -> OTel and
+receipt`, plus the first continuous slice `application -> okv::SingleRange ->
+generation and publication authority + transaction authority + object base`.
+That slice is not a complete cell. The first complete-cell paths will be:
+
+```text
+tenant session -> read version or range map -> serving worker
+tenant session -> commit proxy -> version authority -> resolvers -> txLog sets
+txLog sets -> storage materializers -> immutable object frontier
+```
 
 ## Decisions to review
 

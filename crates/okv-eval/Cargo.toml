@@ -7,23 +7,41 @@ publish = false
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+default = []
+resident-rocksdb = ["dep:okv-serving-rocksdb", "dep:rocksdb"]
+
 [dependencies]
+arrow.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
 chrono.workspace = true
 clap.workspace = true
+datafusion.workspace = true
+futures-util.workspace = true
 jsonschema.workspace = true
+okv.workspace = true
 okv-consensus.workspace = true
 okv-htap.workspace = true
+okv-history-oracle.workspace = true
 okv-model.workspace = true
 okv-object.workspace = true
+okv-plane.workspace = true
 okv-slate.workspace = true
 okv-sim = { path = "../okv-sim" }
+okv-serving-rocksdb = { workspace = true, optional = true }
+okv-transaction.workspace = true
+okv-wal.workspace = true
 opentelemetry.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
+parquet.workspace = true
+rocksdb = { version = "=0.25.0", default-features = false, features = ["bindgen-runtime"], optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tempfile.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true

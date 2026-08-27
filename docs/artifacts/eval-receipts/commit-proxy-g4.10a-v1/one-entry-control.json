@@ -1,0 +1,94 @@
+{
+  "artifact_refs": [
+    "okv-eval://transaction-batch-v1/single-entry-control/5001/02c69af4a49a58e15041ba18f2dc81216cccbfd9f47fa71a98f201a2eed4bdf0",
+    "okv-eval://transaction-batch-v1/single-entry-control/5002/4005d424ba6b4182626a12932f69fd0b05c6d48f1fb6948a5c790057368fbb61",
+    "okv-eval://transaction-batch-v1/single-entry-control/5003/79bd3d9330547f61dbe9133c34bc1ca63a6166497710a3ef4acc81a4a6edbbdf"
+  ],
+  "backend": "data-openraft-local-process+stable-journal",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 24.141309208
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T12:59:30.595738+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    },
+    {
+      "detail": "transactions=1024",
+      "id": "single_entry_recovery_contract",
+      "status": "pass"
+    },
+    {
+      "detail": "02c69af4a49a58e15041ba18f2dc81216cccbfd9f47fa71a98f201a2eed4bdf0",
+      "id": "fresh_controller_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "commit-proxy",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 4.756471304085238,
+    "median": 191.72355261121766,
+    "name": "okv.eval.commit.throughput",
+    "samples": [
+      185.17459742170448,
+      196.4800239153029,
+      191.72355261121766
+    ],
+    "statistic": "median",
+    "unit": "{transaction}/s",
+    "value": 191.72355261121766
+  },
+  "profile": {
+    "hash": "e1d312426f350a86118cc04d7c2ac335e8f0a9d15a6784c9db4bcea17653a9d3",
+    "id": "local-process",
+    "lockfile_hash": "42f2eb49b88531815b763396ed07a0b0e06be758979e9e988412ac2e34e62059",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "4e0d14bc-8a25-4b5b-839b-690595eb41ab",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 24.141309208,
+    "transaction_batch.logical_transactions_per_append.minimum": 1.0,
+    "transaction_batch.p99_seconds.maximum": 0.45276325,
+    "transaction_batch.throughput.median": 191.72355261121766,
+    "transaction_batch.wall_seconds": 24.141254333
+  },
+  "seeds": [
+    5001,
+    5002,
+    5003
+  ],
+  "suite": "commit-proxy-v1",
+  "suite_hash": "89381b04a5df70ff631138a98fb777d89a0895cad7e92a911d97e0ff93aeb1ba",
+  "verdict": "inconclusive"
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/benchmark-machine-receipt-v1.schema.json",
+  "title": "objectKV benchmark machine receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "captured_at",
+    "run_label",
+    "project",
+    "region",
+    "zone",
+    "source_revision",
+    "bucket",
+    "runner",
+    "collector",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "captured_at": { "type": "string", "format": "date-time" },
+    "run_label": { "type": "string", "minLength": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "region": { "type": "string", "minLength": 1 },
+    "zone": { "type": "string", "minLength": 1 },
+    "source_revision": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" },
+    "bucket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "location", "storage_class", "versioning_enabled"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "location": { "type": "string", "minLength": 1 },
+        "storage_class": { "type": "string", "minLength": 1 },
+        "versioning_enabled": { "type": "boolean" }
+      }
+    },
+    "runner": { "$ref": "#/$defs/machine" },
+    "collector": { "$ref": "#/$defs/machine" },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner_ready",
+        "binary_sha256_recorded",
+        "collector_healthy",
+        "no_public_ips"
+      ],
+      "properties": {
+        "runner_ready": { "const": true },
+        "binary_sha256_recorded": { "const": true },
+        "collector_healthy": { "const": true },
+        "no_public_ips": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "instance_id",
+        "machine_type",
+        "cpu_platform",
+        "image",
+        "internal_ip",
+        "public_ip",
+        "service_account",
+        "data_disk_type",
+        "data_disk_gib",
+        "lease_expires_epoch"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "instance_id": { "type": "string", "minLength": 1 },
+        "machine_type": { "type": "string", "minLength": 1 },
+        "cpu_platform": { "type": "string", "minLength": 1 },
+        "image": { "type": "string", "minLength": 1 },
+        "internal_ip": { "type": "string", "minLength": 1 },
+        "public_ip": { "type": ["string", "null"] },
+        "service_account": { "type": "string", "minLength": 1 },
+        "data_disk_type": { "type": "string", "minLength": 1 },
+        "data_disk_gib": { "type": "integer", "minimum": 1 },
+        "lease_expires_epoch": { "type": "string", "pattern": "^[1-9][0-9]{9,}$" },
+        "binary_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "runtime_identity": { "type": ["string", "null"] },
+        "hot_scratch": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["kind", "device", "interface", "filesystem", "mount", "bytes"],
+          "properties": {
+            "kind": { "type": "string", "minLength": 1 },
+            "device": { "type": "string", "minLength": 1 },
+            "interface": { "type": "string", "minLength": 1 },
+            "filesystem": { "type": "string", "minLength": 1 },
+            "mount": { "type": "string", "pattern": "^/" },
+            "bytes": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    }
+  }
+}

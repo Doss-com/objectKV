@@ -1,11 +1,16 @@
 use crate::{
-    recovery_public_key, sign_recovery_statement, ApplyError, ApplyResponse, ClientCommand,
-    ConsensusProcessRole, GenerationAction, GenerationApplyResponse, GenerationAuthorityState,
-    GenerationCommand, GenerationCredential, GenerationFenceConfig, GenerationFenceFaults,
-    GenerationPhase, NodeId, PublicationAuthorityState, PublicationCommand, Raft,
-    RecoveryAttestation, RecoveryCertificateKind, RecoveryCertificateStatement,
-    RecoverySignerConfig, RequestIdentity, StateMachineStore, TypeConfig,
+    object_frontier_certificate_statement, recovery_public_key, sign_object_frontier_statement,
+    sign_recovery_statement, ApplyError, ApplyResponse, ClientCommand, ConsensusProcessRole,
+    GenerationAction, GenerationApplyResponse, GenerationAuthorityState, GenerationCommand,
+    GenerationCredential, GenerationFenceConfig, GenerationFenceFaults, GenerationPhase, NodeId,
+    ObjectFrontierAdvance, ObjectFrontierAttestation, ObjectFrontierCertificateStatement,
+    PublicationAuthorityState, PublicationCommand, Raft, RecoveryAttestation,
+    RecoveryCertificateKind, RecoveryCertificateStatement, RecoverySignerConfig, RequestIdentity,
+    RetainedTransactionReadRequest, RetainedTransactionReadResponse, StateMachineStore,
+    TransactionBatchCommand, TransactionLogStorageStats, TransactionLogStorageStatsRequest,
+    TypeConfig,
 };
+use okv_transaction::TransactionAuthorityView;
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
 use openraft::{BasicNode, ServerState};
 use serde::de::DeserializeOwned;
@@ -39,6 +44,12 @@ pub(crate) const RECOVERY_ATTEST: u8 = 23;
 pub(crate) const PUBLICATION_WRITE: u8 = 24;
 pub(crate) const PUBLICATION_READ: u8 = 25;
 pub(crate) const PUBLICATION_OUTCOME: u8 = 26;
+pub(crate) const TRANSACTION_LOG_READ: u8 = 27;
+pub(crate) const TRANSACTION_LOG_STORAGE_STATS: u8 = 28;
+pub(crate) const OBJECT_FRONTIER_ATTEST: u8 = 29;
+pub(crate) const LOG_IO_STATS: u8 = 30;
+pub(crate) const BUILD_SNAPSHOT: u8 = 31;
+pub(crate) const PURGE_LOG: u8 = 32;
 
 pub(crate) type WireResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -92,7 +103,15 @@ pub(crate) struct NodeStatus {
     pub leader: Option<NodeId>,
     pub last_log_index: Option<u64>,
     pub last_applied_index: Option<u64>,
+    pub snapshot_index: Option<u64>,
+    pub purged_index: Option<u64>,
     pub payloads: Vec<Vec<u8>>,
+    pub transaction: TransactionAuthorityView,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct PurgeLogRequest {
+    pub through_index: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -108,6 +127,7 @@ pub(crate) async fn handle_connection<S>(
     mut stream: S,
     raft: Raft,
     state_machine: Arc<StateMachineStore>,
+    log_store: crate::OpenRaftLogStore,
     nodes: Arc<BTreeMap<NodeId, BasicNode>>,
     policy: ServerPolicy,
 ) -> WireResult
@@ -171,6 +191,26 @@ where
                 &Ok::<_, String>(node_status(&raft, &state_machine).await),
             )
             .await?;
+        }
+        LOG_IO_STATS => {
+            let _: () = serde_json::from_slice(&body)?;
+            let result = log_store
+                .io_stats()
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|mut stats| {
+                    stats.state_machine_snapshot_bytes = state_machine.physical_snapshot_bytes()?;
+                    Ok(stats)
+                });
+            write_response(&mut stream, &result).await?;
+        }
+        BUILD_SNAPSHOT => {
+            let _: () = serde_json::from_slice(&body)?;
+            write_string_result(&mut stream, raft.trigger().snapshot().await).await?;
+        }
+        PURGE_LOG => {
+            let request = serde_json::from_slice::<PurgeLogRequest>(&body)?;
+            write_response(&mut stream, &purge_log_after_snapshot(&raft, request).await).await?;
         }
         OUTCOME => {
             let identity = serde_json::from_slice::<RequestIdentity>(&body)?;
@@ -254,9 +294,84 @@ where
             )
             .await?;
         }
+        TRANSACTION_LOG_READ => {
+            let request = serde_json::from_slice::<RetainedTransactionReadRequest>(&body)?;
+            write_response(
+                &mut stream,
+                &transaction_log_read(&raft, &state_machine, &policy, request).await,
+            )
+            .await?;
+        }
+        TRANSACTION_LOG_STORAGE_STATS => {
+            let request = serde_json::from_slice::<TransactionLogStorageStatsRequest>(&body)?;
+            write_response(
+                &mut stream,
+                &transaction_log_storage_stats(&raft, &state_machine, &policy, request).await,
+            )
+            .await?;
+        }
+        OBJECT_FRONTIER_ATTEST => {
+            let statement = serde_json::from_slice::<ObjectFrontierCertificateStatement>(&body)?;
+            write_response(
+                &mut stream,
+                &object_frontier_attest(&state_machine, &policy, &statement).await,
+            )
+            .await?;
+        }
         _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown wire kind").into()),
     }
     Ok(())
+}
+
+async fn transaction_log_storage_stats(
+    raft: &Raft,
+    state_machine: &StateMachineStore,
+    policy: &ServerPolicy,
+    request: TransactionLogStorageStatsRequest,
+) -> Result<TransactionLogStorageStats, String> {
+    if policy.role != ConsensusProcessRole::Data {
+        return Err("generation authority cannot inspect transaction-log storage".to_owned());
+    }
+    raft.ensure_linearizable()
+        .await
+        .map_err(|error| error.to_string())?;
+    state_machine.transaction_log_storage_stats(request).await
+}
+
+async fn purge_log_after_snapshot(raft: &Raft, request: PurgeLogRequest) -> Result<(), String> {
+    if request.through_index == 0 {
+        return Err("OpenRaft purge index must be positive".to_owned());
+    }
+    let snapshot_index = raft
+        .metrics()
+        .borrow()
+        .snapshot
+        .map_or(0, |log_id| log_id.index);
+    if snapshot_index < request.through_index {
+        return Err(format!(
+            "durable state-machine snapshot {snapshot_index} does not cover purge index {}",
+            request.through_index
+        ));
+    }
+    raft.trigger()
+        .purge_log(request.through_index)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn transaction_log_read(
+    raft: &Raft,
+    state_machine: &StateMachineStore,
+    policy: &ServerPolicy,
+    request: RetainedTransactionReadRequest,
+) -> Result<RetainedTransactionReadResponse, String> {
+    if policy.role != ConsensusProcessRole::Data {
+        return Err("generation authority cannot read the transaction recovery stream".to_owned());
+    }
+    raft.ensure_linearizable()
+        .await
+        .map_err(|error| error.to_string())?;
+    state_machine.retained_transactions(request).await
 }
 
 async fn client_write(
@@ -560,6 +675,33 @@ async fn recovery_attest(
     sign_recovery_statement(policy.node_id, &signer.private_key_seed, statement)
 }
 
+async fn object_frontier_attest(
+    state_machine: &StateMachineStore,
+    policy: &ServerPolicy,
+    statement: &ObjectFrontierCertificateStatement,
+) -> Result<ObjectFrontierAttestation, String> {
+    if policy.role != ConsensusProcessRole::Data {
+        return Err("generation authority cannot attest an object frontier".to_owned());
+    }
+    let signer = policy
+        .recovery_signer
+        .as_ref()
+        .ok_or_else(|| "data node has no object-frontier signing key".to_owned())?;
+    let generation = state_machine.generation_authority().await;
+    let Some((frontier, position)) = state_machine.applied_object_frontier().await else {
+        return Err("data node has not applied an object frontier".to_owned());
+    };
+    let expected = object_frontier_certificate_statement(&generation, frontier, position);
+    if statement != &expected {
+        return Err("object-frontier statement does not match the exact local apply".to_owned());
+    }
+    let public_key = recovery_public_key(&signer.private_key_seed)?;
+    if generation.transaction_system_members.get(&policy.node_id) != Some(&public_key) {
+        return Err("node signing key is not pinned in the active voter set".to_owned());
+    }
+    sign_object_frontier_statement(policy.node_id, &signer.private_key_seed, statement)
+}
+
 async fn generation_read(
     raft: &Raft,
     state_machine: &StateMachineStore,
@@ -592,6 +734,25 @@ fn reject_application_error(ack: WriteAck) -> Result<WriteAck, String> {
         Some(ApplyError::UnknownCommandVersion) => {
             Err("unknown objectKV command version".to_owned())
         }
+        Some(ApplyError::InvalidTransactionFrontier) => {
+            Err("transaction frontier transition is invalid".to_owned())
+        }
+        Some(ApplyError::InvalidTransactionBatch) => Err("transaction batch is invalid".to_owned()),
+        Some(ApplyError::RetryIdentityExpired) => {
+            Err("transaction retry identity is below its retained floor".to_owned())
+        }
+        Some(ApplyError::TransactionFrontierExpired) => {
+            Err("transaction frontier sequence is expired".to_owned())
+        }
+        Some(ApplyError::TransactionFrontierSequenceGap) => {
+            Err("transaction frontier sequence has a gap".to_owned())
+        }
+        Some(ApplyError::InvalidObjectFrontier) => {
+            Err("object frontier transition is invalid".to_owned())
+        }
+        Some(ApplyError::ObjectFrontierExpired) => {
+            Err("object frontier is not newer than the retained floor".to_owned())
+        }
         None => Ok(ack),
     }
 }
@@ -611,11 +772,37 @@ async fn authorize_commit(
     if credential != &fence.credential {
         return Err("generation credential does not match this transaction system".to_owned());
     }
-    let command = ClientCommand::decode(app_data)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "generation-fenced commit requires a versioned client command".to_owned())?;
-    if command.credential.as_ref() != Some(credential) {
-        return Err("replicated command does not bind the presented generation".to_owned());
+    if let Some(command) = ClientCommand::decode(app_data).map_err(|error| error.to_string())? {
+        if command.credential.as_ref() != Some(credential) {
+            return Err("replicated command does not bind the presented generation".to_owned());
+        }
+        if let Some(advance) =
+            ObjectFrontierAdvance::decode(&command.payload).map_err(|error| error.to_string())?
+        {
+            let publication =
+                read_linearizable_publication_authority(&fence.authority_nodes).await?;
+            if publication.pending_object_frontier.as_ref() != Some(&advance.frontier) {
+                return Err(
+                    "publication authority does not retain the exact pending object frontier"
+                        .to_owned(),
+                );
+            }
+        }
+    } else if let Some(batch) =
+        TransactionBatchCommand::decode(app_data).map_err(|error| error.to_string())?
+    {
+        if batch.commands.is_empty()
+            || batch
+                .commands
+                .iter()
+                .any(|command| command.credential.as_ref() != Some(credential))
+        {
+            return Err(
+                "transaction batch does not bind every item to the presented generation".to_owned(),
+            );
+        }
+    } else {
+        return Err("generation-fenced commit requires a versioned client command".to_owned());
     }
     if policy.generation_fence_faults.bypass_commit_fence {
         return Ok(());
@@ -700,6 +887,38 @@ async fn authority_read(address: &str) -> Result<GenerationAuthorityState, Strin
     response
 }
 
+async fn read_linearizable_publication_authority(
+    authority_nodes: &BTreeMap<NodeId, String>,
+) -> Result<PublicationAuthorityState, String> {
+    let mut errors = Vec::new();
+    for address in authority_nodes.values() {
+        match publication_authority_read(address).await {
+            Ok(state) => return Ok(state),
+            Err(error) => errors.push(error),
+        }
+    }
+    Err(format!(
+        "no coordinator leader supplied a linearizable publication read: {}",
+        errors.join("; ")
+    ))
+}
+
+async fn publication_authority_read(address: &str) -> Result<PublicationAuthorityState, String> {
+    let mut stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(address))
+        .await
+        .map_err(|_| format!("publication authority connect timed out at {address}"))?
+        .map_err(|error| error.to_string())?;
+    write_request(&mut stream, PUBLICATION_READ, &())
+        .await
+        .map_err(|error| error.to_string())?;
+    let response: Result<PublicationAuthorityState, String> =
+        tokio::time::timeout(Duration::from_secs(2), read_response(&mut stream))
+            .await
+            .map_err(|_| format!("publication authority response timed out at {address}"))?
+            .map_err(|error| error.to_string())?;
+    response
+}
+
 async fn node_status(raft: &Raft, state_machine: &StateMachineStore) -> NodeStatus {
     let metrics = raft.metrics();
     let metrics = metrics.borrow().clone();
@@ -717,7 +936,10 @@ async fn node_status(raft: &Raft, state_machine: &StateMachineStore) -> NodeStat
         leader: metrics.current_leader,
         last_log_index: metrics.last_log_index,
         last_applied_index: metrics.last_applied.map(|log_id| log_id.index),
+        snapshot_index: metrics.snapshot.map(|log_id| log_id.index),
+        purged_index: metrics.purged.map(|log_id| log_id.index),
         payloads: state_machine.applied_payloads().await,
+        transaction: state_machine.transaction_authority().await,
     }
 }
 

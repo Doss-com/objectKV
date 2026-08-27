@@ -1,0 +1,94 @@
+schema_version = 1
+id = "authenticated-object-frontier-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0027-retained-transaction-stream.md",
+  "../../rfcs/0029-split-transaction-authority-frontiers.md",
+  "../../rfcs/0030-authenticated-object-frontier.md",
+]
+dataset_generator = "deterministic-physical-row-closure-plus-six-process-authorities-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 2048
+key_count = 16
+seeds = [4701, 4702, 4703]
+
+[profiles.local-fs]
+budget_kind = "seconds"
+budget_limit = 90
+repeats = 1
+backend = "object-store-local-fs+authority-openraft+data-openraft"
+publication_authority_nodes = 3
+transaction_authority_nodes = 3
+transaction_count = 16
+value_bytes = 128
+row_object_target_bytes = 16384
+row_object_block_bytes = 4096
+durability_profile = "openraft-node-journal-local-process-diagnostic"
+
+[[lanes]]
+id = "authenticated-object-frontier"
+primary_metric = "object_frontier.protocol_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "physical-safe-pop-candidate"
+lane = "authenticated-object-frontier"
+operation = "authenticated_object_frontier_contract"
+
+[[workloads]]
+id = "missing-pending-control"
+lane = "authenticated-object-frontier"
+operation = "authenticated_object_frontier_contract"
+negative_control = "missing_pending_control"
+
+[[workloads]]
+id = "forged-coverage-control"
+lane = "authenticated-object-frontier"
+operation = "authenticated_object_frontier_contract"
+negative_control = "forged_coverage_control"
+
+[[workloads]]
+id = "subquorum-activation-control"
+lane = "authenticated-object-frontier"
+operation = "authenticated_object_frontier_contract"
+negative_control = "subquorum_control"
+
+[hard_gates]
+correctness_anomalies = 0
+publication_authority_processes = 3
+transaction_authority_processes = 3
+candidate_validates_every_manifest_index_and_data_block = true
+candidate_physically_pops_all_records_through_frontier = true
+candidate_persists_and_rejects_cursors_below_retention_floor = true
+candidate_exact_pop_retry_is_idempotent = true
+candidate_requires_distinct_data_voter_quorum = true
+candidate_recovers_exact_state_from_objects_after_pop = true
+candidate_survives_data_and_publication_leader_failover = true
+candidate_restarts_killed_data_voter_from_stable_state = true
+missing_pending_control_is_rejected_before_pop = true
+forged_coverage_control_is_rejected_before_pop = true
+subquorum_activation_control_retains_pending_frontier = true
+fresh_controller_semantic_replay_is_exact = true
+schema_valid = true
+budget_must_hold = true

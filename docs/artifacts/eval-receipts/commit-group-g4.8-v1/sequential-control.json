@@ -1,0 +1,115 @@
+{
+  "artifact_refs": [
+    "okv-eval://commit-group-v1/sequential_control/4801/5166d4ecdf2d57d7842e831ab5c2fc93d40e9d07822915e604ffcd9749996671",
+    "okv-eval://commit-group-v1/sequential_control/4802/33138e498423fc7ccba33c9ffd927978f380e5e157d6689e9c1f2bf382fe76e2",
+    "okv-eval://commit-group-v1/sequential_control/4803/e25516a0922e2c5ca09cfc84ca38c615ad2799b39ef3f905d44da800f645ed1d",
+    "/private/tmp/okv-g48-control.json"
+  ],
+  "backend": "data-openraft-local-process+stable-journal",
+  "budget": {
+    "kind": "seconds",
+    "limit": 120.0,
+    "observed": 55.62297125
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T12:08:06.026283+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    },
+    {
+      "detail": "committed=512,retained=true,retry=true,failover=true,restart=true",
+      "id": "strict_serializable_recovery_contract",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=200,observed=[38.83686533844852, 38.353229914073594, 38.77219954536567]",
+      "id": "candidate_min_transactions_per_second",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=4,observed=[1.0, 1.0, 1.0]",
+      "id": "candidate_min_entries_per_append",
+      "status": "pass"
+    },
+    {
+      "detail": "maximum=0.25,observed=[0.031802458, 0.034051209, 0.031215875]",
+      "id": "candidate_max_commit_p99_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=sequential_control",
+      "id": "early_ack_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "5166d4ecdf2d57d7842e831ab5c2fc93d40e9d07822915e604ffcd9749996671",
+      "id": "fresh_controller_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "commit-group",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 0.06466579308284537,
+    "median": 38.77219954536567,
+    "name": "okv.eval.commit.throughput",
+    "samples": [
+      38.83686533844852,
+      38.353229914073594,
+      38.77219954536567
+    ],
+    "statistic": "median",
+    "unit": "{transaction}/s",
+    "value": 38.77219954536567
+  },
+  "profile": {
+    "hash": "af3168c0ca543087ab0d3a2e45646b2987a96c2e021abb80f97ae46fcbd9884a",
+    "id": "local-process",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "8e964ea9-df15-40cc-95a2-a381697a2fd3",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "commit_group.entries_per_append.median": 1.0,
+    "commit_group.p99_seconds.maximum": 0.034051209,
+    "commit_group.throughput.median": 38.77219954536567,
+    "commit_group.wall_seconds": 55.622921583,
+    "operation.duration.median": 55.62297125
+  },
+  "seeds": [
+    4801,
+    4802,
+    4803
+  ],
+  "suite": "commit-group-v1",
+  "suite_hash": "855f49c190c8710454ef993ed709437b30082596ea99a243e652569cf9e91e77",
+  "verdict": "inconclusive"
+}

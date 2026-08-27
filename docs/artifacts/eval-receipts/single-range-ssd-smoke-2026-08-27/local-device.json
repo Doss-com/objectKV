@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-27T06:55:00Z",
+  "scope": "local_mechanism_diagnostic",
+  "machine_model": "Mac16,6",
+  "logical_cpus": 16,
+  "memory_bytes": 51539607552,
+  "os": "macOS 15.6.1 (24G90)",
+  "scratch_volume": {
+    "device": "/dev/disk3s5",
+    "mount": "/System/Volumes/Data",
+    "filesystem": "APFS",
+    "protocol": "Apple Fabric",
+    "solid_state": true,
+    "physical_store": "disk0s2",
+    "filevault": true
+  },
+  "physical_device": {
+    "controller": "Apple SSD Controller",
+    "model": "APPLE SSD AP1024Z",
+    "bsd_name": "disk0",
+    "capacity_bytes": 1000555581440,
+    "trim": true,
+    "smart": "Verified"
+  },
+  "limitations": [
+    "dirty source tree",
+    "debug build",
+    "one sample",
+    "small dataset",
+    "no isolated background-load measurement"
+  ]
+}

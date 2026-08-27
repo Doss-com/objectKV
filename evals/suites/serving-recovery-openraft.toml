@@ -1,0 +1,100 @@
+schema_version = 1
+id = "serving-worker-openraft-recovery-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0025-hot-serving-and-durability-profiles.md",
+  "../../rfcs/0026-serving-worker-process-recovery.md",
+  "../../rfcs/0027-retained-transaction-stream.md",
+]
+dataset_generator = "deterministic-object-base-plus-openraft-retained-stream-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 34816
+key_count = 256
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "seconds"
+budget_limit = 240
+repeats = 1
+backend = "object-store-local-fs+authority-openraft+data-openraft"
+publication_authority_nodes = 3
+transaction_authority_nodes = 3
+worker_process_starts_per_seed = 2
+worker_process_kills_per_seed = 1
+cache_state = "empty_worker"
+serving_profile = "ram_resident"
+durability_profile = "openraft-node-journal-local-process-diagnostic"
+row_object_target_bytes = 16384
+row_object_block_bytes = 4096
+retained_stream_page_records = 2
+kill_boundary = "initial_catchup_complete_before_read"
+concurrent_commit_boundary = "replacement_initial_catchup_complete"
+replacement_scratch = "distinct_empty_directory"
+
+[[lanes]]
+id = "serving-worker-openraft-recovery"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "replacement-worker-openraft-tail"
+lane = "serving-worker-openraft-recovery"
+operation = "serving_worker_openraft_recovery_contract"
+value_bytes = 128
+
+[[workloads]]
+id = "replacement-worker-openraft-full-hydration-control"
+lane = "serving-worker-openraft-recovery"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "full_hydration"
+value_bytes = 128
+
+[[workloads]]
+id = "replacement-worker-skip-concurrent-catchup-poison"
+lane = "serving-worker-openraft-recovery"
+operation = "serving_worker_openraft_recovery_contract"
+negative_control = "skip_concurrent_catchup"
+value_bytes = 128
+
+[hard_gates]
+correctness_anomalies = 0
+publication_authority_processes = 3
+transaction_authority_processes = 3
+worker_process_starts = 2
+worker_process_kills = 1
+replacement_uses_distinct_empty_scratch = true
+generation_publication_generation_read_is_stable = true
+initial_retained_suffix_is_non_empty = true
+concurrent_commits = 4
+catchup_rounds = 2
+candidate_applies_complete_concurrent_suffix = true
+set_clear_insert_and_clear_range_are_exact = true
+physical_raft_journal_path_accesses = 0
+candidate_uses_one_manifest_get = true
+candidate_uses_one_selected_index_get = true
+candidate_uses_at_most_one_data_range_get = true
+candidate_uses_zero_complete_data_gets = true
+candidate_uses_zero_list_operations = true
+fresh_process_semantic_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true

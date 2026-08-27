@@ -24,6 +24,7 @@
   "properties": {
     "schema_version": { "const": 1 },
     "run_id": { "type": "string", "minLength": 1 },
+    "batch_id": { "type": "string", "minLength": 1 },
     "created_at": { "type": "string", "format": "date-time" },
     "lane": { "type": "string", "minLength": 1 },
     "suite": { "type": "string", "minLength": 1 },
@@ -80,6 +81,18 @@
         "name": { "type": "string", "minLength": 1 },
         "unit": { "type": "string", "minLength": 1 },
         "direction": { "enum": ["higher", "lower"] },
+        "statistic": {
+          "enum": [
+            "median",
+            "p99",
+            "total",
+            "minimum",
+            "maximum",
+            "per_operation",
+            "passed"
+          ]
+        },
+        "value": { "type": "number" },
         "samples": {
           "type": "array",
           "minItems": 1,

@@ -1,0 +1,120 @@
+{
+  "artifact_refs": [
+    "okv-eval://transaction-batch-v1/duplicate_identity_control/4901/ca8b63441eae564bfb5638baff6cacb695e32f8946d4ac9d95f7c76af21ac9ee",
+    "okv-eval://transaction-batch-v1/duplicate_identity_control/4902/e6cc88b56290c16770d275c5f7f288e3f9e2a347c00ff5a416cd070f7cfe979b",
+    "okv-eval://transaction-batch-v1/duplicate_identity_control/4903/9e5ad26fb1dccf3c149ebc1ccaf362e59230af14b5dc491d03e254c54f6c0d23",
+    "/private/tmp/okv-g49-duplicate.json"
+  ],
+  "backend": "data-openraft-local-process+stable-journal",
+  "budget": {
+    "kind": "seconds",
+    "limit": 120.0,
+    "observed": 0.664893042
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T12:28:33.852355+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    },
+    {
+      "detail": "committed=0,versionstamps=true,stream=true,retry=true,failover=true,restart=true",
+      "id": "transaction_batch_recovery_contract",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=400,observed=[0.0, 0.0, 0.0]",
+      "id": "candidate_min_transactions_per_second",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=8,observed=[0.0, 0.0, 0.0]",
+      "id": "candidate_min_logical_transactions_per_append",
+      "status": "pass"
+    },
+    {
+      "detail": "maximum=0.1,observed=[0.0, 0.0, 0.0]",
+      "id": "candidate_max_commit_p99_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=duplicate_identity_control",
+      "id": "duplicate_identity_control_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=duplicate_identity_control",
+      "id": "early_ack_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "ca8b63441eae564bfb5638baff6cacb695e32f8946d4ac9d95f7c76af21ac9ee",
+      "id": "fresh_controller_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "transaction-batch",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 0.0,
+    "median": 0.0,
+    "name": "okv.eval.commit.throughput",
+    "samples": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "statistic": "median",
+    "unit": "{transaction}/s",
+    "value": 0.0
+  },
+  "profile": {
+    "hash": "8dbf4d754f07ee26f3182015ca4fd8965803d00e25ebb1e479c5af24ec00afc5",
+    "id": "local-process",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "duplicate transaction identity was rejected before mutation",
+  "run_id": "e12401cb-c2e4-4551-bf2c-b21ebb250224",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 0.664893042,
+    "transaction_batch.logical_transactions_per_append.minimum": 0.0,
+    "transaction_batch.p99_seconds.maximum": 0.0,
+    "transaction_batch.throughput.median": 0.0,
+    "transaction_batch.wall_seconds": 0.664845583
+  },
+  "seeds": [
+    4901,
+    4902,
+    4903
+  ],
+  "suite": "transaction-batch-v1",
+  "suite_hash": "c34b47eb5965dedf95d529c9b72a6fe8af4c73adc58bdec45060b6816862f585",
+  "verdict": "discard"
+}

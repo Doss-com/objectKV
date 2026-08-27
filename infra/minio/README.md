@@ -1,6 +1,6 @@
 # Pinned MinIO conformance fixture
 
-Status: `[EXISTS]` local-only S3 protocol fixture. It is not durability or cloud
+Status: `[VERIFIED]` local-only S3 protocol fixture. It is not durability or cloud
 evidence.
 
 The server is MinIO `RELEASE.2025-09-07T16-13-09Z`, pinned by multi-platform

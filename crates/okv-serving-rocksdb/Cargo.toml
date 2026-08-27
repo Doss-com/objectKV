@@ -1,0 +1,20 @@
+[package]
+name = "okv-serving-rocksdb"
+description = "Disposable RocksDB serving image for objectKV"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+okv.workspace = true
+rocksdb = { version = "=0.25.0", default-features = false, features = ["bindgen-runtime"] }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

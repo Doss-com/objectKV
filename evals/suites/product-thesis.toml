@@ -1,0 +1,692 @@
+schema_version = 1
+id = "objectkv-product-thesis-physical-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/PRODUCT-SPEC-SHEET.md",
+  "../../docs/EVALS.md",
+  "../../rfcs/0001-project-principles.md",
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0010-oltp-olap-snapshots.md",
+  "../../rfcs/0011-cell-and-tenant-topology.md",
+  "../../rfcs/0023-resident-serving-hot-path.md",
+  "../../rfcs/0025-hot-serving-and-durability-profiles.md",
+]
+dataset_generator = "deterministic-product-thesis-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcs-dev"]
+
+[dataset.ssd-resident-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.ram-resident-dev]
+logical_bytes = 16777216
+key_count = 16384
+seeds = [1103, 2207, 3301]
+
+[dataset.ssd-resident-ram-control-dev]
+logical_bytes = 16777216
+key_count = 16384
+seeds = [1103, 2207, 3301]
+
+[dataset.profile-handoff-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.elastic-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.elastic-1mib-dev]
+logical_bytes = 1048576
+key_count = 1024
+seeds = [1103, 2207, 3301]
+
+[dataset.elastic-8mib-dev]
+logical_bytes = 8388608
+key_count = 8192
+seeds = [1103, 2207, 3301]
+
+[dataset.recovery-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.recovery-1mib-dev]
+logical_bytes = 1048576
+key_count = 1024
+seeds = [1103, 2207, 3301]
+
+[dataset.recovery-8mib-dev]
+logical_bytes = 8388608
+key_count = 8192
+seeds = [1103, 2207, 3301]
+
+[dataset.branch-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.cell-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.postgres-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.htap-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.economics-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[dataset.gcs-dev]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[profiles.ssd-resident-dev]
+budget_kind = "operations"
+budget_limit = 2400000
+repeats = 5
+cache_state = "resident"
+resident_hit_ratio = 0.999
+local_byte_budget = 134217728
+measurement_operations = 200000
+warmup_operations = 100000
+serving_profile = "ssd_resident"
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+
+[profiles.ram-resident-dev]
+budget_kind = "operations"
+budget_limit = 2400000
+repeats = 4
+cache_state = "resident"
+resident_hit_ratio = 0.999
+local_byte_budget = 25165824
+measurement_operations = 200000
+warmup_operations = 100000
+serving_profile = "ram_resident"
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+swap = "prohibited"
+
+[profiles.ssd-resident-ram-control-dev]
+budget_kind = "operations"
+budget_limit = 2400000
+repeats = 4
+cache_state = "resident"
+resident_hit_ratio = 0.999
+local_byte_budget = 50331648
+measurement_operations = 200000
+warmup_operations = 100000
+serving_profile = "ssd_resident"
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+
+[profiles.profile-handoff-dev]
+budget_kind = "operations"
+budget_limit = 200000
+repeats = 4
+cache_state = "resident"
+local_byte_budget = 134217728
+serving_profiles = ["ssd_resident", "ram_resident"]
+durability_profile = "single_node_sync"
+topology = "one_range_two_workers"
+
+[profiles.elastic-dev]
+budget_kind = "operations"
+budget_limit = 10000
+repeats = 5
+cache_state = "cold_elastic"
+object_index_cache = "warm"
+object_block_cache = "empty"
+local_byte_budget = 16777216
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+measurement_operations = 500
+row_object_target_bytes = 4194304
+row_object_block_bytes = 65536
+
+[profiles.elastic-1mib-dev]
+budget_kind = "operations"
+budget_limit = 10000
+repeats = 5
+cache_state = "cold_elastic"
+object_index_cache = "warm"
+object_block_cache = "empty"
+local_byte_budget = 16777216
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+measurement_operations = 500
+row_object_target_bytes = 4194304
+row_object_block_bytes = 65536
+
+[profiles.elastic-8mib-dev]
+budget_kind = "operations"
+budget_limit = 10000
+repeats = 5
+cache_state = "cold_elastic"
+object_index_cache = "warm"
+object_block_cache = "empty"
+local_byte_budget = 16777216
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+measurement_operations = 500
+row_object_target_bytes = 4194304
+row_object_block_bytes = 65536
+
+[profiles.recovery-dev]
+budget_kind = "seconds"
+budget_limit = 300
+repeats = 5
+cache_state = "empty_worker"
+local_byte_budget = 134217728
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+row_object_target_bytes = 4194304
+row_object_block_bytes = 65536
+
+[profiles.recovery-1mib-dev]
+budget_kind = "seconds"
+budget_limit = 300
+repeats = 5
+cache_state = "empty_worker"
+local_byte_budget = 134217728
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+row_object_target_bytes = 4194304
+row_object_block_bytes = 65536
+
+[profiles.recovery-8mib-dev]
+budget_kind = "seconds"
+budget_limit = 300
+repeats = 5
+cache_state = "empty_worker"
+local_byte_budget = 134217728
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+row_object_target_bytes = 4194304
+row_object_block_bytes = 65536
+
+[profiles.branch-dev]
+budget_kind = "operations"
+budget_limit = 1000
+repeats = 5
+cache_state = "warm_elastic"
+durability_profile = "single_node_sync"
+topology = "one_cell_one_range"
+
+[profiles.cell-dev]
+budget_kind = "operations"
+budget_limit = 100000
+repeats = 5
+cache_state = "resident"
+durability_profile = "single_node_sync"
+topology = "one_cell_four_ranges"
+participant_counts = [1, 2, 4]
+
+[profiles.postgres-dev]
+budget_kind = "seconds"
+budget_limit = 600
+repeats = 3
+cache_state = "resident"
+durability_profile = "single_node_sync"
+topology = "one_cell_one_range"
+postgres_revision = "pending-rfc"
+
+[profiles.htap-dev]
+budget_kind = "seconds"
+budget_limit = 300
+repeats = 5
+cache_state = "warm_elastic"
+durability_profile = "single_node_sync"
+topology = "one_cell_four_partitions"
+tail_ratios = [0.0, 0.001, 0.01, 0.1]
+
+[profiles.economics-dev]
+budget_kind = "operations"
+budget_limit = 100000
+repeats = 3
+cache_state = "mixed"
+durability_profile = "regional_quorum"
+topology = "one_cell_four_ranges"
+price_snapshot = "pending-reviewed-snapshot"
+
+[profiles.gcs-dev]
+budget_kind = "operations"
+budget_limit = 10000
+repeats = 3
+cache_state = "cold_elastic"
+durability_profile = "single_node_sync"
+topology = "one_range_one_worker"
+project_id_env = "OKV_GCP_PROJECT"
+bucket_env = "OKV_GCS_BUCKET"
+region = "us-central1"
+
+[[lanes]]
+id = "hot-ssd"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "object_store.requests"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "hot-ram"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.20
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "object_store.requests"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "profile-handoff"
+primary_metric = "recovery.hydration_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "elastic-cold-point"
+primary_metric = "object_store.requests"
+statistic = "per_operation"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "empty-worker-recovery"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "objectification-brownout"
+primary_metric = "objectification.lag"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "branch-lifecycle"
+primary_metric = "branch.create_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "multi-range-cell"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "postgres-page-compat"
+primary_metric = "compatibility.cases"
+statistic = "passed"
+direction = "higher"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "postgres-page-performance"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "htap-performance"
+primary_metric = "operation.duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "query.result_exact"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[lanes]]
+id = "product-economics"
+primary_metric = "cost.estimated_total"
+statistic = "median"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "application-log"
+primary_metric = "snapshot.freshness_lag"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "ssd-resident-serving-image"
+lane = "hot-ssd"
+operation = "resident_hot_path"
+distribution = "hotset-80-20"
+read_fraction = 1.0
+value_bytes = 1024
+
+[[workloads]]
+id = "ssd-resident-object-read-poison"
+lane = "hot-ssd"
+operation = "resident_hot_path"
+negative_control = "allow_object_read_after_warmup"
+distribution = "hotset-80-20"
+read_fraction = 1.0
+value_bytes = 1024
+
+[[workloads]]
+id = "direct-nvme-rocksdb-control"
+lane = "hot-ssd"
+operation = "direct_rocksdb_hot_control"
+distribution = "hotset-80-20"
+read_fraction = 1.0
+value_bytes = 1024
+
+[[workloads]]
+id = "ram-resident-serving-image"
+lane = "hot-ram"
+operation = "ram_resident_hot_path"
+distribution = "hotset-80-20"
+read_fraction = 1.0
+value_bytes = 1024
+
+[[workloads]]
+id = "ram-resident-budget-poison"
+lane = "hot-ram"
+operation = "ram_resident_hot_path"
+negative_control = "ignore_memory_high_watermark"
+distribution = "hotset-80-20"
+read_fraction = 1.0
+value_bytes = 1024
+
+[[workloads]]
+id = "ssd-to-ram-to-ssd-handoff"
+lane = "profile-handoff"
+operation = "serving_profile_handoff"
+directions = ["ssd_to_ram", "ram_to_ssd"]
+
+[[workloads]]
+id = "profile-handoff-stale-generation-poison"
+lane = "profile-handoff"
+operation = "serving_profile_handoff"
+negative_control = "allow_stale_generation_serve"
+
+[[workloads]]
+id = "elastic-indexed-point-read"
+lane = "elastic-cold-point"
+operation = "elastic_cold_point"
+distribution = "uniform"
+manifest_cache = "warm"
+block_cache = "empty"
+
+[[workloads]]
+id = "elastic-scan-object-poison"
+lane = "elastic-cold-point"
+operation = "elastic_cold_point"
+negative_control = "scan_object_on_point_read"
+
+[[workloads]]
+id = "indexed-object-reader-control"
+lane = "elastic-cold-point"
+operation = "indexed_object_reader_control"
+
+[[workloads]]
+id = "empty-worker-first-read"
+lane = "empty-worker-recovery"
+operation = "empty_worker_recovery"
+hydrate_before_first_read = false
+
+[[workloads]]
+id = "empty-worker-full-hydration-poison"
+lane = "empty-worker-recovery"
+operation = "empty_worker_recovery"
+negative_control = "hydrate_full_range_before_read"
+
+[[workloads]]
+id = "full-local-restore-control"
+lane = "empty-worker-recovery"
+operation = "full_local_restore_control"
+
+[[workloads]]
+id = "objectification-brownout"
+lane = "objectification-brownout"
+operation = "objectification_brownout"
+outage_seconds = [0, 5, 30, 120]
+ingest_rates = [1000, 10000, 100000]
+
+[[workloads]]
+id = "objectification-unbounded-debt-poison"
+lane = "objectification-brownout"
+operation = "objectification_brownout"
+negative_control = "disable_ratekeeper"
+
+[[workloads]]
+id = "metadata-branch-create"
+lane = "branch-lifecycle"
+operation = "branch_lifecycle"
+divergent_write_fraction = 0.01
+
+[[workloads]]
+id = "branch-copy-base-poison"
+lane = "branch-lifecycle"
+operation = "branch_lifecycle"
+negative_control = "copy_base_on_branch"
+
+[[workloads]]
+id = "physical-copy-branch-control"
+lane = "branch-lifecycle"
+operation = "physical_copy_branch_control"
+
+[[workloads]]
+id = "strict-serializable-four-range-cell"
+lane = "multi-range-cell"
+operation = "multi_range_cell"
+participant_counts = [1, 2, 4]
+conflict_rates = [0.0, 0.01, 0.1]
+
+[[workloads]]
+id = "multi-range-partial-commit-poison"
+lane = "multi-range-cell"
+operation = "multi_range_cell"
+negative_control = "partial_commit_on_coordinator_death"
+
+[[workloads]]
+id = "single-group-cell-control"
+lane = "multi-range-cell"
+operation = "single_group_cell_control"
+
+[[workloads]]
+id = "postgres-page-compatibility"
+lane = "postgres-page-compat"
+operation = "postgres_page_bridge_compatibility"
+manifest = "postgres-page-bootstrap-v1"
+
+[[workloads]]
+id = "postgres-page-double-apply-poison"
+lane = "postgres-page-compat"
+operation = "postgres_page_bridge_compatibility"
+negative_control = "apply_page_commit_twice_after_lost_reply"
+
+[[workloads]]
+id = "postgres-local-compat-control"
+lane = "postgres-page-compat"
+operation = "postgres_local_storage_compatibility_control"
+
+[[workloads]]
+id = "postgres-page-resident-performance"
+lane = "postgres-page-performance"
+operation = "postgres_page_bridge_performance"
+workload_manifest = "postgres-oltp-v1"
+
+[[workloads]]
+id = "postgres-local-performance-control"
+lane = "postgres-page-performance"
+operation = "postgres_local_storage_performance_control"
+workload_manifest = "postgres-oltp-v1"
+
+[[workloads]]
+id = "datafusion-exact-overlay-scale"
+lane = "htap-performance"
+operation = "htap_overlay_scale"
+base_format = "parquet"
+
+[[workloads]]
+id = "datafusion-drop-invalidation-poison"
+lane = "htap-performance"
+operation = "htap_overlay_scale"
+negative_control = "drop_tail_invalidation_keys"
+
+[[workloads]]
+id = "datafusion-base-only-control"
+lane = "htap-performance"
+operation = "datafusion_base_only_control"
+base_format = "parquet"
+
+[[workloads]]
+id = "objectkv-total-cost"
+lane = "product-economics"
+operation = "product_economics"
+cost_scope = "compute_local_storage_network_object"
+
+[[workloads]]
+id = "tikv-tiered-cost-control"
+lane = "product-economics"
+operation = "tikv_tiered_economics_control"
+cost_scope = "compute_local_storage_network_object"
+
+[[workloads]]
+id = "transactional-application-log"
+lane = "application-log"
+operation = "transactional_application_log"
+retention = "independent"
+cursor_model = "partition-version"
+
+[[workloads]]
+id = "application-log-coupled-retention-poison"
+lane = "application-log"
+operation = "transactional_application_log"
+negative_control = "couple_application_retention_to_txlog_pop"
+
+[hard_gates]
+correctness_anomalies = 0
+schema_valid = true
+budget_must_hold = true
+telemetry_drops = 0
+cache_state_declared = true
+durability_profile_declared = true
+serving_profile_declared = true
+topology_declared = true
+control_profile_equal = true
+price_snapshot_reviewed = false

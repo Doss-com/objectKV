@@ -9,6 +9,7 @@
 mod cluster_contract;
 mod contract;
 mod generation;
+mod generation_client;
 mod generation_process_contract;
 mod process_contract;
 mod process_node;
@@ -19,29 +20,45 @@ mod publication_process_contract;
 mod rpc;
 mod sim_network;
 mod state_machine;
+mod transaction_fixture;
+mod transaction_log;
+mod transaction_process_contract;
 
 pub use cluster_contract::{run_raft_cluster_contract, RaftClusterMode, RaftClusterReport};
 pub use contract::{run_raft_storage_contract, RaftStorageMode, RaftStorageReport};
 pub use generation::{
-    recovery_membership_digest, recovery_public_key, sign_recovery_statement, ConsensusProcessRole,
+    object_frontier_certificate_statement, object_frontier_membership_digest,
+    recovery_membership_digest, recovery_public_key, sign_object_frontier_statement,
+    sign_recovery_statement, verify_object_frontier_certificate, ConsensusProcessRole,
     GenerationAction, GenerationApplyResponse, GenerationAuthorityFaults, GenerationAuthorityState,
     GenerationCommand, GenerationCommandStatus, GenerationCredential, GenerationFenceConfig,
     GenerationFenceFaults, GenerationPhase, RecoveryAttestation, RecoveryCertificate,
     RecoveryCertificateKind, RecoveryCertificateStatement, RecoveryLogPosition,
     RecoverySignerConfig,
 };
+pub use generation_client::GenerationClient;
 pub use generation_process_contract::{
     run_generation_process_contract, GenerationProcessMode, GenerationProcessReport,
 };
-pub use process_contract::{run_raft_process_contract, RaftProcessMode, RaftProcessReport};
+pub use okv_transaction::{
+    KeyRange as TransactionKeyRange, Mutation as TransactionMutation, RetainedTransactionRecord,
+    TransactionApplyResponse, TransactionAuthorityFaults, TransactionAuthorityView,
+    TransactionCommand, TransactionRejectReason, TransactionStatus,
+};
+pub use process_contract::{
+    run_raft_process_contract, run_raft_process_payload_contract, RaftProcessMode,
+    RaftProcessPayloads, RaftProcessReport,
+};
 pub use process_node::{run_process_node, ProcessNodeConfig, ProcessNodePolicy};
 pub use publication::{
-    DeletePermit as PublicationDeletePermit, ObjectIdentity as PublicationObjectIdentity,
-    PreparedPublication, PublicationAction, PublicationApplyResponse, PublicationAuthorityContext,
-    PublicationAuthorityFaults, PublicationAuthorityPosition, PublicationAuthorityState,
+    DeletePermit as PublicationDeletePermit, ObjectFrontierAttestation, ObjectFrontierCertificate,
+    ObjectFrontierCertificateStatement, ObjectFrontierLogPosition, ObjectFrontierRecord,
+    ObjectIdentity as PublicationObjectIdentity, PreparedPublication, PublicationAction,
+    PublicationApplyResponse, PublicationAuthorityContext, PublicationAuthorityFaults,
+    PublicationAuthorityPosition, PublicationAuthorityState, PublicationAuthorization,
     PublicationCommand, PublicationCommandStatus, PublicationFenceFaults, PublicationIntent,
     PublicationObjectKind, PublicationObjectReference, PublicationOutcome,
-    RevisionToken as PublicationRevisionToken,
+    RevisionToken as PublicationRevisionToken, OBJECT_FRONTIER_CERTIFICATE_VERSION,
 };
 pub use publication_client::PublicationClient;
 #[doc(hidden)]
@@ -51,6 +68,24 @@ pub use publication_process_contract::{
 };
 pub use state_machine::{
     ApplyError, ApplyResponse, ClientCommand, RequestIdentity, StateMachineStore,
+    TransactionBatchApplyResponse, TransactionBatchCommand, TransactionBatchItemApplyResponse,
+};
+#[doc(hidden)]
+pub use transaction_fixture::{
+    ProcessJournalCompactionObservation, TransactionAuthorityProcessFixture,
+};
+pub use transaction_log::{
+    ObjectFrontierAdvance, ObjectFrontierApplyResponse, RetainedTransactionReadRequest,
+    RetainedTransactionReadResponse, TransactionBatchItem, TransactionBatcher,
+    TransactionBatcherConfig, TransactionBatcherStats, TransactionFrontierAdvance,
+    TransactionFrontierApplyResponse, TransactionLogClient, TransactionLogStorageStats,
+    TransactionLogStorageStatsRequest, TransactionRetryFloor,
+};
+pub use transaction_process_contract::{
+    run_transaction_machine_contract, run_transaction_process_contract, ProcessObservedValue,
+    ProcessReadOperation, ProcessTransactionHistory, ProcessTransactionRecord,
+    ProcessTransactionResult, TransactionMachineConfig, TransactionMachineReport,
+    TransactionProcessMode, TransactionProcessReport,
 };
 
 use okv_wal::{JournalError, JournalMarker, NodeJournal};
@@ -62,7 +97,9 @@ use std::fmt::Debug;
 use std::io::Cursor;
 use std::ops::RangeBounds;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex;
 
 pub type NodeId = u64;
@@ -82,6 +119,41 @@ pub type RaftEntry = Entry<TypeConfig>;
 pub struct OpenRaftLogStore {
     inner: Arc<Mutex<NodeJournal>>,
     root: Arc<PathBuf>,
+    io: Arc<OpenRaftIoCounters>,
+}
+
+#[derive(Debug, Default)]
+struct OpenRaftIoCounters {
+    append_calls: AtomicU64,
+    appended_entries: AtomicU64,
+    append_durable_nanos: AtomicU64,
+    committed_calls: AtomicU64,
+    committed_durable_nanos: AtomicU64,
+    vote_calls: AtomicU64,
+    vote_durable_nanos: AtomicU64,
+    compaction_calls: AtomicU64,
+    compaction_durable_nanos: AtomicU64,
+    compaction_reclaimed_bytes: AtomicU64,
+}
+
+/// Cumulative stable-log observations for one `OpenRaft` voter process.
+///
+/// These diagnostic counters are not persisted and never participate in
+/// acknowledgement, recovery, or correctness decisions.
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+pub struct OpenRaftIoStats {
+    pub append_calls: u64,
+    pub appended_entries: u64,
+    pub append_durable_nanos: u64,
+    pub committed_calls: u64,
+    pub committed_durable_nanos: u64,
+    pub vote_calls: u64,
+    pub vote_durable_nanos: u64,
+    pub compaction_calls: u64,
+    pub compaction_durable_nanos: u64,
+    pub compaction_reclaimed_bytes: u64,
+    pub physical_journal_bytes: u64,
+    pub state_machine_snapshot_bytes: u64,
 }
 
 impl OpenRaftLogStore {
@@ -96,6 +168,7 @@ impl OpenRaftLogStore {
         Ok(Self {
             inner: Arc::new(Mutex::new(journal)),
             root: Arc::new(root),
+            io: Arc::new(OpenRaftIoCounters::default()),
         })
     }
 
@@ -123,6 +196,29 @@ impl OpenRaftLogStore {
             .map_err(|error| storage_error(ErrorSubject::Logs, ErrorVerb::Read, &error))
     }
 
+    /// Read cumulative local stable-log observations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `OpenRaft` storage error when physical journal metadata cannot
+    /// be read.
+    pub async fn io_stats(&self) -> Result<OpenRaftIoStats, StorageError<NodeId>> {
+        Ok(OpenRaftIoStats {
+            append_calls: self.io.append_calls.load(Ordering::Relaxed),
+            appended_entries: self.io.appended_entries.load(Ordering::Relaxed),
+            append_durable_nanos: self.io.append_durable_nanos.load(Ordering::Relaxed),
+            committed_calls: self.io.committed_calls.load(Ordering::Relaxed),
+            committed_durable_nanos: self.io.committed_durable_nanos.load(Ordering::Relaxed),
+            vote_calls: self.io.vote_calls.load(Ordering::Relaxed),
+            vote_durable_nanos: self.io.vote_durable_nanos.load(Ordering::Relaxed),
+            compaction_calls: self.io.compaction_calls.load(Ordering::Relaxed),
+            compaction_durable_nanos: self.io.compaction_durable_nanos.load(Ordering::Relaxed),
+            compaction_reclaimed_bytes: self.io.compaction_reclaimed_bytes.load(Ordering::Relaxed),
+            physical_journal_bytes: self.physical_bytes().await?,
+            state_machine_snapshot_bytes: 0,
+        })
+    }
+
     /// Whether the most recent open repaired an incomplete final frame.
     pub async fn recovered_torn_tail(&self) -> bool {
         self.inner.lock().await.recovered_torn_tail()
@@ -144,11 +240,21 @@ impl OpenRaftLogStore {
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let entry_count = u64::try_from(encoded.len()).unwrap_or(u64::MAX);
+        let started = Instant::now();
         self.inner
             .lock()
             .await
             .append(&encoded)
-            .map_err(|error| storage_error(ErrorSubject::Logs, ErrorVerb::Write, &error))
+            .map_err(|error| storage_error(ErrorSubject::Logs, ErrorVerb::Write, &error))?;
+        self.io.append_calls.fetch_add(1, Ordering::Relaxed);
+        self.io
+            .appended_entries
+            .fetch_add(entry_count, Ordering::Relaxed);
+        self.io
+            .append_durable_nanos
+            .fetch_add(elapsed_nanos(started), Ordering::Relaxed);
+        Ok(())
     }
 }
 
@@ -197,11 +303,17 @@ impl RaftLogStorage<TypeConfig> for OpenRaftLogStore {
     async fn save_vote(&mut self, vote: &Vote<NodeId>) -> Result<(), StorageError<NodeId>> {
         let bytes = serde_json::to_vec(vote)
             .map_err(|error| storage_error(ErrorSubject::Vote, ErrorVerb::Write, &error))?;
+        let started = Instant::now();
         self.inner
             .lock()
             .await
             .save_vote(&bytes)
-            .map_err(|error| storage_error(ErrorSubject::Vote, ErrorVerb::Write, &error))
+            .map_err(|error| storage_error(ErrorSubject::Vote, ErrorVerb::Write, &error))?;
+        self.io.vote_calls.fetch_add(1, Ordering::Relaxed);
+        self.io
+            .vote_durable_nanos
+            .fetch_add(elapsed_nanos(started), Ordering::Relaxed);
+        Ok(())
     }
 
     async fn read_vote(&mut self) -> Result<Option<Vote<NodeId>>, StorageError<NodeId>> {
@@ -226,11 +338,17 @@ impl RaftLogStorage<TypeConfig> for OpenRaftLogStore {
             .map(serde_json::to_vec)
             .transpose()
             .map_err(|error| storage_error(ErrorSubject::Logs, ErrorVerb::Write, &error))?;
+        let started = Instant::now();
         self.inner
             .lock()
             .await
             .save_committed(encoded.as_deref())
-            .map_err(|error| storage_error(ErrorSubject::Logs, ErrorVerb::Write, &error))
+            .map_err(|error| storage_error(ErrorSubject::Logs, ErrorVerb::Write, &error))?;
+        self.io.committed_calls.fetch_add(1, Ordering::Relaxed);
+        self.io
+            .committed_durable_nanos
+            .fetch_add(elapsed_nanos(started), Ordering::Relaxed);
+        Ok(())
     }
 
     async fn read_committed(&mut self) -> Result<Option<LogId<NodeId>>, StorageError<NodeId>> {
@@ -271,15 +389,34 @@ impl RaftLogStorage<TypeConfig> for OpenRaftLogStore {
     async fn purge(&mut self, log_id: LogId<NodeId>) -> Result<(), StorageError<NodeId>> {
         let payload = serde_json::to_vec(&log_id)
             .map_err(|error| storage_error(ErrorSubject::Log(log_id), ErrorVerb::Write, &error))?;
-        self.inner
-            .lock()
-            .await
-            .purge(JournalMarker {
-                index: log_id.index,
-                payload,
-            })
-            .map_err(|error| storage_error(ErrorSubject::Log(log_id), ErrorVerb::Delete, &error))
+        let started = Instant::now();
+        let outcome = {
+            let mut journal = self.inner.lock().await;
+            journal
+                .purge(JournalMarker {
+                    index: log_id.index,
+                    payload,
+                })
+                .map_err(|error| {
+                    storage_error(ErrorSubject::Log(log_id), ErrorVerb::Delete, &error)
+                })?;
+            journal.compact().map_err(|error| {
+                storage_error(ErrorSubject::Log(log_id), ErrorVerb::Delete, &error)
+            })?
+        };
+        self.io.compaction_calls.fetch_add(1, Ordering::Relaxed);
+        self.io
+            .compaction_durable_nanos
+            .fetch_add(elapsed_nanos(started), Ordering::Relaxed);
+        self.io
+            .compaction_reclaimed_bytes
+            .fetch_add(outcome.reclaimed_bytes, Ordering::Relaxed);
+        Ok(())
     }
+}
+
+fn elapsed_nanos(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 fn decode_entry(index: u64, bytes: &[u8]) -> Result<RaftEntry, StorageError<NodeId>> {
@@ -404,6 +541,33 @@ mod tests {
         assert_eq!(entries[1].log_id, log_id(4, 2, 1));
         assert_eq!(entries[2].log_id, log_id(4, 2, 2));
         assert!(matches!(entries[0].payload, EntryPayload::Blank));
+    }
+
+    #[tokio::test]
+    async fn openraft_purge_compacts_the_physical_node_journal() {
+        let root = TempDir::new("physical-compaction");
+        let mut store = OpenRaftLogStore::open(&root.0).unwrap();
+        let entries = (0_u64..256)
+            .map(|index| entry(7, 1, index))
+            .collect::<Vec<_>>();
+        store.persist_entries(entries).await.unwrap();
+        let before = store.physical_bytes().await.unwrap();
+
+        store.purge(log_id(7, 1, 223)).await.unwrap();
+
+        let stats = store.io_stats().await.unwrap();
+        assert_eq!(stats.compaction_calls, 1);
+        assert!(stats.compaction_durable_nanos > 0);
+        assert!(stats.compaction_reclaimed_bytes > 0);
+        assert!(stats.physical_journal_bytes < before);
+        drop(store);
+
+        let mut reopened = OpenRaftLogStore::open(&root.0).unwrap();
+        let log_state = reopened.get_log_state().await.unwrap();
+        assert_eq!(log_state.last_purged_log_id, Some(log_id(7, 1, 223)));
+        let retained = reopened.try_get_log_entries(..).await.unwrap();
+        assert_eq!(retained.len(), 32);
+        assert_eq!(retained.first().unwrap().log_id.index, 224);
     }
 
     fn entry(term: u64, node_id: NodeId, index: u64) -> RaftEntry {

@@ -1,0 +1,111 @@
+{
+  "artifact_refs": [
+    "okv-eval://serving-recovery-openraft-v1/full_hydration_control/1103/cf9ba0efb3d3c88cb7b9d5f6c1402d3030aae7be57e3e4b41c4e9c49155286cd",
+    "okv-eval://serving-recovery-openraft-v1/full_hydration_control/2207/d6b2eaa64a473cd7741788068758442ba1827b4a6f34a4af9e4bdb9cb7bc6a58",
+    "okv-eval://serving-recovery-openraft-v1/full_hydration_control/3301/448726890cdc63d286dcef5124d0b439ff4c39283bbc263461687efda89b746f",
+    "/private/tmp/okv-g44-control.json"
+  ],
+  "backend": "object-store-local-fs+authority-openraft+data-openraft",
+  "budget": {
+    "kind": "seconds",
+    "limit": 240.0,
+    "observed": 3.636219084
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T09:37:38.543497+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "publication=3,data=3,workers=2,kills=1",
+      "id": "six_authority_processes_and_empty_replacement",
+      "status": "pass"
+    },
+    {
+      "detail": "initial=6,activation=10,concurrent=4",
+      "id": "two_frozen_catchup_rounds_while_commits_continue",
+      "status": "pass"
+    },
+    {
+      "detail": "applied=4/4",
+      "id": "required_concurrent_suffix_applied",
+      "status": "pass"
+    },
+    {
+      "detail": "stream_requests=4,payload_bytes=2456,path_accesses=0",
+      "id": "no_physical_raft_journal_access",
+      "status": "pass"
+    },
+    {
+      "detail": "anomalies=0",
+      "id": "exact_set_clear_insert_and_clear_range",
+      "status": "pass"
+    },
+    {
+      "detail": "manifest=1,index=1,range=0,full=1,list=0",
+      "id": "bounded_named_object_path",
+      "status": "pass"
+    },
+    {
+      "detail": "cf9ba0efb3d3c88cb7b9d5f6c1402d3030aae7be57e3e4b41c4e9c49155286cd",
+      "id": "fresh_process_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "serving-worker-openraft-recovery",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.00006612600000000001,
+    "median": 0.000413791,
+    "name": "okv.eval.recovery.first_correct_read_duration",
+    "samples": [
+      0.000318459,
+      0.000413791,
+      0.000479917
+    ],
+    "statistic": "p99",
+    "unit": "s",
+    "value": 0.000479917
+  },
+  "profile": {
+    "hash": "970724f223923a5166274284d9dabf14647b9e5aae8b90eff7dced98a113355c",
+    "id": "local-fs",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "0230681a-894b-49e4-a564-3cadfe7177ff",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 3.636219084,
+    "serving_recovery_openraft.correctness_anomalies": 0.0,
+    "serving_recovery_openraft.exact_replay": 1.0,
+    "serving_recovery_openraft.first_read_seconds.median": 0.000413791,
+    "serving_recovery_openraft.object_response_bytes.median": 4470.0,
+    "serving_recovery_openraft.txlog_payload_bytes.median": 2454.0
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "serving-worker-openraft-recovery-v1",
+  "suite_hash": "ed8b564b9baad15b631cc8c5d790aac2d0a6977c0e37e62afd29e5303af0190d",
+  "verdict": "inconclusive"
+}

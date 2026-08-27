@@ -1,0 +1,373 @@
+schema_version = 1
+id = "objectkv-golden-path-v1"
+status = "code_complete"
+spec = "../../docs/PRODUCT-SPEC-SHEET.md"
+decision_log = "../../docs/PRODUCT-SPEC.md"
+comparison_schema = "../schema/comparison.schema.json"
+scenario = "../scenarios/objectkv-golden-path-v1.toml"
+
+[[phases]]
+id = "GP0"
+name = "Freeze one logical history"
+objective = "Generate one deterministic commerce-ledger history and independent exact-snapshot oracle for every later surface."
+depends_on = []
+
+[[phases.gates]]
+id = "GP0.1"
+status = "proposed"
+kind = "correctness"
+claim = "The golden-path history produces exact versions, conflicts, retries, range clears, and snapshot reads."
+falsifier = "Any correct replay diverges from the normalized oracle or any poisoned history is accepted."
+requirement_ids = ["MVCC-001", "MVCC-002", "MVCC-003", "MVCC-004", "TXN-001", "EVAL-011", "EVAL-012"]
+suite = "../suites/model-history.toml"
+profile = "generated-dev"
+workload = "generated-mvcc-history"
+backend = "model"
+lane = "mvcc-semantics"
+checkpoint = "semantic-history"
+negative_controls = [
+  "generated-mvcc-history-ignore-range-clears",
+  "generated-mvcc-history-accept-conflicting-replay",
+  "generated-mvcc-history-accept-stale-generation",
+]
+evidence = []
+
+[[phases]]
+id = "GP1"
+name = "Recover the acknowledged frontier"
+objective = "Drive the same history through the durable tail and recover exact request outcomes after process and reply failures."
+depends_on = ["GP0"]
+
+[[phases.gates]]
+id = "GP1.1"
+status = "proposed"
+kind = "correctness"
+claim = "Every acknowledged golden-path mutation and request outcome survives the declared quorum failures exactly once."
+falsifier = "An acknowledged effect disappears, applies twice, or recovers a different request outcome."
+requirement_ids = ["TXN-003", "TXN-004", "LOG-001", "LOG-002", "LOG-003", "LOG-007", "LOG-010"]
+suite = "../suites/raft-process.toml"
+profile = "local-fs"
+workload = "openraft-process-lost-reply"
+backend = "process-local-fs"
+lane = "commit-failover"
+checkpoint = "durable-tail"
+negative_controls = [
+  "openraft-process-disable-dedup",
+  "openraft-process-ack-before-quorum",
+  "openraft-process-skip-killed-restart",
+]
+evidence = []
+
+[[phases]]
+id = "GP2"
+name = "Publish the object base"
+objective = "Pack a committed prefix into immutable objects and publish one complete fenced closure."
+depends_on = ["GP1"]
+
+[[phases.gates]]
+id = "GP2.1"
+status = "proposed"
+kind = "correctness"
+claim = "The golden-path manifest root names one complete closure that reconstructs the declared object watermark across ambiguous effects."
+falsifier = "A root becomes visible before its closure is complete, or recovery hides a duplicate or missing publication effect."
+requirement_ids = ["OBJ-001", "OBJ-004", "OBJ-005", "OBJ-006", "OBJ-008", "PUB-001", "PUB-002", "PUB-003", "PUB-004"]
+suite = "../suites/object-publication-publisher-publish-recovery.toml"
+profile = "local-fs"
+workload = "publisher-publish-unknown-restart"
+backend = "object-store-local-fs+process-openraft"
+lane = "publisher-publish-recovery"
+checkpoint = "object-base"
+negative_controls = ["publisher-publish-unknown-convergence-only"]
+evidence = []
+
+[[phases]]
+id = "GP2.5"
+name = "Select the incumbent transaction plane"
+objective = "Reject providers that cannot satisfy the objectKV transaction contract, then prove the surviving provider through one bounded R0 lifecycle run."
+depends_on = ["GP2"]
+
+[[phases.gates]]
+id = "GP2.5.1"
+status = "evaluating"
+kind = "correctness"
+claim = "The source-pinned preflight fails closed on snapshot isolation and on a provider whose label claims stronger semantics than its executed history."
+falsifier = "TiKV or the false-serializable poison advances to a live spike, or the FoundationDB mapping cannot name every P1 through P10 mechanism."
+requirement_ids = ["MVCC-001", "MVCC-002", "TXN-001", "TXN-003", "TXN-004", "OBJ-006", "EVAL-011", "EVAL-012"]
+suite = "../suites/resident-plane-selection-preflight.toml"
+profile = "source-pinned-model"
+workload = "foundationdb-7.4.6-contract-preflight"
+backend = "foundationdb-7.4.6+explicit-versionstamped-retained-keys"
+lane = "resident-plane-semantic-fit"
+checkpoint = "resident-plane"
+negative_controls = [
+  "tikv-8.5.7-snapshot-isolation-negative",
+  "tikv-false-serializable-label-negative",
+]
+evidence = ["../../docs/research/incumbent-transaction-plane-selection-2026-08-27.md"]
+
+[[phases.gates]]
+id = "GP2.5.2"
+status = "proposed"
+kind = "correctness"
+claim = "FoundationDB executes the frozen history, retained-change, unknown-outcome, objectification, media-loss, and empty-generation restore contract without an objectKV-owned resolver."
+falsifier = "A committed effect is absent or duplicated, ordering is ambiguous, publication outruns a complete closure, or restore needs the lost provider media."
+requirement_ids = ["MVCC-001", "MVCC-002", "MVCC-003", "TXN-001", "TXN-003", "TXN-004", "OBJ-001", "OBJ-004", "OBJ-006", "SRV-006"]
+suite = "../suites/incumbent-resident-r0.toml"
+profile = "gcp-r0-foundationdb"
+workload = "foundationdb-objectkv-lifecycle"
+backend = "foundationdb-7.4.6+objectkv-lifecycle+gcs"
+lane = "resident-plane-lifecycle"
+checkpoint = "resident-plane"
+negative_controls = [
+  "foundationdb-omit-retained-change-poison",
+  "foundationdb-accept-unknown-without-outcome-poison",
+  "foundationdb-restore-without-generation-poison",
+]
+evidence = []
+
+[[phases]]
+id = "GP3"
+name = "Prove serving and lifecycle leverage"
+objective = "Measure SSD, RAM, profile handoff, cold recovery, and metadata-scale branching from the same object closure and durable suffix."
+depends_on = ["GP2.5"]
+
+[[phases.gates]]
+id = "GP3.1"
+status = "proposed"
+kind = "performance"
+claim = "The objectKV retained-change and request-outcome path preserves at least seventy-five percent of direct FoundationDB commit throughput and keeps p99 within twenty-five percent in both process orders."
+falsifier = "The mandatory objectKV transaction writes or adapter logic add more than twenty-five percent throughput or p99 cost after matched durability and payload bytes."
+requirement_ids = ["TXN-003", "TXN-004", "LOG-003", "LOG-011", "SRV-001", "SRV-002", "EVAL-007", "EVAL-008"]
+suite = "../suites/incumbent-resident-r0.toml"
+profile = "gcp-r0-foundationdb"
+workload = "foundationdb-objectkv-hot-path"
+backend = "foundationdb-7.4.6+objectkv-retained-change"
+lane = "hot-ssd"
+checkpoint = "ssd-resident"
+negative_controls = []
+evidence = []
+control = { id = "direct-foundationdb-transaction", suite = "../suites/incumbent-resident-r0.toml", profile = "gcp-r0-foundationdb", workload = "foundationdb-direct-hot-control", backend = "foundationdb-7.4.6-direct", lane = "hot-ssd" }
+
+[[phases.gates]]
+id = "GP3.2"
+status = "proposed"
+kind = "performance"
+claim = "The RAM serving profile improves one predeclared end-to-end metric by at least twenty percent over admitted SSD without violating resource or recovery gates."
+falsifier = "The advantage disappears after RPC and concurrency, or memory cost and recovery exposure erase the benefit."
+requirement_ids = ["SRV-001", "SRV-002", "SRV-005", "SRV-011", "SRV-013", "EVAL-007", "EVAL-008"]
+suite = "../suites/product-thesis.toml"
+profile = "ram-resident-dev"
+workload = "ram-resident-serving-image"
+backend = "serving-worker-memory+object-local-fs"
+lane = "hot-ram"
+checkpoint = "ram-resident"
+negative_controls = ["ram-resident-budget-poison"]
+evidence = []
+control = { id = "ssd-resident-matched-range", suite = "../suites/product-thesis.toml", profile = "ssd-resident-ram-control-dev", workload = "ssd-resident-serving-image", backend = "serving-worker-rocksdb-11.8.1-local-fs", lane = "hot-ssd" }
+
+[[phases.gates]]
+id = "GP3.3"
+status = "proposed"
+kind = "correctness"
+claim = "SSD-to-RAM and RAM-to-SSD handoff preserves exact reads and fences the previous generation."
+falsifier = "Any read is missing, duplicated, stale, or served by the old assignment after the generation flip."
+requirement_ids = ["CELL-002", "CELL-004", "CELL-006", "SRV-011", "SRV-012"]
+suite = "../suites/product-thesis.toml"
+profile = "profile-handoff-dev"
+workload = "ssd-to-ram-to-ssd-handoff"
+backend = "serving-worker-rocksdb+memory+object-local-fs"
+lane = "profile-handoff"
+checkpoint = "profile-handoff"
+negative_controls = ["profile-handoff-stale-generation-poison"]
+evidence = []
+
+[[phases.gates]]
+id = "GP3.4"
+status = "proposed"
+kind = "performance"
+claim = "An empty worker returns its first exact read before full range or database hydration."
+falsifier = "First-read time or downloaded bytes scale with complete database bytes."
+requirement_ids = ["PRD-003", "SRV-006", "SRV-007", "PUB-008", "PUB-009"]
+suite = "../suites/product-thesis.toml"
+profile = "recovery-dev"
+workload = "empty-worker-first-read"
+backend = "serving-worker-empty-local-fs"
+lane = "empty-worker-recovery"
+checkpoint = "empty-worker"
+negative_controls = ["empty-worker-full-hydration-poison"]
+evidence = []
+control = { id = "full-local-restore", suite = "../suites/product-thesis.toml", profile = "recovery-dev", workload = "full-local-restore-control", backend = "full-local-restore", lane = "empty-worker-recovery" }
+
+[[phases.gates]]
+id = "GP3.5"
+status = "proposed"
+kind = "performance"
+claim = "Branch creation reuses the parent closure and remains metadata-scale before divergent writes."
+falsifier = "Branch creation time or initial durable bytes scale with the parent database."
+requirement_ids = ["LIFE-001", "LIFE-002", "LIFE-003", "LIFE-006"]
+suite = "../suites/product-thesis.toml"
+profile = "branch-dev"
+workload = "metadata-branch-create"
+backend = "objectkv-branch-local-fs"
+lane = "branch-lifecycle"
+checkpoint = "branch-root"
+negative_controls = ["branch-copy-base-poison"]
+evidence = []
+control = { id = "physical-copy-branch", suite = "../suites/product-thesis.toml", profile = "branch-dev", workload = "physical-copy-branch-control", backend = "physical-copy-local-fs", lane = "branch-lifecycle" }
+
+[[phases.gates]]
+id = "GP3.6"
+status = "evaluating"
+kind = "correctness"
+claim = "A distinct empty-scratch worker reconstructs one exact target from immutable objects plus an authority-owned retained transaction stream, then catches up to a second frozen target while commits continue."
+falsifier = "The worker reads a physical Raft journal, misses or reorders a committed mutation, cannot converge to the second target, hydrates the complete object closure, or serves a point or range-clear result from the wrong version."
+requirement_ids = ["PRD-003", "CELL-004", "CELL-006", "LOG-003", "LOG-004", "SRV-006", "SRV-007"]
+suite = "../suites/serving-recovery-openraft.toml"
+profile = "local-fs"
+workload = "replacement-worker-openraft-tail"
+backend = "object-store-local-fs+authority-openraft+data-openraft"
+lane = "serving-worker-openraft-recovery"
+checkpoint = "empty-worker"
+negative_controls = ["replacement-worker-skip-concurrent-catchup-poison"]
+evidence = ["../../docs/artifacts/eval-receipts/serving-recovery-g4.4-v2/candidate.json"]
+control = { id = "replacement-worker-openraft-full-hydration", suite = "../suites/serving-recovery-openraft.toml", profile = "local-fs", workload = "replacement-worker-openraft-full-hydration-control", backend = "object-store-local-fs+authority-openraft+data-openraft", lane = "serving-worker-openraft-recovery" }
+
+[[phases]]
+id = "GP4"
+name = "Distribute one transaction domain"
+objective = "Partition the history across range groups while preserving tenant-wide strict serializability and bounded coordination."
+depends_on = ["GP3"]
+
+[[phases.gates]]
+id = "GP4.1"
+status = "proposed"
+kind = "performance"
+claim = "Independent range groups increase throughput while every multi-range transaction retains one exact outcome."
+falsifier = "One global service caps throughput before range groups scale, or a coordinator failure admits a partial transaction."
+requirement_ids = ["TXN-002", "TXN-005", "TXN-006", "TXN-007", "CELL-002", "CELL-003", "LOG-005", "LOG-006"]
+suite = "../suites/product-thesis.toml"
+profile = "cell-dev"
+workload = "strict-serializable-four-range-cell"
+backend = "objectkv-four-range-local-fs"
+lane = "multi-range-cell"
+checkpoint = "multi-range-cell"
+negative_controls = ["multi-range-partial-commit-poison"]
+evidence = []
+control = { id = "single-group-cell", suite = "../suites/product-thesis.toml", profile = "cell-dev", workload = "single-group-cell-control", backend = "objectkv-single-group-local-fs", lane = "multi-range-cell" }
+
+[[phases]]
+id = "GP5"
+name = "Prove composable consumer models"
+objective = "Use one committed history for retained logs, Redis semantics, and version-aligned inverted search without adding protocol modes to the kernel."
+depends_on = ["GP4"]
+
+[[phases.gates]]
+id = "GP5.1"
+status = "proposed"
+kind = "correctness"
+claim = "Application-log records commit atomically with KV state while cursor and retention policy remain independent of the recovery txLog."
+falsifier = "A consumer observes a record without its KV commit, misses a committed record, or txLog pop truncates application retention."
+requirement_ids = ["LOG-011", "LOG-012", "CONSUMER-001"]
+suite = "../suites/product-thesis.toml"
+profile = "cell-dev"
+workload = "transactional-application-log"
+backend = "objectkv-application-log-local-fs"
+lane = "application-log"
+checkpoint = "application-log"
+negative_controls = ["application-log-coupled-retention-poison"]
+evidence = []
+
+[[phases.gates]]
+id = "GP5.2"
+status = "proposed"
+kind = "correctness"
+claim = "The declared Redis subset matches an independent command and expiry oracle."
+falsifier = "A command result, atomic update, or expiry boundary diverges at the same logical time."
+requirement_ids = ["CONSUMER-001", "CONSUMER-002"]
+suite = "../suites/serving-models.toml"
+profile = "dev"
+workload = "redis-strings-and-expiry"
+backend = "objectkv-redis-model"
+lane = "redis"
+checkpoint = "redis-model"
+negative_controls = ["redis-skip-expiry-poison"]
+evidence = []
+
+[[phases.gates]]
+id = "GP5.3"
+status = "proposed"
+kind = "correctness"
+claim = "Source records and inverted postings remain atomic and exact through updates, deletes, and merges."
+falsifier = "A query returns stale or missing identities, ignores a delete, or observes postings from a different snapshot."
+requirement_ids = ["CONSUMER-001", "CONSUMER-003", "CONSUMER-004"]
+suite = "../suites/serving-models.toml"
+profile = "dev"
+workload = "search-update-query-merge"
+backend = "objectkv-inverted-search"
+lane = "search"
+checkpoint = "search-model"
+negative_controls = ["search-ignore-delete-poison"]
+evidence = []
+
+[[phases]]
+id = "GP6"
+name = "Join PostgreSQL and exact HTAP"
+objective = "Preserve PostgreSQL page behavior and query the same logical version through DataFusion base plus tail."
+depends_on = ["GP5"]
+
+[[phases.gates]]
+id = "GP6.1"
+status = "proposed"
+kind = "compatibility"
+claim = "The page adapter preserves the pinned PostgreSQL behavior and crash-recovery history for the golden scenario."
+falsifier = "Correct behavior requires SQL semantics in the kernel, or recovery loses, duplicates, or invents page state."
+requirement_ids = ["PG-001", "PG-002", "PG-003", "PG-004", "PG-005", "PG-006", "PG-009"]
+suite = "../suites/product-thesis.toml"
+profile = "postgres-dev"
+workload = "postgres-page-compatibility"
+backend = "postgres-objectkv-page-adapter"
+lane = "postgres-page-compat"
+checkpoint = "postgres-page"
+negative_controls = ["postgres-page-double-apply-poison"]
+evidence = []
+control = { id = "postgres-local-compat", suite = "../suites/product-thesis.toml", profile = "postgres-dev", workload = "postgres-local-compat-control", backend = "postgres-local-storage", lane = "postgres-page-compat" }
+
+[[phases.gates]]
+id = "GP6.2"
+status = "proposed"
+kind = "correctness"
+claim = "DataFusion returns one exact snapshot from the PostgreSQL-derived columnar base and complete analytical tail."
+falsifier = "The result loses invalidations, duplicates identity, mixes versions, or requires an external CDC truth."
+requirement_ids = ["HTAP-001", "HTAP-002", "HTAP-003", "HTAP-004", "HTAP-005", "HTAP-006", "HTAP-007"]
+suite = "../suites/product-thesis.toml"
+profile = "htap-dev"
+workload = "datafusion-exact-overlay-scale"
+backend = "datafusion-parquet-objectkv-tail"
+lane = "htap-performance"
+checkpoint = "exact-htap"
+negative_controls = ["datafusion-drop-invalidation-poison"]
+evidence = []
+control = { id = "datafusion-base-only", suite = "../suites/product-thesis.toml", profile = "htap-dev", workload = "datafusion-base-only-control", backend = "datafusion-parquet-base-only", lane = "htap-performance" }
+
+[[phases]]
+id = "GP7"
+name = "Make the product decision"
+objective = "Compare the complete path with simpler systems under one reviewed topology, operation mix, and price snapshot."
+depends_on = ["GP6"]
+
+[[phases.gates]]
+id = "GP7.1"
+status = "proposed"
+kind = "economics"
+claim = "At least one target workload gains a material latency, footprint, recovery, branch, HTAP, or total-cost advantage."
+falsifier = "objectKV costs more or owns more failure surface without a material product advantage over TiKV or PostgreSQL plus object tiering."
+requirement_ids = ["PRD-003", "PRD-004", "SRV-005", "LIFE-001", "HTAP-007", "EVAL-007", "EVAL-008", "EVAL-010", "EVAL-013"]
+suite = "../suites/product-thesis.toml"
+profile = "economics-dev"
+workload = "objectkv-total-cost"
+backend = "objectkv-regional-quorum+object-base"
+lane = "product-economics"
+checkpoint = "product-economics"
+negative_controls = []
+evidence = []
+control = { id = "tikv-tiered", suite = "../suites/product-thesis.toml", profile = "economics-dev", workload = "tikv-tiered-cost-control", backend = "tikv-rocksdb+object-tier", lane = "product-economics" }

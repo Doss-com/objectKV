@@ -1,11 +1,12 @@
 use crate::rpc::{
-    read_response, write_request, NodeStatus, ELECT, GENERATION_WRITE, INITIALIZE, STATUS,
+    read_response, write_request, NodeStatus, PurgeLogRequest, BUILD_SNAPSHOT, ELECT,
+    GENERATION_WRITE, HEARTBEAT, INITIALIZE, LOG_IO_STATS, PURGE_LOG, STATUS,
 };
 use crate::{
     recovery_public_key, ConsensusProcessRole, GenerationAction, GenerationApplyResponse,
     GenerationAuthorityFaults, GenerationCommand, GenerationCommandStatus, GenerationFenceFaults,
-    NodeId, ProcessNodeConfig, ProcessNodePolicy, PublicationAuthorityFaults, PublicationClient,
-    RequestIdentity,
+    NodeId, OpenRaftIoStats, ProcessJournalCompactionObservation, ProcessNodeConfig,
+    ProcessNodePolicy, PublicationAuthorityFaults, PublicationClient, RequestIdentity,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -26,6 +27,7 @@ const RETRY_ATTEMPTS: usize = 500;
 #[doc(hidden)]
 pub struct PublicationAuthorityProcessFixture {
     root: PathBuf,
+    executable: PathBuf,
     addresses: BTreeMap<NodeId, String>,
     children: BTreeMap<NodeId, Child>,
     deduplicate_requests: bool,
@@ -78,6 +80,7 @@ impl PublicationAuthorityProcessFixture {
         fs::create_dir_all(&root).map_err(|error| error.to_string())?;
         let mut fixture = Self {
             root,
+            executable: executable.to_path_buf(),
             addresses,
             children: BTreeMap::new(),
             deduplicate_requests,
@@ -134,10 +137,116 @@ impl PublicationAuthorityProcessFixture {
         self.addresses.values().cloned().collect()
     }
 
+    /// Stable authority node map used by generation-fenced data fixtures.
+    #[must_use]
+    pub fn authority_nodes(&self) -> BTreeMap<NodeId, String> {
+        self.addresses.clone()
+    }
+
     /// Number of real authority processes owned by this fixture.
     #[must_use]
     pub fn process_count(&self) -> usize {
         self.children.len()
+    }
+
+    /// Read cumulative stable-log observations from every live publication
+    /// voter.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any voter cannot return its local counters.
+    #[doc(hidden)]
+    pub async fn io_stats(&self) -> Result<BTreeMap<NodeId, OpenRaftIoStats>, String> {
+        let mut stats = BTreeMap::new();
+        for node_id in self.children.keys() {
+            stats.insert(
+                *node_id,
+                control(self.address(*node_id)?, LOG_IO_STATS, &()).await?,
+            );
+        }
+        Ok(stats)
+    }
+
+    /// Converge, snapshot, purge, and canonical-compact every publication
+    /// voter through one common applied position.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when convergence, snapshot, purge, compaction, or
+    /// observation fails.
+    pub async fn snapshot_and_purge_applied_all(
+        &self,
+    ) -> Result<(u64, BTreeMap<NodeId, ProcessJournalCompactionObservation>), String> {
+        let through_index = wait_cluster_applied(&self.addresses, self.address(101)?).await?;
+        let before = self.io_stats().await?;
+        for node_id in self.children.keys() {
+            retry_control(self.address(*node_id)?, BUILD_SNAPSHOT, &()).await?;
+        }
+        for node_id in self.children.keys() {
+            wait_for_snapshot(self.address(*node_id)?, through_index).await?;
+        }
+        for node_id in self.children.keys() {
+            retry_control(
+                self.address(*node_id)?,
+                PURGE_LOG,
+                &PurgeLogRequest { through_index },
+            )
+            .await?;
+        }
+
+        let mut observations = BTreeMap::new();
+        for node_id in self.children.keys() {
+            let status = wait_for_purge(self.address(*node_id)?, through_index).await?;
+            let after: OpenRaftIoStats =
+                control(self.address(*node_id)?, LOG_IO_STATS, &()).await?;
+            let prior = before
+                .get(node_id)
+                .ok_or_else(|| format!("missing publication stats for voter {node_id}"))?;
+            observations.insert(
+                *node_id,
+                ProcessJournalCompactionObservation {
+                    node_id: *node_id,
+                    snapshot_index: status.snapshot_index.unwrap_or(0),
+                    purged_index: status.purged_index.unwrap_or(0),
+                    journal_bytes_before: prior.physical_journal_bytes,
+                    journal_bytes_after: after.physical_journal_bytes,
+                    snapshot_bytes: after.state_machine_snapshot_bytes,
+                    compaction_calls: after
+                        .compaction_calls
+                        .saturating_sub(prior.compaction_calls),
+                    compaction_reclaimed_bytes: after
+                        .compaction_reclaimed_bytes
+                        .saturating_sub(prior.compaction_reclaimed_bytes),
+                },
+            );
+        }
+        Ok((through_index, observations))
+    }
+
+    /// Stop every publication voter, reopen snapshot plus retained journal,
+    /// and elect the original voter.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when shutdown, restart, election, or catch-up fails.
+    pub async fn restart_all_and_elect_initial(&mut self) -> Result<(), String> {
+        for child in self.children.values_mut() {
+            child.kill().map_err(|error| error.to_string())?;
+            child.wait().map_err(|error| error.to_string())?;
+        }
+        self.children.clear();
+        let executable = self.executable.clone();
+        for node_id in AUTHORITY_NODES {
+            self.start_node(&executable, node_id)?;
+        }
+        for node_id in AUTHORITY_NODES {
+            wait_ready(self.address(node_id)?).await?;
+        }
+        if !elect_until_leader(self.address(101)?, 101).await {
+            return Err("reopened publication quorum could not elect node 101".to_owned());
+        }
+        wait_cluster_applied(&self.addresses, self.address(101)?).await?;
+        Ok(())
     }
 
     /// Kill the initial leader and elect node 102 from the surviving quorum.
@@ -217,14 +326,14 @@ impl Drop for PublicationAuthorityProcessFixture {
     }
 }
 
-fn recovery_seed(node_id: NodeId) -> Vec<u8> {
+pub(crate) fn recovery_seed(node_id: NodeId) -> Vec<u8> {
     let mut digest = Sha256::new();
     digest.update(b"OKV-PUBLISHER-PROCESS-RECOVERY-SIGNER-V1\0");
     digest.update(node_id.to_be_bytes());
     digest.finalize().to_vec()
 }
 
-fn recovery_members(node_ids: &[NodeId]) -> Result<BTreeMap<NodeId, Vec<u8>>, String> {
+pub(crate) fn recovery_members(node_ids: &[NodeId]) -> Result<BTreeMap<NodeId, Vec<u8>>, String> {
     node_ids
         .iter()
         .map(|node_id| {
@@ -289,6 +398,65 @@ async fn elect_until_leader(address: &str, node_id: NodeId) -> bool {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     false
+}
+
+async fn wait_for_snapshot(address: &str, through_index: u64) -> Result<NodeStatus, String> {
+    let mut last = None;
+    for _ in 0..RETRY_ATTEMPTS {
+        if let Ok(status) = control::<_, NodeStatus>(address, STATUS, &()).await {
+            last = status.snapshot_index;
+            if last.is_some_and(|index| index >= through_index) {
+                return Ok(status);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Err(format!(
+        "publication voter at {address} snapshot reached {last:?}, expected {through_index}"
+    ))
+}
+
+async fn wait_for_purge(address: &str, through_index: u64) -> Result<NodeStatus, String> {
+    let mut last = None;
+    for _ in 0..RETRY_ATTEMPTS {
+        if let Ok(status) = control::<_, NodeStatus>(address, STATUS, &()).await {
+            last = status.purged_index;
+            if last.is_some_and(|index| index >= through_index) {
+                return Ok(status);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Err(format!(
+        "publication voter at {address} purge reached {last:?}, expected {through_index}"
+    ))
+}
+
+async fn wait_cluster_applied(
+    addresses: &BTreeMap<NodeId, String>,
+    leader_address: &str,
+) -> Result<u64, String> {
+    let leader = control::<_, NodeStatus>(leader_address, STATUS, &()).await?;
+    let expected = leader.last_log_index.unwrap_or(0);
+    let mut observed = BTreeMap::new();
+    for _ in 0..RETRY_ATTEMPTS {
+        let _: Result<(), String> = control(leader_address, HEARTBEAT, &()).await;
+        observed.clear();
+        for (node_id, address) in addresses {
+            if let Ok(status) = control::<_, NodeStatus>(address, STATUS, &()).await {
+                observed.insert(*node_id, status.last_applied_index.unwrap_or(0));
+            }
+        }
+        if observed.len() == addresses.len()
+            && observed.values().all(|applied| *applied >= expected)
+        {
+            return Ok(expected);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Err(format!(
+        "publication voters did not converge through log index {expected}: {observed:?}"
+    ))
 }
 
 async fn control<Req, Resp>(address: &str, kind: u8, request: &Req) -> Result<Resp, String>

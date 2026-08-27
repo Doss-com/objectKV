@@ -1,11 +1,13 @@
 //! Per-node stable journal for a consensus log adapter.
 //!
-//! The journal is append-only at the file layer. Logical truncation and purge
-//! are themselves durable records, so restart reconstructs the exact Raft log
-//! state without editing an acknowledged history in place.
+//! The journal is append-only between compactions. Logical truncation and purge
+//! are themselves durable records. A later canonical compaction rewrites the
+//! current vote, committed marker, purge marker, and retained suffix through an
+//! atomic same-directory replacement.
 
+pub use okv_log::PurgeMarker as JournalMarker;
+use okv_log::{LogCommand, LogEntry, LogError, LogState};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{self, Display};
 use std::fs::{self, File, OpenOptions};
@@ -18,6 +20,7 @@ const JOURNAL_VERSION: u16 = 1;
 const JOURNAL_HEADER_BYTES: usize = 4 + 2 + 1 + 1 + 4;
 const JOURNAL_CHECKSUM_BYTES: usize = 32;
 const MAX_RECORD_BODY_BYTES: usize = 64 * 1024 * 1024;
+const COMPACTION_FILE_NAME: &str = "raft.journal.compact";
 
 const KIND_VOTE: u8 = 1;
 const KIND_COMMITTED: u8 = 2;
@@ -28,20 +31,20 @@ const KIND_PURGE: u8 = 5;
 const FLAG_NONE: u8 = 0;
 const FLAG_SOME: u8 = 1;
 
-/// A durable log identifier retained after its entry bytes are purged.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct JournalMarker {
-    pub index: u64,
-    pub payload: Vec<u8>,
-}
-
 /// Reconstructed state owned by one consensus node.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct JournalState {
     vote: Option<Vec<u8>>,
     committed: Option<Vec<u8>>,
-    last_purged: Option<JournalMarker>,
-    entries: BTreeMap<u64, Vec<u8>>,
+    log: LogState,
+}
+
+/// Physical result of one canonical node-journal compaction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct JournalCompaction {
+    pub before_bytes: u64,
+    pub after_bytes: u64,
+    pub reclaimed_bytes: u64,
 }
 
 impl JournalState {
@@ -60,15 +63,13 @@ impl JournalState {
     /// Greatest durably purged log identifier.
     #[must_use]
     pub fn last_purged(&self) -> Option<&JournalMarker> {
-        self.last_purged.as_ref()
+        self.log.last_purged()
     }
 
     /// Last retained entry, if any.
     #[must_use]
     pub fn last_entry(&self) -> Option<(u64, &[u8])> {
-        self.entries
-            .last_key_value()
-            .map(|(index, payload)| (*index, payload.as_slice()))
+        self.log.last_entry()
     }
 
     /// Copy retained entries in the requested half-open or inclusive range.
@@ -77,9 +78,10 @@ impl JournalState {
     where
         R: RangeBounds<u64>,
     {
-        self.entries
-            .range(range)
-            .map(|(index, payload)| (*index, payload.clone()))
+        self.log
+            .entries_clamped(range)
+            .into_iter()
+            .map(|entry| (entry.index, entry.payload))
             .collect()
     }
 }
@@ -177,6 +179,11 @@ impl NodeJournal {
             file.set_len(u64::try_from(valid_bytes).unwrap_or(u64::MAX))?;
             file.sync_all()?;
         }
+        let compaction_path = root.join(COMPACTION_FILE_NAME);
+        if compaction_path.exists() {
+            fs::remove_file(&compaction_path)?;
+            sync_directory(root)?;
+        }
         Ok(Self {
             path,
             state,
@@ -217,6 +224,9 @@ impl NodeJournal {
     ///
     /// Returns an error when the record cannot be written and synchronized.
     pub fn save_vote(&mut self, payload: &[u8]) -> Result<(), JournalError> {
+        if payload.is_empty() {
+            return Err(JournalError::InvalidRecord("empty vote"));
+        }
         self.persist(&Record::Vote(payload.to_vec()))
     }
 
@@ -226,6 +236,9 @@ impl NodeJournal {
     ///
     /// Returns an error when the record cannot be written and synchronized.
     pub fn save_committed(&mut self, payload: Option<&[u8]>) -> Result<(), JournalError> {
+        if payload.is_some_and(<[u8]>::is_empty) {
+            return Err(JournalError::InvalidRecord("empty committed identity"));
+        }
         self.persist(&Record::Committed(payload.map(<[u8]>::to_vec)))
     }
 
@@ -261,7 +274,64 @@ impl NodeJournal {
     ///
     /// Returns an error for a regressing marker or failed durable IO.
     pub fn purge(&mut self, marker: JournalMarker) -> Result<(), JournalError> {
+        if marker.payload.is_empty() {
+            return Err(JournalError::InvalidRecord("empty purge identity"));
+        }
         self.persist(&Record::Purge(marker))
+    }
+
+    /// Replace obsolete journal history with one canonical encoding of the
+    /// current state.
+    ///
+    /// The existing journal remains authoritative until the replacement file
+    /// is fully written and synchronized. The same-directory rename is then
+    /// synchronized through the parent directory. A crash before rename leaves
+    /// an ignorable temporary file; a crash after rename leaves the same
+    /// reconstructed state under a smaller physical history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when canonical encoding, durable IO, or replacement
+    /// fails. The in-memory state is never advanced by compaction.
+    pub fn compact(&mut self) -> Result<JournalCompaction, JournalError> {
+        let before_bytes = self.physical_bytes()?;
+        let records = canonical_records(&self.state);
+        let mut bytes = Vec::new();
+        for record in &records {
+            bytes.extend_from_slice(&encode_record(record)?);
+        }
+        let (replayed, valid_bytes, torn) = replay(&bytes)?;
+        if torn || valid_bytes != bytes.len() || replayed != self.state {
+            return Err(JournalError::InvalidRecord(
+                "canonical compaction changed reconstructed state",
+            ));
+        }
+
+        let root = self.path.parent().ok_or(JournalError::InvalidRecord(
+            "journal path has no parent directory",
+        ))?;
+        let compaction_path = root.join(COMPACTION_FILE_NAME);
+        if compaction_path.exists() {
+            fs::remove_file(&compaction_path)?;
+            sync_directory(root)?;
+        }
+        let mut replacement = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&compaction_path)?;
+        replacement.write_all(&bytes)?;
+        replacement.sync_all()?;
+        drop(replacement);
+        fs::rename(&compaction_path, &self.path)?;
+        sync_directory(root)?;
+
+        let after_bytes = self.physical_bytes()?;
+        self.recovered_torn_tail = false;
+        Ok(JournalCompaction {
+            before_bytes,
+            after_bytes,
+            reclaimed_bytes: before_bytes.saturating_sub(after_bytes),
+        })
     }
 
     fn persist(&mut self, record: &Record) -> Result<(), JournalError> {
@@ -286,6 +356,30 @@ impl NodeJournal {
         self.recovered_torn_tail = false;
         Ok(())
     }
+}
+
+fn canonical_records(state: &JournalState) -> Vec<Record> {
+    let mut records = Vec::new();
+    if let Some(vote) = &state.vote {
+        records.push(Record::Vote(vote.clone()));
+    }
+    if let Some(committed) = &state.committed {
+        records.push(Record::Committed(Some(committed.clone())));
+    }
+    if let Some(marker) = state.log.last_purged() {
+        records.push(Record::Purge(marker.clone()));
+    }
+    records.extend(
+        state
+            .log
+            .entries_clamped(..)
+            .into_iter()
+            .map(|entry| Record::Append {
+                index: entry.index,
+                payload: entry.payload,
+            }),
+    );
+    records
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -357,91 +451,38 @@ fn replay(bytes: &[u8]) -> Result<(JournalState, usize, bool), JournalError> {
     Ok((state, offset, false))
 }
 
-fn validate_append(state: &JournalState, entries: &[(u64, Vec<u8>)]) -> Result<(), JournalError> {
-    let mut expected = state
-        .last_entry()
-        .map(|(index, _)| index.saturating_add(1))
-        .or_else(|| {
-            state
-                .last_purged()
-                .map(|marker| marker.index.saturating_add(1))
-        });
-    for (index, payload) in entries {
-        if payload.len().saturating_add(8) > MAX_RECORD_BODY_BYTES {
-            return Err(JournalError::PayloadTooLarge(payload.len()));
-        }
-        if let Some(want) = expected {
-            if *index != want {
-                return Err(JournalError::NonConsecutive {
-                    expected: want,
-                    actual: *index,
-                });
-            }
-        }
-        expected = Some(index.saturating_add(1));
-    }
-    Ok(())
-}
-
 fn plan_append(
     state: &JournalState,
     entries: &[(u64, Vec<u8>)],
 ) -> Result<Vec<Record>, JournalError> {
-    let entries = if let Some(purged) = state.last_purged() {
-        let first_live = entries.partition_point(|(index, _)| *index <= purged.index);
-        &entries[first_live..]
-    } else {
-        entries
-    };
-    if entries.is_empty() {
-        return Ok(Vec::new());
-    }
-    let first = entries
-        .first()
-        .map(|(index, _)| *index)
-        .ok_or(JournalError::InvalidRecord("empty append batch"))?;
-    let mut expected = first;
-    for (index, payload) in entries {
-        if *index != expected {
-            return Err(JournalError::NonConsecutive {
-                expected,
-                actual: *index,
-            });
-        }
-        if payload.len().saturating_add(8) > MAX_RECORD_BODY_BYTES {
-            return Err(JournalError::PayloadTooLarge(payload.len()));
-        }
-        expected = expected.saturating_add(1);
-    }
-
-    let mut records = Vec::with_capacity(entries.len().saturating_add(1));
-    if let Some((last, _)) = state.last_entry() {
-        if first <= last {
-            records.push(Record::Truncate { from: first });
-        } else {
-            let wanted = last.saturating_add(1);
-            if first != wanted {
-                return Err(JournalError::NonConsecutive {
-                    expected: wanted,
-                    actual: first,
-                });
+    let proposed = entries
+        .iter()
+        .map(|(index, payload)| LogEntry {
+            index: *index,
+            payload: payload.clone(),
+        })
+        .collect::<Vec<_>>();
+    state
+        .log
+        .plan_suffix_append(&proposed)
+        .map_err(|error| map_log_error(&error))?
+        .into_iter()
+        .map(|command| match command {
+            LogCommand::Append(entry) => {
+                if entry.payload.len().saturating_add(8) > MAX_RECORD_BODY_BYTES {
+                    return Err(JournalError::PayloadTooLarge(entry.payload.len()));
+                }
+                Ok(Record::Append {
+                    index: entry.index,
+                    payload: entry.payload,
+                })
             }
-        }
-    } else if let Some(purged) = state.last_purged() {
-        let wanted = purged.index.saturating_add(1);
-        if first != wanted {
-            return Err(JournalError::NonConsecutive {
-                expected: wanted,
-                actual: first,
-            });
-        }
-    }
-
-    records.extend(entries.iter().map(|(index, payload)| Record::Append {
-        index: *index,
-        payload: payload.clone(),
-    }));
-    Ok(records)
+            LogCommand::TruncateSuffix { from } => Ok(Record::Truncate { from }),
+            LogCommand::PurgePrefix(_) => Err(JournalError::InvalidRecord(
+                "append planner returned a purge command",
+            )),
+        })
+        .collect()
 }
 
 fn apply_record(state: &mut JournalState, record: Record) -> Result<(), JournalError> {
@@ -449,53 +490,49 @@ fn apply_record(state: &mut JournalState, record: Record) -> Result<(), JournalE
         Record::Vote(payload) => state.vote = Some(payload),
         Record::Committed(payload) => state.committed = payload,
         Record::Append { index, payload } => {
-            validate_append(state, &[(index, payload.clone())])?;
-            state.entries.insert(index, payload);
+            state
+                .log
+                .apply_all(&[LogCommand::Append(LogEntry { index, payload })])
+                .map_err(|error| map_log_error(&error))?;
         }
         Record::Truncate { from } => {
-            if let Some(purged) = state.last_purged.as_ref() {
-                if from <= purged.index {
-                    return Err(JournalError::TruncatePurged {
-                        from,
-                        purged: purged.index,
-                    });
-                }
-            }
-            let removed = state
-                .entries
-                .range(from..)
-                .map(|(index, _)| *index)
-                .collect::<Vec<_>>();
-            for index in removed {
-                state.entries.remove(&index);
-            }
+            state
+                .log
+                .apply_all(&[LogCommand::TruncateSuffix { from }])
+                .map_err(|error| map_log_error(&error))?;
         }
         Record::Purge(marker) => {
-            if let Some(current) = state.last_purged.as_ref() {
-                if marker.index < current.index {
-                    return Err(JournalError::PurgeRegression {
-                        current: current.index,
-                        proposed: marker.index,
-                    });
-                }
-                if marker.index == current.index && marker.payload != current.payload {
-                    return Err(JournalError::InvalidRecord(
-                        "purge marker changed at the same index",
-                    ));
-                }
-            }
-            let removed = state
-                .entries
-                .range(..=marker.index)
-                .map(|(index, _)| *index)
-                .collect::<Vec<_>>();
-            for index in removed {
-                state.entries.remove(&index);
-            }
-            state.last_purged = Some(marker);
+            state
+                .log
+                .apply_all(&[LogCommand::PurgePrefix(marker)])
+                .map_err(|error| map_log_error(&error))?;
         }
     }
     Ok(())
+}
+
+fn map_log_error(error: &LogError) -> JournalError {
+    match error {
+        LogError::NonConsecutive { expected, actual } => JournalError::NonConsecutive {
+            expected: *expected,
+            actual: *actual,
+        },
+        LogError::TruncatePurged { from, purged } => JournalError::TruncatePurged {
+            from: *from,
+            purged: *purged,
+        },
+        LogError::PurgeRegression { current, proposed } => JournalError::PurgeRegression {
+            current: *current,
+            proposed: *proposed,
+        },
+        LogError::ConflictingPurge { .. } => {
+            JournalError::InvalidRecord("purge marker changed at the same index")
+        }
+        LogError::IndexExhausted { .. } => JournalError::InvalidRecord("log index exhausted"),
+        LogError::InvalidRange { .. } | LogError::PositionExpired { .. } => {
+            JournalError::InvalidRecord("ordered-log read error during journal mutation")
+        }
+    }
 }
 
 fn encode_record(record: &Record) -> Result<Vec<u8>, JournalError> {
@@ -679,6 +716,45 @@ mod tests {
     }
 
     #[test]
+    fn empty_vote_is_rejected_before_any_bytes_are_written() {
+        let root = TempDir::new("empty-vote");
+        let mut journal = NodeJournal::open(&root.0).unwrap();
+
+        assert!(matches!(
+            journal.save_vote(&[]),
+            Err(JournalError::InvalidRecord("empty vote"))
+        ));
+        assert_eq!(journal.physical_bytes().unwrap(), 0);
+    }
+
+    #[test]
+    fn empty_committed_identity_is_rejected_before_write() {
+        let root = TempDir::new("empty-committed");
+        let mut journal = NodeJournal::open(&root.0).unwrap();
+
+        assert!(matches!(
+            journal.save_committed(Some(&[])),
+            Err(JournalError::InvalidRecord("empty committed identity"))
+        ));
+        assert_eq!(journal.physical_bytes().unwrap(), 0);
+    }
+
+    #[test]
+    fn empty_purge_identity_is_rejected_before_write() {
+        let root = TempDir::new("empty-purge");
+        let mut journal = NodeJournal::open(&root.0).unwrap();
+
+        assert!(matches!(
+            journal.purge(JournalMarker {
+                index: 1,
+                payload: Vec::new(),
+            }),
+            Err(JournalError::InvalidRecord("empty purge identity"))
+        ));
+        assert_eq!(journal.physical_bytes().unwrap(), 0);
+    }
+
+    #[test]
     fn journal_v1_compatibility_fixture_is_dual_readable() {
         let fixture = decode_hex(include_str!("../fixtures/node-journal-v1.hex"));
         let encoded = encode_record(&Record::Append {
@@ -693,6 +769,228 @@ mod tests {
         fs::write(&path, fixture).unwrap();
         let journal = NodeJournal::open(&root.0).unwrap();
         assert_eq!(journal.state().entries(..), vec![(1, b"entry".to_vec())]);
+    }
+
+    #[test]
+    fn every_writable_record_kind_round_trips_through_the_decoder() {
+        let records = [
+            Record::Vote(b"vote".to_vec()),
+            Record::Committed(None),
+            Record::Committed(Some(b"committed".to_vec())),
+            Record::Append {
+                index: 7,
+                payload: b"entry".to_vec(),
+            },
+            Record::Truncate { from: 7 },
+            Record::Purge(JournalMarker {
+                index: 6,
+                payload: b"purged".to_vec(),
+            }),
+        ];
+
+        for record in records {
+            let frame = encode_record(&record).unwrap();
+            let checksum_offset = frame.len() - JOURNAL_CHECKSUM_BYTES;
+            assert_eq!(
+                decode_record(
+                    frame[6],
+                    frame[7],
+                    &frame[JOURNAL_HEADER_BYTES..checksum_offset]
+                ),
+                Ok(record)
+            );
+        }
+    }
+
+    #[test]
+    fn raw_history_corpus_freezes_pre_refactor_replay_behavior() {
+        let accepted = decode_hex(include_str!(
+            "../fixtures/node-journal-accepted-history-v1.hex"
+        ));
+        let (state, valid_bytes, torn) = replay(&accepted).unwrap();
+        assert_eq!(valid_bytes, accepted.len());
+        assert!(!torn);
+        assert_eq!(state.vote(), Some(b"vote-3-node-1".as_slice()));
+        assert_eq!(state.committed(), Some(b"log-1".as_slice()));
+        assert_eq!(
+            state.last_purged(),
+            Some(&JournalMarker {
+                index: 1,
+                payload: b"log-1-new".to_vec(),
+            })
+        );
+        assert_eq!(state.entries(..), vec![(2, b"entry-2-new".to_vec())]);
+
+        let gap = decode_hex(include_str!("../fixtures/node-journal-reject-gap-v1.hex"));
+        assert!(matches!(
+            replay(&gap),
+            Err(JournalError::NonConsecutive {
+                expected: 1,
+                actual: 2
+            })
+        ));
+
+        let truncate_purged = decode_hex(include_str!(
+            "../fixtures/node-journal-reject-truncate-purged-v1.hex"
+        ));
+        assert!(matches!(
+            replay(&truncate_purged),
+            Err(JournalError::TruncatePurged { from: 1, purged: 1 })
+        ));
+
+        let purge_regression = decode_hex(include_str!(
+            "../fixtures/node-journal-reject-purge-regression-v1.hex"
+        ));
+        assert!(matches!(
+            replay(&purge_regression),
+            Err(JournalError::PurgeRegression {
+                current: 2,
+                proposed: 1
+            })
+        ));
+
+        let purge_conflict = decode_hex(include_str!(
+            "../fixtures/node-journal-reject-purge-conflict-v1.hex"
+        ));
+        assert!(matches!(
+            replay(&purge_conflict),
+            Err(JournalError::InvalidRecord(
+                "purge marker changed at the same index"
+            ))
+        ));
+    }
+
+    #[test]
+    fn expired_append_batch_writes_nothing_and_straddling_batch_writes_only_live_entries() {
+        let root = TempDir::new("purge-filter");
+        let mut journal = NodeJournal::open(&root.0).unwrap();
+        journal
+            .purge(JournalMarker {
+                index: 1,
+                payload: b"marker-one".to_vec(),
+            })
+            .unwrap();
+        let after_purge = journal.physical_bytes().unwrap();
+
+        journal
+            .append(&[(0, b"zero".to_vec()), (1, b"one".to_vec())])
+            .unwrap();
+        assert_eq!(journal.physical_bytes().unwrap(), after_purge);
+
+        let expected_live_frame = encode_record(&Record::Append {
+            index: 2,
+            payload: b"two".to_vec(),
+        })
+        .unwrap();
+        journal
+            .append(&[
+                (0, b"zero".to_vec()),
+                (1, b"one".to_vec()),
+                (2, b"two".to_vec()),
+            ])
+            .unwrap();
+        assert_eq!(
+            journal.physical_bytes().unwrap(),
+            after_purge + u64::try_from(expected_live_frame.len()).unwrap()
+        );
+        assert_eq!(journal.state().entries(..), vec![(2, b"two".to_vec())]);
+    }
+
+    #[test]
+    fn durable_prefix_of_suffix_replacement_is_replayable() {
+        let root = TempDir::new("replacement-prefix");
+        let mut journal = NodeJournal::open(&root.0).unwrap();
+        journal
+            .append(&[
+                (0, b"zero".to_vec()),
+                (1, b"one-old".to_vec()),
+                (2, b"two-old".to_vec()),
+            ])
+            .unwrap();
+        let path = journal.path().to_path_buf();
+        let replacement = plan_append(
+            journal.state(),
+            &[(1, b"one-new".to_vec()), (2, b"two-new".to_vec())],
+        )
+        .unwrap();
+        assert!(matches!(replacement[0], Record::Truncate { from: 1 }));
+        let durable_prefix = encode_record(&replacement[0]).unwrap();
+        drop(journal);
+
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(&durable_prefix).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+
+        let mut reopened = NodeJournal::open(&root.0).unwrap();
+        assert_eq!(reopened.state().entries(..), vec![(0, b"zero".to_vec())]);
+        reopened
+            .append(&[(1, b"one-new".to_vec()), (2, b"two-new".to_vec())])
+            .unwrap();
+        assert_eq!(
+            reopened.state().entries(..),
+            vec![
+                (0, b"zero".to_vec()),
+                (1, b"one-new".to_vec()),
+                (2, b"two-new".to_vec()),
+            ]
+        );
+    }
+
+    #[test]
+    fn canonical_compaction_reclaims_obsolete_history_and_reopens_exactly() {
+        let root = TempDir::new("compact");
+        let mut journal = NodeJournal::open(&root.0).unwrap();
+        journal.save_vote(b"vote-7-node-1").unwrap();
+        journal.save_committed(Some(b"log-255")).unwrap();
+        let original = (0_u64..256)
+            .map(|index| (index, vec![b'o'; 1_024]))
+            .collect::<Vec<_>>();
+        journal.append(&original).unwrap();
+        journal.truncate(128).unwrap();
+        let replacement = (128_u64..256)
+            .map(|index| (index, vec![b'n'; 1_024]))
+            .collect::<Vec<_>>();
+        journal.append(&replacement).unwrap();
+        journal
+            .purge(JournalMarker {
+                index: 223,
+                payload: b"log-223".to_vec(),
+            })
+            .unwrap();
+        let expected = journal.state().clone();
+
+        let outcome = journal.compact().unwrap();
+
+        assert_eq!(
+            outcome.before_bytes,
+            outcome.after_bytes + outcome.reclaimed_bytes
+        );
+        assert!(outcome.reclaimed_bytes > 300_000);
+        assert_eq!(journal.state(), &expected);
+        drop(journal);
+
+        let reopened = NodeJournal::open(&root.0).unwrap();
+        assert_eq!(reopened.state(), &expected);
+        assert_eq!(reopened.physical_bytes().unwrap(), outcome.after_bytes);
+    }
+
+    #[test]
+    fn stale_compaction_file_is_ignored_after_authoritative_replay() {
+        let root = TempDir::new("stale-compaction");
+        let mut journal = NodeJournal::open(&root.0).unwrap();
+        journal.save_vote(b"authoritative-vote").unwrap();
+        drop(journal);
+        let compaction_path = root.0.join(COMPACTION_FILE_NAME);
+        fs::write(&compaction_path, b"uncommitted replacement").unwrap();
+
+        let reopened = NodeJournal::open(&root.0).unwrap();
+
+        assert_eq!(
+            reopened.state().vote(),
+            Some(b"authoritative-vote".as_slice())
+        );
+        assert!(!compaction_path.exists());
     }
 
     fn decode_hex(value: &str) -> Vec<u8> {

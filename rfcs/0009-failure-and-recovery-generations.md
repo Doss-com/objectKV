@@ -200,6 +200,48 @@ insufficient evidence.
   resolver, WAL, worker, object-store, and coordinator faults.
 - Safety and post-fault liveness are separate hard gates.
 
+## Independent-machine eval boundary
+
+`[CODE-COMPLETE]` The independent-machine controller boundary reuses the exact
+G0.4 transaction history and independent oracle on three externally managed
+data machines plus a fourth controller machine. It does not replace the
+semantic workload with a cloud smoke test. The G5.2 infrastructure execution is
+`[PROPOSED]` until the resident and object-leverage gates justify the cloud run.
+
+The machine configuration names exactly three node IDs and binds each to:
+
+- one distinct non-loopback IP endpoint;
+- one absolute stable-storage root;
+- one distinct machine identity;
+- one distinct failure-domain identity.
+
+The controller machine and failure-domain identities must differ from every
+data-node identity. These fields are topology attestations recorded in the
+receipt, not proof by themselves. The infrastructure receipt must additionally
+name the cloud project, zone, instance identity, disk identity and type,
+filesystem, source revision, binary digest, and lifecycle-hook digest from
+provider observations.
+
+The controller invokes one bounded lifecycle hook with four actions:
+
+```text
+prepare NODE_ID PROCESS_NODE_CONFIG_JSON
+start   NODE_ID PROCESS_NODE_CONFIG_JSON
+kill    NODE_ID
+cleanup NODE_ID
+```
+
+`prepare` clears only the declared per-run root before a fresh replay. `start`
+may start a stopped machine and then starts the exact node binary without
+clearing its root. `kill` must remove the declared machine failure domain, not
+merely close a client connection. `cleanup` stops residual test processes but
+does not delete evidence or unrelated storage. Every action has a declared
+timeout and fails closed on a nonzero exit.
+
+The machine runner hashes the complete topology configuration and hook bytes,
+runs each seed twice, and requires equal topology and semantic digests. Cloud
+credentials never enter the configuration, command history, or receipt.
+
 ## Compatibility and migration
 
 Simulation trace schema, scenario ID, dependency lock hash, and source commit are

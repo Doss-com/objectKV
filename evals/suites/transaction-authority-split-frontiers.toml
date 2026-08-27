@@ -1,0 +1,88 @@
+schema_version = 1
+id = "transaction-authority-split-frontiers-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0027-retained-transaction-stream.md",
+  "../../rfcs/0028-bounded-transaction-authority-state.md",
+  "../../rfcs/0029-split-transaction-authority-frontiers.md",
+]
+dataset_generator = "fixed-live-key-split-frontier-authority-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 32768
+key_count = 256
+seeds = [1103, 2207, 3301]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 180
+repeats = 1
+backend = "data-openraft-local-process"
+authority_nodes = 3
+commit_checkpoints = [256, 1024, 4096]
+max_projected_growth_ratio = 2
+resolver_frontier = "latest_committed_version_at_checkpoint"
+retry_frontier = "latest_request_id_for_workload_client_at_checkpoint"
+object_frontier = "non_mutating_projection_equals_commit_frontier"
+snapshot_codec = "state-machine-json-v2"
+
+[[lanes]]
+id = "transaction-authority-split-frontiers"
+primary_metric = "authority.snapshot_growth_ratio"
+statistic = "maximum"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "aligned-r-q-o-frontiers"
+lane = "transaction-authority-split-frontiers"
+operation = "transaction_authority_split_state_scale_contract"
+value_bytes = 128
+
+[[workloads]]
+id = "object-frontier-only-control"
+lane = "transaction-authority-split-frontiers"
+operation = "transaction_authority_split_state_scale_contract"
+subject = "object_frontier_only"
+value_bytes = 128
+
+[[workloads]]
+id = "serving-only-accounting-poison"
+lane = "transaction-authority-split-frontiers"
+operation = "transaction_authority_split_state_scale_contract"
+negative_control = "serving_only_accounting"
+value_bytes = 128
+
+[hard_gates]
+correctness_anomalies = 0
+authority_processes = 3
+live_keys = 256
+value_bytes = 128
+lifetime_commit_checkpoints = [256, 1024, 4096]
+conflict_frontier_equals_checkpoint_commit = true
+retry_frontier_equals_checkpoint_request = true
+expired_retry_fails_closed = true
+ideal_projection_does_not_mutate_retained_stream = true
+complete_authority_state_accounted = true
+fresh_controller_replay_is_exact = true
+projected_snapshot_growth_at_most_2x = true
+object_frontier_only_control_exceeds_2x = true
+serving_only_accounting_poison_detected = true
+schema_valid = true
+budget_must_hold = true

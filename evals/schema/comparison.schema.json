@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/comparison.schema.json",
+  "title": "objectKV paired benchmark comparison",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "created_at",
+    "program",
+    "gate",
+    "gate_status",
+    "claim",
+    "falsifier",
+    "candidate",
+    "control",
+    "metric",
+    "practical_improvement_fraction",
+    "observed",
+    "comparability_checks",
+    "verdict",
+    "reason"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "program": { "type": "string", "minLength": 1 },
+    "gate": { "type": "string", "minLength": 1 },
+    "gate_status": {
+      "enum": ["code_complete", "verified", "evaluating", "proposed", "future"]
+    },
+    "claim": { "type": "string", "minLength": 1 },
+    "falsifier": { "type": "string", "minLength": 1 },
+    "candidate": { "$ref": "#/$defs/subject" },
+    "control": { "$ref": "#/$defs/subject" },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "unit", "statistic", "direction"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string", "minLength": 1 },
+        "statistic": { "type": "string", "minLength": 1 },
+        "direction": { "enum": ["higher", "lower"] }
+      }
+    },
+    "practical_improvement_fraction": { "type": "number", "minimum": 0 },
+    "observed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_value",
+        "control_value",
+        "directional_delta_fraction",
+        "directional_delta_percent",
+        "candidate_noise_fraction",
+        "control_noise_fraction",
+        "noise_floor_fraction",
+        "decisive_effect_fraction"
+      ],
+      "properties": {
+        "candidate_value": { "type": "number" },
+        "control_value": { "type": "number" },
+        "directional_delta_fraction": { "type": "number" },
+        "directional_delta_percent": { "type": "number" },
+        "candidate_noise_fraction": { "type": "number", "minimum": 0 },
+        "control_noise_fraction": { "type": "number", "minimum": 0 },
+        "noise_floor_fraction": { "type": "number", "minimum": 0 },
+        "decisive_effect_fraction": { "type": "number", "minimum": 0 }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "candidate_metric",
+          "control_metric",
+          "unit",
+          "direction",
+          "max_regression_fraction",
+          "candidate_value",
+          "control_value",
+          "candidate_to_control_ratio",
+          "directional_delta_fraction",
+          "passed"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "candidate_metric": { "type": "string", "minLength": 1 },
+          "control_metric": { "type": "string", "minLength": 1 },
+          "unit": { "type": "string", "minLength": 1 },
+          "direction": { "enum": ["higher", "lower"] },
+          "max_regression_fraction": { "type": "number", "minimum": 0 },
+          "candidate_value": { "type": "number" },
+          "control_value": { "type": "number" },
+          "candidate_to_control_ratio": { "type": "number" },
+          "directional_delta_fraction": { "type": "number" },
+          "passed": { "type": "boolean" }
+        }
+      }
+    },
+    "comparability_checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "passed", "detail"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "passed": { "type": "boolean" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "verdict": { "enum": ["better", "worse", "inconclusive", "invalid"] },
+    "reason": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "batch_id",
+        "suite",
+        "suite_hash",
+        "profile",
+        "profile_hash",
+        "backend",
+        "candidate_commit",
+        "value",
+        "median",
+        "mad",
+        "samples"
+      ],
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1 },
+        "batch_id": { "type": ["string", "null"], "minLength": 1 },
+        "suite": { "type": "string", "minLength": 1 },
+        "suite_hash": { "type": "string", "minLength": 1 },
+        "profile": { "type": "string", "minLength": 1 },
+        "profile_hash": { "type": "string", "minLength": 1 },
+        "backend": { "type": "string", "minLength": 1 },
+        "candidate_commit": { "type": "string", "minLength": 7 },
+        "value": { "type": "number" },
+        "median": { "type": "number" },
+        "mad": { "type": "number", "minimum": 0 },
+        "samples": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

@@ -131,7 +131,7 @@ selected.
 
 ## D11. Development cloud boundary
 
-Status: `[ACTIVE-WORK]`.
+Status: `[EVALUATING]`.
 
 Decision: provision a DOSS-owned Google Cloud project with display name
 `objectKV-dev`, one protected single-region GCS eval bucket, and a keyless runner
@@ -175,7 +175,7 @@ workload-specific materialization and compatibility proof.
 
 ## D14. Deterministic simulation order
 
-Status: `[ACTIVE-WORK]` after the first independent review.
+Status: `[EVALUATING]` after the first independent review.
 
 Decision: build an exact, seeded, virtual-time simulation harness before the
 replicated WAL. Every distributed component must run under it, and a failing
@@ -522,3 +522,610 @@ isolated mechanisms constitute a complete cell.
 
 Evidence: `docs/research/overnight-strategy-audit-2026-08-22.md` and the three
 pinned architecture, physical, and PostgreSQL/HTAP reviews.
+
+## D32. Put ordered-log algebra below WAL policy without changing WAL bytes
+
+Status: `[DECIDED]` for the first reusable log slice, 2026-08-25.
+
+Decision: `okv-log` owns only deterministic partition-local ordered records,
+explicit truncate-plus-append suffix replacement, prefix purge, replay, and
+exact versus clamped reads. `okv-wal` retains physical framing, checksums,
+filesystem synchronization, vote and committed metadata, quorum policy,
+fencing, and acknowledgement. `NodeJournal` validates a cloned state before it
+writes, then preserves the existing `OKVR` byte format.
+
+Optimizes for: one reusable semantic waist for recovery logs and future
+transactional streams, prefix-closed crash recovery, and byte-compatible WAL
+refactoring.
+
+Gives up: one abstraction that claims physical durability, consensus,
+application retention, consumer coordination, and object-tier replay. Those
+remain separate layers and future proofs.
+
+Evidence: RFC-0024, `docs/LOG-ARCHITECTURE.md`, the 2026-08-25 Fable
+cross-examination, frozen accepted and rejected `OKVR` histories, and the
+`okv-log` plus `okv-wal` behavioral suites.
+
+## D33. Separate SSD and RAM serving from durable acknowledgement
+
+Status: `[PROPOSED]` after the memory and blob architecture review, 2026-08-25.
+
+Decision: expose `ssd_resident` and `ram_resident` behind one `ServingImage`
+contract. SSD uses a bounded disposable RocksDB image; RAM uses a bounded DRAM
+image with no data files or swap. Select serving profile by range and keep it
+orthogonal to the tenant transaction domain's durability profile. A volatile
+memory quorum may report `BUFFERED`, but never `COMMITTED`; synchronous object
+acknowledgement and an external durable journal remain explicit alternatives.
+
+Optimizes for: a capacity-efficient SSD default, an optional lowest-latency RAM
+profile, profile changes without permanent-byte movement, and a clean memory
+versus blob architecture without misrepresenting replicated DRAM as durability.
+
+Gives up: one undifferentiated hot tier. RAM pays more per resident byte and may
+lose availability or latency during hydration; SSD spends local I/O maintaining
+a disposable LSM. Removing stable media from the entire cell either weakens
+acknowledgement, adds object latency, or introduces a separate durable journal.
+
+Evidence required: RFC-0025, `hot-profile-point-v1`, matched RAM-backed and NVMe
+RocksDB controls, bidirectional profile transition, pressure poisons, indexed
+cold lookup, and a failure matrix that destroys or restarts the volatile quorum.
+
+## D34. Track one golden scenario without optimizing one golden score
+
+Status: `[PROPOSED]` after the cross-surface eval review, 2026-08-25.
+
+Decision: define one `GoldenPathScenario` with a frozen generator, seeds,
+architecture surfaces, checkpoint DAG, and artifact handoffs. Each checkpoint
+is covered by one or more independent `EvalGate` entries. Each `EvalLane` keeps
+one primary metric and hard gates. A verified component receipt does not verify
+the golden path unless it carries the same scenario identity and required
+artifact digests.
+
+Optimizes for: finding where one logical history stops composing across kernel,
+durability, object publication, serving, distribution, application logs, Redis,
+search, PostgreSQL, HTAP, and economics while retaining honest per-lane metrics.
+
+Gives up: one campaign score and the convenience of treating unrelated green
+component tests as end-to-end evidence. The shared scenario adds artifact and
+identity plumbing to every participating runner.
+
+Evidence required: `objectkv-golden-path-v1`, validator poison tests, one
+schema-valid receipt per checkpoint with a common scenario identity, and an
+independent reconstruction of the artifact chain.
+
+## D35. Use Tetris as the first executable application boundary
+
+Status: `[CODE-COMPLETE]` for the developer playground, 2026-08-25.
+
+Decision: freeze `objectkv-boundary-v0` around snapshot point and range reads,
+one mutation transaction, stable request identity, a commit receipt, and one
+associated application record. Run the example on the real `okv-model` MVCC
+oracle and `okv-log` state machine. Keep the topology single-process and
+in-memory until the example teaches us which client boundary should graduate
+into the networked kernel.
+
+Optimizes for: rapid application-driven iteration over transactions, MVCC,
+ordered key layout, replay, and branching without hiding missing infrastructure
+behind a demo service.
+
+Gives up: durability, replication, conflict resolution, RPC, object
+publication, and performance evidence. The example must label those omissions
+and cannot be cited as a verified database-system result.
+
+Evidence: `examples/okv-tetris/FROZEN-API-v0.md` and the scripted compile,
+commit, snapshot, recovery, and branch smoke path. The local browser adapter
+renders a minimal playfield and live kernel-proof panel over that same boundary
+without a mock storage backend.
+
+## D36. Reject monolithic transaction-authority state
+
+Status: `[CODE-COMPLETE]` for the first Cell v0 split-state prototype,
+2026-08-26. Real-process scale evidence remains `[EVALUATING]`.
+
+Decision: do not implement object-frontier safe pop on the current
+`StateMachineData` shape. Separate user values, OCC conflict history, retry
+outcomes and fingerprints, and recovery commands behind four explicit
+reclamation frontiers. The transaction path keeps the same strict-serializable
+client contract, but serving state owns values, resolver state expires below the
+minimum admitted read version, retry state expires below a declared retry floor,
+and the txLog pops only through an authenticated object-durable frontier.
+
+Optimizes for: bounded authority snapshots, independent scaling of serving and
+conflict resolution, an honest retry window, and a safe relationship between
+objectification and recovery-log reclamation.
+
+Gives up: the implementation simplicity of one replicated state machine owning
+the complete database, every conflict record, every retry result, and every
+recovery command. The split introduces explicit frontier coordination and more
+failure boundaries before the native transaction authority can be admitted.
+
+Evidence: RFC-0028, suite hash `5b456689`, candidate run `93989e1c` at 9.172x,
+no-pop control `e0eb9535` at 12.005x, and rejected retained-only poison
+`3f64dcd0` at 1.000x with nine accounting anomalies.
+
+## D37. Keep split-frontier state, reject current commit-path speed
+
+Status: `[EVALUATING]` after the G4.6 local real-process diagnostic,
+2026-08-26.
+
+Decision: retain the RFC-0029 state split. The replicated frontier command
+advances the resolver floor `R` and per-client retry floors `Q(client)` while
+the object frontier `O` remains a non-mutating projection. Do not treat the
+flat state curve as transaction-path admission. The current sequential,
+sync-per-entry OpenRaft process path failed its 180-second execution budget and
+requires a separately frozen commit-batching or group-commit experiment.
+
+Optimizes for: state bounded by live keys, admitted transaction age, retry
+window, and recovery lag instead of lifetime commits; stale reads and expired
+retries fail closed; the next safe-pop protocol has one explicit object-only
+frontier to authenticate.
+
+Gives up: unlimited transaction age and retry age. The first split still places
+all owners in one snapshot, leaves client-floor cardinality unbounded, and
+offers no evidence that the current commit hot path is economically usable.
+
+Evidence: RFC-0029; G4.6 candidate run `ed9c894b` at 1.0029x; object-only
+control `3e68f55e` at 9.1694x; rejected serving-only poison `b8e1a531` at
+1.0028x with nine anomalies. The candidate took 545.726 seconds, so the result
+is not verified.
+
+## D38. Authenticate the object frontier before physical txLog pop
+
+Status: `[CODE-COMPLETE]` for the Cell v0 protocol and local six-process
+implementation. Real-process receipts remain `[EVALUATING]`.
+
+Decision: retain one exact immutable manifest as a pending publication root
+before the data authority can advance object frontier `O`. The controller must
+validate every named manifest, index, and data object before proposing the
+physical pop. Publication activation then requires a distinct data-voter quorum
+certificate over the exact frontier, generation, membership, and applied log
+position.
+
+Optimizes for: bounded recovery-stream state without putting object-store I/O
+on the foreground commit path, plus a crash invariant that always retains an
+object closure covering the persisted txLog floor.
+
+Gives up: a single-authority transition and automatic cancellation of a stuck
+pending frontier. Cell v0 temporarily retains both old and pending closures and
+requires a signed cross-authority handshake.
+
+Evidence: RFC-0030; candidate run `f314d6e1` physically popped 16 records,
+persisted floor 18, recovered exact object state, and passed both authority
+leader failovers plus data-voter restart. Missing-pending run `e3467af2` and
+forged-coverage run `7bbf3d7e` rejected before pop. Subquorum run `5bfbd653`
+left the pending frontier protected after pop. All four receipts share suite
+hash `40b1d296` and remain diagnostic because the source tree was dirty.
+
+## D39. Discard bounded concurrency as the final group-commit mechanism
+
+Status: `[EVALUATING]` after the G4.8 dirty-source local release diagnostic,
+2026-08-26. The implementation and instrumentation are `[CODE-COMPLETE]`.
+
+Decision: retain bounded concurrent submission as a load-control and pipelining
+primitive, but do not call it objectKV group commit. Advance to an explicit
+commit-proxy batch entry that preserves independent request fingerprints,
+per-transaction ordered outcomes, exact retries, and deterministic conflict
+semantics inside one quorum-durable Raft entry.
+
+Optimizes for: removing the measured leader one-sync-per-transaction bottleneck
+without weakening quorum acknowledgement, strict serializability, or retry
+recovery.
+
+Gives up: a wire-format-free throughput fix. A batch entry adds a new command
+and recovery contract, plus a bounded delay or count policy at the commit proxy.
+
+Evidence: RFC-0031; candidate run `a27fd93c` reached 153.708 median durable
+transactions per second and 264.887 ms maximum p99. Sequential control
+`8e964ea9` reached 38.772 transactions per second, so the gain was 3.964x.
+The candidate missed the frozen 200 transaction per second, 250 ms, and 4x
+paired gates. Per-voter trace `candidate-trace-4801.json` recorded one entry per
+leader append while both followers grouped 10.667 entries per append. Early-ack
+run `69fa1b90` reported 3,400.389 apparent transactions per second but lost the
+acknowledged transaction after quorum recovery and was correctly discarded.
+
+## D40. Keep the explicit transaction-batch entry
+
+Status: `[CODE-COMPLETE]` mechanism with `[EVALUATING]` dirty-source local
+release receipts, 2026-08-26.
+
+Decision: retain RFC-0032's bounded transaction batch as the Cell v0 commit-
+proxy primitive. Transactions in one batch share a scalar snapshot commit
+version and receive distinct 16-bit batch orders. Each retains its own request
+fingerprint, conflict result, durable outcome, retry path, and recovery record.
+
+Optimizes for: amortizing leader consensus and stable-log synchronization while
+preserving independent short-transaction semantics and one exact database
+snapshot boundary.
+
+Gives up: one Raft entry per transaction and scalar-version uniqueness. The
+ordered transaction versionstamp is now `(commit_version, batch_order)`, and
+the retained-stream cursor must carry both components.
+
+Evidence: G4.9 candidate `0f50aeae` reached 559.511 median durable transactions
+per second, 34.016 ms maximum p99, and 16 logical transactions per leader
+append. Same-durability one-entry control `0a891a4a` reached 151.944
+transactions per second, a 3.682x paired gain. Duplicate-identity control
+`e12401cb` rejected before mutation. Early-ack poison `13ab1d24` appeared to
+reach 13,179.572 transactions per second but lost every acknowledged outcome
+after recovered-quorum election and was discarded. All receipts share suite
+hash `c34b47eb` and remain diagnostic because the tree was dirty and all voters
+shared one host.
+
+## D41. Retain a 32-item bounded commit proxy for the next stress gate
+
+Status: `[CODE-COMPLETE]` mechanism with `[EVALUATING]` dirty-source local
+release receipts, 2026-08-26.
+
+Decision: discard the 16-item, 64-caller G4.10a configuration because its
+131.488 ms maximum p99 missed the frozen 100 ms ceiling. Retain the distinct
+32-item, 64-caller G4.10a.1 configuration as the local Cell v0 candidate for
+conflict and object-frontier stress. Thirty-two items is an experiment
+envelope, not a stable public limit or an adaptive production policy.
+
+Optimizes for: starting from independent client requests, bounding queue, byte,
+and delay growth, amortizing leader synchronization, and returning explicit
+backpressure before replication.
+
+Gives up: zero queueing delay and a smaller maximum entry. A fixed 32-item
+policy may be wrong under skewed values, conflicts, tenants, or remote media;
+those curves remain falsifiers rather than tuning follow-ups.
+
+Evidence: the discarded G4.10a run `1002a622` reached 581.791 median
+transactions per second but 131.488 ms maximum p99. G4.10a.1 run `be37cc6b`
+reached 1,157.369 transactions per second, 76.101 ms maximum p99, and 32
+transactions per leader append. Same-durability one-entry run `cbe29754`
+reached 182.093 transactions per second, a 6.356x paired gain. Sparse, byte,
+overload, and oversized-request controls passed their scoped gates. All
+receipts remain diagnostic because the tree was dirty and all voters shared
+one host.
+
+## D42. Emit compact v2 transaction wire while retaining v1 reads
+
+Status: `[CODE-COMPLETE]` format mechanism with `[EVALUATING]` local byte
+receipt, 2026-08-26.
+
+Decision: encode opaque key, value, range, and nested payload bytes as unpadded
+base64 in `OKVT2`, `OKVQ2`, and `OKVB2`. Continue to decode the corresponding
+v1 integer-array formats and derive retry identity from transaction semantics,
+not serialized generation bytes.
+
+Optimizes for: removing bootstrap JSON integer-array amplification without
+making an unreviewed binary codec the persistent compatibility boundary.
+
+Gives up: zero-copy decode and final wire efficiency. Base64 still adds roughly
+one third to opaque bytes and requires a later versioned binary codec if entry
+bytes or CPU become the measured bottleneck.
+
+Evidence: v1 and v2 fixtures plus malformed-base64, semantic retry, batch,
+recovery, failover, and restart tests. The 128 KiB byte control moved from one
+8 KiB-value transaction in an 89,097 byte v1 entry to eight transactions in a
+119,731 byte v2 entry without crossing the cap.
+
+## D43. Retain concurrent commit plus authenticated objectification
+
+Status: `[CODE-COMPLETE]` mechanism with `[EVALUATING]` dirty-source local
+release receipts, 2026-08-26.
+
+Decision: retain the 32-item native transaction-authority composition after
+G4.10b. Freeze object coverage at `O`, keep admitting independent transactions,
+and recover final `C` from `ObjectState(O) + txLog(O,C]`. Do not move the
+foreground acknowledgement boundary to object storage.
+
+Optimizes for: quorum-latency commits, portable permanent objects, exact
+conflict outcomes, and disposal or replacement of serving compute without a
+second database truth.
+
+Gives up: immediate production or durability claims. The retained composition
+still depends on a fixed local batch policy, one host, local object files, and
+an internal OpenRaft journal whose physical byte reclamation is not yet proven.
+
+Evidence: candidate run `2c89ebe1` reached 1,075.343 median resolved outcomes
+per second, 104.274 ms maximum p99, 31.030 minimum logical outcomes per leader
+append, and 95.673 ms maximum object-frontier time. Same-durability one-entry
+run `30471b68` reached 37.369 outcomes per second, a 28.776x paired gain.
+No-conflict run `95b5d388` reached 1,093.306 outcomes per second. The 75%
+conflict curve and both unsafe controls remained exact. All receipts are local
+and inconclusive because the tree was dirty, OTel was disabled, and both
+quorums shared one host.
+
+## D44. Require durable state snapshots before physical Raft-log reclamation
+
+Status: `[CODE-COMPLETE]` crash-safe state snapshot, guarded purge, and
+canonical node-journal compaction; `[EVALUATING]` local process composition,
+2026-08-26.
+
+Decision: freeze RFC-0036 as the next Cell v0 admission gate. A voter may
+compact its append-only node journal only after a checksummed state-machine
+snapshot durably covers the requested purge position and has reopened exactly.
+The first independent-media topology uses three hosts, each collocating one
+data voter and one publication voter on separate persistent roots. One host
+loss must leave both quorums available. GCS remains asynchronous permanent
+state and is not part of foreground acknowledgement.
+
+Optimizes for: proving that repeated object-frontier advancement actually
+bounds local recovery media while preserving exact host-loss recovery.
+
+Gives up: treating application-level txLog pop as sufficient reclamation. It
+also adds snapshot write amplification and an explicit maintenance protocol
+that must be rate-limited against foreground commits.
+
+Evidence: `NodeJournal::compact` constructs one canonical vote, committed
+marker, purge marker, and retained suffix; synchronizes a same-directory
+replacement; atomically renames it; synchronizes the parent directory; and
+ignores a pre-rename stale replacement after authoritative replay. The state
+machine writes a checksummed `OKVS` snapshot through synchronized atomic
+replacement, validates snapshot metadata against encoded state, and fails
+closed on corruption. Process purge rejects any target not covered by the
+local durable snapshot.
+
+G4.11a candidate run `7eeaa179` stopped and reopened all three voters with
+exact state, retained stream, retry, and new suffix behavior. It reduced at
+most 6,391,575 journal bytes to 879 bytes. Poison run `8fb8a75a` rejected purge
+before snapshot without moving bytes or markers. Both local receipts remain
+`[EVALUATING]` because the source was dirty, OTel was disabled, and the voters
+shared one host.
+
+## D45. Reject unfrontiered snapshots as the bounded Cell v0 state shape
+
+Status: `[CODE-COMPLETE]` frontiered process composition with `[EVALUATING]`
+dirty-source local receipts; current snapshot encoding discarded, 2026-08-26.
+
+Decision: retain the G4.11a snapshot and journal maintenance protocol, but do
+not carry its unfrontiered snapshot shape into G4.11b. Before independent
+media, run four real process cycles that align resolver floor `R`, a bounded
+64-request retry window `Q(client)`, and authenticated object frontier `O`,
+then snapshot and purge through the resulting applied position.
+
+Optimizes for: discovering whether permanent object advancement actually
+bounds every local state owner, not only the physical Raft journal.
+
+Gives up: moving directly to three GCP machines after the first successful
+restart. It adds one local falsifier because remote topology cannot repair a
+lifetime-sized snapshot.
+
+Evidence: G4.11a's journals collapsed to 879 bytes, but the three snapshots
+totaled at most 5,066,472 bytes for 131,072 logical workload bytes. The
+`storage.amplification` maximum was 38.66082x. The frozen G4.11a.1 suite caps
+snapshot plus retained journal amplification at 8x, caps cycle-four snapshot
+bytes at 1.25x cycle one, and requires exact expired and retained retry
+semantics across a full-quorum restart. Failure requires snapshot-state or
+codec redesign before independent-media execution.
+
+G4.11a.1 candidate `be53d36c` aligned `R`, a 64-request `Q(client)` window,
+and authenticated `O` across four complete snapshot, purge, compaction, and
+full-quorum restart cycles. It preserved exact retry and object-plus-suffix
+reconstruction with zero correctness anomalies. Its 1.091759x maximum snapshot
+growth passed the 1.25x gate, but 19.692719x maximum complete physical media
+missed the 8x gate. No-retry-frontier control `9b236c46` grew to 54.803467x and
+2.195933x, proving that `Q(client)` is necessary. Accounting poison `829e35c4`
+reported 0.05365x while independent accounting found 19.692719x and rejected
+the omission. The aligned frontier mechanism remains; the replicated snapshot
+representation is not admitted.
+
+## D46. Evaluate one manifested multi-layout LSM before G4.11b
+
+Status: `[EVALUATING]` architecture fork, 2026-08-26.
+
+Decision: do not redefine objectKV as a Parquet database and do not make
+consumers invent the primary point-read path. Before independent-media
+execution, compare the current row-object control with a manifested
+multi-layout LSM: row-oriented L0 deltas, random-access columnar L1 and lower
+runs, one primary-key access path, and one authenticated object closure.
+
+The logical permanent state remains:
+
+```text
+ManifestedObjectState(O) + txLog(O, C]
+```
+
+The physical encoding may vary by level and typed namespace. Opaque KV ranges
+remain eligible for a row format. A typed PostgreSQL or table namespace may use
+a columnar compacted base only if its point-read and update curves pass the
+same-contract controls.
+
+Optimizes for: one commit history, one object frontier, one branchable object
+closure, and a chance to serve both exact primary-key reads and DataFusion
+scans without maintaining a separate analytical base.
+
+Gives up: treating one file format as a universal abstraction. It introduces
+format-aware compaction, a primary row-address or covering-index lifecycle,
+and a larger read-path surface. If point reads require excessive object
+requests, bytes, or index RAM, the row transactional base remains the admitted
+shape and columnar files stay derived.
+
+Evidence: G4.11a.1 bounded lifetime growth but failed complete-media economics.
+Apache Paimon demonstrates primary-key LSM tables over columnar objects, while
+its PFile proposal documents the scaling cost of converting columnar files for
+KV lookup. RisingWave retains row-based Hummock for point and update workloads.
+Lance and Vortex provide random-access columnar mechanisms worth measuring.
+The owning research note is
+`docs/research/columnar-lsm-source-of-truth-2026-08-26.md`.
+
+The first `[EVALUATING]` 1,024-key local preflight kept exact semantics across
+the indexed row, indexed Parquet, and hybrid subjects. Parquet reached 1.873x
+the row control's projected scan rate, but its full-row point path used 10
+requests and 16.35x the response bytes per operation. The hybrid used four
+requests and 1.925x the row control's stored/live amplification. This rejects
+plain Parquet as the generic point path, but does not yet decide Vortex,
+coalesced range reads, a typed sidecar design, the frozen full profile, or GCS.
+
+## D47. Admit the split typed run to GCS evaluation, not to the kernel default
+
+Status: `[EVALUATING]` mechanism admitted locally, 2026-08-26.
+
+Decision: keep the indexed row object as the default representation for opaque
+KV ranges. Advance one typed-run subject to clean-source GCS evaluation. That
+subject stores the complete MVCC value once in an indexed row sidecar and
+stores only declared analytical fields in a columnar projection. One active
+manifest authenticates both access paths as one object closure.
+
+Optimizes for: row-control point requests and bytes, typed projected scans,
+complete media accounting, and one branchable history without an external ETL
+copy.
+
+Gives up: the claim that one purely columnar file is sufficient for every
+access pattern. Typed fields are duplicated, compaction must publish both
+representations atomically, and the nested closure increases index and
+manifest state.
+
+Evidence: release-local run `f5dbba62-0f47-46af-8bb7-d1f7efa6a353`
+alternated the candidate and row control across three seeds and three repeats.
+It returned a 1.000x point-request ratio, 1.000x point-byte ratio, 1.033x median
+point-p99 ratio, 9.124x projected-scan throughput, 1.030x storage-amplification
+ratio, 1.035x compaction-write ratio, and 1.137x resident-index ratio. Every
+frozen local gate passed. The source was dirty and the backend was local, so
+the result remains `[EVALUATING]`.
+
+Next decision boundary: admit the typed run only after clean-source GCS cold
+and warm curves, exact split-closure recovery, and DataFusion base-plus-tail
+exactness. Namespaced GCS execution and its frozen suite are `[CODE-COMPLETE]`;
+the objectKV-dev project and bucket execute bounded canaries, but the full
+alternating storage-layout suite remains `[EVALUATING]` until bounded parallel
+scheduling and OTel replace the serial request path. A GCS failure retains the
+row base and demotes the projection to a derived analytical artifact.
+
+## D48. Publish lane-specific comparisons, not a stack headline
+
+Status: `[CODE-COMPLETE]` comparison contract, 2026-08-26.
+
+Decision: every performance or economics claim names one program gate, paired
+control, primary metric, direction, practical threshold, and comparison scope.
+Reject a comparison when hardware, build, seed, metric, hard-gate, or sample
+identity does not match. Direct RocksDB is a serving-mechanism control. It is
+not a durability-equivalent replacement for a TiKV solution control.
+
+Optimizes for: percentages that retain their semantic meaning and can be
+reproduced by another contributor.
+
+Gives up: one early score that claims objectKV is globally faster or cheaper
+than an incumbent. The project will carry several curves until a complete
+matched solution stack is runnable.
+
+Evidence boundary: `okv-eval compare-results` emits the frozen
+`comparison.schema.json` receipt and requires at least five samples for a
+performance verdict. No cross-stack result is `[VERIFIED]` yet.
+
+## D49. Prove the single-runner object and serving curves before R1
+
+Status: `[CODE-COMPLETE]` infrastructure contract with `[EVALUATING]` live
+execution, 2026-08-26.
+
+Decision: begin real-infrastructure work with one private, fixed-shape GCP
+runner and a separate OTel collector. Run candidate and control sequentially on
+the same machine. Add the three-zone transaction topology only after the R0
+curves reproduce.
+
+Optimizes for: finding object request, read amplification, cache, recovery, and
+columnar-layout failures at the lowest cost and smallest operational surface.
+
+Gives up: R0 cannot prove quorum latency, voter-failure availability, or
+independent failure domains. Those remain R1 gates, not inferred properties.
+
+The owning runbook and failure matrix are `docs/REAL-INFRA-EVALS.md`.
+
+## D50. Put disposable serving images behind the public range
+
+Status: `[CODE-COMPLETE]` contract with `[EVALUATING]` performance, 2026-08-27.
+
+Decision: put one provider-neutral `ServingImage` activation and point-read
+boundary below `SingleRange`. Integrate RocksDB on bounded disposable local
+media first, then implement the RAM profile against the same contract. Keep
+durability profile, serving profile, and immutable object layout as separate
+configuration axes.
+
+Optimizes for: measuring the actual public kernel without making RocksDB part of
+the permanent format or forcing the RAM profile through an SSD abstraction.
+
+Gives up: partial admission, range iteration, incremental tail application, and
+profile handoff in the first interface. These remain separate gates rather than
+speculative methods.
+
+Evidence required: RFC-0039, a public `SingleRange` candidate and direct RocksDB
+control in optimized separate processes, zero object operations after complete
+activation, bounded local bytes, exact reads, required poisons, and a provider
+device receipt before using the word NVMe in a performance claim.
+
+Current evidence: dirty debug run `56535944` passed exact reconstruction,
+worker replacement, bounded activation, 100,000 public point reads, and zero
+post-activation object operations. It reached 824,252 reads/s and 1,583 ns p99
+on a local arm64 filesystem. This is `[EVALUATING]`; it has no optimized build,
+ABBA sample set, OTel export, or isolated provider-runner receipt. The local
+scratch volume is backed by a named Apple SSD AP1024Z NVMe device.
+
+## D51. Move resident correctness to transitions, not every point lookup
+
+Status: `[VERIFIED]` bounded experiment completed, 2026-08-27.
+
+Decision: stop incremental optimization of the current `SingleRange` resident
+read wrapper. Materialize the authoritative object base plus visible txLog
+suffix into a native resident engine. Verify generation, coverage, closure, and
+frontier at activation or transition boundaries, then let the engine own the
+steady-state point lookup. Reuse `okv-log`, publication, reconstruction,
+branching, and historical views across resident engines.
+
+Optimizes for: direct-engine p99, one materialized resident state, and a clean
+separation between lifecycle correctness and the steady-state read data plane.
+
+Gives up: a provider-neutral external overlay on every point read. Each
+resident engine needs an explicit MVCC encoding, suffix-application, frontier,
+and crash-recovery contract. A direct engine path is admitted only after it
+returns the same exact versions and survives empty-worker reconstruction.
+
+Evidence: optimization run 1 moved complete-image access ahead of manifest
+location. Candidate throughput improved 11.18 percent from the prior clean
+run. AB retained 80.68 percent of direct RocksDB throughput and BA retained
+80.02 percent, both inside the frozen 20 percent envelope. P99 remained 1.353x
+and 1.300x control, failing the executable limit in both orders. All mechanism,
+identity, and OTel gates passed. See
+`docs/artifacts/eval-receipts/single-range-ssd-gcp-r1-2026-08-27/README.md`.
+
+Result: the native engine passed exact replay, snapshot, generation, local-byte,
+and zero-object-read checks. It retained 84.11 and 82.68 percent of owned-value
+direct RocksDB throughput, but p99 was 1.210x and 1.272x control. Both process
+orders failed the frozen 1.20x p99 ceiling. See
+`docs/artifacts/eval-receipts/single-range-native-resident-gcp-r2-2026-08-27/README.md`.
+
+## D52. Stop owning the resident transaction plane
+
+Status: `[VERIFIED]` decision trigger with `[EVALUATING]` provider selection,
+2026-08-27.
+
+Decision: stop expanding the custom RocksDB resident engine into a distributed
+transaction system. Preserve it as an executable correctness prototype. Put an
+incumbent TiKV or FoundationDB plane below objectKV's retained log and object
+lifecycle, then select between them with a bounded adapter and matched-infra
+evaluation. Do not advance GP3.2 RAM, MultiRaft, PostgreSQL, or HTAP performance
+before that selection.
+
+```text
+PostgreSQL | Redis | search | virtual filesystem | DataFusion
+                            |
+            objectKV version and lifecycle contract
+       okv-log | okv-wal | publication | branch | rebuild
+                            |
+              TiKV or FoundationDB resident plane
+                            |
+                     RAM/NVMe serving state
+```
+
+Optimizes for: reaching the object-native product thesis without rebuilding
+Raft storage, MVCC, range scheduling, compaction, backup, and production failure
+handling before objectKV has demonstrated lifecycle leverage.
+
+Gives up: a fully objectKV-owned transaction kernel and the ability to tune its
+steady-state local read path below the incumbent API. The retained object layer
+must prove value through open history, cheap branches, empty-worker recovery,
+independent compute, exact DataFusion snapshots, or economics.
+
+Evidence: the original wrapper appeared to carry a 30 to 35 percent p99 tax
+against a pinned-slice control. Correcting the control to owned 1 KiB values
+reduced that diagnostic ratio to 1.092x, showing that ownership semantics were
+a material benchmark confounder. The separate native implementation still
+failed the corrected p99 gate in both final process orders. Its throughput
+passed, correctness anomalies were zero, and all four final run IDs appear in
+OTel logs, metrics, and traces.
+
+Next decision boundary: freeze the minimal plane interface, implement the same
+single-range objectification and rebuild adapter against TiKV and FoundationDB,
+and compare operational fit before selecting one. This is a provider choice,
+not authorization to rebuild either system inside objectKV.

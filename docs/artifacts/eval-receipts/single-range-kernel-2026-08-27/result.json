@@ -1,0 +1,95 @@
+{
+  "artifact_refs": [
+    "okv-eval://serving-recovery-openraft-v1/integrated_kernel_candidate/1103/80a34828a140c8e2b5922a9df8b5cc9109be4f0ca2f7c2866e1448597af7191f",
+    "docs/artifacts/eval-receipts/single-range-kernel-2026-08-27/result.json"
+  ],
+  "backend": "object-store-local-fs+authority-openraft+data-openraft",
+  "batch_id": "74b29fe1-5b46-4cd1-923a-ee548a2f780c",
+  "budget": {
+    "kind": "seconds",
+    "limit": 120.0,
+    "observed": 1.844010041
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-27T05:42:18.709323+00:00",
+  "hard_gates": [
+    { "id": "correctness_failures", "status": "pass" },
+    { "id": "workload_execution", "status": "pass" },
+    { "id": "budget_must_hold", "status": "pass" },
+    { "id": "schema_valid", "status": "pass" },
+    {
+      "detail": "batch_cursor_resumes=5",
+      "id": "versionstamp_cursor_preserves_shared_commit_version",
+      "status": "pass"
+    },
+    {
+      "detail": "publication=3,data=3,workers=2,kills=1",
+      "id": "six_authority_processes_and_empty_replacement",
+      "status": "pass"
+    },
+    {
+      "detail": "initial=11,activation=15,concurrent=4",
+      "id": "two_frozen_catchup_rounds_while_commits_continue",
+      "status": "pass"
+    },
+    {
+      "detail": "applied=4/4",
+      "id": "required_concurrent_suffix_applied",
+      "status": "pass"
+    },
+    {
+      "detail": "stream_requests=7,payload_bytes=4403,path_accesses=0",
+      "id": "no_physical_raft_journal_access",
+      "status": "pass"
+    },
+    {
+      "detail": "anomalies=0",
+      "id": "exact_set_clear_insert_and_clear_range",
+      "status": "pass"
+    },
+    {
+      "detail": "manifest=1,index=1,range=1,full=0,list=0",
+      "id": "bounded_named_object_path",
+      "status": "pass"
+    },
+    {
+      "detail": "80a34828a140c8e2b5922a9df8b5cc9109be4f0ca2f7c2866e1448597af7191f",
+      "id": "fresh_process_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "single-range-kernel",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0,
+    "median": 0.123002125,
+    "name": "okv.eval.recovery.first_correct_read_duration",
+    "samples": [0.123002125],
+    "statistic": "p99",
+    "unit": "s",
+    "value": 0.123002125
+  },
+  "profile": {
+    "hash": "a740977ce6ab040629b35734a314ef2a92a8fc79f0542c4c746a901c1f42c99a",
+    "id": "local-fs",
+    "lockfile_hash": "ca2aa519ffb323883a44f44de7eb6568935a611cf3dba43d002e5d5b43bbb98d",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "74b29fe1-5b46-4cd1-923a-ee548a2f780c",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 1.844010041,
+    "serving_recovery_openraft.correctness_anomalies": 0.0,
+    "serving_recovery_openraft.exact_replay": 1.0,
+    "serving_recovery_openraft.first_read_seconds.median": 0.123002125,
+    "serving_recovery_openraft.object_response_bytes.median": 6177.0,
+    "serving_recovery_openraft.txlog_payload_bytes.median": 4403.0
+  },
+  "seeds": [1103],
+  "suite": "single-range-kernel-v1",
+  "suite_hash": "9a214673398bb44c7be3fe8770c713458867dd6384a00affbd6aca12f468ad54",
+  "verdict": "inconclusive"
+}

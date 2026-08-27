@@ -1,0 +1,39 @@
+<header class="hero">
+  <div class="meta">
+    <span>objectKV</span>
+    <span>Product specification</span>
+    <span>Architecture review</span>
+  </div>
+  <h1>{{TITLE}}</h1>
+  <p class="hero-lede">{{LEDE}}</p>
+  <div class="status-row" aria-label="Document status">
+    <span class="badge status-active">EVALUATING</span>
+    <span class="badge">Value-native kernel</span>
+    <span class="badge">Page-native PostgreSQL proof</span>
+  </div>
+</header>
+
+<section class="decision-strip" aria-labelledby="current-call-title">
+  <div>
+    <p class="eyebrow">Current architectural call</p>
+    <h2 id="current-call-title">The kernel is not page-native</h2>
+  </div>
+  <p>objectKV owns ordered keys, opaque value bytes, versions, transactions, and recovery. The first PostgreSQL adapter stores PostgreSQL pages as values so PostgreSQL keeps its existing semantics. Row-native PostgreSQL remains a separate future compute decision.</p>
+</section>
+
+<div class="document-grid">
+  <aside class="toc-panel" aria-label="Table of contents">
+    <p class="eyebrow">Contents</p>
+    <nav class="toc">
+      {{TOC}}
+    </nav>
+  </aside>
+  <article class="content">
+    {{CONTENT}}
+  </article>
+</div>
+
+<footer>
+  <span>Canonical source: docs/PRODUCT-SPEC.md</span>
+  <span>Generated from the current working tree</span>
+</footer>

@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="objectKV product specification and architecture review">
+  <title>objectKV product specification</title>
+  <style>
+:root {
+  color-scheme: light;
+  --ds-background-100: hsl(0, 0%, 100%);
+  --ds-background-200: hsl(0, 0%, 98%);
+  --ds-gray-100: hsl(0, 0%, 95%);
+  --ds-gray-200: hsl(0, 0%, 92%);
+  --ds-gray-300: hsl(0, 0%, 90%);
+  --ds-gray-400: hsl(0, 0%, 92%);
+  --ds-gray-500: hsl(0, 0%, 79%);
+  --ds-gray-600: hsl(0, 0%, 46%);
+  --ds-gray-700: hsl(0, 0%, 42%);
+  --ds-gray-900: hsl(0, 0%, 30%);
+  --ds-gray-1000: hsl(0, 0%, 9%);
+  --ds-gray-alpha-100: #0000000a;
+  --ds-gray-alpha-200: #0000000f;
+  --ds-gray-alpha-300: #00000017;
+  --ds-gray-alpha-400: #00000014;
+  --ds-gray-alpha-500: #00000026;
+  --ds-accent-700: hsl(212, 100%, 54%);
+  --ds-accent-900: hsl(211, 100%, 42%);
+  --ds-amber-700: hsl(39, 100%, 57%);
+  --ds-amber-900: hsl(32, 92%, 36%);
+  --ds-green-700: hsl(131, 41%, 46%);
+  --ds-green-900: hsl(131, 51%, 34%);
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--ds-background-100);
+  color: var(--ds-gray-900);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: var(--ds-accent-900); text-decoration: none; }
+a:hover { text-decoration: underline; }
+main { max-width: 1360px; margin: 0 auto; padding: 48px 40px 64px; }
+
+.hero { max-width: 980px; padding: 40px 0 48px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--ds-gray-600); font-size: 12px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
+h1 { margin: 20px 0 20px; max-width: 860px; color: var(--ds-gray-1000); font-size: clamp(36px, 5vw, 56px); font-weight: 600; line-height: 1.05; letter-spacing: -.035em; }
+.hero-lede { margin: 0; max-width: 880px; color: var(--ds-gray-900); font-size: 18px; line-height: 1.6; }
+.status-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.badge { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 9px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 9999px; background: var(--ds-gray-alpha-200); color: var(--ds-gray-900); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.status-active { border-color: color-mix(in srgb, var(--ds-accent-700) 32%, transparent); background: color-mix(in srgb, var(--ds-accent-700) 8%, transparent); color: var(--ds-accent-900); }
+
+.decision-strip { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(320px, 1.4fr); gap: 40px; align-items: start; margin-bottom: 64px; padding: 24px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; background: var(--ds-background-200); }
+.decision-strip h2 { margin: 4px 0 0; }
+.decision-strip p:last-child { margin: 0; font-size: 15px; color: var(--ds-gray-900); }
+.eyebrow { margin: 0; color: var(--ds-gray-600); font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; }
+
+.document-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 64px; align-items: start; }
+.toc-panel { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow: auto; padding: 4px 0 24px; }
+.toc { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; }
+.toc a { display: grid; grid-template-columns: 28px 1fr; gap: 6px; padding: 6px 8px; border-radius: 4px; color: var(--ds-gray-900); font-size: 12px; line-height: 1.35; }
+.toc a:hover { background: var(--ds-gray-alpha-100); color: var(--ds-gray-1000); text-decoration: none; }
+.toc .num { color: var(--ds-gray-600); font-variant-numeric: tabular-nums; }
+
+.content { min-width: 0; max-width: 940px; }
+.content > h2 { margin: 72px 0 20px; padding-top: 8px; color: var(--ds-gray-1000); font-size: 28px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; }
+.content > h2:first-child { margin-top: 0; }
+.content h3 { margin: 44px 0 16px; color: var(--ds-gray-1000); font-size: 19px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; }
+.section-anchor { display: inline-block; min-width: 38px; margin-right: 8px; color: var(--ds-gray-600); font-family: var(--mono); font-size: 13px; font-weight: 400; letter-spacing: 0; vertical-align: 3px; }
+.content p { margin: 0 0 16px; }
+.content ul, .content ol { margin: 0 0 20px; padding-left: 22px; }
+.content li { margin: 6px 0; }
+.content strong { color: var(--ds-gray-1000); font-weight: 600; }
+
+code { border: 1px solid var(--ds-gray-alpha-400); border-radius: 4px; background: var(--ds-gray-100); padding: 2px 5px; color: var(--ds-gray-1000); font-family: var(--mono); font-size: 12.5px; }
+pre { overflow: auto; margin: 20px 0; border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; background: var(--ds-background-200); padding: 16px; }
+pre > code { display: block; border: 0; background: transparent; padding: 0; line-height: 1.55; }
+
+.table-shell { overflow-x: auto; margin: 20px 0 28px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; background: var(--ds-background-100); }
+th { padding: 9px 12px; border-bottom: 1px solid var(--ds-gray-alpha-400); background: var(--ds-background-200); color: var(--ds-gray-900); font-size: 12px; font-weight: 500; line-height: 1.35; text-align: left; vertical-align: bottom; }
+td { padding: 11px 12px; border-bottom: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-900); font-size: 13px; line-height: 1.5; vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--ds-gray-alpha-100); }
+
+.audit-status { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: 9999px; font-size: 10px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.audit-unaudited { border: 1px solid color-mix(in srgb, var(--ds-amber-700) 34%, transparent); background: color-mix(in srgb, var(--ds-amber-700) 9%, transparent); color: var(--ds-amber-900); }
+.audit-audited { border: 1px solid color-mix(in srgb, var(--ds-green-700) 32%, transparent); background: color-mix(in srgb, var(--ds-green-700) 8%, transparent); color: var(--ds-green-900); }
+.state-token { display: inline-flex; align-items: center; min-height: 20px; margin: 0 2px; padding: 1px 6px; border-radius: 9999px; background: var(--ds-gray-alpha-200); color: var(--ds-gray-900); font-size: 10px; font-weight: 500; letter-spacing: .03em; white-space: nowrap; }
+.state-proposed { border: 1px solid color-mix(in srgb, var(--ds-amber-700) 30%, transparent); background: color-mix(in srgb, var(--ds-amber-700) 7%, transparent); color: var(--ds-amber-900); }
+.state-verified { border: 1px solid color-mix(in srgb, var(--ds-green-700) 28%, transparent); background: color-mix(in srgb, var(--ds-green-700) 7%, transparent); color: var(--ds-green-900); }
+.state-code-complete { border: 1px solid color-mix(in srgb, var(--ds-accent-700) 28%, transparent); background: color-mix(in srgb, var(--ds-accent-700) 7%, transparent); color: var(--ds-accent-900); }
+.state-evaluating { border: 1px solid color-mix(in srgb, var(--ds-amber-700) 30%, transparent); background: color-mix(in srgb, var(--ds-amber-700) 7%, transparent); color: var(--ds-amber-900); }
+
+.architecture-diagram { margin: 24px 0 32px; padding: 24px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; background: var(--ds-background-200); }
+.flow-stack { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.flow-node { padding: 12px 16px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 4px; background: var(--ds-background-100); color: var(--ds-gray-1000); font-size: 13px; font-weight: 500; text-align: center; }
+.flow-node small { display: block; margin-top: 2px; color: var(--ds-gray-600); font-size: 11px; font-weight: 400; }
+.flow-arrow { color: var(--ds-gray-600); font-size: 18px; line-height: 1; text-align: center; }
+.node-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.node-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.flow-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: flow-step; }
+.flow-steps li { min-height: 112px; margin: 0; padding: 12px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 4px; background: var(--ds-background-100); color: var(--ds-gray-900); font-size: 12px; line-height: 1.45; counter-increment: flow-step; }
+.flow-steps li::before { content: counter(flow-step, decimal-leading-zero); display: block; margin-bottom: 10px; color: var(--ds-accent-900); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tier-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tier { padding: 14px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 4px; background: var(--ds-background-100); }
+.tier .tier-num { color: var(--ds-accent-900); font-size: 11px; font-weight: 500; }
+.tier h4 { margin: 6px 0 4px; color: var(--ds-gray-1000); font-size: 13px; font-weight: 600; }
+.tier p { margin: 0; color: var(--ds-gray-600); font-size: 11.5px; line-height: 1.45; }
+.diagram-caption { margin: 12px 0 0; color: var(--ds-gray-600); font-size: 12px; text-align: center; }
+
+footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-600); font-size: 11px; }
+
+@media (max-width: 980px) {
+  main { padding: 32px 24px 48px; }
+  .document-grid { grid-template-columns: 1fr; gap: 40px; }
+  .toc-panel { position: static; max-height: none; padding: 16px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; }
+  .toc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flow-steps, .tier-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  main { padding: 24px 16px 40px; }
+  .hero { padding-top: 24px; }
+  .decision-strip { grid-template-columns: 1fr; gap: 12px; }
+  .toc, .node-grid, .node-grid.three, .flow-steps, .tier-grid { grid-template-columns: 1fr; }
+  .content > h2 { font-size: 24px; }
+  footer { flex-direction: column; }
+}
+
+@media print {
+  *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+  body { background: var(--ds-background-100) !important; color: var(--ds-gray-1000) !important; }
+  main { max-width: none; padding: .5in; }
+  .toc-panel { position: static; max-height: none; }
+  .document-grid { grid-template-columns: 1fr; }
+  .architecture-diagram, .table-shell, .decision-strip { break-inside: avoid; }
+}
+</style>
+
+</head>
+<body>
+  <main><header class="hero">
+  <div class="meta">
+    <span>objectKV</span>
+    <span>Product specification</span>
+    <span>Architecture review</span>
+  </div>
+  <h1>objectKV product specification</h1>
+  <p class="hero-lede">objectKV should become an open, object-native transactional ordered KV kernel: Raft and RocksDB keep the regional hot path fast, immutable object state makes storage portable and independently scalable, and PostgreSQL, search, Redis, and DataFusion remain consumers above one versioned history. The product is worth building only if it keeps hot-path performance near a TiKV/RocksDB control while making recovery, branching, cold capacity, and analytical reuse materially better.</p>
+  <div class="status-row" aria-label="Document status">
+    <span class="badge status-active">EVALUATING</span>
+    <span class="badge">Value-native kernel</span>
+    <span class="badge">Page-native PostgreSQL proof</span>
+  </div>
+</header>
+
+<section class="decision-strip" aria-labelledby="current-call-title">
+  <div>
+    <p class="eyebrow">Current architectural call</p>
+    <h2 id="current-call-title">The kernel is not page-native</h2>
+  </div>
+  <p>objectKV owns ordered keys, opaque value bytes, versions, transactions, and recovery. The first PostgreSQL adapter stores PostgreSQL pages as values so PostgreSQL keeps its existing semantics. Row-native PostgreSQL remains a separate future compute decision.</p>
+</section>
+
+<div class="document-grid">
+  <aside class="toc-panel" aria-label="Table of contents">
+    <p class="eyebrow">Contents</p>
+    <nav class="toc">
+      <a href="#abstract"><span class="num">01</span><span>Abstract</span></a>
+<a href="#context-motivation"><span class="num">02</span><span>Context / Motivation</span></a>
+<a href="#problem-framing"><span class="num">03</span><span>Problem Framing</span></a>
+<a href="#prior-work"><span class="num">04</span><span>Prior Work</span></a>
+<a href="#definitions"><span class="num">05</span><span>Definitions</span></a>
+<a href="#what-we-are-building"><span class="num">06</span><span>What We Are Building</span></a>
+<a href="#convictions"><span class="num">07</span><span>Convictions</span></a>
+<a href="#open-questions"><span class="num">08</span><span>Open Questions</span></a>
+<a href="#milestones"><span class="num">09</span><span>Milestones</span></a>
+<a href="#decisions-log"><span class="num">10</span><span>Decisions Log</span></a>
+    </nav>
+  </aside>
+  <article class="content">
+    <h2 id="abstract"><span class="section-anchor">[01]</span>Abstract</h2>
+<p><span class="state-token state-verified">VERIFIED</span> objectKV has executable contracts for versioned MVCC semantics,
+quorum-durable commit envelopes, OpenRaft failover, immutable object
+publication, recovery of lost responses, and an exact DataFusion base-plus-tail
+operator. It does not yet have a complete transactional cell, production range
+serving, PostgreSQL integration, or measured performance curves for the target
+system.</p>
+<p><span class="state-token state-proposed">PROPOSED</span> The target product is a bounded regional database cell with an
+ordered transactional keyspace. Range serving uses RAM and disposable NVMe,
+with RocksDB as the first resident serving image. A replicated txLog is the
+commit durability path. Immutable objects become the permanent row base, and
+schema-aware Parquet or Vortex artifacts become derived analytical bases.</p>
+<p><span class="state-token state-proposed">PROPOSED</span> The first target deployment uses Raft. The more consequential
+decision is whether the cell keeps one ordered FDB-like transaction log or
+moves to many range-local Raft groups plus a cross-range transaction protocol.
+This specification recommends the latter as the target, while retaining the
+current single-log Cell v0 as the correctness control.</p>
+<h2 id="context-motivation"><span class="section-anchor">[02]</span>Context / Motivation</h2>
+<p>The ecosystem has capable local storage engines, distributed transactional KV
+systems, object-native analytical systems, and PostgreSQL storage
+disaggregation. It does not have one broadly adopted open kernel that combines:</p>
+<ul>
+<li>a fast ordered transactional KV contract;</li>
+<li>object storage as the permanent, open-format recovery substrate;</li>
+<li>disposable and independently scalable serving compute;</li>
+<li>exact row and columnar projections from one commit history;</li>
+<li>metadata-cheap branches and snapshots;</li>
+<li>a credible path to a PostgreSQL-compatible database above the kernel.</li>
+</ul>
+<p>TiDB X demonstrates that the physical architecture is possible: object storage
+is the source of truth, local row and column caches accelerate serving, writes
+enter shard logs before asynchronous upload, and remote compaction produces
+immutable state. It also means the architecture alone is not objectKV's
+differentiation. The differentiator must be an open, self-hostable,
+engine-neutral ordered KV kernel with public object formats and first-class
+PostgreSQL and DataFusion paths. See the
+<a href="https://docs.pingcap.com/tidbcloud/tidb-x-architecture/">TiDB X architecture</a>.</p>
+<h2 id="problem-framing"><span class="section-anchor">[03]</span>Problem Framing</h2>
+<p>The product must solve five problems together.</p>
+<ol>
+<li>A hot point read or commit cannot normally wait for object storage.</li>
+<li>Local NVMe cannot be the only permanent copy or grow with all database bytes
+   on every serving node.</li>
+<li>Multi-range transactions must remain atomic and expose a declared isolation
+   contract.</li>
+<li>Row-serving and columnar-serving layouts must represent one exact logical
+   version without turning an external ETL pipeline into a second truth.</li>
+<li>PostgreSQL compatibility must not leak PostgreSQL-specific semantics into
+   the ordered KV kernel.</li>
+</ol>
+<p>The initial non-goals are equally important.</p>
+<ul>
+<li><span class="state-token state-proposed">PROPOSED</span> No synchronous object PUT is required for the normal regional
+  commit path.</li>
+<li><span class="state-token state-proposed">PROPOSED</span> No cross-cell transaction is provided.</li>
+<li><span class="state-token state-proposed">PROPOSED</span> No claim is made that a sparse object cache has local-RocksDB
+  p99 latency.</li>
+<li><span class="state-token state-proposed">PROPOSED</span> No SQL parser, planner, trigger runtime, or PostgreSQL catalog
+  behavior belongs in the kernel.</li>
+<li><span class="state-token state-proposed">PROPOSED</span> No claim of full PostgreSQL compatibility is made from wire
+  protocol acceptance or a small regression subset.</li>
+</ul>
+<h2 id="prior-work"><span class="section-anchor">[04]</span>Prior Work</h2>
+<h3 id="foundationdb">FoundationDB</h3>
+<p>FoundationDB supplies the most useful semantic model: ordered keys, explicit
+read versions, optimistic conflict ranges, transaction proxies, partitioned
+resolvers, replicated transaction logs, and bounded transactions. Its
+transaction system is the reference for strict-serializable multi-range
+semantics. objectKV changes the permanent storage and serving ownership model,
+not the need for an explicit transaction protocol.</p>
+<h3 id="tikv-and-tidb">TiKV and TiDB</h3>
+<p>TiKV is the strongest implementation control for a range-partitioned design.
+Each region is a Raft group, RocksDB stores the local state, and Percolator-style
+two-phase commit provides distributed transactions. TiKV documents snapshot
+isolation, not PostgreSQL Serializable Snapshot Isolation, so it is a storage
+and transaction reference rather than proof of full PostgreSQL semantics. See
+the <a href="https://tikv.org/docs/dev/reference/architecture/storage/">TiKV storage architecture</a>
+and <a href="https://tikv.org/deep-dive/distributed-transaction/percolator/">Percolator transaction model</a>.</p>
+<h3 id="tidb-x">TiDB X</h3>
+<p>TiDB X is the closest product-architecture comparison. It combines per-shard
+Raft logs, local row and column caches, asynchronous log and SST upload, remote
+compaction, and object storage as source of truth. objectKV must benchmark
+against this shape and avoid presenting it as novel.</p>
+<h3 id="pgrust">pgRust</h3>
+<p>pgRust is a serious PostgreSQL compute reference, but not an object-native row
+store. Its stated goal is PostgreSQL 18.3 compatibility down to the same on-disk
+format, and its source preserves PostgreSQL heap, index, WAL, buffer-manager,
+and storage-manager boundaries. Its current project also reports a vectorized
+push executor, direct-code JIT, thread-based concurrency, query scheduling,
+pipelined fsync, and a columnar format. See the
+<a href="https://github.com/malisper/pgrust">pgRust repository</a>,
+<a href="https://github.com/malisper/pgrust/blob/main/GOAL.md">performance goal</a>, and
+<a href="https://github.com/malisper/pgrust/tree/main/benchmarks">benchmark kit</a>.</p>
+<p>The lessons to adopt are its differential PostgreSQL oracle, named unsupported
+frontier, exact-hardware benchmark receipts, per-hot-unit attribution, batched
+execution, operator fusion, and explicit durability settings. Its AGPL-3.0 code
+must not be copied into the proposed Apache-2.0 objectKV kernel. Integration as
+a separately licensed consumer or clean-room implementation of general ideas
+remains possible.</p>
+<h3 id="current-objectkv-evidence">Current objectKV evidence</h3>
+<p><span class="state-token state-verified">VERIFIED</span> The repository already proves several narrow seams:</p>
+<ul>
+<li>deterministic generation-aware MVCC and conflict contracts;</li>
+<li>quorum-synchronized local commit envelopes and exact replay;</li>
+<li>a three-node OpenRaft failover and stale-suffix replacement contract;</li>
+<li>immutable object publication with replicated intent and lost-response
+  recovery;</li>
+<li>exact DataFusion overlay semantics across independently lagging base
+  watermarks;</li>
+<li>configurable eval suites, receipts, hard gates, and OpenTelemetry signals.</li>
+</ul>
+<p>These are contract proofs, not a complete database or performance result.</p>
+<h2 id="definitions"><span class="section-anchor">[05]</span>Definitions</h2>
+<div class="table-shell"><table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cell</td>
+<td>One bounded regional transaction, durability, storage, recovery, and control cluster. Cells have independent version spaces and no cross-cell transaction.</td>
+</tr>
+<tr>
+<td>Tenant database</td>
+<td>The normal transaction domain. A bounded transaction may span its keys and ranges inside one cell.</td>
+</tr>
+<tr>
+<td>Range</td>
+<td>A contiguous ordered-key interval used for routing, placement, splitting, and serving.</td>
+</tr>
+<tr>
+<td>Range group</td>
+<td><span class="state-token state-proposed">PROPOSED</span> The Raft replication group responsible for durable ordered mutations to one range.</td>
+</tr>
+<tr>
+<td>txLog</td>
+<td>A replicated transaction log. Use <code>txLog</code>, not <code>tLog</code>, in prose, CLI output, metrics, and code names.</td>
+</tr>
+<tr>
+<td>Object row base</td>
+<td>An immutable, indexed, row-oriented representation that reconstructs a range through a declared version.</td>
+</tr>
+<tr>
+<td>Recovery suffix</td>
+<td>Quorum-durable commit records newer than the object-durable version that are required to reconstruct acknowledged state.</td>
+</tr>
+<tr>
+<td>Row overlay</td>
+<td>Queryable recent MVCC entries newer than a selected object row base. It may be resident in RocksDB and must retain tombstones.</td>
+</tr>
+<tr>
+<td>Serving image</td>
+<td>Disposable RAM and NVMe state used to serve assigned ranges. RocksDB is the first implementation, not the permanent authority.</td>
+</tr>
+<tr>
+<td>Resident range</td>
+<td>A range whose current serving image is fully hydrated on local NVMe and eligible for the hot latency service class.</td>
+</tr>
+<tr>
+<td>Elastic range</td>
+<td>A range served from a row overlay plus bounded object-block cache, with explicit cold-miss latency.</td>
+</tr>
+<tr>
+<td>Analytical tail</td>
+<td>Durable table-level changes after a columnar base watermark, retained independently of the recovery suffix when required.</td>
+</tr>
+<tr>
+<td>Objectification</td>
+<td>Publishing immutable row objects and advancing a fenced manifest so the covered recovery suffix can be reclaimed.</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="what-we-are-building"><span class="section-anchor">[06]</span>What We Are Building</h2>
+<h3 id="product-boundary">Product boundary</h3>
+<div class="architecture-diagram" role="img" aria-label="objectKV product boundary from consumers through transactional ranges to object storage and analytical serving">
+  <div class="flow-stack">
+    <div class="flow-node">PostgreSQL · Redis · Search · custom applications<small>Consumer semantics</small></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-node">Ordered transactional KV API<small>Keys · opaque values · snapshots · bounded transactions</small></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-node">Cell transaction layer<small>Start version · validation · commit decision</small></div>
+    <div class="flow-arrow">↓</div>
+    <div class="node-grid">
+      <div class="flow-node">Range group A<small>Raft + RocksDB serving image</small></div>
+      <div class="flow-node">Range group B<small>Raft + RocksDB serving image</small></div>
+    </div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-node">Asynchronous objectification<small>Immutable open object row bases</small></div>
+    <div class="flow-arrow">↓</div>
+    <div class="node-grid">
+      <div class="flow-node">Row serving and recovery</div>
+      <div class="flow-node">Table change projection → Parquet / Vortex → DataFusion</div>
+    </div>
+  </div>
+</div>
+<p><span class="state-token state-proposed">PROPOSED</span> objectKV owns ordered binary keys, point and range reads, exact
+snapshot versions, bounded transactions, conflict declarations, atomic
+mutations, durable commit identity, range routing, recovery, and public object
+state. Consumers own schemas, SQL behavior, Redis behavior, search structures,
+and analytical planning.</p>
+<p>The kernel is value-native, not page-native or row-native. The first
+PostgreSQL adapter is page-native so PostgreSQL can retain its existing heap,
+index, MVCC, catalog, constraint, trigger, and recovery semantics while only
+the durable storage boundary changes. A future row-native adapter would be a
+different PostgreSQL compute architecture, not a required kernel rewrite.</p>
+<h3 id="consensus-decision">Consensus decision</h3>
+<p><span class="state-token state-proposed">PROPOSED</span> Use Raft for the first regional range groups and control quorums.
+Raft and stable-leader Multi-Paxos have the same basic steady-state shape: the
+leader sends an entry to replicas and waits for a quorum. Raft's advantage here
+is a complete, explicit log-replication, election, and membership protocol plus
+an existing OpenRaft prototype in this repository. The original Raft paper
+describes it as equivalent in result and efficiency to Multi-Paxos. See
+<a href="https://raft.github.io/raft.pdf">In Search of an Understandable Consensus Algorithm</a>.</p>
+<p>Paxos remains a valid alternative, not an inferior algorithm. Flexible Paxos
+can trade larger election quorums for smaller steady-state replication quorums,
+and EPaxos can avoid a fixed leader for non-conflicting commands. Those are
+useful if geo-distributed leader latency or quorum geometry becomes the primary
+problem. They also enlarge the correctness and operational surface before
+objectKV has proven its storage thesis. See
+<a href="https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.OPODIS.2016.25">Flexible Paxos</a>
+and <a href="https://www.cs.cmu.edu/~dga/papers/epaxos-sosp2013.pdf">EPaxos</a>.</p>
+<p>The consensus library is not the storage format. objectKV must continue to own
+the txLog entry encoding, request identity, generation fencing, snapshot
+contract, and recovery fixtures behind a <code>ReplicatedLog</code> boundary.</p>
+<h3 id="commit-pipeline">Commit pipeline</h3>
+<p>The recommended target separates range replication from transaction atomicity.</p>
+<div class="architecture-diagram" role="img" aria-label="Proposed objectKV commit pipeline">
+  <ol class="flow-steps">
+    <li>Acquire start and read version <code>S</code>.</li>
+    <li>Read keys and declare read and write conflict ranges.</li>
+    <li>Route mutations to affected range groups.</li>
+    <li>Validate and quorum-persist each prewrite or intent.</li>
+    <li>Choose cell commit version <code>C</code>.</li>
+    <li>Durably record one crash-resolvable transaction decision.</li>
+    <li>Expose committed versions through <code>C</code>.</li>
+    <li>Asynchronously advance row-base watermarks.</li>
+  </ol>
+</div>
+<p>For one-range transactions, one range-group leader can validate and commit
+without distributed two-phase commit. For multi-range transactions, the cell
+needs a crash-resolvable transaction record, participant validation, idempotent
+retry, and a rule for choosing <code>C</code>. A TiKV-style primary-key transaction record
+is one implementation option. A FoundationDB-style global resolver and ordered
+commit service is the correctness control.</p>
+<p>The unresolved issue is serializability, not atomicity alone. Snapshot isolation
+plus write-write conflict detection permits write skew. Full PostgreSQL
+Serializable requires predicate or range dependency tracking and anomaly
+detection. PostgreSQL documents that its Serializable mode adds predicate-lock
+dependency monitoring above snapshot isolation. See the
+<a href="https://www.postgresql.org/docs/current/transaction-iso.html">PostgreSQL transaction isolation documentation</a>.</p>
+<h3 id="point-reads">Point reads</h3>
+<p>A point read at exact snapshot <code>T</code> follows this path:</p>
+<div class="architecture-diagram" role="img" aria-label="Point-read path across routing, RAM, RocksDB, object cache, and object storage">
+  <div class="flow-node">Logical key + exact snapshot <code>T</code> → tenant and range router → transaction-local write overlay</div>
+  <div class="flow-arrow">↓</div>
+  <div class="tier-grid">
+    <div class="tier"><span class="tier-num">01</span><h4>RAM</h4><p>Row and decoded block cache.</p></div>
+    <div class="tier"><span class="tier-num">02</span><h4>RocksDB serving image</h4><p>Newest visible local value or tombstone at <code>T</code>.</p></div>
+    <div class="tier"><span class="tier-num">03</span><h4>NVMe object cache</h4><p>Manifest-selected immutable block.</p></div>
+    <div class="tier"><span class="tier-num">04</span><h4>Object range GET</h4><p>Explicit elastic miss path, never disguised as local latency.</p></div>
+  </div>
+  <p class="diagram-caption">A complete resident image can make a RocksDB miss authoritative. Elastic ranges continue to the selected object row base.</p>
+</div>
+<p>A RocksDB miss is not automatically logical absence. The worker must know the
+selected row-base watermark and whether a newer overlay tombstone exists. The
+object format therefore needs key bounds, a sparse block index, bloom filters,
+per-block checksums, version coverage, and unambiguous tombstone semantics.
+Coverage metadata can make a miss in a complete resident image authoritative;
+the object fallback is required only when the local image does not completely
+cover the requested snapshot.</p>
+<p><span class="state-token state-proposed">PROPOSED</span> The service exposes two honest latency classes:</p>
+<ul>
+<li>Resident: the assigned range has a complete current RocksDB materialization.
+  Point reads should behave like a local RocksDB-backed distributed KV.</li>
+<li>Elastic: only the overlay and admitted object blocks are local. Cold misses
+  pay object request, transfer, decode, and cache-fill latency.</li>
+</ul>
+<p>RAM and NVMe remain bounded. The data distributor admits resident ranges until
+worker high-watermarks, moves or splits hot ranges, and demotes colder ranges to
+the elastic class. Object storage retains the complete authoritative base, so
+demotion removes disposable bytes rather than data.</p>
+<h3 id="postgresql-implementation-shapes">PostgreSQL implementation shapes</h3>
+<p>There are two credible PostgreSQL paths, and they produce different physical
+systems.</p>
+<div class="table-shell"><table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Point-read key</th>
+<th>PostgreSQL feature ownership</th>
+<th>Benefit</th>
+<th>Cost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Page or storage-manager bridge</td>
+<td>database, relation, fork, block number</td>
+<td>PostgreSQL or pgRust keeps heap, indexes, WAL, MVCC, catalogs, constraints, triggers, and views</td>
+<td>Fastest compatibility test; pgRust's format-preserving architecture fits this seam</td>
+<td>Double-WAL and double-MVCC risk; DataFusion cannot consume logical rows without decoding pages and visibility</td>
+</tr>
+<tr>
+<td>Row-native PostgreSQL compute</td>
+<td>table and encoded primary key, plus explicit index keys</td>
+<td>PostgreSQL-compatible compute owns SQL semantics while objectKV owns logical row and index transactions</td>
+<td>Cleanest HTAP path and natural ordered-KV sharding</td>
+<td>Rebuilds a large PostgreSQL semantic surface; extension and physical compatibility are not inherited</td>
+</tr>
+</tbody>
+</table></div>
+<p><span class="state-token state-evaluating">EVALUATING</span> No PostgreSQL path exists. The accepted research order remains
+an upstream PostgreSQL page bridge first. <span class="state-token state-proposed">PROPOSED</span> pgRust should become a
+second compute candidate and compatibility reference, not a source-code donor.
+Its same-disk-format goal makes it closer to the page bridge than to a
+row-native objectKV adapter.</p>
+<p>If a full row-native PostgreSQL engine is built, the feature map is:</p>
+<div class="table-shell"><table>
+<thead>
+<tr>
+<th>PostgreSQL feature</th>
+<th>Proposed objectKV representation</th>
+<th>Hard edge</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Heap row</td>
+<td><code>/tenant/db/table/&lt;rel&gt;/&lt;encoded-pk&gt;</code> to versioned tuple</td>
+<td>PostgreSQL tables need an internal row identity when no primary key exists</td>
+</tr>
+<tr>
+<td>B-tree index</td>
+<td><code>/tenant/db/index/&lt;index&gt;/&lt;encoded-key&gt;/&lt;row-id&gt;</code></td>
+<td>Collation, operator classes, NULL ordering, included columns, and MVCC visibility must match PostgreSQL</td>
+</tr>
+<tr>
+<td>Primary and unique constraints</td>
+<td>Unique index entries written atomically with the row</td>
+<td>Concurrent inserts, deferred checks, and <code>NULLS NOT DISTINCT</code> require exact conflict rules</td>
+</tr>
+<tr>
+<td>Foreign keys</td>
+<td>Referenced-index read plus conflict or lock protecting concurrent delete/update</td>
+<td>Deferred constraints and cascading actions can span many ranges</td>
+</tr>
+<tr>
+<td>CHECK and NOT NULL</td>
+<td>Evaluated in the SQL executor before commit</td>
+<td>Functions used by constraints must preserve PostgreSQL volatility and NULL semantics</td>
+</tr>
+<tr>
+<td>Exclusion constraints</td>
+<td>Range or predicate conflicts over an index-defined operator relation</td>
+<td>Point-key OCC is insufficient</td>
+</tr>
+<tr>
+<td>Triggers</td>
+<td>BEFORE, AFTER, and INSTEAD OF execution in the PostgreSQL compute transaction</td>
+<td>Ordering, recursion, statement transition tables, and external side effects; side effects need an outbox</td>
+</tr>
+<tr>
+<td>Views</td>
+<td>Versioned catalog query trees expanded by the rewriter and planner</td>
+<td>Permissions and dependency invalidation are part of semantics</td>
+</tr>
+<tr>
+<td>Materialized views</td>
+<td>Transactional projection or asynchronous versioned projection with watermark</td>
+<td>Refresh and concurrent visibility rules must be declared</td>
+</tr>
+<tr>
+<td>Sharding</td>
+<td>Tenant-prefixed ordered keys split into ranges</td>
+<td>Global indexes and cross-range transactions require coordination</td>
+</tr>
+<tr>
+<td>Sequences</td>
+<td>Dedicated atomic keys or leased blocks with PostgreSQL-compatible non-transactional behavior</td>
+<td>A single sequence key can become a hotspot</td>
+</tr>
+<tr>
+<td>Serializable isolation</td>
+<td>Snapshot reads plus predicate/range dependency tracking and retry</td>
+<td>TiKV-style snapshot isolation alone is not PostgreSQL Serializable</td>
+</tr>
+<tr>
+<td>DDL and catalogs</td>
+<td>Transactionally versioned catalog rows and schema versions</td>
+<td>Online changes, cache invalidation, dependencies, and bootstrap</td>
+</tr>
+<tr>
+<td>CDC and logical replication</td>
+<td>Ordered commit/change stream with schema version</td>
+<td>PostgreSQL physical replication compatibility is a separate page-level concern</td>
+</tr>
+</tbody>
+</table></div>
+<p>PostgreSQL itself implements primary and unique constraints with indexes,
+supports multiple index access methods, executes row-level and statement-level
+triggers, and rewrites ordinary views from cataloged query trees. Those are SQL
+compute responsibilities, not new kernel primitives. See the official
+<a href="https://www.postgresql.org/docs/current/ddl-constraints.html">constraint</a>,
+<a href="https://www.postgresql.org/docs/current/indexes.html">index</a>,
+<a href="https://www.postgresql.org/docs/current/trigger-definition.html">trigger</a>, and
+<a href="https://www.postgresql.org/docs/current/rules-views.html">view</a> documentation.</p>
+<h3 id="oltp-and-olap-from-one-history">OLTP and OLAP from one history</h3>
+<p>objectKV should not force one file format to serve contradictory access paths.</p>
+<div class="architecture-diagram" role="img" aria-label="One commit history projected into separate row and columnar serving paths">
+  <div class="flow-stack">
+    <div class="flow-node">One commit history at target version <code>T</code></div>
+    <div class="flow-arrow">↓</div>
+    <div class="node-grid">
+      <div class="flow-node">OLTP row path<small>Row object base at <code>Oᵣ</code> + row overlay <code>(Oᵣ, T]</code></small></div>
+      <div class="flow-node">OLAP columnar path<small>Columnar base at <code>O꜀</code> + analytical tail <code>(O꜀, T]</code></small></div>
+    </div>
+  </div>
+</div>
+<p>Every query receives one target version <code>T</code>. The OLTP range reader returns the
+newest visible value at <code>T</code>. The DataFusion source merges each partition's
+columnar base with its analytical tail through the same <code>T</code>. Different physical
+watermarks change work and latency, not the requested logical snapshot.</p>
+<p>The analytical tail is not the recovery suffix. It is schema-aware, queryable,
+and may need longer retention. It must retain invalidation keys even when an
+updated row does not satisfy a pushed predicate.</p>
+<h3 id="control-and-worker-map">Control and worker map</h3>
+<div class="table-shell"><table>
+<thead>
+<tr>
+<th>Component</th>
+<th>State</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cell bootstrap and generation authority</td>
+<td><span class="state-token state-verified">VERIFIED</span> narrow prototype</td>
+<td>Membership generation, fencing, and recovery roots</td>
+</tr>
+<tr>
+<td>Replicated log / Raft group</td>
+<td><span class="state-token state-verified">VERIFIED</span> single-group prototype; <span class="state-token state-proposed">PROPOSED</span> MultiRaft</td>
+<td>Quorum-durable ordered commands and membership</td>
+</tr>
+<tr>
+<td>Transaction coordinator</td>
+<td><span class="state-token state-proposed">PROPOSED</span></td>
+<td>Start versions, multi-range validation, commit decision, idempotent outcomes</td>
+</tr>
+<tr>
+<td>Range router and placement driver</td>
+<td><span class="state-token state-proposed">PROPOSED</span></td>
+<td>Key-to-range map, leases, splits, movement, and replica placement</td>
+</tr>
+<tr>
+<td>Serving worker</td>
+<td><span class="state-token state-proposed">PROPOSED</span></td>
+<td>RAM cache, RocksDB serving images, object fallback, and exact reads</td>
+</tr>
+<tr>
+<td>Object publisher and compactor</td>
+<td><span class="state-token state-verified">VERIFIED</span> publication contracts; <span class="state-token state-proposed">PROPOSED</span> formats and policy</td>
+<td>Build immutable row objects and advance fenced manifests</td>
+</tr>
+<tr>
+<td>Change projector</td>
+<td><span class="state-token state-proposed">PROPOSED</span></td>
+<td>Produce complete schema-aware analytical tail</td>
+</tr>
+<tr>
+<td>Columnar materializer</td>
+<td><span class="state-token state-proposed">PROPOSED</span></td>
+<td>Publish Parquet first, then evaluate Vortex</td>
+</tr>
+<tr>
+<td>DataFusion provider</td>
+<td><span class="state-token state-verified">VERIFIED</span> narrow streaming overlay</td>
+<td>Exact base-plus-tail scans at one version</td>
+</tr>
+<tr>
+<td>Metacluster</td>
+<td><span class="state-token state-future">FUTURE</span></td>
+<td>Tenant-to-cell placement and movement, never ordinary transaction commit</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="performance-curves-and-falsifiers">Performance curves and falsifiers</h3>
+<p>Absolute targets require a frozen machine, topology, durability profile, and
+dataset. Until those are frozen, relative controls are more honest.</p>
+<div class="table-shell"><table>
+<thead>
+<tr>
+<th>Curve</th>
+<th>X axis</th>
+<th>Primary Y axis</th>
+<th><span class="state-token state-proposed">PROPOSED</span> target or falsifier</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hot point read</td>
+<td>resident hit ratio and concurrent clients</td>
+<td>p50/p95/p99 latency, CPU/op</td>
+<td>At 99.9% resident hits, p99 within 20% of a same-hardware TiKV/RocksDB control</td>
+</tr>
+<tr>
+<td>Cold point read</td>
+<td>object-block miss ratio and block size</td>
+<td>p99, GETs/op, bytes/op, cost/op</td>
+<td>Miss penalty is explicit and bounded; a 1% miss rate must not collapse the resident service class</td>
+</tr>
+<tr>
+<td>Commit</td>
+<td>transaction bytes, keys, ranges, and contention</td>
+<td>commits/s, p99, retries</td>
+<td>One-range commits within 25% of a same-durability MultiRaft control; multi-range overhead attributed separately</td>
+</tr>
+<tr>
+<td>Cross-range transaction</td>
+<td>participant count and conflict rate</td>
+<td>p99, abort rate, recovery time</td>
+<td>No acknowledged partial commit; latency growth remains explainable by participant quorums and validation</td>
+</tr>
+<tr>
+<td>Objectification</td>
+<td>ingest rate and object-store fault duration</td>
+<td>lag versions, retained txLog bytes, object amplification</td>
+<td>Backpressure prevents unbounded recovery suffix; recovery remains exact through every tested fault</td>
+</tr>
+<tr>
+<td>Worker rebuild</td>
+<td>resident bytes and range count</td>
+<td>time to first correct read, full hydration time, downloaded bytes</td>
+<td>First correct read does not require full-cell download; hydration scales with assigned ranges</td>
+</tr>
+<tr>
+<td>Local footprint</td>
+<td>total object bytes and working-set size</td>
+<td>RAM/NVMe bytes per worker</td>
+<td>Local bytes track admitted resident ranges and cache budget, not total database size</td>
+</tr>
+<tr>
+<td>HTAP overlay</td>
+<td>tail/base row and byte ratio</td>
+<td>query p99, peak memory, scan bytes</td>
+<td>At tail &lt;= 1% of base, exact overlay adds &lt;= 20% over base-only control; materialization policy acts before tail reaches 10%</td>
+</tr>
+<tr>
+<td>Branching</td>
+<td>database bytes and branch count</td>
+<td>branch-create latency and incremental bytes</td>
+<td>Branch creation is metadata-scale and does not copy the base closure</td>
+</tr>
+</tbody>
+</table></div>
+<p>The product thesis is invalidated if any of these remain true after one focused
+optimization cycle:</p>
+<ul>
+<li>hot p99 requires local durable replicas of the complete database rather than
+  bounded serving assignments;</li>
+<li>the object row format cannot support one range GET plus bounded decode for a
+  cold point lookup;</li>
+<li>multi-range commit is materially slower or less robust than TiKV without a
+  stronger semantic benefit;</li>
+<li>objectification stalls can exhaust the txLog before safe backpressure;</li>
+<li>exact DataFusion overlay cost stays dominated by tail processing under the
+  target materialization policy;</li>
+<li>an independent reader cannot reconstruct a snapshot from the public manifest
+  and object formats.</li>
+</ul>
+<h3 id="eval-and-telemetry-contract">Eval and telemetry contract</h3>
+<p>The atomic requirements, failure matrix, capacity dimensions, and admission
+gates live in the <a href="PRODUCT-SPEC-SHEET.md">detailed product and system specification</a>.
+The workstream decomposition and execution order live in the
+<a href="BIDEC-EVAL-PROGRAM.md">BIDEC evaluation program</a>.</p>
+<p>Every performance result is one immutable receipt containing:</p>
+<ul>
+<li>objectKV, workload, format, and dependency revisions;</li>
+<li>hardware, kernel, filesystem, object backend, region, and topology;</li>
+<li>durability and isolation profile;</li>
+<li>dataset scale, key/value distribution, resident budget, and warm/cold state;</li>
+<li>exact seed, operation mix, transaction shape, and fault schedule;</li>
+<li>p50/p95/p99/p99.9, throughput, CPU, memory, NVMe, network, object requests,
+  bytes, cost, retries, compaction, txLog lag, and rebuild time;</li>
+<li>correctness gates and negative-control results.</li>
+</ul>
+<p>OpenTelemetry spans connect <code>transaction -&gt; range participant -&gt; Raft append -&gt;
+quorum fsync -&gt; apply -&gt; objectification -&gt; manifest advance</code>. Metrics use
+bounded-cardinality range classes and workload identities. Individual user keys
+or values are never telemetry labels.</p>
+<p>Suites are composable configuration, not hard-coded benchmark binaries. A suite
+selects workloads, parameter sweeps, hard gates, reference controls, and output
+sinks. Adding a metric must not require changing transaction or storage code.</p>
+<h2 id="convictions"><span class="section-anchor">[07]</span>Convictions</h2>
+<ol>
+<li>Object storage is the permanent capacity and recovery substrate; the normal
+   regional commit path remains a quorum-durable txLog on fast local media.</li>
+<li>RAM and NVMe are disposable serving state, but predictable OLTP latency
+   requires an explicit resident-range service class rather than pretending all
+   object misses are cache hits.</li>
+<li>PostgreSQL and DataFusion share objectKV versions and change history, not one
+   physical format or one execution engine.</li>
+</ol>
+<h2 id="open-questions"><span class="section-anchor">[08]</span>Open Questions</h2>
+<ol>
+<li>How do range-local Raft groups provide strict-serializable multi-range
+   transactions without recreating one global commit bottleneck?</li>
+<li>How should resident-range admission, hydration, demotion, and replica
+   placement bound p99 while keeping local bytes independent of total database
+   size?</li>
+<li>How should the public manifest and row-object index represent historical
+   snapshots, tombstones, branches, and GC roots with bounded open cost?</li>
+<li>How should the PostgreSQL program choose between an upstream page bridge, a
+   pgRust page bridge, and a future row-native engine while preserving an exact
+   compatibility oracle?</li>
+<li>How should durability profiles expose the trade among regional quorum
+   latency, objectification lag, cost, RPO, and recovery time without weakening
+   acknowledgement semantics silently?</li>
+</ol>
+<h2 id="milestones"><span class="section-anchor">[09]</span>Milestones</h2>
+<p>Pending: human-generated. PRD owner must define milestones, owners, and target
+dates.</p>
+<p>The required validation order is still clear: freeze the transaction model,
+prove one resident range, prove exact object recovery, prove a cross-range
+transaction under faults, measure the curves above, then start the PostgreSQL
+bridge and broader serving models.</p>
+<h2 id="decisions-log"><span class="section-anchor">[10]</span>Decisions Log</h2>
+<div class="table-shell"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Status</th>
+<th>Decision</th>
+<th>Reason and tradeoff</th>
+</tr>
+</thead>
+<tbody>
+<tr id="D1"><td>D1</td><td><span class="audit-status audit-audited">audited</span></td>
+<td>Keep consumer semantics above the ordered KV kernel</td>
+<td>Preserves one testable kernel; gives up consumer-specific shortcuts until generalized</td>
+</tr>
+<tr id="D2"><td>D2</td><td><span class="audit-status audit-unaudited">unaudited</span></td>
+<td>Target per-range Raft groups plus a cell transaction coordinator; retain single-log Cell v0 as control</td>
+<td>Optimizes for TiKV-like horizontal write and recovery scaling; takes on distributed commit, lock resolution, and serializability work</td>
+</tr>
+<tr id="D3"><td>D3</td><td><span class="audit-status audit-audited">audited</span></td>
+<td>Acknowledge normal commits after quorum txLog durability, then objectify asynchronously</td>
+<td>Preserves low regional write latency; gives up object-only serving and requires bounded log debt</td>
+</tr>
+<tr id="D4"><td>D4</td><td><span class="audit-status audit-unaudited">unaudited</span></td>
+<td>Expose resident and elastic range service classes</td>
+<td>Makes the latency and local-footprint trade explicit; gives up one simple undifferentiated read SLA</td>
+</tr>
+<tr id="D5"><td>D5</td><td><span class="audit-status audit-unaudited">unaudited</span></td>
+<td>Keep the upstream PostgreSQL page bridge first and add pgRust as a second compute/reference lane</td>
+<td>Preserves a literal compatibility control; delays the cleaner row-native HTAP mapping</td>
+</tr>
+<tr id="D6"><td>D6</td><td><span class="audit-status audit-audited">audited</span></td>
+<td>Keep transactional row bases and analytical columnar bases separate but version-aligned</td>
+<td>Lets each format fit its access path; requires complete change capture and exact overlay</td>
+</tr>
+</tbody>
+</table></div>
+  </article>
+</div>
+
+<footer>
+  <span>Canonical source: docs/PRODUCT-SPEC.md</span>
+  <span>Generated from the current working tree</span>
+</footer>
+</main>
+</body>
+</html>

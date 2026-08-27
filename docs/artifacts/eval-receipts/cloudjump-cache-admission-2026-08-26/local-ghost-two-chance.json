@@ -1,0 +1,111 @@
+{
+  "artifact_refs": [
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5701/1/5826cbb52bec5898a54b2db259eddbc7c7f5ce76e653b1d15526015e0c87dc58",
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5702/1/6b9872a000c061820253174bba3a91ce6d05c3f811e727f23d631bced8a0ca87",
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5703/1/3b783ebbb32e54888b51e8322c89430a861647231a6e3ff3c914ecc6b5d508fc",
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5701/2/5826cbb52bec5898a54b2db259eddbc7c7f5ce76e653b1d15526015e0c87dc58",
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5702/2/6b9872a000c061820253174bba3a91ce6d05c3f811e727f23d631bced8a0ca87",
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5703/2/3b783ebbb32e54888b51e8322c89430a861647231a6e3ff3c914ecc6b5d508fc",
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5701/3/5826cbb52bec5898a54b2db259eddbc7c7f5ce76e653b1d15526015e0c87dc58",
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5702/3/6b9872a000c061820253174bba3a91ce6d05c3f811e727f23d631bced8a0ca87",
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5703/3/3b783ebbb32e54888b51e8322c89430a861647231a6e3ff3c914ecc6b5d508fc",
+    "/private/tmp/c5-cache-ghost-two-chance-20pct-a1.4-current.json"
+  ],
+  "backend": "columnar-cache+local-fs-range-stripes",
+  "budget": {
+    "kind": "seconds",
+    "limit": 120.0,
+    "observed": 2.498198083
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T20:43:22.736050+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "id": "columnar_cache.point_results_are_exact",
+      "status": "pass"
+    },
+    {
+      "detail": "cache_ratio_percent=20",
+      "id": "columnar_cache.capacity_is_bounded",
+      "status": "pass"
+    },
+    {
+      "id": "columnar_cache.scan_pollution_is_exercised",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=ghost_two_chance",
+      "id": "columnar_cache.admission_state_matches_policy",
+      "status": "pass"
+    },
+    {
+      "detail": "zipf_alpha=1.4",
+      "id": "columnar_cache.trace_is_repeatable",
+      "status": "pass"
+    }
+  ],
+  "lane": "columnar-cache-post-scan-hit-ratio",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 0.00146484375,
+    "median": 0.74462890625,
+    "name": "okv.eval.cache.hit_ratio",
+    "samples": [
+      0.7470703125,
+      0.74462890625,
+      0.7431640625,
+      0.7470703125,
+      0.74462890625,
+      0.7431640625,
+      0.7470703125,
+      0.74462890625,
+      0.7431640625
+    ],
+    "statistic": "median",
+    "unit": "1",
+    "value": 0.74462890625
+  },
+  "profile": {
+    "hash": "cbae9804563b0a96f4fe6d92f3ec80a2890c398d47b585ce68613256c0ce5d59",
+    "id": "local-fs",
+    "lockfile_hash": "bd2ea64a228fcf3baa543af69851ad3f2547f7db76408160bcb2502b8c449d6d",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "3fc51538-7237-41df-8d8e-547004c9ba9f",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "columnar_cache.pollution_requests.total": 3771.0,
+    "columnar_cache.post_scan_hit_ratio.median": 0.74462890625,
+    "columnar_cache.post_scan_requests.total": 7398.0,
+    "columnar_cache.pre_scan_hit_ratio.median": 0.74755859375,
+    "columnar_cache.wall_seconds": 2.498125583,
+    "operation.duration.median": 2.498198083
+  },
+  "seeds": [
+    5701,
+    5702,
+    5703
+  ],
+  "suite": "columnar-cache-admission-v1",
+  "suite_hash": "8bf208d2be3e6b9b1f2da6ee923c8558fa73dc3291f19310665a9d17f3e8ea78",
+  "verdict": "inconclusive"
+}

@@ -1,0 +1,192 @@
+schema_version = 1
+id = "storage-layout-fork-v1"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0002-version-and-mvcc-model.md",
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0010-oltp-olap-snapshots.md",
+  "../../rfcs/0037-manifested-multi-layout-lsm.md",
+]
+dataset_generator = "typed-mvcc-storage-layout-history-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-diagnostic]
+logical_bytes = 8388608
+key_count = 16384
+seeds = [5701, 5702, 5703]
+
+[profiles.local-diagnostic]
+budget_kind = "seconds"
+budget_limit = 240
+repeats = 1
+backend = "local-fs+observed-range-reads"
+cache_state = "cold-and-warm"
+key_count = 16384
+canonical_live_row_bytes = 512
+opaque_payload_bytes = 480
+base_version = 1
+delta_cycles = 4
+update_fraction = 0.125
+delete_fraction = 0.01
+point_operations = 4096
+target_run_object_bytes = 8388608
+row_block_bytes = 65536
+columnar_block_rows = 1024
+build_profile = "release"
+
+[[lanes]]
+id = "layout-correctness-media"
+primary_metric = "storage.amplification"
+statistic = "maximum"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "layout-point"
+primary_metric = "object_store.requests"
+statistic = "per_operation"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "layout-scan"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "layout-compaction"
+primary_metric = "compaction.write_amplification"
+statistic = "maximum"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "layout-htap"
+primary_metric = "operation.duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes]]
+id = "layout-branch"
+primary_metric = "branch.incremental_bytes"
+statistic = "maximum"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "layout-row-object-diagnostic"
+lane = "layout-correctness-media"
+operation = "storage_layout_diagnostic"
+subject = "indexed_row_object_control"
+
+[[workloads]]
+id = "layout-parquet-indexed-diagnostic"
+lane = "layout-correctness-media"
+operation = "storage_layout_diagnostic"
+subject = "indexed_parquet_control"
+
+[[workloads]]
+id = "layout-parquet-coalesced-diagnostic"
+lane = "layout-correctness-media"
+operation = "storage_layout_diagnostic"
+subject = "coalesced_parquet_candidate"
+
+[[workloads]]
+id = "layout-split-projection-sidecar-diagnostic"
+lane = "layout-correctness-media"
+operation = "storage_layout_diagnostic"
+subject = "split_projection_sidecar_candidate"
+
+[[workloads]]
+id = "layout-vortex-random-access-diagnostic"
+lane = "layout-correctness-media"
+operation = "storage_layout_diagnostic"
+subject = "vortex_random_access_candidate"
+
+[[workloads]]
+id = "layout-hybrid-columnar-diagnostic"
+lane = "layout-correctness-media"
+operation = "storage_layout_diagnostic"
+subject = "hybrid_columnar_candidate"
+
+[[workloads]]
+id = "layout-parquet-full-file-point-poison"
+lane = "layout-point"
+operation = "storage_layout_diagnostic"
+negative_control = "scan_complete_parquet_object_for_point"
+
+[[workloads]]
+id = "layout-hybrid-accounting-poison"
+lane = "layout-correctness-media"
+operation = "storage_layout_diagnostic"
+negative_control = "omit_row_capsule_bytes"
+
+[[workloads]]
+id = "layout-columnar-invalidation-poison"
+lane = "layout-htap"
+operation = "storage_layout_diagnostic"
+negative_control = "apply_predicate_before_invalidation"
+
+[hard_gates]
+correctness_anomalies = 0
+same_canonical_history_digest = true
+exact_point_reads_at_requested_versions = true
+exact_ordered_scans_and_tombstones = true
+exact_post_compaction_digest = true
+one_active_manifest_has_complete_closure = true
+no_list_dependency = true
+fetched_ranges_are_checksum_covered = true
+complete_media_accounting = true
+point_read_never_scans_complete_object = true
+branch_reuses_unchanged_runs = true
+parquet_full_file_point_poison_detected = true
+hybrid_accounting_poison_detected = true
+columnar_invalidation_poison_detected = true
+schema_valid = true
+budget_must_hold = true

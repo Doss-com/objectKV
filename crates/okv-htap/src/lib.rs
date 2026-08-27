@@ -1,7 +1,11 @@
 //! Physical Arrow, Parquet, and `DataFusion` contracts for `ZebraDB`.
 
+mod range_stripe;
 mod streaming;
 
+pub use range_stripe::{
+    RangeStripeScanSnapshot, RangeStripeScanStats, RangeStripeSource, RangeStripeTableProvider,
+};
 pub use streaming::{run_streaming_overlay_contract, StreamingOverlayMode, StreamingOverlayReport};
 
 use arrow::array::{Array, ArrayRef, StringArray, UInt32Array, UInt64Array, UInt8Array};

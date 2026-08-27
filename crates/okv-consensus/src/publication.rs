@@ -5,10 +5,13 @@ const PUBLICATION_COMMAND_MAGIC: &[u8] = b"OKVP1";
 
 pub use okv_publication::{
     AuthorityContext as PublicationAuthorityContext,
-    AuthorityPosition as PublicationAuthorityPosition, DeletePermit, ObjectIdentity,
-    ObjectKind as PublicationObjectKind, ObjectReference as PublicationObjectReference,
-    PreparedPublication, PublicationAction, PublicationAuthorityFaults, PublicationAuthorityState,
+    AuthorityPosition as PublicationAuthorityPosition, DeletePermit, ObjectFrontierAttestation,
+    ObjectFrontierCertificate, ObjectFrontierCertificateStatement, ObjectFrontierLogPosition,
+    ObjectFrontierRecord, ObjectIdentity, ObjectKind as PublicationObjectKind,
+    ObjectReference as PublicationObjectReference, PreparedPublication, PublicationAction,
+    PublicationAuthorityFaults, PublicationAuthorityState, PublicationAuthorization,
     PublicationCommandStatus, PublicationIntent, PublicationOutcome, RevisionToken,
+    OBJECT_FRONTIER_CERTIFICATE_VERSION,
 };
 
 /// One generation-fenced publication command replicated by the authority log.

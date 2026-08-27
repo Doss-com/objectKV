@@ -1,0 +1,111 @@
+{
+  "artifact_refs": [
+    "okv-eval://commit-proxy-object-frontier-v1/no_conflict_control/5101/516f9bd10374ece7092116d5c26c37742a4acf270dcd1dee0c24aa3121c4d132",
+    "okv-eval://commit-proxy-object-frontier-v1/no_conflict_control/5102/10f2b3bba6ba010da81a32dd49ba7fd16c121f7c79c7359226dc45fffa30dc29",
+    "okv-eval://commit-proxy-object-frontier-v1/no_conflict_control/5103/ac0128c4d12bd038bbbec9861255341a220086ff27b3ef95868d20e44cf64432",
+    "/private/tmp/g410b-final-no-conflict-control.json"
+  ],
+  "backend": "object-store-local-fs+publication-openraft+data-openraft+stable-journal",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 7.919518791
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T13:47:01.138686+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "publication=3,data=3",
+      "id": "three_publication_and_three_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "no_conflict_control",
+      "id": "exact_object_plus_suffix_recovery",
+      "status": "pass"
+    },
+    {
+      "detail": "commit path owns no object backend",
+      "id": "foreground_object_requests_zero",
+      "status": "pass"
+    },
+    {
+      "detail": "resolved_before_activation=64",
+      "id": "concurrent_suffix_progress_observed",
+      "status": "pass"
+    },
+    {
+      "detail": "limit_seconds=2",
+      "id": "frontier_protocol_bounded",
+      "status": "pass"
+    },
+    {
+      "detail": "no_conflict_control",
+      "id": "mode_specific_performance",
+      "status": "pass"
+    },
+    {
+      "detail": "no_conflict_control",
+      "id": "unsafe_poison_rejected_before_pop",
+      "status": "pass"
+    }
+  ],
+  "lane": "commit-proxy-object-frontier",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 3.465739366001344,
+    "median": 1093.3057444461883,
+    "name": "okv.eval.commit.throughput",
+    "samples": [
+      1093.3057444461883,
+      1089.840005080187,
+      1101.0211542194213
+    ],
+    "statistic": "median",
+    "unit": "{transaction}/s",
+    "value": 1093.3057444461883
+  },
+  "profile": {
+    "hash": "aee86bc4b3aa50237fdfa7c4fd4e9479fa24741edd26fcdd400721466fe64c65",
+    "id": "local-process",
+    "lockfile_hash": "42f2eb49b88531815b763396ed07a0b0e06be758979e9e988412ac2e34e62059",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "95b5d388-46ab-4bb6-a347-8713f5239dbf",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "commit_proxy_object_frontier.append_density.minimum": 31.03030303030303,
+    "commit_proxy_object_frontier.frontier_seconds.maximum": 0.099704917,
+    "commit_proxy_object_frontier.p99_seconds.maximum": 0.10583425,
+    "commit_proxy_object_frontier.throughput.median": 1093.3057444461883,
+    "commit_proxy_object_frontier.wall_seconds": 7.919462833,
+    "operation.duration.median": 7.919518791
+  },
+  "seeds": [
+    5101,
+    5102,
+    5103
+  ],
+  "suite": "commit-proxy-object-frontier-v1",
+  "suite_hash": "ef9c47edba142930d43605867eb677c8dcbd89950b93cae9d4a928003927e3d4",
+  "verdict": "inconclusive"
+}

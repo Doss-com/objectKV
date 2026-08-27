@@ -1,52 +1,473 @@
 # objectKV project tracking
 
-Status: `[ACTIVE-WORK]` registered in the local DOSSBOT project tracker as
-`OKV-BOOTSTRAP`.
+Status: `[EVALUATING]` active technical program.
+
+The canonical living tracker is
+[`docs/artifacts/objectkv-program-tracker/objectkv-program-tracker.html`](artifacts/objectkv-program-tracker/objectkv-program-tracker.html).
+It assembles the architecture, dependency frontier, target curves,
+systems-to-infrastructure ladder, recent experiment receipts, decisions, and
+work log from the current tree and `experiments/ledger.jsonl`.
 
 ## Open the playground
 
+The tracker uses a dedicated local port so it does not collide with the
+DOSSBOT app page:
+
 ```bash
-cd /Users/wileyjones/Documents/doss/repos/dossbot
-PROJECT_TRACKER_PORT=4187 npm run project:tracker
+cd /Users/wileyjones/Documents/doss/repos/okv
+python3 -m http.server 4197 --bind 127.0.0.1 --directory .
 ```
 
-The objectKV playground uses `http://127.0.0.1:4187` so it does not collide with
-the DOSSBOT app page on its default port. Filter the canonical queue by the
-`objectKV` lane or search for `OKV-BOOTSTRAP`.
+Open
+`http://127.0.0.1:4197/docs/artifacts/objectkv-program-tracker/objectkv-program-tracker.html`.
+
+Rebuild before a review:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 \
+  docs/artifacts/objectkv-program-tracker/_assemble.py
+```
+
+The former DOSSBOT project-tracker route is a legacy archive. New objectKV
+program state is owned here rather than copied into that retired queue.
 
 ## Authority boundaries
 
-- The DOSSBOT tracker entry owns the concise current status, owner, next action,
-  acceptance condition, and evidence pointer.
-- `docs/BOOTSTRAP-PLAN.md` owns objectKV sequencing and gates.
+- `docs/BOOTSTRAP-PLAN.md` owns the program goal, sequencing, and gates.
+- The HTML tracker owns the concise current readout and links to evidence.
+- `docs/PRODUCT-SPEC-SHEET.md` owns atomic requirements and performance targets.
 - `docs/CONTRIBUTOR-BOARD.md` owns bounded contributor tasks.
 - `docs/DECISIONS.md` and `rfcs/` own architectural decisions.
-- `docs/research/EXPERT-REVIEW-SYNTHESIS.md` owns the independent-review ledger
-  and identifies incomplete review paths without implying consensus.
-- `experiments/` and OTel own empirical receipts.
+- `docs/STATUS-TAXONOMY.md` owns proof-status meaning.
+- `docs/REAL-INFRA-EVALS.md` owns paired benchmark claims, GCP rungs, and the
+  failure-mode matrix.
+- `papers/objectkv-vldb/` owns the working technical paper.
+- `experiments/ledger.jsonl` and OTel own empirical receipts.
 - Git owns source and exact revision identity.
 
-Update the tracker when the critical path, owner, or external blocker changes.
-Do not copy the full RFC queue into the playground.
+## Real-infrastructure benchmark checkpoint
+
+`[CODE-COMPLETE]` The product program now pins a paired-comparison schema.
+Candidate/control receipts fail comparison when metric, statistic, direction,
+machine, toolchain, lockfile, revision, seed, sample count, or hard gates do not
+match. A directional percentage must clear both the lane threshold and observed
+MAD-based noise.
+
+`[VERIFIED]` The comparator now also binds both results to the suite hash in the
+current program plan and evaluates configurable cross-result constraints. The
+GP3.1 p99 constraint rejected both real-infrastructure comparisons even though
+throughput entered its 20 percent envelope. Missing secondary metrics invalidate
+the comparison rather than silently dropping the constraint.
+
+`[CODE-COMPLETE]` The isolated GCP benchmark root defines a private
+`n2-standard-8` runner with a 200 GiB `pd-ssd` and a separate private OTel
+collector. It uses a separate remote-state prefix and defaults to zero compute
+resources. Both real GCS layout profiles now fail closed without OTel; the full
+layout profile requires five repeats.
+
+`[VERIFIED]` R0 now has a clean frozen-source machine receipt for one private
+`n2-standard-8`, a 375 GiB local NVMe serving volume, a 200 GiB persistent
+`pd-ssd`, regional GCS, and a separate OTel collector. All nine leased resources
+were destroyed after the receipts were copied. The first paired GP3.1 run is
+valid and has a `worse` verdict, so the infrastructure is admitted while the
+SSD performance gate remains `[EVALUATING]`.
+
+`[VERIFIED]` The optimization run used the same R0 shape and a second frozen
+source bundle. It executed candidate then control and control then candidate,
+15 samples per subject in each pair, with OTel logs, metrics, and traces. All
+nine resources and the 116 MB local Terraform provider cache were removed after
+the receipts were copied.
+
+`[VERIFIED]` The native resident-engine decision run used a third frozen source
+and an owned-value control. Both throughput comparisons passed; both p99
+comparisons failed. The frozen stop rule moved resident MVCC and transaction
+processing to an incumbent TiKV or FoundationDB selection. The custom engine is
+retained as a correctness prototype.
 
 ## Current checkpoint
 
-`[ACTIVE-WORK]` Tracker revision 105 points at lost-`Publish`-response recovery
-candidate `72df70c726797ff3ff7dcd0642a89e2302a7fd7e`. Clean run
-`a544deff-edec-4885-a0bf-b1217d720328` passed 42 checks with zero anomalies
-across three deterministic seeds. It dropped each successful `Publish` reply
-after the replicated root transition, killed the publisher and accepting
-authority leader, and started an empty-scratch replacement. Each replacement
-recovered the original outcome from the successor, retried the same identity
-without a second authority transition or object PUT, and walked the exact
-visible closure. Negative run `82698bdb-443d-4ad7-830f-5bef6927b8f8`
-discarded convergence-only recovery with four anomalies and two `Publish`
-applications per seed while retaining the same final root and closure. OTel run
-`50ad5d86-ee3e-4790-9c19-d81383d68002` exported two log records, one trace
-span, eight metrics, and eight data points with correctness anomalies at zero
-and availability ratio at one. The next storage critical path covers multipart
-residue, repeated unknown-response budgets, complete `MarkReceipt`, sweeper
-effect fencing, G1/G2 reservation handoff, retained-outcome expiry and snapshot
-restore, later-root supersession, and independent empty-disk recovery. The
-independent HTAP path adds version-bound manifests and leases, multiple
-execution ranges, safe pruning, and the `T - W_p` cost curve.
+`[VERIFIED]` The program has exact model, local stable-file, pinned local MinIO,
+and real local process evidence. The highest verified infrastructure rung is
+real operating-system processes using TCP, SIGKILL, OpenRaft election, and
+replacement recovery on one machine.
+
+`[CODE-COMPLETE]` The `objectKV-dev` Terraform configuration formats and
+validates locally. The PVLDB working paper renders in the official Vol. 20
+template. The `okv-log` pure ordered-record substrate is implemented below
+`okv-wal`.
+
+`[CODE-COMPLETE]` The golden-path scenario now includes an incumbent transaction
+plane between object publication and resident serving. Its GP2.5 gates require
+semantic elimination before a live lifecycle spike, and GP3.1 now measures the
+mandatory objectKV write cost against direct FoundationDB. The graph rejects
+missing checkpoint coverage, forward dependencies, and undeclared artifact
+inputs. No checkpoint has a verified end-to-end golden-path receipt yet; prior
+component receipts remain separately scoped.
+
+`[VERIFIED]` The paired Tetris and Chess developer path now passes GP-G0 through
+GP-G6 in bounded local scopes. It covers exact differential replay, seven
+poison histories per workload, atomic application-record alignment, canonical
+envelopes through three OpenRaft processes on one host, disposable RAM serving,
+recursive immutable-object publication, copy-on-write forks, and reserved
+garbage collection. The release-profile logical-size ratios are 427.6x for
+Tetris and 25.0x for Chess. Both apps expose parent, fork version, write head,
+and exact historical nodes in a Git-like lineage view.
+
+This does not admit a production cell. GP-G3 is one-host process evidence;
+GP-G4 is RAM only; GP-G5 and GP-G6 use the in-memory object adapter and pure
+publication authority. GCS, replicated publication authority, independent
+hosts, an SSD control, and the continuously integrated path remain
+`[EVALUATING]`. GP-G7 is `[FUTURE]`. The design and scope are in
+`docs/PLAYGROUND-GOLDEN-PATH.md`; the zoomed-out review is in
+`docs/research/playground-g0-g6-architecture-review-2026-08-25.md`.
+
+`[VERIFIED]` The bounded native resident-engine experiment is complete. It
+materializes object base plus txLog suffix into `head`, `history`, and
+`metadata`, atomically advances data with its frontier, binds snapshots to
+generation and assigned range, and preserves older reads across advancement.
+The first run caught an object-span versus assigned-range bug; the corrected
+engine completed both final orders with zero anomalies and zero measured object
+operations.
+
+`[EVALUATING]` GP3.1 did not admit the custom resident data plane. Final AB
+retained 84.11 percent of control throughput with 1.210x p99. Final BA retained
+82.68 percent with 1.272x p99. The frozen p99 ceiling failed twice, so D52 stops
+custom transaction-plane expansion. The next golden-path slice selects TiKV or
+FoundationDB and freezes the adapter above it. RAM remains blocked.
+
+`[CODE-COMPLETE]` The provider-neutral `okv-plane` contract, RFC-0041, and the
+source-pinned preflight now define P1 through P10, logical versions, retained
+changes, object-frontier advancement, and generation restore. FoundationDB is
+the first live candidate. TiKV stays in the suite as a negative subject for its
+documented snapshot-isolation write skew. This is not a provider-selection
+receipt; the leased R0 lifecycle run remains `[EVALUATING]`.
+
+`[VERIFIED]` The SSD mechanism now composes with the public kernel on real R0
+infrastructure. `SingleRange` verifies the complete GCS closure, activates a
+bounded RocksDB image with its local WAL disabled, applies the newer txLog
+suffix, and serves exact versioned point reads after an empty-worker rebuild.
+Across 15 samples it produced 516,973 reads/s median, 2.482 microseconds median
+p99, zero object operations, zero anomalies, and a 4,351,739-byte serving
+image. Direct RocksDB produced 702,142 reads/s and 1.749 microseconds p99. The
+paired result is 26.37 percent worse on throughput and 41.91 percent worse on
+p99, so GP3.1 stays `[EVALUATING]`. The receipt is
+`docs/artifacts/eval-receipts/single-range-ssd-gcp-r0-2026-08-27/README.md`.
+
+`[VERIFIED]` The follow-up optimization bypasses manifest lookup and object
+reference cloning once the complete RocksDB serving image is active. AB
+measured 575,498 versus 713,304 reads/s and 2.490 versus 1.841 microseconds p99.
+BA measured 573,999 versus 717,362 reads/s and 2.427 versus 1.867 microseconds
+p99. Throughput entered the frozen envelope twice; p99 failed its new executable
+constraint twice. The frozen receipts and architectural consequence are in
+`docs/artifacts/eval-receipts/single-range-ssd-gcp-r1-2026-08-27/README.md`.
+
+`[CODE-COMPLETE]` The public row-object point-read pilot now has a checksummed,
+content-addressed manifest, data objects bounded below 4 MiB, one separately
+cacheable sparse index per object, an exact one-range-GET reader, and a
+complete-selected-object scan poison. The release local-filesystem sweep held
+candidate reads to one request and about 64 KiB across 1, 8, and 64 MiB range
+images. Candidate p50 stayed between 162.708 and 166.666 microseconds while
+cached metadata grew from 2,240 to 104,754 bytes. G4.1 remains `[EVALUATING]`
+until a clean source run, MinIO or GCS, OTel, concurrency, and cost receipts
+exist.
+
+`[EVALUATING]` G4.2 now has a release local-filesystem lazy empty-worker curve.
+Across 1, 8, and 64 MiB assigned ranges, the candidate fetched one exact
+manifest, one selected index, and one data block without LIST or full-object
+hydration. As the complete closure grew 63.96x, candidate response bytes grew
+1.19x and p99 grew 1.03x. At 64 MiB, full restore transferred 860.59x more
+bytes and was 276.11x slower at p99. The result remains diagnostic because the
+source is dirty, OTel is disabled, and local filesystem cache is not cloud
+object storage.
+
+`[EVALUATING]` G4.3 now crosses the next local process boundary. Three OpenRaft
+authority processes selected generation 7, the authoritative row root, and the
+logical txLog root. A first serving-worker process recovered the base and a
+three-record post-object suffix, then was killed before its first read. A
+distinct empty-scratch process repeated recovery and returned exact base,
+update, delete, and tail-only insert reads. The lazy candidate reached 6.542 ms
+p99 and transferred 35,811 object bytes. Full hydration was 1.68x slower and
+transferred 29.96x more bytes. A skip-tail poison produced nine anomalies. This
+remains a one-machine diagnostic with a local quorum-file adapter, not a
+production replicated data txLog.
+
+G4.4 targets replacement of that adapter with the actual OpenRaft data log or a
+frozen retained-log stream, then holds exactness during concurrent commits.
+
+`[EVALUATING]` G4.4 now crosses that boundary through a product-facing retained
+transaction stream rather than raw Raft journal access. Three data-authority
+processes retain accepted commands in state-machine snapshots and expose
+linearizable frozen-target pages. The killed-worker replacement catches up from
+`O = 9` through `C0 = 12`, observes four commits, catches up through `C1 = 16`,
+and returns exact `Set`, `Clear`, insertion, and `ClearRange` outcomes. The
+candidate reached 120.183 ms p99 from worker entry, moved 6,177 object bytes,
+and used no physical journal path. Full hydration was 1.64x slower and moved
+6.85x more object bytes. Skipping the concurrent suffix produced 12 anomalies.
+
+`[CODE-COMPLETE]` RFC-0038 now packages the same recovery equation behind the
+experimental `okv::SingleRange` API. Suite `single-range-kernel-v1` adds the
+post-batching cursor invariant that G4.4 did not cover: a one-record page ends
+inside a shared commit version and resumes by batch order. Local diagnostic
+run `74b29fe1` passed the commit, process-kill, empty-replacement, exact-read,
+bounded-object-I/O, schema, and budget gates. Clean-source OTel replay and
+independent-media execution remain the next verification boundary.
+
+`[EVALUATING]` Run `6723ce8a` extended that exact public path to real GCS with
+required OTel. It crossed six local authority processes, one killed worker,
+one empty replacement, and the exact manifest, index, and ranged-block object
+path with zero LIST operations. All 12 gates passed; first correct read was
+756.950 ms and total wall time was 7.254 seconds. This is a dirty
+local-controller smoke, not a competitive performance result. The next gate is
+the same suite from a clean digest-addressed bundle on the machine-bound R0
+runner, not a larger distributed topology.
+
+`[EVALUATING]` G4.5 rejects the current monolithic data-authority state shape.
+With 256 live keys, the exact serialized snapshot grew from 280,547 to
+2,573,288 bytes after an ideal projection removed every retained txLog command
+through `O = C`. The 9.172x maximum crossed the frozen 2.0x ceiling. The no-pop
+control grew 12.005x, and an incomplete retained-stream-only poison advertised a
+flat 1.0x curve but was rejected with nine anomalies.
+
+`[EVALUATING]` G4.6 implements that split. With replicated `R` and `Q(client)`
+advancement and projected `O = C`, complete state stayed between 130,671 and
+131,047 bytes from 256 to 4,096 lifetime commits, a 1.0029x maximum. The
+object-only control grew 9.1694x and the incomplete serving-only poison was
+rejected with nine anomalies. Expired retries failed closed and fresh-process
+replay was exact. The candidate missed its execution budget, taking 545.726
+seconds versus 180 seconds, so no performance or verified-state claim is
+admitted.
+
+The next recovery gate is a generation-fenced object-frontier certificate and
+crash-safe physical txLog pop. The parallel performance problem is explicit:
+the sequential sync-per-entry process path needs commit batching or an
+equivalent group-commit mechanism. Safe pop and batching require independent
+correctness and performance receipts; neither result can substitute for the
+other.
+
+`[EVALUATING]` G4.7 closes that application-level recovery gate on one local
+machine. A publication quorum first retained an exact pending row manifest.
+The controller validated every manifest, index, and data block, then the data
+quorum physically removed all 16 retained transactions through floor 18.
+Three data voters certified the exact applied frontier before publication
+activation. Object recovery remained exact after both authority leader
+failovers and restart of the killed data voter. The candidate reached 160.331
+ms protocol p99 and passed its 90-second wall budget.
+
+The controls isolate the invariant. Without a pending frontier, all 16 txLog
+records remained. A manifest claiming coverage beyond its actual bytes failed
+complete validation before pop. With one voter signature, the pop remained
+recoverable from objects but publication activation failed and the pending
+manifest stayed protected. These receipts are diagnostic because they use
+dirty source, debug processes, one host, and local object files.
+
+`[EVALUATING]` G4.8 isolates the first commit-path performance mechanism. A
+release candidate with at most 32 independent transactions in flight preserved
+exact final values, retained-stream order, retry outcomes, leader failover, and
+killed-voter recovery. It reached 153.708 median durable transactions per
+second versus 38.772 for the same-durability sequential control, a 3.964x gain.
+The candidate was discarded because it missed the frozen 200 transaction per
+second gate, exceeded the 250 ms p99 ceiling at 264.887 ms, and missed the 4x
+paired gate. Followers grouped 10 to 15 entries per append, while the leader
+still synchronized every transaction entry independently. The early-ack poison
+appeared much faster but lost its acknowledged transaction after quorum
+recovery and was rejected.
+
+`[EVALUATING]` G4.9 clears that local mechanism gate. One explicit Raft entry
+carried 16 independently identified transactions with a shared commit version
+and distinct batch orders. The candidate reached 559.511 median durable
+transactions per second and 34.016 ms maximum p99 versus 151.944 transactions
+per second and 262.174 ms for the one-entry same-durability control. The 3.682x
+paired gain cleared the frozen 2.5x requirement, and every seed produced 16
+logical transactions per leader stable append.
+
+The candidate also preserved exact paginated recovery across batch boundaries,
+individual and whole-batch retry, deterministic in-batch conflicts, final
+values, leader failover, and killed-voter restart. A duplicate identity failed
+before mutation. The early-ack poison appeared to reach 13,179.572 transactions
+per second but lost its acknowledged outcomes after quorum recovery and was
+discarded. The mechanism is retained by D40. It is not verified because the
+source is dirty, all voters share one host and filesystem, and OTel is disabled.
+
+`[EVALUATING]` G4.10 starts from independent requests and supplies the missing
+bounded commit-proxy policy. The original 16-item, 64-caller configuration
+reached 581.791 median transactions per second but was discarded because
+131.488 ms maximum p99 missed the frozen 100 ms ceiling. The 32-caller control
+reached 595.440 transactions per second and 63.398 ms maximum p99, identifying
+the local admission knee rather than justifying a weaker latency gate.
+
+`[EVALUATING]` A separately frozen G4.10a.1 candidate uses 32 items at 64
+callers. It reached 1,157.369 median transactions per second, 76.101 ms maximum
+p99, and exactly 32 logical transactions per leader append. The same-durability
+one-entry control reached 182.093 transactions per second, a 6.356x paired
+gain. Sparse traffic closed one-item batches on delay. The 128 KiB byte control
+closed at eight 8 KiB-value transactions and 119,731 bytes. Overload admitted
+and resolved 32 requests while rejecting 480 before replication, and the
+oversized poison failed before admission and mutation.
+
+The 32-item configuration remains an experiment envelope, not a public product
+limit. `[EVALUATING]` G4.10b now composes it with controlled conflicts and
+authenticated object-frontier advancement. The 25% conflict candidate reached
+1,075.343 median resolved outcomes per second, 104.274 ms maximum p99, 31.030
+minimum outcomes per leader append, and 95.673 ms maximum frontier time. The
+same-durability one-entry control reached 37.369 outcomes per second, a 28.776x
+paired gain. The no-conflict control reached 1,093.306 outcomes per second.
+
+Every seed reconstructed exact final `C` from objects through frozen `O` plus
+retained transactions `(O, C]`. Committed and conflicted retries, both leader
+failovers, killed-voter restart, and a fresh controller remained exact. The 75%
+conflict curve remained bounded. Moving-frontier and premature-pop poisons were
+rejected before unsafe pop, with every prefix record retained. The mechanism is
+`[CODE-COMPLETE]`; receipts remain `[EVALUATING]` because the source was dirty,
+OTel was disabled, and all six processes shared one host.
+
+`[CODE-COMPLETE]` G4.11a now persists and reopens exact state-machine snapshots
+before OpenRaft purge, then compacts each node journal to its canonical vote,
+committed marker, purge marker, and retained suffix. Candidate run `7eeaa179`
+reduced at most 6,391,575 journal bytes to 879 bytes and preserved exact state,
+retained-stream, retry, full-quorum restart, and new-suffix behavior. Poison run
+`8fb8a75a` rejected purge before snapshot without changing physical journal
+bytes or purge state.
+
+The G4.11a receipts remain `[EVALUATING]` because the tree was dirty, OTel was
+disabled, and all voters shared one host. They also exposed a state-shape
+failure: three unfrontiered snapshots totaled at most 5,066,472 bytes for
+131,072 logical workload bytes, 38.66082x physical amplification. Journal
+reclamation works, but the snapshot still retains lifetime recovery and retry
+state.
+
+`[CODE-COMPLETE]` G4.11a.1 aligns `R`, a 64-request `Q(client)` window, and
+authenticated `O` across four local process cycles, then snapshots, purges,
+restarts both full quorums, and proves exact retry plus object-and-suffix
+recovery. Candidate `be53d36c` passed the 1.25x growth gate at 1.091759x but
+failed the 8x complete-media gate at 19.692719x. No-retry-frontier control
+`9b236c46` reached 54.803467x and 2.195933x. Accounting poison `829e35c4`
+reported 0.05365x while independent accounting found 19.692719x. The receipts
+remain `[EVALUATING]` because the source is dirty and all six processes share
+one host. The current physical snapshot shape is discarded.
+
+`[EVALUATING]` D46 now freezes the storage-truth question before cloud topology
+work. The row-object base remains the control. A manifested multi-layout LSM
+candidate uses row-oriented L0 deltas, random-access columnar compacted runs,
+one kernel-owned primary access path, and one authenticated object closure.
+The architecture fork must pass exact point, scan, update, compaction, media,
+HTAP, and branch curves locally and then on GCS. The research contract is
+`docs/research/columnar-lsm-source-of-truth-2026-08-26.md`.
+
+`[CODE-COMPLETE]` The first same-history runner covers the row-object,
+indexed-Parquet, and hybrid subjects plus three negative controls. A small
+local debug-build preflight preserved exact semantics. Parquet improved the
+projected scan rate 1.873x but used 10 point requests and 16.35x the row
+control's response bytes. The hybrid used four requests and 1.925x the row
+control's stored/live amplification. These `[EVALUATING]` observations reject
+plain Parquet as the generic point format and narrow the next work to Vortex,
+coalesced checksum-block reads, or an honestly accounted typed sidecar.
+
+`[CODE-COMPLETE]` The follow-up implements both request-coalesced Parquet and a
+fully counted split typed run. The split run keeps exact MVCC rows in the
+indexed row sidecar and writes only the declared analytical projection to the
+columnar object. The parent manifest authenticates the columnar object, its
+access index, and the nested row closure.
+
+`[EVALUATING]` Release-local admission run `f5dbba62` alternated the split run
+and row control across seeds 5701 through 5703 and three repeats. It passed all
+frozen gates in 18.504 seconds: point requests 1.000x, point bytes 1.000x,
+median point p99 1.033x, projected scans 9.124x, storage amplification 1.030x,
+compaction write amplification 1.035x, and resident index 1.137x versus the row
+control. Suite and profile hashes are
+`ee5144cd74de848c6a73a3b014d40e247fc80ce14443d073aeafff39dfa9a215`
+and `15ca0412b49870a0df3e14bc4eea5572186d7678a5988d8e6a6b70b708fa4fe0`.
+The source was dirty and OTel was disabled, so this promotes the mechanism to
+clean GCS evaluation only.
+
+Before G4.11b, the split typed run needs namespaced GCS cold and warm point and
+scan curves, exact recovery from the complete split closure, and the existing
+DataFusion base-plus-tail overlay over its columnar projection.
+
+`[CODE-COMPLETE]` A second candidate now removes the durable row sidecar. The
+`columnar_range_overlay_candidate` stores MVCC metadata and typed fields in
+checksummed projection stripes, opaque values once in checksummed payload
+pages, and a compact resident key-range index. Its RangeEngine cache is
+disposable and bounded to 16 MiB in the frozen profile. Empty-cache reopen
+loads the manifest and index, performs an exact point read, and reconstructs
+the complete logical history without `LIST`.
+
+`[EVALUATING]` Release-local run `49d6cd06` alternated this columnar candidate
+with the indexed-row control across three seeds and three repeats. All local
+gates passed in 19.002 seconds: point requests 1.982x, point bytes 0.353x,
+median point p99 0.839x, projected scans 4.718x, storage amplification 1.010x,
+compaction write amplification 1.010x, and resident index 1.170x. Warm replay
+issued zero object requests, projected scans read zero opaque payload bytes,
+and restart anomalies were zero. The largest observed cache was 13,186,555
+bytes under the 16,777,216-byte bound. Suite and profile hashes are
+`c92826009b7a4b73577cfc7bf28ae031b73f8e063e2a911051ef4cce035fdf90`
+and `fc33b5a08b5cc1afbc0839f201d8a21ad5ed1dfd8476a85b47298e96d59a2324`.
+The source was dirty and OTel was disabled, so the result remains
+`[EVALUATING]`.
+
+`[CODE-COMPLETE]` The direct DataFusion gate now exposes these exact `OKCP`
+projection stripes through `RangeStripeTableProvider` and `RangeStripeExec`.
+One-stripe control `d788c75f` reached 1,246,835 median source rows per second
+with 1,761 projection requests across nine samples. The bounded 256 KiB scan
+fetch candidate `a7d4f3bf` reached 2,543,552 rows per second with 54 requests,
+identical projection bytes, zero payload requests, a 257,506-byte maximum fetch
+buffer, and a 1,646-byte maximum Arrow batch. Payload-prefetch poison
+`b4fe7c11` added 1,761 requests, tripled bytes, and reduced throughput to
+820,215 rows per second. The dirty local receipts remain `[EVALUATING]`.
+
+The architecture fork now favors the columnar permanent base with two access
+granularities: point-sized stripes and bounded coalesced scan ranges. It is not
+closed. The next gates are exact base-plus-live-tail execution over this source
+and a namespaced GCS run. The split sidecar remains the fallback control if
+remote two-request point latency fails.
+
+`[EVALUATING]` CloudJump III adds a production comparison for the serving
+hierarchy. It uses DRAM, volatile local SSD, durable network block buffering,
+and asynchronous versioned object publication. It does not use a columnar
+source of truth. The review preserves the C5 experiment but adds cache-ratio,
+Zipf-skew, admission-policy, publication-unit, background-debt, and recovery
+curves. The central falsifier is whether retained quorum `txLog` plus
+disposable materialization can replace CloudJump III's durable ESSD page-image
+buffer while keeping recovery and foreground p99 bounded.
+
+`[CODE-COMPLETE]` The first CloudJump-derived cache-policy suite now exposes
+full admission, a never-admit control, and bounded ghost two-chance around a
+scan-pollution phase. `[EVALUATING]` At 20 percent cache and Zipf alpha 1.4,
+ghost admission reached a 74.46 percent post-scan local hit ratio versus 71.34
+percent for full admission and reduced post-scan requests by 16.2 percent over
+three seeds and three repeats. Real GCS canary runs `8574f64c` and `a1c6be8a`
+then reached 32.03 and 42.19 percent hit ratios; ghost admission reduced
+post-scan GCS requests from 161 to 128 and wall time from 75.06 to 67.14
+seconds. Exactness and capacity gates passed, but the dirty source, one GCS
+seed, and disabled OTel keep both results inconclusive.
+
+`[CODE-COMPLETE]` Namespaced GCS execution now wraps the existing backend under
+`objectkv/evals/storage-layout/<run-id>/<subject>/<seed>/<repeat>`. The frozen
+`storage-layout-gcs-admission-v1` suite uses the same history and admission
+ratios as the release-local run. `[EVALUATING]` The project
+`doss-objectkv-dev` and versioned `us-central1` bucket
+`doss-objectkv-dev-okv-evals` were observed through live GCP APIs. The original
+16,384-key, nine-repeat serial profile was stopped after five minutes at its
+first sample because it was not a bounded cloud diagnostic. The smaller cache
+admission canary completed through the same GCS adapter. The full paired layout
+admission, object-authority conformance, clean source, and required OTel receipt
+remain open.
+
+G4.11b then runs eight frontier cycles from one clean exact revision across
+three hosts, each with independent persistent roots for one data voter and one
+publication voter, plus a remote GCS backend and required OTLP. It records host,
+disk, binary, object, and journal identities; kills hosts during commit and
+publication; and proves final object-plus-suffix recovery. That run decides
+whether the native authority is credible enough to join the first Cell v0
+vertical slice. It starts only after the G4.11 storage-layout fork admits a
+bounded local state representation.
+
+An independent three-machine stable-media plus GCS run is not the next storage
+gate. It follows only if the resident, cold-read, and object-recovery curves pass
+and is required specifically to verify durable quorum and host-loss claims.
+GCP access and a bounded real-GCS canary now work; independent-machine
+provisioning, required OTel, object-authority conformance, and the continuously
+integrated cell remain open. Local durable snapshot and journal work continues
+without weakening that external gate.
+
+Do not expand MultiRaft, PostgreSQL, or metacluster scope until the resident
+read and bounded cold-object lookup curves clear their controls.

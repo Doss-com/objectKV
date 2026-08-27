@@ -1,0 +1,98 @@
+schema_version = 1
+id = "strict-serializability-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0008-transaction-isolation.md",
+  "../schema/transaction-history-v1.schema.json",
+]
+dataset_generator = "deterministic-four-range-occ-history-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.model-dev]
+logical_bytes = 0
+key_count = 64
+seeds = [1103, 2207, 3301, 4409, 5519]
+
+[profiles.model-dev]
+budget_kind = "events"
+budget_limit = 5000
+repeats = 1
+backend = "cell-v0-resolver-model"
+
+[[lanes]]
+id = "strict-serializability"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "strict-serializable-four-range-history"
+lane = "strict-serializability"
+operation = "strict_serializability_contract"
+transactions = 1000
+
+[[workloads]]
+id = "strict-serializability-accept-point-conflict"
+lane = "strict-serializability"
+operation = "strict_serializability_contract"
+transactions = 1000
+negative_control = "accept_point_conflict"
+
+[[workloads]]
+id = "strict-serializability-accept-range-phantom"
+lane = "strict-serializability"
+operation = "strict_serializability_contract"
+transactions = 1000
+negative_control = "accept_range_phantom"
+
+[[workloads]]
+id = "strict-serializability-partial-commit"
+lane = "strict-serializability"
+operation = "strict_serializability_contract"
+transactions = 1000
+negative_control = "partial_commit"
+
+[[workloads]]
+id = "strict-serializability-omit-read-conflict"
+lane = "strict-serializability"
+operation = "strict_serializability_contract"
+transactions = 1000
+negative_control = "omit_read_conflict"
+
+[[workloads]]
+id = "strict-serializability-omit-write-conflict"
+lane = "strict-serializability"
+operation = "strict_serializability_contract"
+transactions = 1000
+negative_control = "omit_write_conflict"
+
+[[workloads]]
+id = "strict-serializability-stale-read-version"
+lane = "strict-serializability"
+operation = "strict_serializability_contract"
+transactions = 1000
+negative_control = "stale_read_version"
+
+[hard_gates]
+correctness_anomalies = 0
+exact_seed_replay = true
+transactions_per_seed = 1000
+multi_range_commits_exercised = true
+point_and_range_reads_exercised = true
+negative_controls_detected = true
+schema_valid = true
+budget_must_hold = true

@@ -1,0 +1,104 @@
+{
+  "artifact_refs": [
+    "okv-eval://empty-worker-row-v1/full_hydration_control",
+    "/Users/wileyjones/Documents/doss/repos/okv/docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-1mib-dev/control.json"
+  ],
+  "backend": "full-local-restore",
+  "budget": {
+    "kind": "seconds",
+    "limit": 300.0,
+    "observed": 0.077268875
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T08:32:58.856721+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "samples=15",
+      "id": "exact_first_read",
+      "status": "pass"
+    },
+    {
+      "detail": "exact named manifest root",
+      "id": "no_list_dependency",
+      "status": "pass"
+    },
+    {
+      "detail": "segments=1,data_bytes=1074346",
+      "id": "complete_closure_hydrated",
+      "status": "pass"
+    }
+  ],
+  "lane": "empty-worker-recovery",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.00008795799999999996,
+    "median": 0.004244958,
+    "name": "okv.eval.recovery.first_correct_read_duration",
+    "samples": [
+      0.005261042,
+      0.004888542,
+      0.004679417,
+      0.004519875,
+      0.004498042,
+      0.004314583,
+      0.004278291,
+      0.004183708,
+      0.004244958,
+      0.004162916,
+      0.004157,
+      0.004170416,
+      0.004104833,
+      0.004179042,
+      0.004130875
+    ],
+    "statistic": "p99",
+    "unit": "s",
+    "value": 0.005261042
+  },
+  "profile": {
+    "hash": "1d8fd0b5a7fc9e044b7928cb55a7c0a0f2af6ce2493684f5af4e8e506225fcfa",
+    "id": "recovery-1mib-dev",
+    "lockfile_hash": "c6c49a2558609826c4712eadc16aea5a3c087f66f5a7ecb9fc8eeef9f08878a2",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "c95c5c22-3f23-4fb7-af93-e9bfa25c3bc5",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 0.077268875,
+    "recovery.data_closure_bytes": 1074346.0,
+    "recovery.first_read_seconds.median": 0.004244958,
+    "recovery.index_closure_bytes": 1602.0,
+    "recovery.manifest_bytes": 638.0,
+    "recovery.max_block_bytes": 65048.0,
+    "recovery.max_index_bytes": 1602.0,
+    "recovery.response_bytes.median": 1076586.0,
+    "recovery.segment_count": 1.0
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "objectkv-product-thesis-physical-v1",
+  "suite_hash": "4f28c333e7fdfed2d6f759b698c71ab0d9d3b3695c61e77b6b5503d735a0065e",
+  "verdict": "inconclusive"
+}

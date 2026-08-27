@@ -1,0 +1,4 @@
+c05c063044877c4034e23f00806dcbcd65adcfa81b4929b9f40d864269e2ec57  docs/artifacts/eval-receipts/commit-group-g4.8-v1/candidate.json
+6c706f0f221fecd3f643dfd1ed23d99efc72888e6732e167d763c841348d07e2  docs/artifacts/eval-receipts/commit-group-g4.8-v1/sequential-control.json
+c6f36c97835450e5585be806018742d08ad80c6e4730b63670aee2865192b9e1  docs/artifacts/eval-receipts/commit-group-g4.8-v1/early-ack-poison.json
+f0b57d9ea44f56e872fc8ad2d8a9dfe5d01215fa5c1ec0e33470ef88593c47b1  docs/artifacts/eval-receipts/commit-group-g4.8-v1/candidate-trace-4801.json

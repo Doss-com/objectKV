@@ -1,0 +1,102 @@
+{
+  "artifact_refs": [
+    "okv-eval://authenticated-object-frontier-v1/candidate/4701/2fa1f5dde109867ad711e302072a59c17d597f7ecec6d4c3d71111b1eb4bc6b3",
+    "okv-eval://authenticated-object-frontier-v1/candidate/4702/2fa1f5dde109867ad711e302072a59c17d597f7ecec6d4c3d71111b1eb4bc6b3",
+    "okv-eval://authenticated-object-frontier-v1/candidate/4703/2fa1f5dde109867ad711e302072a59c17d597f7ecec6d4c3d71111b1eb4bc6b3",
+    "/private/tmp/okv-g47-candidate.json"
+  ],
+  "backend": "object-store-local-fs+authority-openraft+data-openraft",
+  "budget": {
+    "kind": "seconds",
+    "limit": 90.0,
+    "observed": 31.385656375
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T11:45:12.558059+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "publication=3,data=3",
+      "id": "three_publication_and_three_data_voters",
+      "status": "pass"
+    },
+    {
+      "detail": "candidate",
+      "id": "mode_specific_safe_transition",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "unsafe_control_rejected",
+      "status": "pass"
+    },
+    {
+      "detail": "popped=16,floor=18,remaining=0",
+      "id": "physical_pop_and_exact_object_recovery",
+      "status": "pass"
+    },
+    {
+      "detail": "2fa1f5dde109867ad711e302072a59c17d597f7ecec6d4c3d71111b1eb4bc6b3",
+      "id": "fresh_controller_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "authenticated-object-frontier",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.002752500000000019,
+    "median": 0.14691387500000003,
+    "name": "okv.eval.object_frontier.protocol_duration",
+    "samples": [
+      0.144161375,
+      0.16033075,
+      0.14691387500000003
+    ],
+    "statistic": "p99",
+    "unit": "s",
+    "value": 0.16033075
+  },
+  "profile": {
+    "hash": "41181a5141de097f73ad7ec9b974e08947599fc49018fd4b00f035806830d9f2",
+    "id": "local-fs",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "f314d6e1-386f-4c1d-b46d-9c283a63a144",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "object_frontier.closure_bytes.median": 3299.0,
+    "object_frontier.correctness_anomalies": 0.0,
+    "object_frontier.exact_replay": 1.0,
+    "object_frontier.pop_seconds.median": 0.02051875,
+    "object_frontier.protocol_seconds.median": 0.14691387500000003,
+    "object_frontier.wall_seconds": 31.384302875,
+    "operation.duration.median": 31.385656375
+  },
+  "seeds": [
+    4701,
+    4702,
+    4703
+  ],
+  "suite": "authenticated-object-frontier-v1",
+  "suite_hash": "40b1d296f09c7694067b670d266e995765567ecc6217c7fde22ecde2d60cb8ad",
+  "verdict": "inconclusive"
+}

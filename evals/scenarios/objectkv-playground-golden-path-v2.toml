@@ -1,0 +1,89 @@
+schema_version = 1
+id = "objectkv-playground-golden-path-v2"
+description = "Differential materialized-KV and application-delta workloads for objectKV history, replay, checkpoint, branching, and amplification development."
+generator = "deterministic-tetris-and-chess-v2"
+seeds = [1]
+initial_artifacts = ["objectkv-boundary-v0", "application-delta-v1"]
+
+[[surfaces]]
+id = "materialized-control"
+name = "Materialized KV control"
+question = "Does the frozen KV representation preserve exact game state, snapshots, and recovery?"
+
+[[surfaces]]
+id = "delta-candidate"
+name = "Application delta candidate"
+question = "Can versioned action deltas plus checkpoints reconstruct the same exact state with bounded replay?"
+
+[[surfaces]]
+id = "history-lifecycle"
+name = "History and branch lifecycle"
+question = "Can historical versions and divergent branches reuse ordered prefixes without state divergence?"
+
+[[surfaces]]
+id = "differential-admission"
+name = "Differential admission"
+question = "Do materialized and delta representations produce identical fingerprints before size or latency is compared?"
+
+[[checkpoints]]
+id = "tetris-materialized"
+name = "Tetris materialized receipt"
+surface = "materialized-control"
+objective = "Run deterministic high-rate state transitions through committed KV envelopes and recover exact state."
+depends_on = []
+inputs = ["objectkv-boundary-v0"]
+outputs = ["tetris-materialized-receipt"]
+
+[[checkpoints]]
+id = "tetris-delta"
+name = "Tetris delta receipt"
+surface = "delta-candidate"
+objective = "Reconstruct the same long action history from two-byte deltas and periodic checkpoints with bounded replay."
+depends_on = []
+inputs = ["application-delta-v1"]
+outputs = ["tetris-delta-receipt"]
+
+[[checkpoints]]
+id = "chess-materialized"
+name = "Chess materialized receipt"
+surface = "materialized-control"
+objective = "Prove exact snapshots, divergence, named branch switching, and recovery over committed KV envelopes."
+depends_on = []
+inputs = ["objectkv-boundary-v0"]
+outputs = ["chess-materialized-receipt"]
+
+[[checkpoints]]
+id = "chess-delta"
+name = "Chess delta lifecycle receipt"
+surface = "history-lifecycle"
+objective = "Prove snapshots, historical fork, divergent suffix, named switching, and recovery from four-byte deltas plus checkpoints."
+depends_on = []
+inputs = ["application-delta-v1"]
+outputs = ["chess-delta-receipt"]
+
+[[checkpoints]]
+id = "tetris-differential"
+name = "Tetris differential state"
+surface = "differential-admission"
+objective = "Require materialized and delta histories to finish at the same exact Tetris fingerprint before comparing bytes."
+depends_on = ["tetris-materialized", "tetris-delta"]
+inputs = ["tetris-materialized-receipt", "tetris-delta-receipt"]
+outputs = ["tetris-differential-receipt"]
+
+[[checkpoints]]
+id = "chess-differential"
+name = "Chess differential state"
+surface = "differential-admission"
+objective = "Require materialized and delta branches to finish at the same exact Chess fingerprint before comparing bytes."
+depends_on = ["chess-materialized", "chess-delta"]
+inputs = ["chess-materialized-receipt", "chess-delta-receipt"]
+outputs = ["chess-differential-receipt"]
+
+[[checkpoints]]
+id = "paired-admission"
+name = "Paired application-history admission"
+surface = "differential-admission"
+objective = "Admit the developer path only when both games pass differential correctness, replay, and lifecycle gates."
+depends_on = ["tetris-differential", "chess-differential"]
+inputs = ["tetris-differential-receipt", "chess-differential-receipt"]
+outputs = ["objectkv-playground-v2-receipt"]

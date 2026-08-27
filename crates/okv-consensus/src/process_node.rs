@@ -7,6 +7,7 @@ use crate::{
     NodeId, OpenRaftLogStore, PublicationAuthorityFaults, PublicationFenceFaults, Raft,
     RecoverySignerConfig, StateMachineStore, TypeConfig,
 };
+use okv_transaction::TransactionAuthorityFaults;
 use openraft::error::{RPCError, RaftError, RemoteError, Unreachable};
 use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
 use openraft::raft::{
@@ -43,6 +44,7 @@ pub struct ProcessNodePolicy {
     pub publication_authority_faults: PublicationAuthorityFaults,
     pub publication_fence_faults: PublicationFenceFaults,
     pub recovery_signer: Option<RecoverySignerConfig>,
+    pub transaction_authority_faults: TransactionAuthorityFaults,
 }
 
 #[derive(Clone, Debug)]
@@ -139,13 +141,16 @@ pub async fn run_process_node(config: ProcessNodeConfig) -> Result<(), String> {
             .collect::<BTreeMap<_, _>>(),
     );
     let log_store = OpenRaftLogStore::open(&config.root).map_err(|error| error.to_string())?;
-    let state_machine = Arc::new(StateMachineStore::new_with_authority_faults(
+    let log_observer = log_store.clone();
+    let state_machine = Arc::new(StateMachineStore::open_persistent_with_transaction_faults(
+        &config.root,
         config.deduplicate_requests,
         config.policy.generation_authority_faults,
         config.policy.generation_fence_faults,
         config.policy.publication_authority_faults,
         config.policy.publication_fence_faults,
-    ));
+        config.policy.transaction_authority_faults,
+    )?);
     let raft = Raft::new(
         config.node_id,
         cluster_config().map_err(|error| error.to_string())?,
@@ -162,6 +167,7 @@ pub async fn run_process_node(config: ProcessNodeConfig) -> Result<(), String> {
         let (stream, _) = listener.accept().await.map_err(|error| error.to_string())?;
         let raft = raft.clone();
         let state_machine = state_machine.clone();
+        let log_observer = log_observer.clone();
         let nodes = nodes.clone();
         let policy = ServerPolicy {
             node_id: config.node_id,
@@ -175,7 +181,15 @@ pub async fn run_process_node(config: ProcessNodeConfig) -> Result<(), String> {
             recovery_signer: config.policy.recovery_signer.clone(),
         };
         tokio::spawn(async move {
-            if let Err(error) = handle_connection(stream, raft, state_machine, nodes, policy).await
+            if let Err(error) = Box::pin(handle_connection(
+                stream,
+                raft,
+                state_machine,
+                log_observer,
+                nodes,
+                policy,
+            ))
+            .await
             {
                 eprintln!("consensus control connection failed: {error}");
             }

@@ -1,0 +1,18 @@
+[package]
+name = "okv"
+description = "Integrated objectKV kernel API"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+okv-consensus.workspace = true
+okv-object.workspace = true
+okv-transaction.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

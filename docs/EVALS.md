@@ -1,6 +1,6 @@
 # objectKV eval system
 
-Status: `[ACTIVE-WORK]` the configurable runner, metric registry, schema-checked
+Status: `[EVALUATING]` the configurable runner, metric registry, schema-checked
 smoke execution, OTel logs, metrics, and traces export, and proposed Phase 0,
 serving-model, fault-recovery, and commit-contract suites exist. Phase 0
 workload executors,
@@ -61,6 +61,20 @@ voter-set positions. It pins active and pending voter public keys in authority
 state. Five negative subjects admit a single signer, tampered position,
 duplicate signer, stale recovery identity, or wrong membership digest.
 
+The product-level program in
+`evals/programs/objectkv-product-thesis-v1.toml` maps the detailed requirement
+registry to seven ordered phases and eighteen independent gates. Six gates cite
+existing verified evidence; the remaining physical, distributed, PostgreSQL,
+HTAP, and economic gates remain evaluating or proposed. The program has no
+blended score.
+
+`[CODE-COMPLETE]` `evals/programs/objectkv-golden-path-v1.toml` adds one
+cross-surface scenario contract. It covers twelve architecture surfaces through
+fifteen artifact-producing checkpoints. Its validation does not constitute an
+end-to-end result. Every golden-path execution gate remains `[PROPOSED]` until
+the relevant runner consumes the same scenario identity and verifies the
+declared artifact handoff.
+
 ## Executable configuration
 
 - `evals/metrics.toml` owns instruments, units, histogram boundaries, attributes,
@@ -69,10 +83,228 @@ duplicate signer, stale recovery identity, or wrong membership digest.
   telemetry requirements, and any additional frozen contract files.
 - `okv-eval validate-suite` validates the suite, registry, and result schema as
   one contract.
+- `okv-eval validate-program` verifies requirement citations, phase ordering,
+  scenario checkpoints, artifact dependencies, suite, profile, workload, lane,
+  metric, control, poison-subject, and evidence references across the program.
+- `okv-eval plan-program` resolves the program to exact suite IDs and primary
+  metrics without executing a workload or changing evidence.
 - `okv-eval run` executes registered workloads, records OTel signals, and refuses
   to emit a result that fails the JSON Schema. It also refuses a dirty source
   tree unless `--allow-dirty` marks the run as diagnostic and non-comparable.
 - `infra/otel/` is the pinned local OTLP and Prometheus path.
+
+## Golden-path program
+
+```bash
+cargo run -p okv-eval -- validate-program \
+  evals/programs/objectkv-golden-path-v1.toml
+
+cargo run -p okv-eval -- plan-program \
+  evals/programs/objectkv-golden-path-v1.toml
+```
+
+The `GoldenPathScenario` is a DAG, not one monolithic benchmark:
+
+```text
+logical history
+  -> durable frontier
+  -> published object closure
+       -> SSD serving -> RAM serving -> profile handoff
+       -> empty-worker recovery
+       -> branch root
+  -> distributed cell
+       -> application log -> Redis / search
+       -> PostgreSQL page history -> exact DataFusion snapshot
+  -> product economics
+```
+
+Every checkpoint consumes only artifacts produced by its dependency closure.
+The validator rejects missing checkpoints, forward dependencies, and undeclared
+artifact inputs. A later orchestrator will attach checkpoint and artifact
+digests to individual receipts. Until then, independently verified component
+receipts remain component evidence and do not imply a verified golden path.
+
+### Serving-worker process recovery
+
+```bash
+cargo run -p okv-eval -- validate-suite \
+  evals/suites/serving-recovery-process.toml
+
+OKV_ALLOW_DIRTY=1 ./experiments/run-serving-recovery-process.sh
+```
+
+`serving-worker-process-recovery-v1` freezes G4.3. It starts three OpenRaft
+authority processes, publishes one row-object root, writes a non-empty
+quorum-file txLog suffix, kills one recovered worker before its first read, and
+starts a distinct empty-scratch replacement. The candidate must return exact
+base and tail reads through one manifest, one selected index, and at most one
+data range GET. Full hydration is the same-correctness control. Skipping tail
+replay is the required poison. Current receipts are `[EVALUATING]` because the
+source is dirty, OTel is disabled, and the durability adapter uses local files
+on one machine.
+
+`serving-worker-openraft-recovery-v1` freezes G4.4:
+
+```bash
+cargo run -p okv-eval -- validate-suite \
+  evals/suites/serving-recovery-openraft.toml
+
+OKV_ALLOW_DIRTY=1 ./experiments/run-serving-recovery-openraft.sh
+```
+
+It adds three real OpenRaft data-authority processes and replaces physical tail
+files with `retained-transaction-read-v1`. The replacement freezes an initial
+target, catches up, waits while four commits apply, freezes a second target,
+and catches up again. Candidate and full-hydration control must return exact
+`Set`, `Clear`, insertion, and `ClearRange` outcomes. The required poison
+observes but omits the concurrent suffix. Current receipts are
+`[EVALUATING]` because they use a dirty debug build, local files, one host, and
+no OTel collector.
+
+`single-range-kernel-v1` freezes the first public integration boundary without
+changing the G4.4 suite:
+
+```bash
+cargo run -p okv-eval -- validate-suite \
+  evals/suites/single-range-kernel.toml
+
+cargo run -p okv-eval -- run evals/suites/single-range-kernel.toml \
+  --profile local-fs \
+  --workload integrated-single-range-versionstamp-recovery \
+  --backend object-store-local-fs+authority-openraft+data-openraft
+```
+
+The initial transactions include a batch whose two records share one commit
+version. `max_page_records = 1` forces pagination inside that batch. The
+candidate preserves the optional batch-order cursor, applies a third commit
+through `okv::SingleRange::commit`, survives one process kill, recovers in a
+distinct empty process, and returns exact state after a second live catch-up.
+Diagnostic run `74b29fe1-5b46-4cd1-923a-ee548a2f780c` passed all gates: five
+batch-cursor resumes, seven txLog page requests, 4,403 response bytes, one
+manifest GET, one index GET, one data range GET, no complete data GET, no LIST,
+and 123.002 ms first-correct-read latency. The dirty single-host receipt is
+`[EVALUATING]`, not a performance or independent-durability claim.
+
+`single-range-kernel-gcs-smoke-v1` applies the same public API contract to a
+real GCS object base while retaining local-process authorities:
+
+```bash
+OKV_GCP_PROJECT=doss-objectkv-dev \
+OKV_GCS_BUCKET=doss-objectkv-dev-okv-evals \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:34318 \
+  cargo run -p okv-eval -- run \
+    evals/suites/single-range-kernel-gcs-smoke.toml \
+    --profile local-controller-gcs-smoke \
+    --workload integrated-single-range-gcs-versionstamp-recovery \
+    --backend object-store-gcs+authority-openraft-local-process+data-openraft-local-process
+```
+
+Run `6723ce8a` passed all 12 hard gates in 7.254 seconds. Recovery to first
+correct read was 756.950 ms through one manifest GET, one index GET, one data
+range GET, no full-object GET, and no LIST. OTel exported two logs, one trace,
+and eight metric points. The dirty Mac-to-GCS run remains `[EVALUATING]`; it is
+not a stable-runner or performance receipt. The durable diagnostic is in
+`docs/artifacts/eval-receipts/single-range-kernel-gcs-2026-08-27/`.
+
+### Developer application path
+
+`[VERIFIED]` `objectkv-playground-v3` pairs two application workloads across
+the GP-G0 through GP-G6 bounded local proof ladder:
+
+```bash
+./experiments/run-okv-playground-golden-path.sh
+```
+
+Tetris verifies high-rate history and rebuild cost. Chess verifies exact
+snapshots, historical forks, divergent suffixes, named switching, and replay.
+Both advance through atomic application-record alignment, canonical envelopes
+under one-host OpenRaft process failure, disposable RAM serving, recursive
+object publication, copy-on-write branches, and reserved garbage collection.
+Each receipt names its scope. GCS, replicated publication authority,
+independent hosts, SSD serving, and an integrated product cell are not admitted.
+The scenario contract is
+`evals/scenarios/objectkv-playground-golden-path-v3.toml`; the stable design is
+`docs/PLAYGROUND-GOLDEN-PATH.md`, and the architecture review is in
+`docs/research/playground-g0-g6-architecture-review-2026-08-25.md`.
+
+`[PROPOSED]` `evals/scenarios/objectkv-playground-golden-path-v4.toml` freezes
+the next integrated gate without changing the application boundary. GP-G7 must
+join replicated transaction authority, retained txLog, bounded RAM or SSD
+serving, authenticated GCS publication, process-kill recovery, copy-on-write
+branching, and OTel plus cost receipts in one Tetris path. GP-G0 through GP-G6
+remain bounded component receipts; they do not make GP-G7 verified.
+
+## Product-thesis program
+
+```bash
+cargo run -p okv-eval -- validate-program \
+  evals/programs/objectkv-product-thesis-v1.toml
+
+cargo run -p okv-eval -- plan-program \
+  evals/programs/objectkv-product-thesis-v1.toml
+```
+
+The program is a graph of independent admission gates, not a campaign score.
+Each gate must cite:
+
+- stable IDs from `docs/PRODUCT-SPEC-SHEET.md`;
+- one claim and one falsifier;
+- one suite, profile, workload, backend, and lane;
+- poison subjects for correctness gates;
+- a paired control for performance and economics gates;
+- evidence receipts before its status becomes `verified`.
+
+Program gate states are:
+
+| State | Meaning |
+|---|---|
+| `verified` | A clean receipt exists and is cited by the gate. |
+| `code_complete` | Candidate, control, and poison runners exist, but no verified receipt is admitted. |
+| `evaluating` | The required run or curve is actively being verified. |
+| `proposed` | The contract is configured, but one or more required runners or controls remain unimplemented. |
+| `future` | The gate is sequenced but not yet an active implementation target. |
+
+`evals/suites/product-thesis.toml` freezes the proposed physical taxonomy:
+thirteen lanes, thirty-three candidate, control, and poison workloads, eleven bounded
+profiles, and the product metrics required by the target curves. Validation is
+not a performance result. Running a workload whose operation has no registered
+runner fails explicitly.
+
+`[EVALUATING]` G3.1 now has a feature-gated `okv-eval` runner for the SSD
+ServingImage candidate, a separate direct RocksDB control, and an object-read
+fallback poison. The prototype finding is preserved in
+`docs/research/resident-hot-path-prototype.md`; RFC-0023 freezes the runnable
+profile and its nonclaims. G3.1 is evaluating, not verified. Clean committed
+receipts plus concurrent-client, recent-overlay, resource, and object-read
+curves are still required before promotion. The RAM and bidirectional profile
+handoff lanes are `[PROPOSED]`.
+
+## Canonical eval names
+
+| Name | Owns | Does not own |
+|---|---|---|
+| `EvalProgram` | Ordered phases and requirement-linked gates | Logical data generation |
+| `GoldenPathScenario` | One generator, seeds, surfaces, checkpoints, and artifact DAG | Machine or durability configuration |
+| `EvalSuite` | Comparable profiles, workloads, lanes, telemetry, and frozen contracts | Cross-surface admission status |
+| `EvalProfile` | Machine, topology, durability, serving profile, cache state, and budget | Operation semantics |
+| `EvalWorkload` | One runnable candidate, control, or poison operation | Project-level scoring |
+| `EvalLane` | One primary metric plus hard constraints | A blended product score |
+| `EvalGate` | One claim, falsifier, requirements, and evidence status | Test implementation details |
+| `EvalReceipt` | Immutable identity, metrics, gates, artifacts, and verdict for one run | Evidence outside its exact scenario and profile |
+
+Configuration IDs use kebab-case. Rust types use PascalCase. Rust and JSON
+fields use snake_case at file and telemetry boundaries. `txLog` remains the
+recovery log; `application log` names the independently retained consumer
+abstraction. Neither is shortened to `tLog`.
+
+The first schema-valid dirty-source diagnostic is recorded in
+`docs/research/resident-hot-path-g3.1.md`. Its incompressible 68.7 MB resident
+image used optimized, separate-process ABBA order. It produced a `1.017`
+candidate/control throughput ratio, a `1.008` p99 ratio, and zero candidate
+fallback attempts. The apparent candidate throughput advantage is treated as
+noise. The poison was discarded after 2.4 million instrumented fallback
+attempts. These numbers are early harness evidence, not a product performance
+claim.
 
 ## Design rule
 
@@ -138,7 +370,7 @@ Each lane owns one champion. Champions are not blended automatically.
 | `tenant-move` | unavailable time and durable bytes copied | one writable routing epoch and exact snapshot plus tail |
 | `certified-write` | validation retry rate | no write commits from an invalid analytical dependency certificate |
 
-`generation-recovery` has one executable bootstrap probe. The other fault lanes
+`generation-recovery` has one code-complete bootstrap probe. The other fault lanes
 remain configuration contracts until their owning components exist.
 
 ## Cell commit contract gate
@@ -325,6 +557,65 @@ anomaly count as its admission metric and requires `query.result_exact = 1`.
 Tail rows, tail bytes, peak memory, spill bytes, and operation duration remain
 separate measurements. They are not freshness proxies and are not yet
 DataFusion performance evidence.
+
+## C5 DataFusion range-source gate
+
+```bash
+cargo run --release -p okv-eval -- run \
+  evals/suites/htap-columnar-range-source-coalesced.toml \
+  --profile local-fs \
+  --workload c5-datafusion-coalesced-256k \
+  --backend datafusion+local-fs-range-stripes
+```
+
+This suite runs a real custom DataFusion `TableProvider` and `ExecutionPlan`
+over checksummed C5 projection stripes. Its hard gates require exact SQL
+aggregates, projection pushdown, incremental Arrow batches, bounded fetch and
+batch buffers, no full-object or LIST reads, and zero opaque payload reads. The
+same suite retains a one-request-per-stripe control and a payload-prefetch
+poison. It measures the object-base source only. Exact live-tail overlay,
+complete-query memory, parallel range scheduling, and GCS latency are separate
+gates.
+
+## CloudJump III tiering curves
+
+Status: `[CODE-COMPLETE]` for the first local and GCS admission ablations;
+`[EVALUATING]` for the measured results. The full matrix remains `[PROPOSED]`.
+
+The primary-source review in
+`docs/research/cloudjump-iii-objectkv-review-2026-08-26.md` adds the following
+axes to resident serving and object publication:
+
+```text
+fast-tier ratio:     5, 10, 20, 30, 40, 50 percent
+Zipf alpha:          0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0
+operation mix:       read-only, read-write, write-only
+cache admission:     full, never-admit control, ghost two-chance
+publication unit:    256 KiB, 512 KiB, 1 MiB, 2 MiB, 4 MiB, 8 MiB
+object conditions:   normal, slow, paused, unknown response
+```
+
+Each subject records throughput, p50, p95, p99, hit rate, cache IOPS, object
+requests and bytes, publication debt, retained `txLog`, replay duration, write
+amplification, and cost per million operations. The all-fast-tier subject uses
+the same durability path. A warm-cache result at one cache ratio cannot admit
+the serving architecture.
+
+The executable subset is:
+
+```text
+evals/suites/columnar-cache-admission.toml
+    3 seeds x 3 repeats, release-local
+
+evals/suites/columnar-cache-admission-gcs.toml
+    1-seed bounded real-GCS canary
+```
+
+At 20 percent cache and Zipf alpha 1.4, ghost two-chance reduced post-scan
+requests by 16.2 percent locally and 20.5 percent on the first real GCS canary
+relative to full admission. All structural gates passed. Both receipts remain
+inconclusive because the source is dirty and OTel is disabled; the GCS canary
+also has only one seed.
 
 ## Persisted WAL stable-storage gate
 
@@ -516,7 +807,7 @@ resumes.
 
 ## Phase 0 workload
 
-`[EXISTS]` RFC-0021 adds the first executable incumbent:
+`[VERIFIED]` RFC-0021 adds the first runnable incumbent:
 
 ```bash
 cargo run -p okv-eval -- run evals/suites/phase0-slate-filesystem.toml \
@@ -533,7 +824,7 @@ logical value remains exact. Initial open, ingest, oracle verification, cache
 prime, warm read, scan, close, reopen, first read, cold reads, and final close
 have independent time and I/O deltas. Raw filenames include `run_id`.
 
-`[EXISTS]` RFC-0022 adds the repaired scale curve:
+`[VERIFIED]` RFC-0022 adds the repaired scale curve:
 
 ```bash
 cargo run -p okv-eval -- run \
@@ -549,7 +840,7 @@ the suite's dataset-scan stop threshold. This stops the untuned SlateDB
 incumbent, not the objectKV architecture. The suite has no cloud-price or
 compaction-cost ceiling yet.
 
-`[EXISTS]` The fixed-cadence strategy audit repeats the scale curve alongside
+`[VERIFIED]` The fixed-cadence strategy audit repeats the scale curve alongside
 MinIO authority, generation recovery, lost-publication-response recovery, HTAP
 streaming, and four deliberate negative controls:
 
@@ -612,6 +903,34 @@ schema change also changes the suite contract hash.
 4. Re-run the incumbent in the same batch to detect environment drift.
 5. Use complexity as the tiebreaker. Equal performance with less code wins.
 
+## Paired comparison authority
+
+`[CODE-COMPLETE]` `okv-eval compare-results` resolves the candidate and control
+from one product-program gate and emits
+`evals/schema/comparison.schema.json`. The program pins that schema path.
+
+The comparator rejects mismatched suite/profile expectations, primary metric,
+statistic, direction, unit, batch ID, machine, toolchain, lockfile, source revision,
+seeds, same-profile hash, same-suite hash, failed hard gates, crash/discard
+verdicts, and fewer than five performance samples. It reports a signed
+directional percentage, both subjects' relative MAD, the controlling noise
+floor, and one of `better`, `worse`, `inconclusive`, or `invalid`.
+
+```bash
+cargo run -p okv-eval -- compare-results \
+  evals/programs/objectkv-product-thesis-v1.toml \
+  --gate G3.1 \
+  --candidate /path/to/objectkv.json \
+  --control /path/to/rocksdb.json
+```
+
+Pass the same explicit `--batch-id` to both `okv-eval run` commands. A run with
+no batch ID uses its own run ID and cannot become a cross-run percentage.
+
+`docs/REAL-INFRA-EVALS.md` defines the mechanism and solution comparison lanes.
+Do not turn a direct RocksDB serving control into a durability-equivalent stack
+claim.
+
 ## Result artifacts
 
 Every run emits one JSON object conforming to
@@ -622,13 +941,17 @@ older rows.
 Required identity:
 
 - candidate and parent commit;
+- run ID and explicit comparison batch ID;
 - suite and contract hash over the suite, metric registry, and result schema;
-- machine/profile and backend;
+- machine-receipt digest, profile, and backend for real-infrastructure runs;
 - Rust and dependency lockfile identity;
 - seed set;
 - budget and elapsed work;
 - all hard-gate outcomes;
-- primary metric distribution;
+- primary metric distribution, configured statistic, and selected statistic
+  value. Median and median absolute deviation remain present as noise
+  diagnostics and never substitute for a lane configured as `p99`, `total`,
+  `minimum`, `maximum`, `per_operation`, or `passed`;
 - verdict and reason.
 
 ## Admission gate for autonomous optimization

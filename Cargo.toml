@@ -1,14 +1,24 @@
 [workspace]
 members = [
+    "crates/okv",
     "crates/okv-consensus",
+    "crates/okv-app-history",
     "crates/okv-eval",
     "crates/okv-htap",
+    "crates/okv-history-oracle",
+    "crates/okv-log",
     "crates/okv-model",
     "crates/okv-object",
+    "crates/okv-plane",
     "crates/okv-publication",
     "crates/okv-sim",
     "crates/okv-slate",
+    "crates/okv-serving-rocksdb",
+    "crates/okv-transaction",
     "crates/okv-wal",
+    "examples/okv-chess",
+    "examples/okv-playground-support",
+    "examples/okv-tetris",
 ]
 resolver = "2"
 
@@ -29,6 +39,7 @@ pedantic = "warn"
 [workspace.dependencies]
 async-trait = "0.1.89"
 arrow = { version = "=58.3.0", default-features = false }
+base64 = "=0.22.1"
 bytes = "1.10.1"
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5.44", features = ["derive"] }
@@ -39,11 +50,19 @@ crc-fast = "=1.9.0"
 futures-util = "0.3.31"
 jsonschema = { version = "0.50.1", default-features = false }
 okv-consensus = { path = "crates/okv-consensus" }
+okv = { path = "crates/okv" }
+okv-app-history = { path = "crates/okv-app-history" }
 okv-htap = { path = "crates/okv-htap" }
+okv-history-oracle = { path = "crates/okv-history-oracle" }
+okv-log = { path = "crates/okv-log" }
 okv-model = { path = "crates/okv-model" }
 okv-object = { path = "crates/okv-object" }
+okv-plane = { path = "crates/okv-plane" }
 okv-publication = { path = "crates/okv-publication" }
+okv-playground-support = { path = "examples/okv-playground-support" }
 okv-slate = { path = "crates/okv-slate" }
+okv-serving-rocksdb = { path = "crates/okv-serving-rocksdb" }
+okv-transaction = { path = "crates/okv-transaction" }
 okv-wal = { path = "crates/okv-wal" }
 object_store = { version = "=0.14.1", features = ["aws", "gcp"] }
 openraft = { version = "=0.9.25", features = ["serde", "storage-v2"] }

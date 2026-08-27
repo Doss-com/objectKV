@@ -1,0 +1,122 @@
+{
+  "artifact_refs": [
+    "okv-eval://authority-state-scale-v1/aligned_frontiers_projection",
+    "/private/tmp/okv-g46-candidate.json"
+  ],
+  "backend": "data-openraft-local-process",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 545.726423916
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T10:59:51.656388+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "fail"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "final_retained_records=4096",
+      "id": "ideal_projection_does_not_mutate_retained_stream",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=aligned_frontiers_projection",
+      "id": "complete_authority_state_accounted",
+      "status": "pass"
+    },
+    {
+      "detail": "60cca307683ada733ad19efcaeebf9755ba1da45be8ba5eaf3248734f5231166",
+      "id": "fresh_controller_replay_is_exact",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=aligned_frontiers_projection",
+      "id": "expired_retry_fails_closed",
+      "status": "pass"
+    },
+    {
+      "detail": "ratios=[1.002877455594585, 1.002892827624208, 1.0028085373413023]",
+      "id": "projected_snapshot_growth_at_most_2x",
+      "status": "pass"
+    },
+    {
+      "detail": "anomalies=0",
+      "id": "retained_only_accounting_poison_detected",
+      "status": "pass"
+    }
+  ],
+  "lane": "transaction-authority-split-frontiers",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.00001537202962298423,
+    "median": 1.002877455594585,
+    "name": "okv.eval.authority.snapshot_growth_ratio",
+    "samples": [
+      1.002877455594585,
+      1.002892827624208,
+      1.0028085373413023
+    ],
+    "statistic": "maximum",
+    "unit": "1",
+    "value": 1.002892827624208
+  },
+  "profile": {
+    "hash": "d2f3008217623bf0c5ac02189b7f587bf01bb77a4ddbf3d9cc1faf3fc7c0188c",
+    "id": "local-process",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "budget exceeded: observed 545.726423916, limit 180",
+  "run_id": "ed9c894b-531f-40aa-9f5c-cd1ee5f2331d",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "authority.actual_snapshot_bytes.c1024": 923808.0,
+    "authority.actual_snapshot_bytes.c256": 328445.0,
+    "authority.actual_snapshot_bytes.c4096": 3310992.0,
+    "authority.fingerprint_bytes.c1024": 4.0,
+    "authority.fingerprint_bytes.c256": 4.0,
+    "authority.fingerprint_bytes.c4096": 4.0,
+    "authority.outcome_bytes.c1024": 4.0,
+    "authority.outcome_bytes.c256": 4.0,
+    "authority.outcome_bytes.c4096": 4.0,
+    "authority.stream_popped_snapshot_bytes.c1024": 130807.0,
+    "authority.stream_popped_snapshot_bytes.c256": 130671.0,
+    "authority.stream_popped_snapshot_bytes.c4096": 131047.0,
+    "authority.transaction_state_bytes.c1024": 129144.0,
+    "authority.transaction_state_bytes.c256": 129008.0,
+    "authority.transaction_state_bytes.c4096": 129372.0,
+    "authority.txlog_bytes.c1024": 793011.0,
+    "authority.txlog_bytes.c256": 197783.0,
+    "authority.txlog_bytes.c4096": 3179955.0,
+    "operation.duration.median": 545.726423916
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "transaction-authority-split-frontiers-v1",
+  "suite_hash": "483b0bb149a728829b1edfd1b23e1f80bf3e3e7abc0c39c3e6141fbd074dd4aa",
+  "verdict": "discard"
+}

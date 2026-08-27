@@ -26,9 +26,15 @@ use uuid::Uuid;
 
 pub const OBJECT_STORE_DRIVER_VERSION: &str = "0.14.1";
 
+mod object_frontier;
 mod publication_adapter;
 mod publisher_process;
+mod row_manifest;
+mod row_segment;
 
+pub use object_frontier::{
+    advance_validated_row_object_frontier, validate_row_object_frontier, ValidatedRowObjectFrontier,
+};
 pub use publication_adapter::{
     run_publication_adapter_contract, PublicationAdapterMode, PublicationAdapterReport,
 };
@@ -43,6 +49,14 @@ pub use publisher_process::{
     PublisherProcessReport, PublisherPublishRecoveryMode, PublisherPublishRecoveryProcessConfig,
     PublisherPublishRecoveryReport, PublisherPutRecoveryMode, PublisherPutRecoveryProcessConfig,
     PublisherPutRecoveryReport,
+};
+pub use row_manifest::{
+    content_sha256, encode_row_object_set, RowObjectManifestV1, RowObjectReference,
+};
+pub use row_segment::{
+    decode_full_row_object, encode_row_segment, read_indexed_point, read_point_from_full_object,
+    scan_full_object_for_point, validate_full_row_object, EncodedRowSegment, PointRead,
+    PointReadOutcome, RowRecord, RowSegmentIndex,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -208,6 +222,93 @@ pub trait Backend: Debug + Send + Sync {
     async fn delete(&self, key: &str, expected: Option<&RevisionToken>) -> Result<(), StoreError>;
 
     async fn list(&self, prefix: &str) -> Result<Vec<String>, StoreError>;
+}
+
+#[derive(Debug)]
+struct PrefixedBackend {
+    inner: Arc<dyn Backend>,
+    prefix: String,
+}
+
+impl PrefixedBackend {
+    fn key(&self, key: &str) -> String {
+        format!("{}/{}", self.prefix, key.trim_start_matches('/'))
+    }
+}
+
+#[async_trait]
+impl Backend for PrefixedBackend {
+    fn descriptor(&self) -> BackendDescriptor {
+        self.inner.descriptor()
+    }
+
+    async fn put(
+        &self,
+        key: &str,
+        bytes: Bytes,
+        condition: WriteCondition,
+    ) -> Result<RevisionToken, StoreError> {
+        self.inner.put(&self.key(key), bytes, condition).await
+    }
+
+    async fn get(
+        &self,
+        key: &str,
+        range: Option<Range<u64>>,
+        expected: Option<&RevisionToken>,
+    ) -> Result<BackendRead, StoreError> {
+        self.inner.get(&self.key(key), range, expected).await
+    }
+
+    async fn delete(&self, key: &str, expected: Option<&RevisionToken>) -> Result<(), StoreError> {
+        self.inner.delete(&self.key(key), expected).await
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<String>, StoreError> {
+        let qualified = self.key(prefix);
+        let strip = format!("{}/", self.prefix);
+        self.inner
+            .list(&qualified)
+            .await?
+            .into_iter()
+            .map(|key| {
+                key.strip_prefix(&strip).map(str::to_owned).ok_or_else(|| {
+                    StoreError::new(
+                        ErrorClass::Corrupt,
+                        "prefixed backend returned a key outside its namespace",
+                    )
+                })
+            })
+            .collect()
+    }
+}
+
+/// Scope a backend to one non-empty, traversal-free object-key prefix.
+///
+/// # Errors
+///
+/// Returns an error when the prefix is empty or contains an empty, current, or
+/// parent traversal segment.
+pub fn prefixed_backend(
+    inner: Arc<dyn Backend>,
+    prefix: impl Into<String>,
+) -> Result<Arc<dyn Backend>, StoreError> {
+    let prefix = prefix.into();
+    let prefix = prefix.trim_matches('/');
+    if prefix.is_empty()
+        || prefix
+            .split('/')
+            .any(|segment| segment.is_empty() || matches!(segment, "." | ".."))
+    {
+        return Err(StoreError::new(
+            ErrorClass::Other,
+            "object-key prefix must be non-empty and traversal-free",
+        ));
+    }
+    Ok(Arc::new(PrefixedBackend {
+        inner,
+        prefix: prefix.to_owned(),
+    }))
 }
 
 #[derive(Debug)]
@@ -420,6 +521,14 @@ impl ObservedBackend {
                 })
                 .collect(),
         }
+    }
+
+    /// Clear all observed request counters without changing the wrapped store.
+    pub fn clear_stats(&self) {
+        self.stats
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
     }
 }
 
@@ -687,6 +796,26 @@ impl DeletePermit {
     #[must_use]
     pub const fn authority_revision(&self) -> u64 {
         self.authority_revision
+    }
+
+    /// Convert one accepted replicated publication reservation into the exact
+    /// storage capability consumed by [`ObjectClient::delete_reserved`].
+    #[must_use]
+    pub fn from_publication(permit: &okv_consensus::PublicationDeletePermit) -> Self {
+        let identity = permit.identity();
+        Self::new(
+            permit.key(),
+            ObjectIdentity {
+                revision: RevisionToken {
+                    e_tag: identity.revision.e_tag.clone(),
+                    version: identity.revision.version.clone(),
+                },
+                length: identity.length,
+                sha256: identity.sha256.clone(),
+            },
+            permit.plan_id(),
+            permit.authority_position().index,
+        )
     }
 }
 
@@ -1691,9 +1820,11 @@ fn required_env(name: &str) -> Result<String, StoreError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        filesystem_backend, memory_backend, run_conformance, validate_conformance_report,
-        CaseStatus, ConformanceOptions, ConformanceProfile,
+        filesystem_backend, memory_backend, prefixed_backend, run_conformance,
+        validate_conformance_report, CaseStatus, ConformanceOptions, ConformanceProfile,
+        WriteCondition,
     };
+    use bytes::Bytes;
     use std::path::PathBuf;
 
     fn temporary_root(label: &str) -> PathBuf {
@@ -1710,6 +1841,31 @@ mod tests {
         .await;
         assert!(report.passed(), "{:#?}", report.cases);
         validate_conformance_report(&report).expect("schema-valid report");
+    }
+
+    #[tokio::test]
+    async fn prefixed_backend_isolates_and_normalizes_keys() {
+        let inner = memory_backend();
+        let scoped = prefixed_backend(inner.clone(), "/evaluation/run-7/").expect("valid prefix");
+        scoped
+            .put(
+                "layout/data",
+                Bytes::from_static(b"okv"),
+                WriteCondition::Create,
+            )
+            .await
+            .expect("scoped put");
+
+        let read = inner
+            .get("evaluation/run-7/layout/data", None, None)
+            .await
+            .expect("qualified read");
+        assert_eq!(read.bytes, Bytes::from_static(b"okv"));
+        assert_eq!(
+            scoped.list("layout").await.expect("scoped list"),
+            vec!["layout/data".to_owned()]
+        );
+        assert!(prefixed_backend(inner, "../escape").is_err());
     }
 
     #[tokio::test]

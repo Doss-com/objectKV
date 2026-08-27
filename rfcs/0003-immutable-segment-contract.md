@@ -1,6 +1,6 @@
 # RFC-0003: Immutable segment contract
 
-- Status: proposed
+- Status: proposed, point-read pilot implementation active
 - Authors: DOSS
 - Created: 2026-08-22
 
@@ -21,6 +21,42 @@ misleading trait.
 
 Every reader that supports a transactional segment version must produce the
 same logical result for the same entry stream and read version.
+
+## Point-read pilot format
+
+`[CODE-COMPLETE]` `okv-object::row_segment` and
+`okv-object::row_manifest` implement a deliberately narrow format-v1 pilot for
+the cold-point gate:
+
+- one checksummed, content-addressed `OKVM` manifest containing an exact,
+  ordered, non-overlapping row-object closure;
+- one or more bounded, content-addressed `OKVB` data objects containing sorted
+  blocks without splitting the versions of one key across objects;
+- one separately cacheable, content-addressed `OKVI` sparse index per data
+  object;
+- user keys ascending and versions for one key strictly descending;
+- point values and point tombstones, with all versions for one key kept in one
+  block;
+- generation, key bounds, version bounds, offsets, and lengths in the index;
+- SHA-256 for every data block, the complete data object, and the complete
+  index;
+- exact named reads with an optional provider revision precondition;
+- one manifest GET and one index GET per row object during metadata warmup;
+- zero or one data range GET per point read after metadata warmup, with no LIST
+  dependency.
+
+`[CODE-COMPLETE]` The local empty-worker pilot also supports lazy metadata. A
+fresh reader receives one authoritative manifest key, fetches and validates
+that manifest, fetches only the index selected by the requested key, and reads
+one verified data block. Complete-index warmup is an optimization after the
+first read, not a correctness prerequisite.
+
+This pilot is not the complete transactional segment contract below. It does
+not yet encode range tombstones, transaction-batch fingerprints, compression,
+encryption, bloom filters, hierarchical manifests, or scan indexes. The
+current evaluation target is a 4 MiB data object with 64 KiB blocks inside a
+bounded range. Format version 1 is experimental and has no public compatibility
+promise until those omissions and a mixed reader fixture are resolved.
 
 ## Transactional segment contract
 
@@ -132,8 +168,8 @@ rewritten in place.
 
 ## Unresolved questions
 
-- Initial row-block encoding and whether the first stable segment derives from
-  SlateDB or an objectKV-owned format.
+- Whether the objectKV-owned point-read pilot should become the first stable
+  transactional format after the remaining entry algebra is implemented.
 - Encryption envelope and whether digest identity covers ciphertext only or a
   canonical authenticated envelope.
 - Whether deterministic builders require byte-identical output or only

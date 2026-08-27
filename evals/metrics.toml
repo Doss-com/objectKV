@@ -17,6 +17,7 @@ required_resource_attributes = [
   "service.version",
   "deployment.environment.name",
   "okv.eval.run.id",
+  "okv.eval.batch.id",
   "okv.eval.suite.id",
   "okv.eval.suite.hash",
   "okv.eval.profile.id",
@@ -138,6 +139,79 @@ attributes = ["lane", "workload", "isolation", "result"]
 required_attributes = ["lane", "workload", "isolation", "result"]
 
 [[metrics]]
+id = "commit.throughput"
+otel_name = "okv.eval.commit.throughput"
+kind = "gauge"
+unit = "{transaction}/s"
+description = "Quorum-durable transaction acknowledgements per second"
+attributes = ["lane", "workload", "backend", "durability", "window.class"]
+required_attributes = ["lane", "workload", "backend", "durability", "window.class"]
+
+[[metrics]]
+id = "commit.latency"
+otel_name = "okv.eval.commit.latency"
+kind = "histogram"
+unit = "s"
+description = "Client-observed latency for one quorum-durable transaction"
+attributes = ["lane", "workload", "backend", "durability", "window.class", "result"]
+required_attributes = ["lane", "workload", "backend", "durability", "window.class", "result"]
+boundaries = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "raft_log.entries_per_append"
+otel_name = "okv.eval.raft_log.entries_per_append"
+kind = "gauge"
+unit = "{entry}/append"
+description = "Raft log entries durably written per stable append call"
+attributes = ["lane", "workload", "backend", "node.class"]
+required_attributes = ["lane", "workload", "backend", "node.class"]
+
+[[metrics]]
+id = "commit.logical_transactions_per_append"
+otel_name = "okv.eval.commit.logical_transactions_per_append"
+kind = "gauge"
+unit = "{transaction}/append"
+description = "Logical transactions represented by each durable stable-log append"
+attributes = ["lane", "workload", "backend", "node.class"]
+required_attributes = ["lane", "workload", "backend", "node.class"]
+
+[[metrics]]
+id = "commit.batch_items"
+otel_name = "okv.eval.commit.batch_items"
+kind = "gauge"
+unit = "{transaction}/batch"
+description = "Mean independently resolved transactions per commit-proxy batch"
+attributes = ["lane", "workload", "backend", "closure"]
+required_attributes = ["lane", "workload", "backend", "closure"]
+
+[[metrics]]
+id = "commit.batch_entry_bytes"
+otel_name = "okv.eval.commit.batch_entry_bytes"
+kind = "gauge"
+unit = "By"
+description = "Maximum encoded Raft application bytes observed for a commit-proxy batch"
+attributes = ["lane", "workload", "backend", "wire.version"]
+required_attributes = ["lane", "workload", "backend", "wire.version"]
+
+[[metrics]]
+id = "commit.backpressure_rejections"
+otel_name = "okv.eval.commit.backpressure_rejections"
+kind = "counter"
+unit = "{transaction}"
+description = "Independent transaction requests rejected before replication by bounded commit-proxy admission"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+
+[[metrics]]
+id = "raft_log.durable_io_duration"
+otel_name = "okv.eval.raft_log.durable_io_duration"
+kind = "counter"
+unit = "s"
+description = "Cumulative stable-log append or metadata synchronization duration"
+attributes = ["lane", "workload", "backend", "node.class", "io.class"]
+required_attributes = ["lane", "workload", "backend", "node.class", "io.class"]
+
+[[metrics]]
 id = "transaction.conflicts"
 otel_name = "okv.eval.transaction.conflicts"
 kind = "counter"
@@ -190,6 +264,33 @@ unit = "By"
 description = "Committed WAL bytes retained above the object durable watermark"
 attributes = ["lane", "workload", "topology", "fault"]
 required_attributes = ["lane", "workload", "topology"]
+
+[[metrics]]
+id = "authority.snapshot_growth_ratio"
+otel_name = "okv.eval.authority.snapshot_growth_ratio"
+kind = "gauge"
+unit = "1"
+description = "Final divided by initial serialized authority snapshot bytes at fixed live key cardinality"
+attributes = ["lane", "workload", "backend", "projection"]
+required_attributes = ["lane", "workload", "backend", "projection"]
+
+[[metrics]]
+id = "authority.snapshot_bytes"
+otel_name = "okv.eval.authority.snapshot_bytes"
+kind = "gauge"
+unit = "By"
+description = "Exact serialized authority snapshot bytes at one lifetime-commit checkpoint"
+attributes = ["lane", "workload", "backend", "projection", "checkpoint.class"]
+required_attributes = ["lane", "workload", "backend", "projection", "checkpoint.class"]
+
+[[metrics]]
+id = "authority.state_component_bytes"
+otel_name = "okv.eval.authority.state_component_bytes"
+kind = "gauge"
+unit = "By"
+description = "Exact serialized bytes for one complete authority state component"
+attributes = ["lane", "workload", "backend", "component", "checkpoint.class"]
+required_attributes = ["lane", "workload", "backend", "component", "checkpoint.class"]
 
 [[metrics]]
 id = "availability.success_ratio"
@@ -299,3 +400,208 @@ unit = "1"
 description = "Busiest logical range operations divided by mean range operations"
 attributes = ["lane", "workload", "topology", "distribution"]
 required_attributes = ["lane", "workload", "topology", "distribution"]
+
+[[metrics]]
+id = "compute.cpu_duration"
+otel_name = "okv.eval.compute.cpu_duration"
+kind = "counter"
+unit = "s"
+description = "CPU time consumed by the declared workload component"
+attributes = ["lane", "workload", "component", "backend"]
+required_attributes = ["lane", "workload", "component", "backend"]
+
+[[metrics]]
+id = "memory.resident_bytes"
+otel_name = "okv.eval.memory.resident_bytes"
+kind = "gauge"
+unit = "By"
+description = "Resident memory attributed to the declared workload component"
+attributes = ["lane", "workload", "component", "backend"]
+required_attributes = ["lane", "workload", "component", "backend"]
+
+[[metrics]]
+id = "nvme.bytes"
+otel_name = "okv.eval.nvme.bytes"
+kind = "counter"
+unit = "By"
+description = "Bytes read from or written to local NVMe by the workload"
+attributes = ["lane", "workload", "component", "backend", "direction"]
+required_attributes = ["lane", "workload", "component", "backend", "direction"]
+
+[[metrics]]
+id = "network.bytes"
+otel_name = "okv.eval.network.bytes"
+kind = "counter"
+unit = "By"
+description = "Network bytes transferred by peer class and direction"
+attributes = ["lane", "workload", "backend", "peer.class", "direction"]
+required_attributes = ["lane", "workload", "backend", "peer.class", "direction"]
+
+[[metrics]]
+id = "serving.local_bytes"
+otel_name = "okv.eval.serving.local_bytes"
+kind = "gauge"
+unit = "By"
+description = "Local bytes retained by a ServingWorker tier"
+attributes = ["lane", "workload", "backend", "cache.tier", "range.class"]
+required_attributes = ["lane", "workload", "backend", "cache.tier", "range.class"]
+
+[[metrics]]
+id = "recovery.hydration_duration"
+otel_name = "okv.eval.recovery.hydration_duration"
+kind = "histogram"
+unit = "s"
+description = "Time from worker start until the assigned range reaches its declared hydration state"
+attributes = ["lane", "workload", "backend", "range.class", "result"]
+required_attributes = ["lane", "workload", "backend", "range.class", "result"]
+boundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]
+
+[[metrics]]
+id = "recovery.hydration_bytes"
+otel_name = "okv.eval.recovery.hydration_bytes"
+kind = "counter"
+unit = "By"
+description = "Bytes fetched or rebuilt while hydrating an assigned range"
+attributes = ["lane", "workload", "backend", "source", "range.class"]
+required_attributes = ["lane", "workload", "backend", "source", "range.class"]
+
+[[metrics]]
+id = "branch.create_duration"
+otel_name = "okv.eval.branch.create_duration"
+kind = "histogram"
+unit = "s"
+description = "Time to publish a usable branch root from a fixed parent snapshot"
+attributes = ["lane", "workload", "backend", "branch.kind", "result"]
+required_attributes = ["lane", "workload", "backend", "branch.kind", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
+
+[[metrics]]
+id = "branch.incremental_bytes"
+otel_name = "okv.eval.branch.incremental_bytes"
+kind = "gauge"
+unit = "By"
+description = "Durable bytes created by branch creation before divergent writes"
+attributes = ["lane", "workload", "backend", "branch.kind"]
+required_attributes = ["lane", "workload", "backend", "branch.kind"]
+
+[[metrics]]
+id = "manifest.open_duration"
+otel_name = "okv.eval.manifest.open_duration"
+kind = "histogram"
+unit = "s"
+description = "Time to resolve and verify the manifest closure required to open a snapshot"
+attributes = ["lane", "workload", "backend", "snapshot.kind", "result"]
+required_attributes = ["lane", "workload", "backend", "snapshot.kind", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "manifest.objects_considered"
+otel_name = "okv.eval.manifest.objects_considered"
+kind = "gauge"
+unit = "{object}"
+description = "Manifest and data objects considered while resolving one logical open"
+attributes = ["lane", "workload", "backend", "snapshot.kind"]
+required_attributes = ["lane", "workload", "backend", "snapshot.kind"]
+
+[[metrics]]
+id = "transaction.retries"
+otel_name = "okv.eval.transaction.retries"
+kind = "counter"
+unit = "{transaction}"
+description = "Transaction attempts retried for a declared reason"
+attributes = ["lane", "workload", "isolation", "retry.reason"]
+required_attributes = ["lane", "workload", "isolation", "retry.reason"]
+
+[[metrics]]
+id = "cost.estimated_total"
+otel_name = "okv.eval.cost.estimated_total"
+kind = "gauge"
+unit = "USD"
+description = "Estimated compute, local storage, network, and object cost under a pinned price snapshot"
+attributes = ["lane", "workload", "backend", "price.snapshot", "cost.scope"]
+required_attributes = ["lane", "workload", "backend", "price.snapshot", "cost.scope"]
+
+[[metrics]]
+id = "object.created"
+otel_name = "okv.eval.object.created"
+kind = "counter"
+unit = "{object}"
+description = "Immutable objects physically created by class and result"
+attributes = ["lane", "workload", "backend", "object.class", "result"]
+required_attributes = ["lane", "workload", "backend", "object.class", "result"]
+
+[[metrics]]
+id = "object.size"
+otel_name = "okv.eval.object.size"
+kind = "histogram"
+unit = "By"
+description = "Physical size of an immutable object created by the workload"
+attributes = ["lane", "workload", "backend", "object.class"]
+required_attributes = ["lane", "workload", "backend", "object.class"]
+boundaries = [4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 16777216.0, 67108864.0, 268435456.0]
+
+[[metrics]]
+id = "application_log.delta_bytes"
+otel_name = "okv.eval.application_log.delta_bytes"
+kind = "counter"
+unit = "By"
+description = "Raw or durably framed application-delta bytes written by the declared representation"
+attributes = ["lane", "workload", "backend", "representation", "encoding.scope"]
+required_attributes = ["lane", "workload", "backend", "representation", "encoding.scope"]
+
+[[metrics]]
+id = "application_log.checkpoint_bytes"
+otel_name = "okv.eval.application_log.checkpoint_bytes"
+kind = "counter"
+unit = "By"
+description = "State-checkpoint bytes written to bound application-delta replay"
+attributes = ["lane", "workload", "backend", "representation", "encoding.scope"]
+required_attributes = ["lane", "workload", "backend", "representation", "encoding.scope"]
+
+[[metrics]]
+id = "application_log.replay_depth"
+otel_name = "okv.eval.application_log.replay_depth"
+kind = "histogram"
+unit = "{delta}"
+description = "Application deltas applied after the selected checkpoint to reconstruct one requested version"
+attributes = ["lane", "workload", "backend", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.0, 1.0, 4.0, 16.0, 64.0, 256.0, 1024.0, 4096.0]
+
+[[metrics]]
+id = "application_log.replay_duration"
+otel_name = "okv.eval.application_log.replay_duration"
+kind = "histogram"
+unit = "s"
+description = "Time to reconstruct one requested application state from checkpoint plus delta tail"
+attributes = ["lane", "workload", "backend", "depth.class", "result"]
+required_attributes = ["lane", "workload", "backend", "depth.class", "result"]
+boundaries = [0.00001, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+[[metrics]]
+id = "application_log.differential_exact"
+otel_name = "okv.eval.application_log.differential_exact"
+kind = "gauge"
+unit = "1"
+description = "One only when materialized-KV and application-delta representations produce the same canonical state fingerprint"
+attributes = ["lane", "workload", "backend", "candidate", "control"]
+required_attributes = ["lane", "workload", "backend", "candidate", "control"]
+
+[[metrics]]
+id = "branch.shared_prefix_bytes"
+otel_name = "okv.eval.branch.shared_prefix_bytes"
+kind = "gauge"
+unit = "By"
+description = "Immutable history bytes referenced by both parent and branch without physical duplication"
+attributes = ["lane", "workload", "backend", "branch.kind"]
+required_attributes = ["lane", "workload", "backend", "branch.kind"]
+
+[[metrics]]
+id = "object_frontier.protocol_duration"
+otel_name = "okv.eval.object_frontier.protocol_duration"
+kind = "histogram"
+unit = "s"
+description = "Time for publication prepare, full object validation, physical txLog pop, quorum certificate, activation, and object recovery"
+attributes = ["lane", "workload", "backend", "mode", "result"]
+required_attributes = ["lane", "workload", "backend", "mode", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]

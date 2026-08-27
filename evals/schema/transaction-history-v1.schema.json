@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://objectkv.dev/schema/transaction-history-v1.schema.json",
+  "title": "objectKV strict-serializability history v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "cell_id", "tenant_id", "seed", "initial_state", "transactions"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "cell_id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "seed": { "type": "integer", "minimum": 0 },
+    "initial_state": { "type": "array", "items": { "$ref": "#/$defs/key_value" } },
+    "transactions": { "type": "array", "items": { "$ref": "#/$defs/transaction" } }
+  },
+  "$defs": {
+    "bytes": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+    },
+    "key_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": { "$ref": "#/$defs/bytes" },
+        "value": { "$ref": "#/$defs/bytes" }
+      }
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/$defs/bytes" },
+        "end": { "$ref": "#/$defs/bytes" }
+      }
+    },
+    "observed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "writer"],
+      "properties": {
+        "key": { "$ref": "#/$defs/bytes" },
+        "value": { "$ref": "#/$defs/bytes" },
+        "writer": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "read": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "key", "observed"],
+          "properties": {
+            "kind": { "const": "point" },
+            "key": { "$ref": "#/$defs/bytes" },
+            "observed": { "oneOf": [{ "$ref": "#/$defs/observed" }, { "type": "null" }] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "range", "observed"],
+          "properties": {
+            "kind": { "const": "range" },
+            "range": { "$ref": "#/$defs/range" },
+            "observed": { "type": "array", "items": { "$ref": "#/$defs/observed" } }
+          }
+        }
+      ]
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "commit_version"],
+          "properties": {
+            "status": { "const": "committed" },
+            "commit_version": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {
+            "status": { "const": "aborted" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "begin_tick", "complete_tick", "read_version", "reads", "read_conflicts", "writes", "write_conflicts", "outcome", "applied_writes"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "begin_tick": { "type": "integer", "minimum": 0 },
+        "complete_tick": { "type": "integer", "minimum": 0 },
+        "read_version": { "type": "integer", "minimum": 0 },
+        "reads": { "type": "array", "items": { "$ref": "#/$defs/read" } },
+        "read_conflicts": { "type": "array", "items": { "$ref": "#/$defs/range" } },
+        "writes": { "type": "array", "items": { "$ref": "#/$defs/key_value" } },
+        "write_conflicts": { "type": "array", "items": { "$ref": "#/$defs/range" } },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "applied_writes": { "type": "array", "items": { "$ref": "#/$defs/key_value" } }
+      }
+    }
+  }
+}

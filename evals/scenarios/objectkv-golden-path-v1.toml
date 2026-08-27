@@ -1,0 +1,215 @@
+schema_version = 1
+id = "objectkv-golden-path-v1"
+description = "One deterministic commerce-ledger history replayed from ordered transactions through durability, object publication, SSD and RAM serving, distribution, consumer models, PostgreSQL, exact HTAP, and product economics."
+generator = "deterministic-commerce-ledger-v1"
+seeds = [1103, 2207, 3301]
+initial_artifacts = ["scenario-spec"]
+
+[[surfaces]]
+id = "kernel"
+name = "Ordered transaction kernel"
+question = "Does one opaque-key history produce exact versions, conflicts, retries, and snapshots?"
+
+[[surfaces]]
+id = "durability"
+name = "Durable transaction tail"
+question = "Does every acknowledged outcome survive the declared failures and retain the required recovery suffix?"
+
+[[surfaces]]
+id = "object-authority"
+name = "Object authority"
+question = "Can immutable objects and fenced roots reconstruct the committed frontier across ambiguous effects?"
+
+[[surfaces]]
+id = "transaction-plane"
+name = "Incumbent transaction plane"
+question = "Can a mature provider supply strict-serializable current state while objectKV retains exact objectification, restore, and history semantics?"
+
+[[surfaces]]
+id = "serving"
+name = "SSD and RAM serving"
+question = "Do bounded serving images provide exact hot and cold reads, fast recovery, and safe profile handoff?"
+
+[[surfaces]]
+id = "lifecycle"
+name = "Snapshot and branch lifecycle"
+question = "Do branches reuse immutable closure state without copying the base or weakening reachability?"
+
+[[surfaces]]
+id = "distribution"
+name = "Distributed cell"
+question = "Does throughput scale across range groups while tenant transactions remain strictly serializable?"
+
+[[surfaces]]
+id = "application-log"
+name = "Transactional application log"
+question = "Can a retained consumer log share commit identity without becoming the recovery txLog?"
+
+[[surfaces]]
+id = "redis"
+name = "Redis serving model"
+question = "Can Redis commands and expiry semantics compile to the ordered transaction contract without divergence?"
+
+[[surfaces]]
+id = "search"
+name = "Inverted search serving model"
+question = "Can postings, deletes, and queries remain version-aligned with the source records?"
+
+[[surfaces]]
+id = "postgres"
+name = "PostgreSQL page adapter"
+question = "Can the page adapter preserve upstream behavior and recovery with explicit byte and synchronization cost?"
+
+[[surfaces]]
+id = "htap"
+name = "Exact DataFusion snapshot"
+question = "Can row history and a columnar base produce one exact snapshot without external ETL?"
+
+[[surfaces]]
+id = "economics"
+name = "Product economics"
+question = "Does at least one workload gain enough latency, footprint, recovery, branching, or HTAP leverage to justify the kernel?"
+
+[[checkpoints]]
+id = "semantic-history"
+name = "Exact logical history"
+surface = "kernel"
+objective = "Generate one frozen multi-key commerce history and an independent snapshot oracle."
+depends_on = []
+inputs = ["scenario-spec"]
+outputs = ["history-digest", "oracle-snapshots"]
+
+[[checkpoints]]
+id = "durable-tail"
+name = "Acknowledged commit frontier"
+surface = "durability"
+objective = "Replay the history through the selected durability profile and recover every acknowledged request outcome."
+depends_on = ["semantic-history"]
+inputs = ["history-digest"]
+outputs = ["commit-frontier", "durable-outcomes"]
+
+[[checkpoints]]
+id = "object-base"
+name = "Published object closure"
+surface = "object-authority"
+objective = "Pack a committed prefix, publish one fenced manifest closure, and prove exact reconstruction through its watermark."
+depends_on = ["durable-tail"]
+inputs = ["history-digest", "commit-frontier"]
+outputs = ["manifest-root", "object-watermark"]
+
+[[checkpoints]]
+id = "resident-plane"
+name = "Selected incumbent transaction plane"
+surface = "transaction-plane"
+objective = "Reject semantically incompatible providers, then prove one provider can emit exact retained changes, publish objects, and rebuild an empty generation."
+depends_on = ["semantic-history", "durable-tail", "object-base"]
+inputs = ["history-digest", "durable-outcomes", "manifest-root"]
+outputs = ["resident-plane-receipt", "provider-selection-decision"]
+
+[[checkpoints]]
+id = "ssd-resident"
+name = "SSD resident range"
+surface = "serving"
+objective = "Serve the active main branch directly from the selected incumbent with bounded objectKV write overhead and no object reads on the hot path."
+depends_on = ["resident-plane"]
+inputs = ["resident-plane-receipt", "provider-selection-decision"]
+outputs = ["ssd-serving-receipt"]
+
+[[checkpoints]]
+id = "ram-resident"
+name = "RAM resident range"
+surface = "serving"
+objective = "Replay the same reads through bounded memory and determine whether RAM materially improves an end-to-end metric over SSD."
+depends_on = ["ssd-resident"]
+inputs = ["manifest-root", "durable-outcomes", "ssd-serving-receipt"]
+outputs = ["ram-serving-receipt"]
+
+[[checkpoints]]
+id = "profile-handoff"
+name = "Serving profile handoff"
+surface = "serving"
+objective = "Move a live range from SSD to RAM and back through hydrate, tail catch-up, coverage proof, generation flip, and fencing."
+depends_on = ["ssd-resident", "ram-resident"]
+inputs = ["ssd-serving-receipt", "ram-serving-receipt", "commit-frontier"]
+outputs = ["profile-handoff-receipt"]
+
+[[checkpoints]]
+id = "empty-worker"
+name = "Empty-worker recovery"
+surface = "serving"
+objective = "Return the first exact read from a new worker before full range or database hydration."
+depends_on = ["object-base", "durable-tail"]
+inputs = ["manifest-root", "durable-outcomes"]
+outputs = ["empty-worker-receipt"]
+
+[[checkpoints]]
+id = "branch-root"
+name = "Metadata-scale branch"
+surface = "lifecycle"
+objective = "Create a writable branch that reuses its parent's immutable closure and remains safe under garbage collection."
+depends_on = ["object-base"]
+inputs = ["manifest-root"]
+outputs = ["branch-manifest-root", "branch-receipt"]
+
+[[checkpoints]]
+id = "multi-range-cell"
+name = "Strict-serializable distributed cell"
+surface = "distribution"
+objective = "Partition the scenario across range groups without partial commits, impossible snapshots, or a premature global throughput ceiling."
+depends_on = ["durable-tail", "ssd-resident"]
+inputs = ["history-digest", "durable-outcomes", "ssd-serving-receipt"]
+outputs = ["distributed-history-digest", "cell-receipt"]
+
+[[checkpoints]]
+id = "application-log"
+name = "Retained application log"
+surface = "application-log"
+objective = "Emit transactionally aligned records with independent cursors and retention while preserving the txLog recovery boundary."
+depends_on = ["multi-range-cell", "object-base"]
+inputs = ["distributed-history-digest", "object-watermark"]
+outputs = ["application-log-cursor", "application-log-root"]
+
+[[checkpoints]]
+id = "redis-model"
+name = "Redis differential model"
+surface = "redis"
+objective = "Run the declared strings, atomic update, and expiry subset against an independent Redis oracle."
+depends_on = ["multi-range-cell"]
+inputs = ["distributed-history-digest"]
+outputs = ["redis-receipt"]
+
+[[checkpoints]]
+id = "search-model"
+name = "Version-aligned inverted search"
+surface = "search"
+objective = "Apply source and posting mutations atomically, then query exact-version postings through deletes and updates."
+depends_on = ["multi-range-cell", "application-log"]
+inputs = ["distributed-history-digest", "application-log-cursor"]
+outputs = ["search-receipt"]
+
+[[checkpoints]]
+id = "postgres-page"
+name = "PostgreSQL page history"
+surface = "postgres"
+objective = "Replay the scenario through the page adapter and preserve the pinned upstream compatibility and crash-recovery oracle."
+depends_on = ["multi-range-cell", "ssd-resident"]
+inputs = ["distributed-history-digest", "ssd-serving-receipt"]
+outputs = ["postgres-page-history", "postgres-receipt"]
+
+[[checkpoints]]
+id = "exact-htap"
+name = "Exact PostgreSQL to DataFusion snapshot"
+surface = "htap"
+objective = "Materialize a columnar base and merge its complete tail to the same target version as the PostgreSQL history."
+depends_on = ["postgres-page", "object-base", "application-log"]
+inputs = ["postgres-page-history", "manifest-root", "application-log-cursor"]
+outputs = ["htap-snapshot-digest", "htap-receipt"]
+
+[[checkpoints]]
+id = "product-economics"
+name = "Go or stop decision"
+surface = "economics"
+objective = "Compare the complete objectKV path with TiKV or PostgreSQL plus object tiering under one reviewed cost snapshot."
+depends_on = ["ssd-resident", "ram-resident", "empty-worker", "branch-root", "multi-range-cell", "redis-model", "search-model", "postgres-page", "exact-htap"]
+inputs = ["ssd-serving-receipt", "ram-serving-receipt", "empty-worker-receipt", "branch-receipt", "cell-receipt", "redis-receipt", "search-receipt", "postgres-receipt", "htap-receipt"]
+outputs = ["product-decision"]

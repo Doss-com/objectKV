@@ -1,6 +1,6 @@
 # objectKV contributor board
 
-Status: `[ACTIVE-WORK]` initial tasks. Each item is intentionally bounded enough to
+Status: `[EVALUATING]` initial tasks. Each item is intentionally bounded enough to
 become one GitHub issue.
 
 ## Ready now
@@ -16,7 +16,7 @@ become one GitHub issue.
   range-clear precedence, exact read errors, inclusive retention boundary, and
   read-your-writes. `okv-model` executes each invariant.
 
-### T2. Add generated differential histories `[ACTIVE-WORK]`
+### T2. Add generated differential histories `[EVALUATING]`
 
 - Scope: produce deterministic sequences of set, clear, replay, and read; compare
   a candidate engine contract to `okv-model`.
@@ -41,7 +41,7 @@ become one GitHub issue.
 - Dependency: none. Read-only research.
 - Evidence: `docs/research/slatedb-seams-e016197.md`.
 
-### T4. Implement object-store conformance fixtures `[ACTIVE-WORK]`
+### T4. Implement object-store conformance fixtures `[EVALUATING]`
 
 - Scope: memory, filesystem, and MinIO backends; conditional create/update,
   range GET, lost response, retry, checksum, and LIST non-authority behavior.
@@ -57,7 +57,7 @@ become one GitHub issue.
   GCS bucket, add a provider-specific generation-guarded delete adapter, and
   publish a clean-commit cloud receipt.
 
-### T5. Build the Phase 0 benchmark runner `[ACTIVE-WORK]`
+### T5. Build the Phase 0 benchmark runner `[EVALUATING]`
 
 - Scope: parse `evals/suites/phase0.toml`, pin seeds/profile, emit schema-valid
   JSON, repeat runs, and calculate median/MAD without choosing a champion.
@@ -71,8 +71,11 @@ become one GitHub issue.
   hard gates, raw report artifacts, and OTel export through pinned SlateDB.
 - Exists: raw reports are run-scoped, measurement phases no longer blend close
   with reopen, and the 12-hour fixed-cadence audit emits append-only receipts.
-- Remaining: generic repeat orchestration inside `okv-eval`, incumbent pairing,
-  noise verdicts, and the broader `phase0.toml` workload executors.
+- `[CODE-COMPLETE]` The product program now resolves candidate/control metrics,
+  rejects semantic or environment identity mismatches, and emits a signed
+  threshold-plus-noise comparison receipt.
+- Remaining: generic alternating repeat orchestration inside `okv-eval` and the
+  broader `phase0.toml` workload executors.
 
 ### T6. Establish the SlateDB baseline
 
@@ -147,7 +150,7 @@ become one GitHub issue.
   rejects.
 - Dependency: T8, T9, and the PostgreSQL bridge inventory.
 
-### T13. Build the exact deterministic simulation substrate `[ACTIVE-WORK]`
+### T13. Build the exact deterministic simulation substrate `[EVALUATING]`
 
 - Scope: single logical thread, seeded random source, virtual time, deterministic
   network, durable log, object store, and crash/restart scheduling. Evaluate
@@ -176,7 +179,7 @@ become one GitHub issue.
   `evals/suites/fault-recovery.toml` owns the brownout lane. The workload
   executor remains gated on WAL and objectification components.
 
-### T15. Adversarially review cell and tenant topology `[ACTIVE-WORK]`
+### T15. Adversarially review cell and tenant topology `[EVALUATING]`
 
 - Scope: RFC-0011 cell boundary, tenant transaction domain, role-partitioning
   sequence, metacluster authority, and snapshot-plus-tail tenant movement.
@@ -192,7 +195,7 @@ become one GitHub issue.
 - Remaining: one external database reviewer, alternative-topology comparison,
   and executable commit, frontier, resolver-partition, and tenant-move models.
 
-### T16. Prototype exact DataFusion base-plus-tail semantics `[ACTIVE-WORK]`
+### T16. Prototype exact DataFusion base-plus-tail semantics `[EVALUATING]`
 
 - Scope: RFC-0010 `TableProvider`, ordered `SnapshotOverlayExec`, insert/update/
   delete and row-move tail, per-partition watermarks, and predicate invalidation.
@@ -239,7 +242,7 @@ become one GitHub issue.
   validation and write occur in one serializable transaction. Model work can
   begin independently.
 
-### T18. Freeze and implement the Cell v0 commit envelope `[ACTIVE-WORK]`
+### T18. Freeze and implement the Cell v0 commit envelope `[EVALUATING]`
 
 - Scope: canonical conflict and mutation bytes, request identity, resolver-set
   acceptance, log tagging, generation fencing, quorum evidence, durable outcome
@@ -298,7 +301,7 @@ become one GitHub issue.
   acknowledgement durability, or exact retry outcomes. Those are separate
   objectKV gates.
 
-### T20. Prove block-before-pointer publication and ground-truth GC `[EXISTS]`
+### T20. Prove block-before-pointer publication and ground-truth GC `[VERIFIED]`
 
 - Scope: model immutable block upload, authoritative pointer publication,
   ambiguous writes, unreachable objects, retained manifests, snapshot/query
@@ -384,6 +387,158 @@ become one GitHub issue.
   fails deterministically and replays exactly.
 - Dependency: T13 simulation substrate. It blocks a complete direct-read claim,
   not the first immutable segment builder.
+
+### T23. Replace the G4.3 local tail adapter `[EVALUATING]`
+
+- Scope: expose retained committed transaction records from the real OpenRaft
+  data authority or through one frozen `DurableLog` streaming interface.
+- Done when: the G4.3 first-worker kill and distinct empty-scratch replacement
+  return exact base, update, delete, and tail-only insert reads while commits
+  continue, without trusting a local physical path or hydrating the full range.
+- Dependency: RFC-0026 and `serving-worker-process-recovery-v1`.
+- `[CODE-COMPLETE]`: the same process boundary, authority-selected logical root,
+  object-base reader, tail overlay, full-hydration control, and skip-tail poison
+  run against a three-file same-machine diagnostic adapter.
+- `[CODE-COMPLETE]`: RFC-0027 exposes accepted transaction commands through
+  linearizable frozen-target pages owned by the OpenRaft data state machine.
+  G4.4 performs two catch-up rounds around four concurrent commits, applies
+  `ClearRange`, and accesses no physical Raft journal path.
+- `[EVALUATING]`: G4.5 measured the complete serialized state at 256, 1,024,
+  and 4,096 lifetime commits with 256 live keys. Ideal txLog pop still produced
+  9.172x snapshot growth, rejecting the current monolithic authority layout.
+  The 12.005x no-pop control and rejected flat retained-only poison closed the
+  causal and oracle checks.
+- `[CODE-COMPLETE]`: RFC-0029 splits latest values, OCC history, transaction
+  retry records, frontier-command retry, and recovery commands into explicit
+  persisted owners. Replicated `R` and `Q(client)` advancement rejects stale
+  reads and expired retries before mutation while `O` remains projected.
+- `[EVALUATING]`: G4.6 held complete projected state to 1.0029x growth versus
+  9.1694x for the object-only control. The serving-only poison was rejected
+  with nine anomalies. The candidate still took 545.726 seconds against its
+  180-second diagnostic budget.
+- `[CODE-COMPLETE]`: RFC-0030 retains an exact pending immutable closure before
+  the data authority physically pops through `O`, then requires a distinct
+  data-voter quorum certificate before publication activation. G4.7 recovered
+  exact object state after popping all 16 records, data and publication leader
+  failover, and data-voter restart. Missing-pending and forged-coverage controls
+  failed before pop; a subquorum activation left pending protection intact.
+- `[EVALUATING]`: G4.7 passed every hard gate across seeds 4701, 4702, and 4703
+  with 160.331 ms protocol p99 and 20.519 ms median physical-pop time. Dirty
+  source, one machine, debug processes, and local object files prevent a
+  verified durability or performance claim.
+- `[CODE-COMPLETE]`: G4.8 adds bounded concurrent submission and per-voter
+  stable-I/O observations without changing transaction bytes or retry meaning.
+- `[EVALUATING]`: G4.8 preserved the correctness and recovery contract but was
+  discarded as final group commit. It reached 153.708 median transactions per
+  second versus 38.772 for the sequential control, a 3.964x gain, and reached
+  264.887 ms maximum p99. The frozen gates were 200 transactions per second,
+  4x, and 250 ms. Followers grouped entries; the leader remained one append per
+  transaction. The early-ack poison was lost after quorum recovery and rejected.
+- `[CODE-COMPLETE]`: RFC-0032 adds one explicit batch entry, shared commit
+  version plus 16-bit batch order, independent request outcomes, exact retry,
+  deterministic in-batch conflict resolution, and pair-valued recovery cursors.
+- `[EVALUATING]`: G4.9 reached 559.511 median durable transactions per second
+  and 34.016 ms maximum p99 versus 151.944 transactions per second for the one-
+  entry control, a 3.682x gain. Every absolute and paired gate passed. Duplicate
+  identities and early acknowledgement were rejected. Dirty source and one
+  host prevent a verified performance or durability claim.
+- `[CODE-COMPLETE]`: RFC-0033 adds bounded FIFO admission for independent
+  requests, closure on item count, exact encoded bytes, delay, or sender
+  shutdown, explicit queue-full and oversized rejection, and exact per-request
+  result demultiplexing.
+- `[EVALUATING]`: G4.10 discarded the 16-item, 64-caller configuration at
+  131.488 ms maximum p99. The separately frozen 32-item candidate reached
+  1,157.369 median transactions per second, 76.101 ms maximum p99, and 6.356x
+  the same-durability one-entry control. Sparse, byte, overload, and oversized
+  controls passed their scoped gates.
+- `[CODE-COMPLETE]`: RFC-0034 emits backward-readable `OKVT2`, `OKVQ2`, and
+  `OKVB2`. The 128 KiB byte control now fits eight 8 KiB-value transactions in
+  a 119,731 byte entry instead of one transaction in an 89,097 byte v1 entry.
+- `[CODE-COMPLETE]`, local receipts `[EVALUATING]`: RFC-0035 and
+  `commit-proxy-object-frontier-v1` compose the 32-item path with a 25%
+  deterministic conflict suffix and authenticated frontier advancement through
+  frozen `O`. The candidate reached 1,075.343 resolved outcomes per second,
+  104.274 ms maximum p99, and 28.776x the one-entry control while exact
+  object-plus-suffix recovery and both poisons passed.
+- `[PROPOSED]`: RFC-0036 freezes one clean independent-media and remote-object
+  gate with eight frontier cycles, durable state snapshots, bounded physical
+  journals, host-loss recovery, and required OTLP.
+- `[CODE-COMPLETE]`, local receipts `[EVALUATING]`: G4.11a writes checksummed
+  state snapshots through synchronized atomic replacement, rejects purge above
+  snapshot coverage, canonical-compacts each journal, and reopens all three
+  voters exactly. Journals fell from at most 6,391,575 bytes to 879 bytes.
+- `[CODE-COMPLETE]`, local receipts `[EVALUATING]`: G4.11a.1 aligned `R`, a
+  64-request `Q(client)` window, and authenticated `O` across four complete
+  cycles. Snapshot growth passed at 1.091759x, but complete physical media
+  failed at 19.692719x against the frozen 8x gate. The frontier mechanism
+  remains; the replicated snapshot representation is discarded.
+- `[CODE-COMPLETE]`, preflight `[EVALUATING]`: the same-history runner compares
+  indexed row objects, indexed Parquet, and a hybrid row-capsule layout with
+  exact point, scan, compaction, media, and branch accounting. The small local
+  preflight rejects plain Parquet as the generic point path. Add the isolated
+  Vortex subject, checksum-block request coalescing, and an honestly accounted
+  typed sidecar before freezing admission thresholds.
+- `[CODE-COMPLETE]`, local admission `[EVALUATING]`: the coalesced reader and
+  split typed run are implemented. Run `f5dbba62` passed every frozen
+  three-seed, three-repeat release-local gate. The split subject preserved the
+  row control's point request and byte costs, reached 9.124x projected-scan
+  throughput, and added 3.040% stored/live amplification. It is eligible for
+  clean GCS evaluation. It is not the opaque KV default.
+- `[CODE-COMPLETE]`: namespaced GCS execution and the frozen
+  `storage-layout-gcs-admission-v1` suite.
+- Remaining: restore and verify objectKV-dev GCP access; run remote point and
+  scan admission; prove split-closure recovery and DataFusion
+  overlay exactness; run G4.11b with clean source,
+  independent media, remote GCS, and required OTLP; bound distinct-client
+  cardinality; then decide Cell v0 admission before serving leases, scans, GCS
+  product claims, PostgreSQL, or HTAP expansion.
+
+### T24. Implement the native resident-engine boundary `[VERIFIED]` experiment, admission rejected
+
+- Scope: RFC-0040 empty activation, base plus retained-suffix materialization,
+  atomic live advancement, version-bound engine snapshots, and direct resident
+  point reads.
+- Done when: every RFC-0040 correctness poison fails, the clean candidate and
+  matched RocksDB snapshot control run in AB and BA order, throughput is at
+  least 0.80x control, p99 is at most 1.20x control, local bytes remain bounded,
+  and the measured resident window issues zero object operations.
+- Dependency: RFC-0038 batch-aware retained cursor and RFC-0039 activation
+  receipt. This task blocks RAM admission, multi-range work, PostgreSQL, and
+  HTAP performance claims.
+- Review focus: MVCC key encoding, RocksDB snapshot to objectKV read-version
+  mapping, atomic applied-frontier publication, range-clear representation,
+  value ownership in candidate and control, and process-death recovery.
+- Stop: if both reversed-order receipts fail p99 again, use TiKV or
+  FoundationDB for the resident and transaction data plane. Keep `okv-log`,
+  publication, branching, reconstruction, and historical views above it.
+- Result: throughput passed at 0.8411x and 0.8268x control. P99 failed at
+  1.210x and 1.272x control. The stop fired. Preserve the prototype and its
+  regression tests; do not expand it into MultiRaft or a custom resolver plane.
+
+### T25. Select the incumbent resident transaction plane `[EVALUATING]`
+
+- Scope: freeze one minimal adapter that supports ordered commits, versioned
+  reads, retained change capture, objectification frontier, and empty-worker
+  restore. Run both candidates through the same semantic preflight. Implement
+  lifecycle and hot-path work only for candidates that pass it.
+- Done when: both source-pinned candidates have executable semantic receipts,
+  every survivor runs the same frozen history and lifecycle suite on R0,
+  limitations are explicit, one provider is selected by a recorded decision,
+  and GP3.1 runs against that provider without weakening its hot-path or
+  correctness constraints.
+- Dependency: D52 and the RFC-0040 decision receipt.
+- Review focus: transaction semantics, version mapping, change-feed retention,
+  snapshot/export seams, restore ownership, operational complexity, license,
+  and whether objectKV can stay off the incumbent hot path.
+- Stop: P1 strict serializability is a knockout gate. Do not add a resolver,
+  predicate-lock service, or serializable certifier above a provider to make it
+  pass. Do not build lifecycle shims for a provider that fails semantic
+  preflight. Remove the losing adapter after its evidence and decision record
+  are durable.
+- Current result: RFC-0041, `okv-plane`, and the source-pinned preflight are
+  `[CODE-COMPLETE]`. FoundationDB advances to a live semantic and lifecycle
+  spike. TiKV remains a live negative subject because its documented snapshot
+  isolation permits the frozen write-skew history. No provider is selected yet.
 
 ## Opens after Gate 1
 

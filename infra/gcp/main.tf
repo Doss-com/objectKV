@@ -9,8 +9,11 @@ locals {
     "cloudbilling.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "cloudtrace.googleapis.com",
+    "compute.googleapis.com",
+    "iap.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
+    "oslogin.googleapis.com",
     "serviceusage.googleapis.com",
     "storage.googleapis.com",
   ])
@@ -113,4 +116,3 @@ resource "google_project_iam_member" "eval_runner_traces" {
   role    = "roles/cloudtrace.agent"
   member  = "serviceAccount:${google_service_account.eval_runner.email}"
 }
-

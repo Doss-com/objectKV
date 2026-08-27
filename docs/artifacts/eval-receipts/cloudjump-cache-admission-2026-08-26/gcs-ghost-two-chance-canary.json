@@ -1,0 +1,93 @@
+{
+  "artifact_refs": [
+    "okv-eval://columnar-cache-admission-v1/ghost_two_chance/5701/1/37637941187c60083af57476433a9a053014d475636f6ea61f43b41b8dfa3e03",
+    "/private/tmp/c5-gcs-cache-ghost-two-chance.json"
+  ],
+  "backend": "columnar-cache+gcs-range-stripes",
+  "budget": {
+    "kind": "seconds",
+    "limit": 600.0,
+    "observed": 67.140553042
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T20:42:55.565111+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "id": "columnar_cache.point_results_are_exact",
+      "status": "pass"
+    },
+    {
+      "detail": "cache_ratio_percent=20",
+      "id": "columnar_cache.capacity_is_bounded",
+      "status": "pass"
+    },
+    {
+      "id": "columnar_cache.scan_pollution_is_exercised",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=ghost_two_chance",
+      "id": "columnar_cache.admission_state_matches_policy",
+      "status": "pass"
+    },
+    {
+      "detail": "zipf_alpha=1.4",
+      "id": "columnar_cache.trace_is_repeatable",
+      "status": "pass"
+    }
+  ],
+  "lane": "columnar-cache-post-scan-hit-ratio",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 0.0,
+    "median": 0.421875,
+    "name": "okv.eval.cache.hit_ratio",
+    "samples": [
+      0.421875
+    ],
+    "statistic": "median",
+    "unit": "1",
+    "value": 0.421875
+  },
+  "profile": {
+    "hash": "67f9d781d106623e987b08ed130535845b3557bbdb1352e0326a894eee0b457a",
+    "id": "objectkv-dev-gcs-canary",
+    "lockfile_hash": "bd2ea64a228fcf3baa543af69851ad3f2547f7db76408160bcb2502b8c449d6d",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "a1c6be8a-7776-4107-955f-3274dd6e2d5a",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "columnar_cache.pollution_requests.total": 68.0,
+    "columnar_cache.post_scan_hit_ratio.median": 0.421875,
+    "columnar_cache.post_scan_requests.total": 128.0,
+    "columnar_cache.pre_scan_hit_ratio.median": 0.3984375,
+    "columnar_cache.wall_seconds": 67.140486459,
+    "operation.duration.median": 67.140553042
+  },
+  "seeds": [
+    5701
+  ],
+  "suite": "columnar-cache-admission-gcs-v1",
+  "suite_hash": "b1952a71c2d15416568ace8d22b06e565afcb441ccd1375d7717b2f8ec237c36",
+  "verdict": "inconclusive"
+}

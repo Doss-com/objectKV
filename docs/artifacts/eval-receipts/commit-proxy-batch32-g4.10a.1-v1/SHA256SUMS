@@ -1,0 +1,7 @@
+4a014b10f9932d27c61a7e1644cd0dc20ed73813fc928815fed77a464d516348  docs/artifacts/eval-receipts/commit-proxy-batch32-g4.10a.1-v1/admission-knee-control.json
+71f854f6a4fed1c6e09f2cf005aeb6f3b60eb229b39d1a4bd578833b653a3636  docs/artifacts/eval-receipts/commit-proxy-batch32-g4.10a.1-v1/byte-bound-control.json
+c6941b9e3a1bccfa22fb9201e132bab6d11f0c89345ae169b3366066a5ed8137  docs/artifacts/eval-receipts/commit-proxy-batch32-g4.10a.1-v1/candidate.json
+2f4ea4f6a9d2ad05827f148e6186229bfadf9d6cf44b96b7918c058127cadb32  docs/artifacts/eval-receipts/commit-proxy-batch32-g4.10a.1-v1/one-entry-control.json
+d3f9ebeee747f8c700f5f0b59724e2fccd349c87291e74266845e4db4623b8d3  docs/artifacts/eval-receipts/commit-proxy-batch32-g4.10a.1-v1/overload-control.json
+f86170a0a0d94eb884a988f40d3f87c1d5009014d88be764ccda4bad84ae84d7  docs/artifacts/eval-receipts/commit-proxy-batch32-g4.10a.1-v1/oversized-item-poison.json
+1100e970a41bfb7dae6fcacaf21fc7c1cf13d2b05d2a4d58e7f8cc57554c2d5d  docs/artifacts/eval-receipts/commit-proxy-batch32-g4.10a.1-v1/sparse-arrival-control.json

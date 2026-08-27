@@ -1,0 +1,122 @@
+{
+  "artifact_refs": [
+    "okv-eval://authority-state-scale-v1/ideal_stream_pop_projection",
+    "/private/tmp/okv-g46-object-only.json"
+  ],
+  "backend": "data-openraft-local-process",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 540.066010083
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T11:09:14.421779+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "fail"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "final_retained_records=4096",
+      "id": "ideal_projection_does_not_mutate_retained_stream",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=ideal_stream_pop_projection",
+      "id": "complete_authority_state_accounted",
+      "status": "pass"
+    },
+    {
+      "detail": "75e650faca408630e91e17c1ea1b28c10f5cf319b9db46305a1ed0aaf0f3a77c",
+      "id": "fresh_controller_replay_is_exact",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=ideal_stream_pop_projection",
+      "id": "expired_retry_fails_closed",
+      "status": "pass"
+    },
+    {
+      "detail": "ratios=[9.169366936159145, 9.162406309530168, 9.166017622181288]",
+      "id": "projected_snapshot_growth_at_most_2x",
+      "status": "fail"
+    },
+    {
+      "detail": "anomalies=0",
+      "id": "retained_only_accounting_poison_detected",
+      "status": "pass"
+    }
+  ],
+  "lane": "transaction-authority-split-frontiers",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0033493139778570935,
+    "median": 9.166017622181288,
+    "name": "okv.eval.authority.snapshot_growth_ratio",
+    "samples": [
+      9.169366936159145,
+      9.162406309530168,
+      9.166017622181288
+    ],
+    "statistic": "maximum",
+    "unit": "1",
+    "value": 9.169366936159145
+  },
+  "profile": {
+    "hash": "d2f3008217623bf0c5ac02189b7f587bf01bb77a4ddbf3d9cc1faf3fc7c0188c",
+    "id": "local-process",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "complete authority state remains lifetime-commit-sized after ideal stream pop; ratios=[9.169366936159145, 9.162406309530168, 9.166017622181288]",
+  "run_id": "3e68f55e-eab7-47be-948a-6b88a27ee248",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "authority.actual_snapshot_bytes.c1024": 1526320.0,
+    "authority.actual_snapshot_bytes.c256": 478425.0,
+    "authority.actual_snapshot_bytes.c4096": 5742583.0,
+    "authority.fingerprint_bytes.c1024": 129967.0,
+    "authority.fingerprint_bytes.c256": 32402.0,
+    "authority.fingerprint_bytes.c4096": 524432.0,
+    "authority.outcome_bytes.c1024": 259693.0,
+    "authority.outcome_bytes.c256": 64493.0,
+    "authority.outcome_bytes.c4096": 1055341.0,
+    "authority.stream_popped_snapshot_bytes.c1024": 734857.0,
+    "authority.stream_popped_snapshot_bytes.c256": 280651.0,
+    "authority.stream_popped_snapshot_bytes.c4096": 2573392.0,
+    "authority.transaction_state_bytes.c1024": 344069.0,
+    "authority.transaction_state_bytes.c256": 182630.0,
+    "authority.transaction_state_bytes.c4096": 992491.0,
+    "authority.txlog_bytes.c1024": 791473.0,
+    "authority.txlog_bytes.c256": 197783.0,
+    "authority.txlog_bytes.c4096": 3169201.0,
+    "operation.duration.median": 540.066010083
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "transaction-authority-split-frontiers-v1",
+  "suite_hash": "483b0bb149a728829b1edfd1b23e1f80bf3e3e7abc0c39c3e6141fbd074dd4aa",
+  "verdict": "discard"
+}

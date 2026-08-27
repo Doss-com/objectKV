@@ -1,0 +1,117 @@
+{
+  "artifact_refs": [
+    "okv-eval://empty-worker-row-v1/full_hydration_poison",
+    "/Users/wileyjones/Documents/doss/repos/okv/docs/artifacts/eval-receipts/empty-worker-g4.2/recovery-dev/poison.json"
+  ],
+  "backend": "serving-worker-empty-local-fs",
+  "budget": {
+    "kind": "seconds",
+    "limit": 300.0,
+    "observed": 2.5119860000000003
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T08:29:17.453228+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "samples=15",
+      "id": "exact_first_read",
+      "status": "pass"
+    },
+    {
+      "detail": "exact named manifest root",
+      "id": "no_list_dependency",
+      "status": "pass"
+    },
+    {
+      "detail": "9144",
+      "id": "one_manifest_get",
+      "status": "pass"
+    },
+    {
+      "detail": "closure_segments=17",
+      "id": "one_selected_index_get",
+      "status": "fail"
+    },
+    {
+      "detail": "closure_bytes=68757924",
+      "id": "one_data_range_get_without_hydration",
+      "status": "fail"
+    },
+    {
+      "detail": "bound=80018",
+      "id": "selected_metadata_and_block_byte_bound",
+      "status": "fail"
+    }
+  ],
+  "lane": "empty-worker-recovery",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0005768750000000045,
+    "median": 0.137383416,
+    "name": "okv.eval.recovery.first_correct_read_duration",
+    "samples": [
+      0.13697325,
+      0.136493958,
+      0.137101334,
+      0.142656125,
+      0.137579167,
+      0.136658916,
+      0.137383416,
+      0.136806541,
+      0.140406125,
+      0.138912708,
+      0.138158416,
+      0.137511625,
+      0.136922291,
+      0.137334416,
+      0.138430042
+    ],
+    "unit": "s"
+  },
+  "profile": {
+    "hash": "1d8fd0b5a7fc9e044b7928cb55a7c0a0f2af6ce2493684f5af4e8e506225fcfa",
+    "id": "recovery-dev",
+    "lockfile_hash": "c6c49a2558609826c4712eadc16aea5a3c087f66f5a7ecb9fc8eeef9f08878a2",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "empty worker hydrated the complete range before first read",
+  "run_id": "bee695ef-e540-4e33-97c6-9132347db947",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 2.5119860000000003,
+    "recovery.data_closure_bytes": 68757924.0,
+    "recovery.first_read_seconds.median": 0.137383416,
+    "recovery.index_closure_bytes": 95610.0,
+    "recovery.manifest_bytes": 9144.0,
+    "recovery.max_block_bytes": 65048.0,
+    "recovery.max_index_bytes": 5826.0,
+    "recovery.response_bytes.median": 68862678.0,
+    "recovery.segment_count": 17.0
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "objectkv-product-thesis-physical-v1",
+  "suite_hash": "9f37becf9dd7d3ae7e574f92dc49d2fecf5ef28b7cae68f13d5534861e378056",
+  "verdict": "discard"
+}

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>objectKV Chess state lab</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ds-background-100: hsl(0, 0%, 4%);
+      --ds-background-200: hsl(0, 0%, 7%);
+      --ds-gray-100: rgba(255, 255, 255, 0.03);
+      --ds-gray-200: rgba(255, 255, 255, 0.05);
+      --ds-gray-300: rgba(255, 255, 255, 0.08);
+      --ds-gray-600: hsl(0, 0%, 53%);
+      --ds-gray-900: hsl(0, 0%, 63%);
+      --ds-gray-1000: hsl(0, 0%, 93%);
+      --ds-gray-alpha-200: #ffffff17;
+      --ds-gray-alpha-400: #ffffff24;
+      --ds-gray-alpha-500: #ffffff3d;
+      --ds-accent-700: hsl(212, 100%, 54%);
+      --ds-accent-900: hsl(210, 100%, 66%);
+      --ds-red-900: hsl(358, 100%, 69%);
+      --ds-green-900: hsl(131, 43%, 57%);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--ds-background-100);
+      color: var(--ds-gray-1000);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    button, input { font: inherit; }
+    button {
+      border: 1px solid var(--ds-gray-alpha-400);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--ds-gray-1000);
+      padding: 8px 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--ds-gray-alpha-500); background: var(--ds-gray-200); }
+    button:disabled { color: var(--ds-gray-600); cursor: default; }
+    button.primary { background: var(--ds-gray-1000); color: var(--ds-background-100); border-color: transparent; }
+    main { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 40px 0 64px; }
+    header { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 32px; }
+    h1 { margin: 0; font-size: 24px; line-height: 1.25; letter-spacing: -.015em; font-weight: 600; }
+    h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+    p { margin: 6px 0 0; color: var(--ds-gray-900); }
+    .badge { border-radius: 9999px; padding: 3px 9px; background: var(--ds-gray-alpha-200); font-size: 12px; font-weight: 500; white-space: nowrap; }
+    .layout { display: grid; grid-template-columns: minmax(360px, 540px) minmax(320px, 1fr); gap: 32px; align-items: start; }
+    .layout > *, .sidebar { min-width: 0; }
+    .history-card { grid-column: 1 / -1; }
+    .board-wrap { position: relative; width: min(100%, 540px); }
+    .board { display: grid; grid-template-columns: repeat(8, 1fr); border: 1px solid var(--ds-gray-alpha-400); border-radius: 4px; overflow: hidden; aspect-ratio: 1; }
+    .square {
+      position: relative;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      font-size: clamp(27px, 5vw, 48px);
+      line-height: 1;
+      color: var(--ds-gray-1000);
+      background: var(--ds-gray-100);
+    }
+    .square.dark { background: var(--ds-gray-300); }
+    .square:hover { outline: 1px solid var(--ds-gray-alpha-500); outline-offset: -1px; background: var(--ds-gray-200); }
+    .square.selected { box-shadow: inset 0 0 0 3px var(--ds-accent-700); }
+    .square .coord { position: absolute; left: 4px; bottom: 2px; font-size: 9px; color: var(--ds-gray-600); font-weight: 400; }
+    .timeline { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; margin-top: 12px; }
+    input[type="range"] { width: 100%; accent-color: var(--ds-accent-700); }
+    .snapshot { display: flex; justify-content: space-between; gap: 12px; color: var(--ds-gray-900); margin-top: 8px; font-variant-numeric: tabular-nums; }
+    .historical { color: var(--ds-accent-900); }
+    .sidebar { display: flex; flex-direction: column; gap: 24px; }
+    .card { background: var(--ds-gray-100); border: 1px solid var(--ds-gray-alpha-400); border-radius: 6px; padding: 20px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+    .status { min-height: 22px; margin-top: 12px; color: var(--ds-gray-900); }
+    .status.error { color: var(--ds-red-900); }
+    .status.ok { color: var(--ds-green-900); }
+    .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .kpi { padding: 12px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 4px; }
+    .kpi .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .kpi .label { color: var(--ds-gray-900); font-size: 12px; }
+    .event-list { display: flex; flex-direction: column; gap: 0; }
+    .event { display: grid; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--ds-gray-alpha-200); }
+    .event { grid-template-columns: 42px 1fr; }
+    .event:last-child { border-bottom: 0; }
+    .event-version { color: var(--ds-gray-600); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .lineage { display: flex; flex-direction: column; gap: 4px; overflow-x: hidden; padding: 2px 0 4px; }
+    .lineage-row { --depth: 0; display: grid; grid-template-columns: minmax(160px, 200px) minmax(0, 1fr) 64px; gap: 16px; align-items: center; min-height: 44px; }
+    .lineage-label { position: relative; display: grid; gap: 2px; border: 0; padding: 4px 8px 4px calc(8px + var(--depth) * 10px); overflow: hidden; text-align: left; color: var(--ds-gray-900); }
+    .lineage-label:hover { border-color: transparent; background: var(--ds-gray-200); }
+    .lineage-label.active { color: var(--ds-gray-1000); }
+    .lineage-label.child .lineage-name::before { content: "└ "; color: var(--ds-gray-600); }
+    .lineage-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lineage-meta { color: var(--ds-gray-600); font-size: 10px; white-space: nowrap; }
+    .lineage-track { display: flex; align-items: center; min-width: 0; padding: 4px 2px; }
+    .lineage-range { width: 100%; margin: 0; accent-color: var(--ds-accent-700); cursor: ew-resize; }
+    .lineage-range:focus-visible { outline: 2px solid var(--ds-accent-700); outline-offset: 3px; }
+    .lineage-version { color: var(--ds-gray-900); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+    .lineage-row:has(.lineage-label.active) .lineage-version { color: var(--ds-accent-900); }
+    .lineage-caption { margin: 10px 0 0; color: var(--ds-gray-600); font-size: 12px; }
+    code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--ds-gray-900); word-break: break-all; }
+    .receipt { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-top: 12px; color: var(--ds-gray-900); font-size: 12px; }
+    .receipt span { color: var(--ds-gray-1000); font-variant-numeric: tabular-nums; }
+    .scope { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-600); font-size: 12px; }
+    @media (max-width: 860px) {
+      main { width: min(100% - 32px, 620px); padding-top: 24px; }
+      header { align-items: start; }
+      .layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .lineage-row { grid-template-columns: 112px minmax(0, 1fr) 44px; gap: 8px; }
+      .lineage-label { padding-left: calc(4px + var(--depth) * 8px); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>objectKV Chess state lab</h1>
+        <p>Readable snapshots, replay, divergence, and branch switching on okv primitives.</p>
+      </div>
+      <span class="badge" id="api-version">objectkv-boundary-v0</span>
+    </header>
+    <div class="layout">
+      <section>
+        <div class="board-wrap"><div class="board" id="board" aria-label="Chess board"></div></div>
+        <div class="timeline">
+          <button id="older" aria-label="Previous snapshot">←</button>
+          <input id="version" type="range" min="1" max="1" value="1" aria-label="Snapshot version">
+          <button id="newer" aria-label="Next snapshot">→</button>
+        </div>
+        <div class="snapshot">
+          <span id="turn">white to move</span>
+          <span id="snapshot">version 1 of 1</span>
+        </div>
+      </section>
+      <aside class="sidebar">
+        <section class="card">
+          <h2>State controls</h2>
+          <div class="controls">
+            <button class="primary" id="fork">Fork from this version</button>
+            <button id="recover">Crash + replay</button>
+            <button id="reset">Reset position</button>
+          </div>
+          <div class="status" id="status">Select a piece, then its destination.</div>
+          <div class="receipt" id="receipt"></div>
+        </section>
+        <section class="card">
+          <h2>Active branch</h2>
+          <div class="kpis">
+            <div class="kpi"><div class="value" id="entries">0</div><div class="label">txLog entries</div></div>
+            <div class="kpi"><div class="value" id="bytes">0 B</div><div class="label">txLog payload</div></div>
+            <div class="kpi"><div class="value" id="rows">0</div><div class="label">visible KV rows</div></div>
+            <div class="kpi"><div class="value" id="recoveries">0</div><div class="label">verified replays</div></div>
+          </div>
+          <p><code id="fingerprint"></code></p>
+        </section>
+        <section class="card">
+          <h2>Application log</h2>
+          <div class="event-list" id="events"></div>
+          <div class="scope">[CODE-COMPLETE] Single process, volatile memory. Movement validation is implemented; check, mate, castling, and en passant are outside this state-lab scope.</div>
+        </section>
+      </aside>
+      <section class="card history-card">
+        <h2>History</h2>
+        <div class="lineage" id="lineage" aria-label="Branch and snapshot lineage"></div>
+        <p class="lineage-caption">Drag a branch lane to inspect exact snapshots. The active lane is the write head.</p>
+      </section>
+    </div>
+  </main>
+  <script>
+    const pieces = {P:"♙",N:"♘",B:"♗",R:"♖",Q:"♕",K:"♔",p:"♟",n:"♞",b:"♝",r:"♜",q:"♛",k:"♚",".":""};
+    const board = document.querySelector("#board");
+    const versionInput = document.querySelector("#version");
+    const status = document.querySelector("#status");
+    let snapshot = null;
+    let selected = null;
+    let busy = false;
+    let scheduledHistory = null;
+    let historyInFlight = false;
+    let historyRequestId = 0;
+
+    function squareName(index) {
+      return String.fromCharCode(97 + (index % 8)) + String(1 + Math.floor(index / 8));
+    }
+
+    function setStatus(message, kind = "") {
+      status.textContent = message;
+      status.className = `status ${kind}`;
+    }
+
+    function formatBytes(value) {
+      if (value < 1024) return `${value} B`;
+      if (value < 1048576) return `${(value / 1024).toFixed(1)} KB`;
+      return `${(value / 1048576).toFixed(2)} MB`;
+    }
+
+    function renderBoard() {
+      board.replaceChildren();
+      for (let rank = 7; rank >= 0; rank -= 1) {
+        for (let file = 0; file < 8; file += 1) {
+          const index = rank * 8 + file;
+          const square = document.createElement("button");
+          square.className = `square ${(rank + file) % 2 ? "dark" : ""} ${selected === index ? "selected" : ""}`;
+          square.dataset.index = String(index);
+          square.setAttribute("aria-label", `${squareName(index)} ${snapshot.game.board[index]}`);
+          square.textContent = pieces[snapshot.game.board[index]];
+          if (file === 0 || rank === 0) {
+            const coord = document.createElement("span");
+            coord.className = "coord";
+            coord.textContent = squareName(index);
+            square.append(coord);
+          }
+          square.addEventListener("click", () => chooseSquare(index));
+          board.append(square);
+        }
+      }
+    }
+
+    function render({ lineage = true } = {}) {
+      selected = null;
+      renderBoard();
+      const storage = snapshot.storage;
+      const historical = storage.viewed_version !== storage.latest_version;
+      versionInput.min = "1";
+      versionInput.max = String(storage.latest_version);
+      versionInput.value = String(storage.viewed_version);
+      document.querySelector("#older").disabled = storage.viewed_version <= 1;
+      document.querySelector("#newer").disabled = storage.viewed_version >= storage.latest_version;
+      document.querySelector("#turn").textContent = `${snapshot.game.turn} to move, ply ${snapshot.game.ply}`;
+      const snapshotLabel = document.querySelector("#snapshot");
+      snapshotLabel.textContent = `version ${storage.viewed_version} of ${storage.latest_version}`;
+      snapshotLabel.className = historical ? "historical" : "";
+      document.querySelector("#entries").textContent = storage.txlog_entries.toLocaleString();
+      document.querySelector("#bytes").textContent = formatBytes(storage.txlog_bytes);
+      document.querySelector("#rows").textContent = storage.visible_rows.toLocaleString();
+      document.querySelector("#recoveries").textContent = storage.recoveries.toLocaleString();
+      document.querySelector("#fingerprint").textContent = `state ${snapshot.game.fingerprint}`;
+      document.querySelector("#api-version").textContent = snapshot.api_version;
+      renderReceipt(storage.receipt);
+      if (lineage) renderLineage(storage.branches);
+      renderEvents(snapshot.events);
+      setStatus(historical ? "Historical snapshots are read-only. Fork from here to make a move." : storage.last_action);
+    }
+
+    function renderReceipt(receipt) {
+      const target = document.querySelector("#receipt");
+      if (!receipt) {
+        target.replaceChildren();
+        return;
+      }
+      target.innerHTML = `<div>commit <span>v${receipt.version}</span></div><div>request <span>${receipt.request_id}</span></div><div>mutations <span>${receipt.mutations}</span></div><div>txLog index <span>${receipt.log_index}</span></div>`;
+    }
+
+    function branchDepth(branch, byName) {
+      let depth = 0;
+      let cursor = branch;
+      while (cursor.parent && byName.has(cursor.parent) && depth < byName.size) {
+        depth += 1;
+        cursor = byName.get(cursor.parent);
+      }
+      return depth;
+    }
+
+    function renderLineage(branches) {
+      const target = document.querySelector("#lineage");
+      target.replaceChildren();
+      const byName = new Map(branches.map(branch => [branch.name, branch]));
+      for (const branch of branches) {
+        const row = document.createElement("div");
+        row.className = "lineage-row";
+        const depth = branchDepth(branch, byName);
+        row.style.setProperty("--depth", String(depth));
+        const label = document.createElement("button");
+        label.className = `lineage-label ${branch.active ? "active" : ""} ${branch.parent ? "child" : ""}`;
+        label.title = `${branch.name}, ${formatBytes(branch.txlog_bytes)}`;
+        label.addEventListener("click", () => navigateHistory(branch.name, branch.latest_version));
+
+        const name = document.createElement("span");
+        name.className = "lineage-name";
+        name.textContent = branch.name;
+        const meta = document.createElement("span");
+        meta.className = "lineage-meta";
+        meta.textContent = branch.parent ? `fork v${branch.fork_version} · head v${branch.latest_version}` : `root · head v${branch.latest_version}`;
+        label.append(name, meta);
+
+        const track = document.createElement("div");
+        track.className = "lineage-track";
+        const first = branch.parent ? branch.fork_version : 1;
+        const current = branch.active ? Math.min(branch.latest_version, Math.max(first, snapshot.storage.viewed_version)) : branch.latest_version;
+        const range = document.createElement("input");
+        range.className = "lineage-range";
+        range.type = "range";
+        range.min = String(first);
+        range.max = String(branch.latest_version);
+        range.step = "1";
+        range.value = String(current);
+        range.dataset.lineageScrubber = "";
+        range.dataset.branch = branch.name;
+        range.dataset.forkVersion = String(first);
+        range.setAttribute("aria-label", `Scrub ${branch.name} snapshots from version ${first} to ${branch.latest_version}`);
+
+        const output = document.createElement("output");
+        output.className = "lineage-version";
+        output.value = `v${current}`;
+        output.setAttribute("aria-live", "polite");
+        range.addEventListener("input", () => scheduleHistory(branch.name, Number(range.value), output));
+        range.addEventListener("change", () => scheduleHistory(branch.name, Number(range.value), output, true));
+        track.append(range);
+        row.append(label, track, output);
+        target.append(row);
+      }
+    }
+
+    function scheduleHistory(branch, version, output, final = false) {
+      if (busy) return;
+      output.value = `v${version}`;
+      scheduledHistory = {branch, version, final};
+      void flushScheduledHistory();
+    }
+
+    async function flushScheduledHistory() {
+      if (historyInFlight || !scheduledHistory) return;
+      const next = scheduledHistory;
+      scheduledHistory = null;
+      historyInFlight = true;
+      try {
+        await navigateHistory(next.branch, next.version, {quiet: true, preserveLineage: !next.final});
+      } finally {
+        historyInFlight = false;
+        if (scheduledHistory) void flushScheduledHistory();
+      }
+    }
+
+    async function navigateHistory(branch, version, {quiet = false, preserveLineage = false} = {}) {
+      if (busy && !quiet) return;
+      const requestId = ++historyRequestId;
+      if (!quiet) {
+        busy = true;
+        setStatus(`Opening ${branch} at version ${version}`);
+      }
+      try {
+        if (branch !== snapshot.storage.branch) {
+          const switched = await fetch("/api/switch", {method: "POST", body: branch, headers: {"Content-Type": "text/plain"}});
+          const switchedBody = await switched.json();
+          if (!switched.ok || switchedBody.error) throw new Error(switchedBody.error || `HTTP ${switched.status}`);
+        }
+        const response = await fetch(`/api/state?version=${version}`, {cache: "no-store"});
+        const body = await response.json();
+        if (!response.ok || body.error) throw new Error(body.error || `HTTP ${response.status}`);
+        if (requestId !== historyRequestId) return;
+        snapshot = body;
+        render({ lineage: !preserveLineage });
+      } catch (error) {
+        if (requestId === historyRequestId) setStatus(error.message, "error");
+      } finally {
+        if (requestId === historyRequestId) busy = false;
+      }
+    }
+
+    function renderEvents(events) {
+      const target = document.querySelector("#events");
+      target.replaceChildren();
+      for (const event of events) {
+        const row = document.createElement("div");
+        row.className = "event";
+        row.innerHTML = `<span class="event-version">v${event.version}</span><span>${event.action}</span>`;
+        target.append(row);
+      }
+    }
+
+    function chooseSquare(index) {
+      if (busy) return;
+      const storage = snapshot.storage;
+      if (storage.viewed_version !== storage.latest_version) {
+        setStatus("Fork from this historical version before making a move.", "error");
+        return;
+      }
+      if (selected === null) {
+        if (snapshot.game.board[index] === ".") {
+          setStatus(`${squareName(index)} is empty.`, "error");
+          return;
+        }
+        selected = index;
+        renderBoard();
+        setStatus(`Selected ${squareName(index)}. Choose a destination.`);
+        return;
+      }
+      const notation = squareName(selected) + squareName(index);
+      selected = null;
+      mutate("/api/move", notation, `Committing ${notation}`);
+    }
+
+    async function load(version = null) {
+      const suffix = version === null ? "" : `?version=${version}`;
+      try {
+        const response = await fetch(`/api/state${suffix}`, {cache: "no-store"});
+        const body = await response.json();
+        if (!response.ok || body.error) throw new Error(body.error || `HTTP ${response.status}`);
+        snapshot = body;
+        render();
+      } catch (error) {
+        setStatus(error.message, "error");
+      }
+    }
+
+    async function mutate(path, body, progress) {
+      if (busy) return;
+      busy = true;
+      setStatus(progress);
+      try {
+        const response = await fetch(path, {method: "POST", body, headers: {"Content-Type": "text/plain"}});
+        const result = await response.json();
+        if (!response.ok || result.error) throw new Error(result.error || `HTTP ${response.status}`);
+        snapshot = result;
+        render();
+        setStatus(snapshot.storage.last_action, "ok");
+      } catch (error) {
+        setStatus(error.message, "error");
+        renderBoard();
+      } finally {
+        busy = false;
+      }
+    }
+
+    document.querySelector("#older").addEventListener("click", () => load(snapshot.storage.viewed_version - 1));
+    document.querySelector("#newer").addEventListener("click", () => load(snapshot.storage.viewed_version + 1));
+    versionInput.addEventListener("input", () => load(Number(versionInput.value)));
+    document.querySelector("#fork").addEventListener("click", () => mutate("/api/fork", String(snapshot.storage.viewed_version), `Forking version ${snapshot.storage.viewed_version}`));
+    document.querySelector("#recover").addEventListener("click", () => mutate("/api/recover", "", "Replaying txLog"));
+    document.querySelector("#reset").addEventListener("click", () => mutate("/api/reset", "", "Committing reset"));
+    load();
+  </script>
+</body>
+</html>

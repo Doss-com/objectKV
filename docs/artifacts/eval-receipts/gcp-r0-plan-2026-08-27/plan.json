@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-27T00:44:17Z",
+  "plan_label": "r0-plan-02",
+  "project": "doss-objectkv-dev",
+  "terraform_root": "infra/gcp/benchmark",
+  "state_prefix": "gs://doss-objectkv-dev-okv-evals/terraform/benchmark-runner-v1",
+  "source_commit": "a56442ad800deedd72a404a0886e88831eb308a0",
+  "source_tree_clean": false,
+  "plan": {
+    "create": 9,
+    "update": 0,
+    "delete": 0,
+    "resources": [
+      "google_compute_disk.collector_data[active]",
+      "google_compute_disk.runner_data[active]",
+      "google_compute_firewall.iap_ssh[active]",
+      "google_compute_firewall.runner_to_collector[active]",
+      "google_compute_instance.collector[active]",
+      "google_compute_instance.runner[active]",
+      "google_compute_router.benchmark[active]",
+      "google_compute_router_nat.benchmark[active]",
+      "google_compute_subnetwork.benchmark[active]"
+    ]
+  },
+  "resolved_images": {
+    "runner": "projects/debian-cloud/global/images/debian-12-bookworm-v20260817",
+    "collector": "projects/cos-cloud/global/images/cos-stable-121-18867-528-78"
+  },
+  "planned_runner": {
+    "machine_type": "n2-standard-8",
+    "data_disk_type": "pd-ssd",
+    "data_disk_gib": 200
+  },
+  "post_plan_live_resources": {
+    "compute_instances": 0,
+    "persistent_disks": 0
+  },
+  "verdict": "plan_only",
+  "reason": "The live plan resolved every existing dependency and proposed nine creates with no updates or deletes. Apply was withheld because the source tree is dirty and cannot produce an admissible binary receipt."
+}

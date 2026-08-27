@@ -100,6 +100,7 @@ pub(crate) async fn run_node(
     acknowledge_before_quorum: bool,
 ) -> turmoil::Result {
     let log_store = OpenRaftLogStore::open(root)?;
+    let log_observer = log_store.clone();
     let state_machine = Arc::new(StateMachineStore::default());
     let raft = Raft::new(
         node_id,
@@ -119,12 +120,14 @@ pub(crate) async fn run_node(
         let (stream, _) = listener.accept().await?;
         let raft = raft.clone();
         let state_machine = state_machine.clone();
+        let log_observer = log_observer.clone();
         let nodes = nodes.clone();
         tokio::spawn(async move {
-            let _ = handle_connection(
+            let _ = Box::pin(handle_connection(
                 stream,
                 raft,
                 state_machine,
+                log_observer,
                 nodes,
                 ServerPolicy {
                     faults: ServerFaults {
@@ -132,7 +135,7 @@ pub(crate) async fn run_node(
                     },
                     ..ServerPolicy::default()
                 },
-            )
+            ))
             .await;
         });
     }

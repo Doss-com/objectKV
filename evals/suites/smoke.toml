@@ -1,6 +1,6 @@
 schema_version = 1
 id = "objectkv-smoke-v1"
-status = "active"
+status = "evaluating"
 metric_registry = "../metrics.toml"
 result_schema = "../schema/result.schema.json"
 

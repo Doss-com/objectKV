@@ -1,0 +1,119 @@
+{
+  "artifact_refs": [
+    "okv-eval://cold-object-row-v1/scan_object_poison",
+    "/Users/wileyjones/Documents/doss/repos/okv/docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-dev/poison.json"
+  ],
+  "backend": "serving-worker-object-local-fs",
+  "budget": {
+    "kind": "operations",
+    "limit": 10000.0,
+    "observed": 3.0
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T08:13:09.163455+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=scan_object_poison",
+      "id": "exact_cold_point_reads",
+      "status": "pass"
+    },
+    {
+      "detail": "range_gets=0,operations=3",
+      "id": "one_indexed_data_range_get",
+      "status": "fail"
+    },
+    {
+      "detail": "3",
+      "id": "no_complete_object_gets",
+      "status": "fail"
+    },
+    {
+      "detail": "0",
+      "id": "no_list_dependency",
+      "status": "pass"
+    },
+    {
+      "detail": "requests=1,bytes=9144",
+      "id": "single_manifest_warmup",
+      "status": "pass"
+    },
+    {
+      "detail": "requests=17,segments=17,bytes=95610",
+      "id": "one_index_warmup_per_segment",
+      "status": "pass"
+    },
+    {
+      "detail": "actual=104754,budget=16777216",
+      "id": "cached_metadata_within_local_budget",
+      "status": "pass"
+    },
+    {
+      "detail": "actual=12580509,max_per_read=65048",
+      "id": "bounded_row_block_bytes",
+      "status": "fail"
+    }
+  ],
+  "lane": "elastic-cold-point",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0,
+    "median": 1.0,
+    "name": "okv.eval.object_store.requests",
+    "samples": [
+      1.0
+    ],
+    "unit": "{request}"
+  },
+  "profile": {
+    "hash": "2135085bd79ad700953df6078b72668d7aa465d1d024b848eb1c4321073f355b",
+    "id": "elastic-dev",
+    "lockfile_hash": "c6c49a2558609826c4712eadc16aea5a3c087f66f5a7ecb9fc8eeef9f08878a2",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "cold reads used 0 range requests for 3 operations",
+  "run_id": "8f73b8ad-abcd-47d4-808e-d87aa632955f",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "cold.block_count": 1066.0,
+    "cold.bytes_per_operation": 4193503.0,
+    "cold.data_object_bytes": 68757924.0,
+    "cold.index_bytes": 95610.0,
+    "cold.latency_ns.p50": 7944000.0,
+    "cold.latency_ns.p99": 7944000.0,
+    "cold.manifest_bytes": 9144.0,
+    "cold.max_block_bytes": 65048.0,
+    "cold.max_data_object_bytes": 4193503.0,
+    "cold.max_index_bytes": 5826.0,
+    "cold.metadata_bytes": 104754.0,
+    "cold.profile_repeats": 5.0,
+    "cold.requests_per_operation": 1.0,
+    "cold.segment_count": 17.0,
+    "operation.duration.median": 0.467048875
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "objectkv-product-thesis-physical-v1",
+  "suite_hash": "2ae0eee3feef7c2149e7a1373467b78dc048c5c922783eeebde28802be5a8bfa",
+  "verdict": "discard"
+}

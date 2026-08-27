@@ -1,0 +1,95 @@
+schema_version = 1
+id = "storage-layout-gcs-admission-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0002-version-and-mvcc-model.md",
+  "../../rfcs/0003-immutable-segment-contract.md",
+  "../../rfcs/0010-oltp-olap-snapshots.md",
+  "../../rfcs/0037-manifested-multi-layout-lsm.md",
+  "../schema/benchmark-machine-receipt-v1.schema.json",
+]
+dataset_generator = "typed-mvcc-storage-layout-history-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["objectkv-dev-gcs"]
+
+[dataset.objectkv-dev-gcs]
+logical_bytes = 8388608
+key_count = 16384
+seeds = [5701, 5702, 5703]
+
+[profiles.objectkv-dev-gcs]
+budget_kind = "seconds"
+budget_limit = 1800
+repeats = 5
+backend = "gcs+observed-range-reads"
+cache_state = "prepared-metadata-and-indexes+remote-gcs-data-gets"
+key_count = 16384
+canonical_live_row_bytes = 512
+opaque_payload_bytes = 480
+base_version = 1
+delta_cycles = 4
+update_fraction = 0.125
+delete_fraction = 0.01
+point_operations = 4096
+target_run_object_bytes = 8388608
+row_block_bytes = 65536
+columnar_block_rows = 1024
+build_profile = "release"
+machine_receipt_env = "OKV_EVAL_MACHINE_RECEIPT"
+machine_receipt_schema = "../schema/benchmark-machine-receipt-v1.schema.json"
+admission_point_request_ratio_max = 1.0
+admission_point_bytes_ratio_max = 1.05
+admission_point_p99_ratio_max = 1.25
+admission_scan_throughput_ratio_min = 3.0
+admission_storage_amplification_ratio_max = 1.10
+admission_compaction_write_amplification_ratio_max = 1.10
+admission_resident_index_ratio_max = 2.0
+
+[[lanes]]
+id = "layout-admission"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.10
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "split-projection-sidecar-vs-indexed-row"
+lane = "layout-admission"
+operation = "storage_layout_diagnostic"
+subject = "split_projection_sidecar_candidate"
+baseline_subject = "indexed_row_object_control"
+
+[hard_gates]
+correctness_anomalies = 0
+same_canonical_history_digest = true
+exact_point_reads_at_requested_versions = true
+exact_ordered_scans_and_tombstones = true
+exact_post_compaction_digest = true
+one_active_manifest_has_complete_closure = true
+no_list_dependency = true
+fetched_ranges_are_checksum_covered = true
+complete_media_accounting = true
+point_read_never_scans_complete_object = true
+branch_reuses_unchanged_runs = true
+candidate_and_baseline_alternate_by_seed_and_repeat = true
+point_request_ratio_max = 1.0
+point_bytes_ratio_max = 1.05
+point_p99_ratio_max = 1.25
+scan_throughput_ratio_min = 3.0
+storage_amplification_ratio_max = 1.10
+compaction_write_amplification_ratio_max = 1.10
+resident_index_ratio_max = 2.0
+schema_valid = true
+budget_must_hold = true

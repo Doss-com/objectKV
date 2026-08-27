@@ -1,0 +1,22 @@
+[package]
+name = "okv-tetris-example"
+description = "Interactive Tetris boundary harness over the real objectKV model and log primitives"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+okv-app-history.workspace = true
+okv-consensus.workspace = true
+okv-log.workspace = true
+okv-model.workspace = true
+okv-playground-support.workspace = true
+okv-publication.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true

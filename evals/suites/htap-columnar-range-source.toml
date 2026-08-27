@@ -1,0 +1,82 @@
+schema_version = 1
+id = "columnar-range-datafusion-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0037-manifested-multi-layout-lsm.md",
+  "../../rfcs/0013-streaming-datafusion-overlay.md",
+]
+dataset_generator = "storage-layout-mvcc-history-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 8388608
+key_count = 16384
+seeds = [5701, 5702, 5703]
+
+[profiles.local-fs]
+budget_kind = "seconds"
+budget_limit = 60
+repeats = 3
+backend = "datafusion+local-fs-range-stripes"
+datafusion = "54.0.0"
+arrow = "58.3.0"
+key_count = 16384
+canonical_live_row_bytes = 512
+opaque_payload_bytes = 480
+base_version = 1
+delta_cycles = 4
+update_fraction = 0.125
+delete_fraction = 0.01
+point_operations = 4096
+target_run_object_bytes = 8388608
+row_block_bytes = 65536
+columnar_block_rows = 128
+overlay_cache_bytes = 16777216
+
+[[lanes]]
+id = "columnar-datafusion-source-throughput"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.constraints]]
+metric = "query.result_exact"
+statistic = "minimum"
+op = "eq"
+value = 1.0
+
+[[workloads]]
+id = "c5-datafusion-projection-aggregate"
+lane = "columnar-datafusion-source-throughput"
+operation = "columnar_range_datafusion_contract"
+
+[[workloads]]
+id = "c5-datafusion-payload-prefetch-poison"
+lane = "columnar-datafusion-source-throughput"
+operation = "columnar_range_datafusion_contract"
+negative_control = "payload_prefetch"
+
+[hard_gates]
+query_result_exact = true
+projection_pushdown_reaches_source = true
+one_incremental_batch_per_stripe = true
+range_reads_are_checksum_covered = true
+source_fetch_and_batch_buffers_are_bounded = true
+projected_scan_avoids_payload = true
+payload_prefetch_poison_is_detected = true
+schema_valid = true
+budget_must_hold = true

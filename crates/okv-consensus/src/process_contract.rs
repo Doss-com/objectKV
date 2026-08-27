@@ -22,6 +22,25 @@ const PAYLOAD_X: &[u8] = b"X";
 const PAYLOAD_B: &[u8] = b"B";
 const RETRY_ATTEMPTS: usize = 500;
 
+/// Three ordered application payloads used by the real-process failover
+/// contract: one initial commit, one lost-reply retry, and one successor commit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RaftProcessPayloads {
+    pub initial: Vec<u8>,
+    pub uncertain: Vec<u8>,
+    pub final_payload: Vec<u8>,
+}
+
+impl Default for RaftProcessPayloads {
+    fn default() -> Self {
+        Self {
+            initial: PAYLOAD_A.to_vec(),
+            uncertain: PAYLOAD_X.to_vec(),
+            final_payload: PAYLOAD_B.to_vec(),
+        }
+    }
+}
+
 /// Deliberately incorrect real-process behaviors used to validate the gate.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,11 +98,36 @@ pub fn run_raft_process_contract(
     mode: RaftProcessMode,
     executable: &Path,
 ) -> Result<RaftProcessReport, String> {
+    run_raft_process_payload_contract(seed, mode, executable, RaftProcessPayloads::default())
+}
+
+/// Run the real-process failover contract with caller-owned opaque payloads.
+///
+/// This keeps consensus independent of the game or database envelope format
+/// while allowing upper layers to prove that their exact canonical bytes pass
+/// through the existing TCP, process-death, retry, and replay schedule.
+///
+/// # Errors
+///
+/// Returns an error when a payload is empty or the bounded process protocol
+/// cannot complete.
+pub fn run_raft_process_payload_contract(
+    seed: u64,
+    mode: RaftProcessMode,
+    executable: &Path,
+    payloads: RaftProcessPayloads,
+) -> Result<RaftProcessReport, String> {
+    if payloads.initial.is_empty()
+        || payloads.uncertain.is_empty()
+        || payloads.final_payload.is_empty()
+    {
+        return Err("process contract payloads must be non-empty".to_owned());
+    }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
-    runtime.block_on(ProcessScenario::new(seed, mode, executable)?.run())
+    runtime.block_on(ProcessScenario::new(seed, mode, executable, payloads)?.run())
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -118,10 +162,16 @@ struct ProcessScenario<'a> {
     children: ChildGroup,
     observations: Observations,
     identity: RequestIdentity,
+    payloads: RaftProcessPayloads,
 }
 
 impl<'a> ProcessScenario<'a> {
-    fn new(seed: u64, mode: RaftProcessMode, executable: &'a Path) -> Result<Self, String> {
+    fn new(
+        seed: u64,
+        mode: RaftProcessMode,
+        executable: &'a Path,
+        payloads: RaftProcessPayloads,
+    ) -> Result<Self, String> {
         if !executable.is_file() {
             return Err(format!(
                 "process contract executable does not exist: {}",
@@ -140,6 +190,7 @@ impl<'a> ProcessScenario<'a> {
                 client_id: seed ^ 0x4f4b_5650_524f_4331,
                 request_id: 1,
             },
+            payloads,
         })
     }
 
@@ -162,10 +213,15 @@ impl<'a> ProcessScenario<'a> {
         }
         retry_control(self.address(1)?, INITIALIZE, &()).await?;
         self.observations.elections += u64::from(elect_until_leader(self.address(1)?, 1).await);
-        let initial = retry_write(self.address(1)?, PAYLOAD_A.to_vec(), false).await?;
+        let initial_command = self.command(0, self.payloads.initial.clone())?;
+        let initial = retry_write(self.address(1)?, initial_command, false).await?;
         self.observations.committed_writes += u64::from(initial.committed);
-        self.observations.initial_cluster_applied =
-            wait_for_payloads(&self.addresses, &[1, 2, 3], &[PAYLOAD_A.to_vec()]).await;
+        self.observations.initial_cluster_applied = wait_for_payloads(
+            &self.addresses,
+            &[1, 2, 3],
+            std::slice::from_ref(&self.payloads.initial),
+        )
+        .await;
         Ok(())
     }
 
@@ -174,7 +230,7 @@ impl<'a> ProcessScenario<'a> {
         let command = ClientCommand {
             identity: self.identity,
             credential: None,
-            payload: PAYLOAD_X.to_vec(),
+            payload: self.payloads.uncertain.clone(),
         }
         .encode()
         .map_err(|error| error.to_string())?;
@@ -196,14 +252,21 @@ impl<'a> ProcessScenario<'a> {
             .zip(retry.response.as_ref())
             .is_some_and(|(left, right)| left == right);
         self.observations.retry_applied_once = if self.mode == RaftProcessMode::DisableDedup {
-            status(self.address(2)?)
-                .await
-                .is_ok_and(|node| node.payloads == [PAYLOAD_A.to_vec(), PAYLOAD_X.to_vec()])
+            status(self.address(2)?).await.is_ok_and(|node| {
+                node.payloads
+                    == [
+                        self.payloads.initial.clone(),
+                        self.payloads.uncertain.clone(),
+                    ]
+            })
         } else {
             wait_for_payloads(
                 &self.addresses,
                 &[2, 3],
-                &[PAYLOAD_A.to_vec(), PAYLOAD_X.to_vec()],
+                &[
+                    self.payloads.initial.clone(),
+                    self.payloads.uncertain.clone(),
+                ],
             )
             .await
         };
@@ -221,12 +284,16 @@ impl<'a> ProcessScenario<'a> {
                 && wait_for_payloads(
                     &self.addresses,
                     &[1],
-                    &[PAYLOAD_A.to_vec(), PAYLOAD_X.to_vec()],
+                    &[
+                        self.payloads.initial.clone(),
+                        self.payloads.uncertain.clone(),
+                    ],
                 )
                 .await;
         }
 
-        let final_write = retry_write(self.address(2)?, PAYLOAD_B.to_vec(), false).await?;
+        let final_command = self.command(2, self.payloads.final_payload.clone())?;
+        let final_write = retry_write(self.address(2)?, final_command, false).await?;
         self.observations.committed_writes += u64::from(final_write.committed);
         let live_nodes = if self.mode == RaftProcessMode::SkipKilledNodeRestart {
             vec![2, 3]
@@ -238,10 +305,10 @@ impl<'a> ProcessScenario<'a> {
                 &self.addresses,
                 &live_nodes,
                 &[
-                    PAYLOAD_A.to_vec(),
-                    PAYLOAD_X.to_vec(),
-                    PAYLOAD_X.to_vec(),
-                    PAYLOAD_B.to_vec(),
+                    self.payloads.initial.clone(),
+                    self.payloads.uncertain.clone(),
+                    self.payloads.uncertain.clone(),
+                    self.payloads.final_payload.clone(),
                 ],
             )
             .await;
@@ -250,7 +317,11 @@ impl<'a> ProcessScenario<'a> {
             wait_for_payloads(
                 &self.addresses,
                 &live_nodes,
-                &[PAYLOAD_A.to_vec(), PAYLOAD_X.to_vec(), PAYLOAD_B.to_vec()],
+                &[
+                    self.payloads.initial.clone(),
+                    self.payloads.uncertain.clone(),
+                    self.payloads.final_payload.clone(),
+                ],
             )
             .await
         };
@@ -273,7 +344,7 @@ impl<'a> ProcessScenario<'a> {
         let command = ClientCommand {
             identity: self.identity,
             credential: None,
-            payload: PAYLOAD_X.to_vec(),
+            payload: self.payloads.uncertain.clone(),
         }
         .encode()
         .map_err(|error| error.to_string())?;
@@ -296,15 +367,23 @@ impl<'a> ProcessScenario<'a> {
         self.start_node(1)?;
         wait_ready(self.address(1)?).await?;
         retry_control(self.address(2)?, HEARTBEAT, &()).await?;
-        let no_unsafe_apply =
-            wait_for_payloads(&self.addresses, &[1, 2, 3], &[PAYLOAD_A.to_vec()]).await;
+        let no_unsafe_apply = wait_for_payloads(
+            &self.addresses,
+            &[1, 2, 3],
+            std::slice::from_ref(&self.payloads.initial),
+        )
+        .await;
         self.observations.killed_node_recovered_outcome = !no_unsafe_apply;
-        let final_write = retry_write(self.address(2)?, PAYLOAD_B.to_vec(), false).await?;
+        let final_command = self.command(2, self.payloads.final_payload.clone())?;
+        let final_write = retry_write(self.address(2)?, final_command, false).await?;
         self.observations.committed_writes += u64::from(final_write.committed);
         let continued = wait_for_payloads(
             &self.addresses,
             &[1, 2, 3],
-            &[PAYLOAD_A.to_vec(), PAYLOAD_B.to_vec()],
+            &[
+                self.payloads.initial.clone(),
+                self.payloads.final_payload.clone(),
+            ],
         )
         .await;
         self.capture_final(&[1, 2, 3], Some(self.identity)).await;
@@ -340,11 +419,31 @@ impl<'a> ProcessScenario<'a> {
             .ok_or_else(|| format!("missing address for node {node_id}"))
     }
 
+    fn command(&self, request_id: u64, payload: Vec<u8>) -> Result<Vec<u8>, String> {
+        ClientCommand {
+            identity: RequestIdentity {
+                client_id: self.identity.client_id,
+                request_id,
+            },
+            credential: None,
+            payload,
+        }
+        .encode()
+        .map_err(|error| error.to_string())
+    }
+
     async fn capture_final(&mut self, node_ids: &[NodeId], identity: Option<RequestIdentity>) {
         let expected = if self.mode == RaftProcessMode::AcknowledgeBeforeQuorum {
-            vec![PAYLOAD_A.to_vec(), PAYLOAD_B.to_vec()]
+            vec![
+                self.payloads.initial.clone(),
+                self.payloads.final_payload.clone(),
+            ]
         } else {
-            vec![PAYLOAD_A.to_vec(), PAYLOAD_X.to_vec(), PAYLOAD_B.to_vec()]
+            vec![
+                self.payloads.initial.clone(),
+                self.payloads.uncertain.clone(),
+                self.payloads.final_payload.clone(),
+            ]
         };
         for node_id in node_ids {
             if let Ok(node) = status(self.address(*node_id).unwrap_or_default()).await {

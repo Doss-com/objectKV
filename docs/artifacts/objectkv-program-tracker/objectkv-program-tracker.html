@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Living objectKV architecture, evidence, performance, and infrastructure tracker">
+  <title>objectKV Program Tracker</title>
+  <style>
+:root {
+  color-scheme: light;
+  --ds-background-100: #ffffff;
+  --ds-background-200: #fafafa;
+  --ds-gray-100: #f2f2f2;
+  --ds-gray-200: #ebebeb;
+  --ds-gray-300: #e6e6e6;
+  --ds-gray-500: #c9c9c9;
+  --ds-gray-600: #757575;
+  --ds-gray-900: #4d4d4d;
+  --ds-gray-1000: #171717;
+  --ds-gray-alpha-100: #0000000a;
+  --ds-gray-alpha-200: #0000000f;
+  --ds-gray-alpha-400: #00000014;
+  --ds-blue-100: #eff6ff;
+  --ds-blue-700: #1a85ff;
+  --ds-blue-900: #0061d5;
+  --ds-green-100: #ecfdf5;
+  --ds-green-700: #45a557;
+  --ds-green-900: #2f7c3d;
+  --ds-amber-100: #fffbeb;
+  --ds-amber-700: #f5a623;
+  --ds-amber-900: #a15c00;
+  --ds-red-100: #fef2f2;
+  --ds-red-700: #e5484d;
+  --ds-red-900: #cd2b31;
+  --bg: var(--ds-background-100);
+  --surface: var(--ds-background-200);
+  --surface-2: var(--ds-gray-100);
+  --border: var(--ds-gray-alpha-400);
+  --border-strong: var(--ds-gray-500);
+  --text: var(--ds-gray-900);
+  --text-strong: var(--ds-gray-1000);
+  --muted: var(--ds-gray-600);
+  --blue: var(--ds-blue-900);
+  --blue-bg: var(--ds-blue-100);
+  --green: var(--ds-green-900);
+  --green-bg: var(--ds-green-100);
+  --amber: var(--ds-amber-900);
+  --amber-bg: var(--ds-amber-100);
+  --red: var(--ds-red-900);
+  --red-bg: var(--ds-red-100);
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 var(--sans); }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font: 12px/1.45 var(--mono); color: var(--text-strong); }
+.muted { color: var(--muted); }
+
+.shell { max-width: 1440px; margin: 0 auto; padding: 36px 40px 72px; }
+.hero { max-width: 1060px; padding: 22px 0 34px; }
+.kicker { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+h1 { max-width: 920px; margin: 18px 0 16px; color: var(--text-strong); font-size: clamp(38px, 5vw, 48px); font-weight: 600; letter-spacing: -.03em; line-height: 1.1; }
+.lede { max-width: 940px; margin: 0; color: var(--text); font-size: 19px; line-height: 1.55; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.button { display: inline-flex; align-items: center; min-height: 34px; padding: 6px 12px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg); color: var(--text-strong); font-size: 12px; font-weight: 600; }
+.button.primary { border-color: var(--text-strong); background: var(--text-strong); color: var(--ds-background-100); }
+.button:hover { text-decoration: none; background: var(--surface-2); }
+.button.primary:hover { background: var(--ds-gray-900); }
+
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 42px; }
+.summary-card { min-height: 132px; padding: 18px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
+.summary-card .value { display: block; margin: 8px 0 4px; color: var(--text-strong); font-size: 30px; font-weight: 600; letter-spacing: -.03em; line-height: 1.1; }
+.summary-card .label { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.summary-card p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+.layout { display: grid; grid-template-columns: 218px minmax(0, 1fr); gap: 62px; align-items: start; }
+.side { position: sticky; top: 20px; }
+.side-title { margin: 0 0 10px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.toc { display: flex; flex-direction: column; gap: 2px; }
+.toc a { display: grid; grid-template-columns: 24px 1fr; gap: 6px; padding: 6px 8px; border-radius: 4px; color: var(--text); font-size: 12px; line-height: 1.35; }
+.toc a span { color: var(--muted); font-family: var(--mono); }
+.toc a:hover { background: var(--surface); color: var(--text-strong); text-decoration: none; }
+.side-note { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; line-height: 1.5; }
+.content { min-width: 0; max-width: 1060px; }
+.content section { margin-bottom: 68px; scroll-margin-top: 24px; }
+h2 { margin: 0 0 20px; color: var(--text-strong); font-size: 28px; font-weight: 600; letter-spacing: -.025em; line-height: 1.15; }
+.section-id { display: inline-block; min-width: 48px; margin-right: 4px; color: var(--muted); font: 13px var(--mono); vertical-align: 4px; }
+h3 { margin: 30px 0 12px; color: var(--text-strong); font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+p { margin: 0 0 15px; }
+
+.callout { display: grid; grid-template-columns: 220px 1fr; gap: 28px; padding: 22px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); }
+.callout .label { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.callout h3 { margin: 4px 0 0; font-size: 20px; }
+.callout p { margin: 0; font-size: 15px; }
+
+.status { display: inline-flex; align-items: center; min-height: 21px; padding: 2px 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 10px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
+.status.verified { border-color: var(--ds-green-700); background: var(--green-bg); color: var(--green); }
+.status.complete { border-color: var(--ds-blue-700); background: var(--blue-bg); color: var(--blue); }
+.status.evaluating { border-color: var(--ds-amber-700); background: var(--amber-bg); color: var(--amber); }
+.status.proposed { border-color: var(--border-strong); background: var(--surface); color: var(--muted); }
+.status.blocked { border-color: var(--ds-red-700); background: var(--red-bg); color: var(--red); }
+
+.architecture { padding: 22px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
+.arch-layer { display: grid; grid-template-columns: 140px 1fr; gap: 18px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--border); }
+.arch-layer:last-child { border-bottom: 0; }
+.arch-label { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.arch-nodes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.arch-node { min-height: 58px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg); color: var(--text-strong); font-size: 12px; font-weight: 600; }
+.arch-node small { display: block; margin-top: 2px; color: var(--muted); font-weight: 400; line-height: 1.35; }
+.arch-arrow { margin: 4px 0 4px 159px; color: var(--muted); font-size: 17px; }
+.equation { margin: 18px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font: 13px var(--mono); text-align: center; }
+
+.text-map-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.text-map { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
+.text-map h3 { margin: 0 0 10px; font-size: 14px; }
+.text-map pre { overflow-x: auto; margin: 0; color: var(--text); font: 11.5px/1.5 var(--mono); white-space: pre; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 5px; }
+table { width: 100%; border-collapse: collapse; background: var(--bg); }
+th { padding: 9px 11px; border-bottom: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .04em; text-align: left; text-transform: uppercase; vertical-align: bottom; }
+td { padding: 11px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 12px; line-height: 1.45; vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--ds-gray-alpha-100); }
+
+.curve-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.curve { padding: 17px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); }
+.curve-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+.curve h3 { margin: 0; font-size: 15px; }
+.curve dl { display: grid; grid-template-columns: 92px 1fr; gap: 6px 12px; margin: 16px 0 0; font-size: 12px; }
+.curve dt { color: var(--muted); }
+.curve dd { margin: 0; color: var(--text); }
+.curve .stop { color: var(--red); }
+
+.ladder { display: grid; grid-template-columns: repeat(7, minmax(112px, 1fr)); gap: 8px; align-items: end; overflow-x: auto; padding: 16px 0 4px; }
+.rung { display: flex; flex-direction: column; min-width: 112px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); }
+.rung:nth-child(1) { height: 242px; }.rung:nth-child(2) { height: 218px; }.rung:nth-child(3) { height: 194px; }.rung:nth-child(4) { height: 170px; }.rung:nth-child(5) { height: 146px; }.rung:nth-child(6) { height: 122px; }.rung:nth-child(7) { height: 98px; }
+.rung.verified { border-color: var(--ds-green-700); background: var(--green-bg); }
+.rung.evaluating { border-color: var(--ds-amber-700); background: var(--amber-bg); }
+.rung strong { color: var(--text-strong); font-size: 12px; line-height: 1.3; }
+.rung p { margin: 6px 0 auto; color: var(--muted); font-size: 10px; line-height: 1.35; }
+.rung .n { margin-bottom: 10px; color: var(--text-strong); font: 600 16px var(--sans); }
+.rung .status { align-self: flex-start; margin-top: 8px; }
+
+.log { border-left: 1px solid var(--border-strong); margin-left: 9px; }
+.log-entry { position: relative; padding: 0 0 24px 24px; }
+.log-entry::before { content: ""; position: absolute; left: -4px; top: 6px; width: 7px; height: 7px; border: 1px solid var(--muted); border-radius: 50%; background: var(--bg); }
+.log-entry:last-child { padding-bottom: 0; }
+.log-entry time { display: block; color: var(--muted); font: 10px var(--mono); }
+.log-entry h3 { margin: 3px 0 4px; font-size: 14px; }
+.log-entry p { margin: 0; color: var(--muted); font-size: 12px; }
+
+.foot { display: flex; justify-content: space-between; gap: 20px; margin-top: 60px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+
+@media (max-width: 1020px) {
+  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .layout { grid-template-columns: 1fr; gap: 36px; }
+  .side { position: static; padding: 14px; border: 1px solid var(--border); border-radius: 5px; }
+  .toc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .shell { padding: 24px 16px 48px; }
+  .summary-grid, .curve-grid, .callout, .text-map-grid { grid-template-columns: 1fr; }
+  .arch-layer { grid-template-columns: 1fr; }
+  .arch-nodes { grid-template-columns: 1fr; }
+  .arch-arrow { margin-left: 12px; }
+  .toc { grid-template-columns: 1fr; }
+  .foot { flex-direction: column; }
+}
+@media print {
+  *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .shell { max-width: none; padding: .45in; }
+  .layout { grid-template-columns: 1fr; }
+  .side { position: static; break-after: page; }
+  .button { display: none; }
+  .summary-card, .callout, .architecture, .curve, .text-map, .table-wrap, .ladder { break-inside: avoid; }
+  .content section { break-before: auto; }
+}
+</style>
+
+</head>
+<body>
+  <main class="shell">
+  <header class="hero">
+    <div class="kicker">
+      <span>objectKV</span>
+      <span>Technical program tracker</span>
+      <span>Branch research/object-publication/process-recovery-v1</span>
+      <span>Base a56442a</span>
+    </div>
+    <h1>Build the hot KV first. Prove the object advantage second.</h1>
+    <p class="lede">The native GP3.1 candidate retained 84.11% and 82.68% of owned-value direct RocksDB throughput, but p99 was 1.210x and 1.272x control. The frozen stop rule fired. objectKV keeps its log, object lifecycle, branching, reconstruction, and HTAP layers, while the next bounded gate selects TiKV or FoundationDB for resident transactions.</p>
+    <div class="hero-actions">
+      <a class="button primary" href="../../../papers/objectkv-vldb/objectkv-vldb.pdf">Open PVLDB paper</a>
+      <a class="button" href="../../../papers/objectkv-vldb/main.tex">Paper source</a>
+      <a class="button" href="../../STATUS-TAXONOMY.md">Proof-status contract</a>
+      <a class="button" href="../../ARCHITECTURE-MAPS.md">Text maps</a>
+      <a class="button" href="../../PRODUCT-SPEC-SHEET.md">Requirement sheet</a>
+      <a class="button" href="../../../evals/programs/objectkv-golden-path-v1.toml">Golden-path program</a>
+    </div>
+  </header>
+
+  <div class="summary-grid" aria-label="Program summary">
+    <article class="summary-card"><span class="label">Highest verified rung</span><span class="value">R0 mechanism</span><p>Private GCP runner, local NVMe, regional GCS, OTel, killed-worker recovery, and paired receipts.</p></article>
+    <article class="summary-card"><span class="label">Cloud comparison pairs</span><span class="value">2</span><p>AB and BA on one private GCP runner, regional GCS, local NVMe, required OTel, and complete teardown.</p></article>
+    <article class="summary-card"><span class="label">Working paper</span><span class="value">14 pp.</span><p>PVLDB Vol. 20 format, architecture, evidence, curves, and limitations.</p></article>
+    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">Incumbent plane</span><p>Freeze the adapter, run the same objectification and rebuild slice over TiKV and FoundationDB, then select one.</p></article>
+    <article class="summary-card"><span class="label">Golden-path checkpoints</span><span class="value">0 / 15 verified</span><p>One frozen artifact DAG across kernel, storage, distribution, consumers, PostgreSQL, HTAP, and economics.</p></article>
+  </div>
+
+  <div class="layout">
+    <aside class="side" aria-label="Table of contents">
+      <p class="side-title">Contents</p>
+      <nav class="toc"><a href="#program-call"><span>01</span>Program call</a>
+<a href="#construction"><span>02</span>Construction from storage upward</a>
+<a href="#working-maps"><span>03</span>Compact working maps</a>
+<a href="#golden-path"><span>04</span>Golden path levels</a>
+<a href="#critical-path"><span>05</span>Critical path and ownership</a>
+<a href="#performance"><span>06</span>Performance curves and stop conditions</a>
+<a href="#infrastructure"><span>07</span>Systems to infrastructure</a>
+<a href="#evidence"><span>08</span>Evidence boundary</a>
+<a href="#receipts"><span>09</span>Recent measured receipts</a>
+<a href="#decisions"><span>10</span>Active decisions</a>
+<a href="#work-log"><span>11</span>Work in progress log</a>
+<a href="#next-review"><span>12</span>Next architecture review</a></nav>
+      <p class="side-note">Generated 2026-08-27 11:16 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
+    </aside>
+
+    <article class="content">
+      <section>
+        <h2 id="program-call"><span class="section-id">[01]</span>Program call</h2>
+        <div class="callout">
+          <div><span class="label">Current decision</span><h3>Keep the object-native lifecycle, stop rebuilding the transaction plane</h3></div>
+          <p>The native candidate passed exact reads, zero-object serving, bounded bytes, and both throughput constraints. It failed the corrected p99 constraint in both process orders. D52 now puts TiKV or FoundationDB below objectKV's retained log and object lifecycle; RAM, MultiRaft, PostgreSQL, and HTAP performance remain blocked until that provider is selected.</p>
+        </div>
+        <h3>What has changed</h3>
+        <p>The project separates execution, transaction durability, and permanent object state. The R0 mechanism reconstructs a complete resident image from regional GCS plus retained history, survives worker replacement, and performs zero object operations in the measured read window. The comparison engine caught both a value-ownership confounder and an object-span correctness bug. The remaining question is whether the retained object lifecycle creates enough leverage above a mature transaction plane.</p>
+      </section>
+
+      <section>
+        <h2 id="construction"><span class="section-id">[02]</span>Construction from storage upward</h2>
+        <div class="architecture" role="img" aria-label="Bottom-up objectKV construction layers">
+          <div class="arch-layer"><div class="arch-label">Permanent bytes</div><div class="arch-nodes"><div class="arch-node">Row objects<small>Indexed immutable MVCC segments and manifests</small></div><div class="arch-node">Analytical objects<small>Parquet or Vortex base plus retained changes</small></div><div class="arch-node">Authority roots<small>Fenced visibility and retention metadata</small></div></div></div>
+          <div class="arch-arrow">↑ publish, rebuild, range GET</div>
+          <div class="arch-layer"><div class="arch-label">Disposable serving</div><div class="arch-nodes"><div class="arch-node">DRAM MVCC overlay<small>Recent versions and tombstones</small></div><div class="arch-node">SSD resident<small>Bounded RocksDB on disposable NVMe</small></div><div class="arch-node">RAM resident<small>Bounded in-memory range image</small></div></div></div>
+          <div class="arch-arrow">↑ apply committed suffix</div>
+          <div class="arch-layer"><div class="arch-label">Durability</div><div class="arch-nodes"><div class="arch-node">okv-log<small>Pure ordered opaque-record algebra</small></div><div class="arch-node">okv-wal<small>Frames, checksums, sync, votes, quorum policy</small></div><div class="arch-node">Replicated txLog<small>Committed versions newer than object base</small></div></div></div>
+          <div class="arch-arrow">↑ commit, validate, assign version</div>
+          <div class="arch-layer"><div class="arch-label">Transaction cell</div><div class="arch-nodes"><div class="arch-node">Read-version service<small>One cell-scoped snapshot version</small></div><div class="arch-node">Commit and resolvers<small>Conflicts, request identity, exact outcome</small></div><div class="arch-node">Range routing<small>Assignment, groups, and direct reads</small></div></div></div>
+          <div class="arch-arrow">↑ value-native API</div>
+          <div class="arch-layer"><div class="arch-label">Serving models</div><div class="arch-nodes"><div class="arch-node">PostgreSQL<small>Page bridge first, row native later if justified</small></div><div class="arch-node">Redis and search<small>Pressure-test indexing and latency</small></div><div class="arch-node">DataFusion<small>Exact snapshot from base plus tail</small></div></div></div>
+          <div class="equation">Database(C) = ObjectState(O) + txLog(O, C]</div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="working-maps"><span class="section-id">[03]</span>Compact working maps</h2>
+        <p>Each map answers one question and stays text-native so it can be revised in an architecture diff.</p>
+        <div class="text-map-grid">
+          <article class="text-map"><h3>Who owns what?</h3><pre>fleet
+├── metacluster          FUTURE
+└── cell
+    ├── transaction system
+    ├── range groups
+    │   ├── txLog quorum
+    │   └── serving workers
+    └── object state</pre></article>
+          <article class="text-map"><h3>What is in a commit?</h3><pre>client
+  → read version
+  → conflict validation
+  → commit version C
+  → txLog quorum sync
+  → durable outcome
+  → response
+
+object PUT: absent</pre></article>
+          <article class="text-map"><h3>How does a point read fall through?</h3><pre>key + snapshot T
+  → recent DRAM overlay
+  → selected ServingImage
+      SSD → RocksDB + NVMe
+      RAM → in-memory image
+  → manifest index
+  → object range GET</pre></article>
+          <article class="text-map"><h3>How do small writes reach objects?</h3><pre>committed mutations
+        ↓
+range materialization buffer
+        ↓
+indexed segment builder
+        ↓
+data objects + manifest
+        ↓
+fenced root publish</pre></article>
+          <article class="text-map"><h3>What reconstructs version C?</h3><pre>object state ≤ O
+        +
+retained txLog (O, C]
+        ↓
+Database(C)</pre></article>
+          <article class="text-map"><h3>How is snapshot T queried?</h3><pre>base at Wp
+     +
+tail (Wp, T]
+     ↓
+identity overlay
+     ↓
+Arrow batches at T</pre></article>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="golden-path"><span class="section-id">[04]</span>Golden path levels</h2>
+        <p><span class="status complete">CODE COMPLETE</span> The scenario and program graph validate. The table tracks whether each artifact-producing checkpoint is proposed, code complete, evaluating, or verified. Independent component receipts do not promote a checkpoint unless they carry the same scenario identity and artifact chain.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Level</th><th>Checkpoint</th><th>Surface</th><th>Status</th><th>Gate</th><th>Required output</th></tr></thead>
+          <tbody><tr><td>1</td><td><strong>Exact logical history</strong><br><span class="muted"><code>semantic-history</code></span></td><td>kernel</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP0.1</code></td><td><span class="muted">history-digest, oracle-snapshots</span></td></tr>
+<tr><td>2</td><td><strong>Acknowledged commit frontier</strong><br><span class="muted"><code>durable-tail</code></span></td><td>durability</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP1.1</code></td><td><span class="muted">commit-frontier, durable-outcomes</span></td></tr>
+<tr><td>3</td><td><strong>Published object closure</strong><br><span class="muted"><code>object-base</code></span></td><td>object-authority</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP2.1</code></td><td><span class="muted">manifest-root, object-watermark</span></td></tr>
+<tr><td>4</td><td><strong>SSD resident range</strong><br><span class="muted"><code>ssd-resident</code></span></td><td>serving</td><td><span class="status evaluating">EVALUATING</span></td><td><code>GP3.1</code></td><td><span class="muted">ssd-serving-receipt</span></td></tr>
+<tr><td>5</td><td><strong>RAM resident range</strong><br><span class="muted"><code>ram-resident</code></span></td><td>serving</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.2</code></td><td><span class="muted">ram-serving-receipt</span></td></tr>
+<tr><td>6</td><td><strong>Serving profile handoff</strong><br><span class="muted"><code>profile-handoff</code></span></td><td>serving</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.3</code></td><td><span class="muted">profile-handoff-receipt</span></td></tr>
+<tr><td>7</td><td><strong>Empty-worker recovery</strong><br><span class="muted"><code>empty-worker</code></span></td><td>serving</td><td><span class="status evaluating">EVALUATING</span></td><td><code>GP3.4, GP3.6</code></td><td><span class="muted">empty-worker-receipt</span></td></tr>
+<tr><td>8</td><td><strong>Metadata-scale branch</strong><br><span class="muted"><code>branch-root</code></span></td><td>lifecycle</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP3.5</code></td><td><span class="muted">branch-manifest-root, branch-receipt</span></td></tr>
+<tr><td>9</td><td><strong>Strict-serializable distributed cell</strong><br><span class="muted"><code>multi-range-cell</code></span></td><td>distribution</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP4.1</code></td><td><span class="muted">distributed-history-digest, cell-receipt</span></td></tr>
+<tr><td>10</td><td><strong>Retained application log</strong><br><span class="muted"><code>application-log</code></span></td><td>application-log</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.1</code></td><td><span class="muted">application-log-cursor, application-log-root</span></td></tr>
+<tr><td>11</td><td><strong>Redis differential model</strong><br><span class="muted"><code>redis-model</code></span></td><td>redis</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.2</code></td><td><span class="muted">redis-receipt</span></td></tr>
+<tr><td>12</td><td><strong>Version-aligned inverted search</strong><br><span class="muted"><code>search-model</code></span></td><td>search</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP5.3</code></td><td><span class="muted">search-receipt</span></td></tr>
+<tr><td>13</td><td><strong>PostgreSQL page history</strong><br><span class="muted"><code>postgres-page</code></span></td><td>postgres</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP6.1</code></td><td><span class="muted">postgres-page-history, postgres-receipt</span></td></tr>
+<tr><td>14</td><td><strong>Exact PostgreSQL to DataFusion snapshot</strong><br><span class="muted"><code>exact-htap</code></span></td><td>htap</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP6.2</code></td><td><span class="muted">htap-snapshot-digest, htap-receipt</span></td></tr>
+<tr><td>15</td><td><strong>Go or stop decision</strong><br><span class="muted"><code>product-economics</code></span></td><td>economics</td><td><span class="status proposed">PROPOSED</span></td><td><code>GP7.1</code></td><td><span class="muted">product-decision</span></td></tr></tbody>
+        </table></div>
+      </section>
+
+      <section>
+        <h2 id="critical-path"><span class="section-id">[05]</span>Critical path and ownership</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Order</th><th>Workstream</th><th>Status</th><th>Exit evidence</th><th>What waits</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><strong>Ordered log substrate</strong><br><span class="muted">okv-log below okv-wal</span></td><td><span class="status complete">CODE COMPLETE</span></td><td>Compatibility fixtures, log performance, and Fable post-implementation review closed.</td><td>General okv-log and okv-wal public contract.</td></tr>
+            <tr><td>2</td><td><strong>Commit plus object frontier</strong><br><span class="muted">G4.10b concurrent composition</span></td><td><span class="status evaluating">EVALUATING</span></td><td>1,075.343 resolved outcomes/s, 104.274 ms maximum p99, 28.776x the one-entry control, exact conflict oracle, object-plus-suffix recovery, failover, restart, and poison rejection.</td><td>Clean independent-media and remote-object proof with repeated frontier cycles.</td></tr>
+            <tr><td>3</td><td><strong>Incumbent resident transaction plane</strong><br><span class="muted">TiKV or FoundationDB adapter</span></td><td><span class="status evaluating">EVALUATING</span></td><td>One selected provider preserves objectification, retained history, snapshots, branch, and empty-worker rebuild without adding material hot-path cost.</td><td>RAM, PostgreSQL, distributed reads.</td></tr>
+            <tr><td>4</td><td><strong>Indexed row objects</strong><br><span class="muted">packing, lookup, compaction</span></td><td><span class="status evaluating">EVALUATING</span></td><td>G4.1 and G4.2 hold point-read work to one manifest, one index, and one block through 64 MiB. Packing, compaction, cloud latency, and clean-source admission remain.</td><td>Elastic serving, object-native reopen.</td></tr>
+            <tr><td>5</td><td><strong>Real infrastructure lane</strong><br><span class="muted">gated three-host durability proof</span></td><td><span class="status evaluating">EVALUATING</span></td><td>After local mechanism gates pass, cloud receipt for durable commit, objectification, machine loss, and exact recovery.</td><td>HA and cloud cost claims.</td></tr>
+            <tr><td>6</td><td><strong>Cell v0 vertical slice</strong><br><span class="muted">one range group end to end</span></td><td><span class="status proposed">PROPOSED</span></td><td>Client commit, routed read, objectification, empty-worker rebuild, and txLog reclaim in one executable topology.</td><td>Multiple range groups.</td></tr>
+            <tr><td>7</td><td><strong>Range-local scale</strong><br><span class="muted">cell-level transaction atomicity</span></td><td><span class="status proposed">PROPOSED</span></td><td>Throughput grows with independent groups; no partial multi-range outcome; no premature cell-global ceiling.</td><td>PostgreSQL product slice.</td></tr>
+            <tr><td>8</td><td><strong>PostgreSQL and HTAP</strong><br><span class="muted">page adapter, manifests, leases</span></td><td><span class="status proposed">PROPOSED</span></td><td>Compatibility, byte and sync accounting, resident performance, exact DataFusion tail curve.</td><td>ZebraDB product claim.</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section>
+        <h2 id="performance"><span class="section-id">[06]</span>Performance curves and stop conditions</h2>
+        <div class="curve-grid">
+          <article class="curve"><div class="curve-head"><h3>SSD resident read</h3><span class="status verified">VERIFIED</span></div><dl><dt>Observed</dt><dd>AB: 589,717 vs 701,119 reads/s, 2.226 vs 1.839 microseconds p99. BA: 587,199 vs 710,184 reads/s, 2.261 vs 1.778 microseconds p99.</dd><dt>Result</dt><dd>Throughput passed twice; p99 failed at 1.210x and 1.272x; zero measured object reads.</dd><dt>Next</dt><dd class="stop">Stop the custom resident plane. Select TiKV or FoundationDB.</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>RAM resident read</h3><span class="status proposed">PROPOSED</span></div><dl><dt>Control</dt><dd>Admitted SSD, with RAM-backed RocksDB as mechanism control</dd><dt>Target</dt><dd>At least 20% better on one predeclared end-to-end metric without breaking resource gates</dd><dt>Stop</dt><dd class="stop">The advantage disappears after RPC, concurrency, memory cost, or rebuild risk</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Cold point read</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Indexed local block and direct object range GET</dd><dt>Target</dt><dd>Bounded GETs, bytes, metadata, and decode independent of total bytes</dd><dt>Current</dt><dd>One 64 KiB-class block GET through a 64 MiB assigned range</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Durable commit plus objectification</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Same-durability one-entry path at 37.369 outcomes/s and 2,169.209 ms maximum p99</dd><dt>Current</dt><dd>G4.10b at 1,075.343 outcomes/s, 104.274 ms maximum p99, 28.776x paired gain, exact ObjectState(O) plus txLog(O,C] recovery</dd><dt>Open</dt><dd>Fairness, clean source, OTel, independent media, remote objects, repeated-frontier convergence, and physical journal bytes</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Empty-worker reopen</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Full range hydration under the same authority and tail</dd><dt>Current</dt><dd>G4.4 uses the actual retained OpenRaft stream, two catch-up rounds, 120.183 ms p99, and zero anomalies</dd><dt>Open</dt><dd>Independent hosts, admitted write-rate convergence, and cloud</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Exact HTAP overlay</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Base-only DataFusion query</dd><dt>Target</dt><dd>Tail ≤1% adds ≤20%; materialize before 10%</dd><dt>Current</dt><dd>Exact local fixture, four buffered rows, 5,518 bytes, zero spill</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Product economics</h3><span class="status proposed">PROPOSED</span></div><dl><dt>Control</dt><dd>TiKV or PostgreSQL plus object tier</dd><dt>Target</dt><dd>Material branch, restore, footprint, HTAP, or cost win in one workload</dd><dt>Stop</dt><dd class="stop">More system with no material advantage</dd></dl></article>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="infrastructure"><span class="section-id">[07]</span>Systems to infrastructure</h2>
+        <p><strong>Current answer:</strong> real cloud mechanism evidence, not an independent-failure-domain cell. We have deterministic models, stable files, local MinIO, operating-system processes with TCP and process kill, regional GCS, a private GCP runner with named local NVMe, a separate OTel collector, and frozen paired receipts. We do not have three independent data machines or zones.</p>
+        <div class="ladder" role="img" aria-label="Seven-stage systems to infrastructure proof ladder">
+          <div class="rung verified"><span class="n">1</span><strong>Deterministic models</strong><p>MVCC, commit, HTAP, publication, GC</p><span class="status verified">VERIFIED</span></div>
+          <div class="rung verified"><span class="n">2</span><strong>Local stable files</strong><p>sync, reopen, corruption, exact quorum</p><span class="status verified">VERIFIED</span></div>
+          <div class="rung verified"><span class="n">3</span><strong>Local MinIO</strong><p>pinned S3-compatible protocol server</p><span class="status verified">VERIFIED</span></div>
+          <div class="rung verified"><span class="n">4</span><strong>OS processes</strong><p>TCP, SIGKILL, election, failover</p><span class="status verified">VERIFIED</span></div>
+          <div class="rung"><span class="n">5</span><strong>Independent machines</strong><p>separate NVMe, power, kernel</p><span class="status proposed">PROPOSED</span></div>
+          <div class="rung verified"><span class="n">6</span><strong>Private GCP and GCS</strong><p>one runner, named NVMe, regional objects, OTel</p><span class="status verified">VERIFIED</span></div>
+          <div class="rung"><span class="n">7</span><strong>Sustained curves</strong><p>brownout, recovery, cost</p><span class="status proposed">PROPOSED</span></div>
+        </div>
+        <h3>Gated real-infrastructure topology</h3>
+        <p>Only after the hot-profile, indexed-object, and rebuild gates pass: one DOSS-owned GCP project, one protected single-region GCS bucket, three compute instances with independent stable-media durability voters, one OTel collector, and one workload runner. This run proves the quorum and host-loss claims; it is not required to decide whether the local serving and object architecture is viable. Multi-region remains out of scope.</p>
+      </section>
+
+      <section>
+        <h2 id="evidence"><span class="section-id">[08]</span>Evidence boundary</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Capability</th><th>Status</th><th>What the metric proves</th><th>What it does not prove</th></tr></thead>
+          <tbody>
+            <tr><td>Persisted WAL</td><td><span class="status verified">VERIFIED</span></td><td>Fresh opens reconstruct only a contiguous matching synchronized quorum.</td><td>Independent disks, machines, power, or production device semantics.</td></tr>
+            <tr><td>MinIO authority profile</td><td><span class="status verified">VERIFIED</span></td><td>12 of 12 exact named-object and conditional-authority checks on a pinned server.</td><td>AWS S3, GCS, network fault, or multi-AZ behavior.</td></tr>
+            <tr><td>G4.4 serving recovery</td><td><span class="status evaluating">EVALUATING</span></td><td>Three data-authority processes, a real worker kill, distinct empty replacement, actual retained-stream catch-up around concurrent commits, and exact object-base plus tail reads.</td><td>Independent machines, admitted write-rate convergence, GCS, or production latency.</td></tr>
+            <tr><td>G4.7 object frontier</td><td><span class="status evaluating">EVALUATING</span></td><td>Pending immutable closure, complete validation, physical txLog pop, quorum certification, failover, and exact object recovery on one host.</td><td>Internal Raft-log purge, independent media, remote objects, or production signer operations.</td></tr>
+            <tr><td>G4.8 commit concurrency</td><td><span class="status evaluating">EVALUATING</span></td><td>Correct release-build pipelining curve, per-voter stable-I/O shape, exact retry and recovery, and a rejected early-ack poison.</td><td>An admitted commit mechanism, independent-machine curve, or production SLO.</td></tr>
+            <tr><td>G4.10 commit proxy</td><td><span class="status evaluating">EVALUATING</span></td><td>Independent request admission, exact per-request outcomes, 32-item batching, compact v2 wire, bounded sparse, byte, and overload behavior, plus exact failover and restart on one host.</td><td>Clean-source reproducibility, multi-tenant fairness, concurrent objectification, independent media, or a production SLO.</td></tr>
+            <tr><td>G4.10b concurrent frontier</td><td><span class="status evaluating">EVALUATING</span></td><td>Six local processes overlap a controlled conflict suffix with authenticated safe pop, then reconstruct exact final state from objects through O plus txLog(O,C]. Candidate reaches 1,075.343 outcomes/s and 28.776x its one-entry control.</td><td>Independent hosts, remote objects, repeated-frontier convergence, physical journal reclamation, clean source, OTel, or a production SLO.</td></tr>
+            <tr><td>Publisher replacement</td><td><span class="status verified">VERIFIED</span></td><td>Real process kill, empty scratch, unknown effects, exact closure, retained outcome.</td><td>Cloud object semantics or independent host loss.</td></tr>
+            <tr><td>DataFusion overlay</td><td><span class="status verified">VERIFIED</span></td><td>Exact target snapshot with bounded buffering on the frozen local fixture.</td><td>Complete query memory, scale, manifests, leases, or economic value.</td></tr>
+            <tr><td>GCP R0 environment</td><td><span class="status verified">VERIFIED</span></td><td>Private runner, named local NVMe, regional GCS, separate OTel, frozen AB and BA receipts, and complete nine-resource teardown.</td><td>Independent data machines, zones, quorum durability, sustained load, or economics.</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section>
+        <h2 id="receipts"><span class="section-id">[09]</span>Recent measured receipts</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Date</th><th>Lane</th><th>Status</th><th>Backend</th><th>Primary metric</th><th>Receipt</th></tr></thead>
+          <tbody><tr><td>2026-08-27</td><td>single-range-ssd-admission</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">3c4cae96fe</span></td></tr>
+<tr><td>2026-08-27</td><td>single-range-ssd-admission</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-nvme</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">88e221b9d1</span></td></tr>
+<tr><td>2026-08-27</td><td>single-range-ssd-admission</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-nvme</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">19ea46fc44</span></td></tr>
+<tr><td>2026-08-27</td><td>single-range-ssd-smoke</td><td><span class="status proposed">PROPOSED</span></td><td>unknown</td><td><code>recorded result</code></td><td><code>not recorded</code><br><span class="muted">working tr</span></td></tr>
+<tr><td>2026-08-27</td><td>single-range-ssd-smoke</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-local-fs+authority-openraft+data-openraft+rocksdb-local-fs</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">a56442ad80</span></td></tr>
+<tr><td>2026-08-27</td><td>single-range-kernel-gcs-smoke</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process</td><td><code>okv.eval.recovery.first_correct_read_duration</code></td><td><code>multiple</code><br><span class="muted">a56442ad80</span></td></tr>
+<tr><td>2026-08-27</td><td>single-range-kernel</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-local-fs+authority-openraft+data-openraft</td><td><code>okv.eval.recovery.first_correct_read_duration</code></td><td><code>multiple</code><br><span class="muted">a56442ad80</span></td></tr>
+<tr><td>2026-08-26</td><td>columnar-cache-post-scan-hit-ratio</td><td><span class="status evaluating">EVALUATING</span></td><td>columnar-cache+gcs-range-stripes</td><td><code>okv.eval.cache.hit_ratio</code></td><td><code>multiple</code><br><span class="muted">a56442ad80</span></td></tr>
+<tr><td>2026-08-26</td><td>columnar-cache-post-scan-hit-ratio</td><td><span class="status evaluating">EVALUATING</span></td><td>columnar-cache+local-fs-range-stripes</td><td><code>okv.eval.cache.hit_ratio</code></td><td><code>multiple</code><br><span class="muted">a56442ad80</span></td></tr>
+<tr><td>2026-08-26</td><td>columnar-range-datafusion-source</td><td><span class="status evaluating">EVALUATING</span></td><td>datafusion+local-fs-range-stripes</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">a56442ad80</span></td></tr></tbody>
+        </table></div>
+      </section>
+
+      <section>
+        <h2 id="decisions"><span class="section-id">[10]</span>Active decisions</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Decision</th><th>Optimizes for</th><th>Gives up</th></tr></thead>
+          <tbody>
+            <tr><td>D-P1</td><td>A declared durable provider owns commit acknowledgement; regional stable-media txLog is the default.</td><td>Honest durability with a replaceable physical tail.</td><td>One medium and one latency profile for every workload.</td></tr>
+            <tr><td>D-P2</td><td>Object storage is the reconstructable permanent base, not the normal commit coordinator.</td><td>Portability, branching, restore, and cold footprint.</td><td>Immediate object durability at commit response.</td></tr>
+            <tr><td>D-P3</td><td>SSD and RAM implement one serving contract; durability is selected separately per tenant generation.</td><td>Workload-specific hot-state choices without hidden acknowledgement changes.</td><td>One physical profile and simpler placement.</td></tr>
+            <tr><td>D-P4</td><td>Range-local consensus, cell-level transactionality, no cross-cell transaction.</td><td>Scale inside a bounded semantic and failure domain.</td><td>One global transaction history.</td></tr>
+            <tr><td>D-P5</td><td>One logical history may have separate row and column layouts.</td><td>Exact HTAP without pretending one format serves every access path.</td><td>One universal swappable physical file format.</td></tr>
+            <tr><td>D52</td><td>TiKV or FoundationDB supplies resident MVCC and transaction processing.</td><td>Prove object lifecycle leverage without first rebuilding a production distributed database.</td><td>Direct control of the resident engine and transaction internals.</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section>
+        <h2 id="work-log"><span class="section-id">[11]</span>Work in progress log</h2>
+        <div class="log">
+          <article class="log-entry"><time>2026-08-27</time><h3>Native GP3.1 fails p99 twice; incumbent-plane pivot fires</h3><p>The native candidate passed both throughput constraints at 0.8411x and 0.8268x control. P99 failed at 1.210x and 1.272x. Exact reads, bounded state, zero measured object operations, and OTel passed. D52 preserves objectKV's log and lifecycle layers and moves resident transactions to a TiKV or FoundationDB selection.</p></article>
+          <article class="log-entry"><time>2026-08-27</time><h3>GP3.1 throughput enters, p99 fails, read boundary changes</h3><p>Manifest-bypass improved candidate throughput 11.18%. AB and BA retained 80.68% and 80.02% of direct RocksDB throughput, while p99 remained 1.353x and 1.300x control. The executable p99 gate failed twice, all mechanism and OTel gates passed, and the next subject is an engine-native resident data plane.</p></article>
+          <article class="log-entry"><time>2026-08-27</time><h3>GP3.1 real-infrastructure comparison misses parity</h3><p>The public SingleRange path passed recovery, generation, cursor, byte-bound, and zero-object-read gates on a named GCP local NVMe device. It reached 516,973 reads/s and 2.482 microseconds p99 versus 702,142 reads/s and 1.749 microseconds for direct RocksDB. GP3.1 stays Evaluating while one bounded optimization cycle targets the 26.37% throughput and 41.91% p99 gaps.</p></article>
+          <article class="log-entry"><time>2026-08-26</time><h3>G4.10b composition clears its local gates</h3><p>The 25% conflict candidate reached 1,075.343 resolved outcomes/s, 104.274 ms maximum p99, and 28.776x the one-entry control while exact object-plus-suffix recovery, committed and conflicted retry, both leader failovers, voter restart, fresh-client reconstruction, and both unsafe controls passed.</p></article>
+          <article class="log-entry"><time>2026-08-26</time><h3>G4.10 retains the 32-item independent-request commit proxy</h3><p>The 16-item, 64-caller configuration was discarded on latency. The separately frozen 32-item candidate reached 1,157.369 tx/s and 76.101 ms maximum p99, 6.356x the one-entry control. Sparse, byte, overload, oversized-request, retry, replay, failover, and restart gates passed in their local scope.</p></article>
+          <article class="log-entry"><time>2026-08-26</time><h3>G4.9 transaction batch clears local mechanism gates</h3><p>Sixteen independent transactions now share one Raft entry and commit version while retaining distinct batch orders and retry outcomes. The release candidate reached 559.511 tx/s and 34.016 ms maximum p99, 3.682x the one-entry control. Duplicate identities and early acknowledgement were rejected.</p></article>
+          <article class="log-entry"><time>2026-08-26</time><h3>G4.8 concurrency mechanism discarded</h3><p>Bounded one-entry submission preserved correctness and improved throughput 3.964x, but reached only 153.708 tx/s and 264.887 ms maximum p99. Followers grouped appends while the leader remained one append per transaction. RFC-0032 freezes an explicit batch entry as G4.9.</p></article>
+          <article class="log-entry"><time>2026-08-26</time><h3>G4.7 authenticated object frontier completed locally</h3><p>A pending immutable closure and data-voter quorum certificate protected physical recovery-stream pop. All 16 records were removed, exact object recovery survived both authority failovers and one voter restart, and three unsafe controls were rejected.</p></article>
+          <article class="log-entry"><time>2026-08-26</time><h3>G4.3 process recovery diagnostic completed</h3><p>A three-process authority selected the object and logical txLog roots. One worker recovered and was killed before reading; a distinct empty-scratch replacement returned exact base, update, delete, and tail-only insert reads. The lazy path reached 6.542 ms p99 and 35,811 object bytes. The local quorum-file tail is diagnostic, so status remains Evaluating.</p></article>
+          <article class="log-entry"><time>2026-08-25</time><h3>Tetris boundary example runs on real primitives</h3><p>The frozen objectkv-boundary-v0 maps each game input to an MVCC mutation batch and an opaque okv-log envelope. Scripted play exercises commits, snapshot reads, exact replay recovery, and branch-local history in one process without claiming durability.</p></article>
+          <article class="log-entry"><time>2026-08-25</time><h3>SSD and RAM serving profiles proposed</h3><p>RFC-0025 defines one ServingImage contract, independent durability, generation-fenced profile handoff, and the hot-profile-point-v1 falsification matrix.</p></article>
+          <article class="log-entry"><time>2026-08-25</time><h3>PVLDB working paper assembled and rendered</h3><p>Ten pages in the official Vol. 20 template, with bottom-up construction, proof ladder, target curves, alternatives, limitations, and the real-infrastructure gap.</p></article>
+          <article class="log-entry"><time>2026-08-25</time><h3>Proof status contract changed</h3><p>Active material now uses Code Complete, Verified, Evaluating, Proposed, and Future. Verified requires a named metric receipt.</p></article>
+          <article class="log-entry"><time>2026-08-25</time><h3>Infrastructure boundary rechecked</h3><p>Terraform format and validation pass. Live gcloud access requires account reauthentication, so no GCP or GCS result is admitted.</p></article>
+          <article class="log-entry"><time>2026-08-25</time><h3>Ordered log substrate integrated</h3><p>okv-log separates pure ordered opaque-record semantics from okv-wal framing, synchronization, and consensus policy. Performance and compatibility admission remain open.</p></article>
+          <article class="log-entry"><time>2026-08-23</time><h3>Object publication and HTAP contracts admitted</h3><p>Local process replacement, lost outcomes, exact closure, and streaming DataFusion base-plus-tail semantics passed frozen gates. Cloud and scale claims remain open.</p></article>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="next-review"><span class="section-id">[12]</span>Next architecture review</h2>
+        <p>The next review starts with one measured question: can coverage checks, overlay lookup, range location, dynamic dispatch, and value copying be reduced enough for the public read path to stay within 20% of direct RocksDB? The comparator must also enforce the p99 ratio directly, and the rerun needs reversed order for drift. If that focused cycle still misses, keep object publication, branching, log, and HTAP leverage above RocksDB or TiKV instead of owning the serving wrapper. RAM, independent-host commit, PostgreSQL, and full Cell v0 integration remain downstream of that decision.</p>
+      </section>
+    </article>
+  </div>
+
+  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-27 11:16 UTC</span></footer>
+</main>
+
+</body>
+</html>

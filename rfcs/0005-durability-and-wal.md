@@ -81,7 +81,7 @@ but no subset can publish a transaction outcome.
 
 ### Executable Cell v0 contract
 
-`[EXISTS]` `crates/okv-sim/src/commit.rs` freezes a deterministic contract-model
+`[VERIFIED]` `crates/okv-sim/src/commit.rs` freezes a deterministic contract-model
 encoding named `OKVC` at codec version 1. The byte order is:
 
 ```text
@@ -103,7 +103,7 @@ combines this envelope with quorum acknowledgement evidence. Recovery rebuilds
 the retained client outcome from quorum-certified records before accepting a
 retry.
 
-`[EXISTS]` The `cell-commit-contract-v1` eval exercises quorum acknowledge,
+`[VERIFIED]` The `cell-commit-contract-v1` eval exercises quorum acknowledge,
 lost-reply recovery, conflicting retry, complete resolver acceptance, complete
 log-tag routing, generation fencing, and leader-only fsync. Six negative
 controls each fail at one bounded step.
@@ -115,7 +115,7 @@ framing and certificate representation remain replaceable.
 
 ### Executable local persistence seam
 
-`[EXISTS]` `crates/okv-wal` wraps the opaque `OKVC` envelope in an `OKVW`
+`[VERIFIED]` `crates/okv-wal` wraps the opaque `OKVC` envelope in an `OKVW`
 version-1 frame containing a log index, payload length, and SHA-256 checksum. A
 three-file local topology writes and calls `sync_all` on each selected replica.
 Fresh-open recovery scans each file, ignores an incomplete final frame, groups
@@ -136,7 +136,7 @@ replicated WAL.
 
 ### Executable per-node consensus storage seam
 
-`[EXISTS]` `crates/okv-wal` also owns the `OKVR` version-1 per-node journal.
+`[VERIFIED]` `crates/okv-wal` also owns the `OKVR` version-1 per-node journal.
 It serializes and synchronizes durable vote, committed-log position, append,
 conflicting-suffix truncate, and purged-prefix records. Recovery reconstructs
 the logical log by replaying those operations. An incomplete final frame is
@@ -144,7 +144,7 @@ removed before any new append; complete checksum or semantic corruption fails
 closed. Appends below the durable purge marker are ignored as obsolete, while
 gaps above the retained suffix are rejected.
 
-`[EXISTS]` `crates/okv-consensus` adapts that journal to OpenRaft `0.9.25`'s
+`[VERIFIED]` `crates/okv-consensus` adapts that journal to OpenRaft `0.9.25`'s
 `RaftLogStorage` contract. It passes OpenRaft's full upstream storage suite and
 an objectKV gate that reopens votes, committed positions, entries, conflict
 replacement, purge state, torn tails, and corruption across five seeds. The

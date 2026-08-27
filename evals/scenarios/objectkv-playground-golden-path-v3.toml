@@ -1,0 +1,80 @@
+schema_version = 1
+id = "objectkv-playground-golden-path-v3"
+description = "Paired Tetris and Chess proof ladder from frozen reducer encodings through transactional history, process consensus, disposable RAM serving, immutable object publication, branching, and reserved garbage collection."
+generator = "deterministic-tetris-and-chess-v3"
+seeds = [1]
+initial_artifacts = ["objectkv-boundary-v0", "application-record-v1", "history-manifest-v1"]
+
+[[surfaces]]
+id = "application-history"
+name = "Application history"
+question = "Do compact records and checkpoints reconstruct the exact materialized state and reject false history?"
+
+[[surfaces]]
+id = "transaction-and-consensus"
+name = "Transaction and process consensus"
+question = "Do business mutations and application records remain atomic through failover and retry?"
+
+[[surfaces]]
+id = "serving"
+name = "Disposable serving"
+question = "Can the RAM image serve exact reads and rebuild without local authoritative files?"
+
+[[surfaces]]
+id = "object-lifecycle"
+name = "Object history lifecycle"
+question = "Can verified immutable closures publish, fork without prefix copies, and collect only unreachable objects?"
+
+[[checkpoints]]
+id = "gp-g0-g1"
+name = "Frozen encoding and replay"
+surface = "application-history"
+objective = "Require matching Tetris and Chess fingerprints, bounded replay, exact checkpoint identity, and seven poison controls per workload."
+depends_on = []
+inputs = ["application-record-v1"]
+outputs = ["gp-g1-receipts"]
+
+[[checkpoints]]
+id = "gp-g2"
+name = "Transactional alignment"
+surface = "transaction-and-consensus"
+objective = "Require application record and business mutations to commit or abort together."
+depends_on = ["gp-g0-g1"]
+inputs = ["gp-g1-receipts", "objectkv-boundary-v0"]
+outputs = ["gp-g2-receipts"]
+
+[[checkpoints]]
+id = "gp-g3"
+name = "Process consensus recovery"
+surface = "transaction-and-consensus"
+objective = "Require canonical envelopes to survive lost reply, leader kill, duplicate retry, restart, and three-node catch-up on one host."
+depends_on = ["gp-g2"]
+inputs = ["gp-g2-receipts"]
+outputs = ["gp-g3-receipts"]
+
+[[checkpoints]]
+id = "gp-g4"
+name = "RAM serving and rebuild"
+surface = "serving"
+objective = "Require exact point and historical reads plus complete serving-image discard and rebuild."
+depends_on = ["gp-g2"]
+inputs = ["gp-g2-receipts"]
+outputs = ["gp-g4-ram-receipts"]
+
+[[checkpoints]]
+id = "gp-g5"
+name = "Recursive object publication"
+surface = "object-lifecycle"
+objective = "Require recursive closure verification before publication and exact cold reopen."
+depends_on = ["gp-g0-g1"]
+inputs = ["gp-g1-receipts", "history-manifest-v1"]
+outputs = ["gp-g5-receipts"]
+
+[[checkpoints]]
+id = "gp-g6"
+name = "Copy-on-write branch and reserved GC"
+surface = "object-lifecycle"
+objective = "Require zero copied prefix objects, exact parent-root pinning, exact root removal, reserved deletion, and surviving-root reopen."
+depends_on = ["gp-g5"]
+inputs = ["gp-g5-receipts"]
+outputs = ["objectkv-playground-v3-receipt"]

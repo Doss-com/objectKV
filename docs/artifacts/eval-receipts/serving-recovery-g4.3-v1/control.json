@@ -1,0 +1,118 @@
+{
+  "artifact_refs": [
+    "okv-eval://serving-recovery-process-v1/full_hydration_control/1103/8eba671990e2560e2c303fafe3bc211937b6afb52318847f6e6a4732cb264e82",
+    "okv-eval://serving-recovery-process-v1/full_hydration_control/2207/e17fb8b96febd73065a058b49c036d15c121908bc26a3f27af64eb83998b88dd",
+    "okv-eval://serving-recovery-process-v1/full_hydration_control/3301/42fc4797d50a493fa341bac24bad8d23467e758d5c739df011f293ac55ed54ab",
+    "docs/artifacts/eval-receipts/serving-recovery-g4.3-v1/control.json"
+  ],
+  "backend": "object-store-local-fs+authority-openraft+quorum-wal-files",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 1.209345458
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T09:05:40.075206+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "anomalies=0",
+      "id": "exact_base_and_tail_reads",
+      "status": "pass"
+    },
+    {
+      "detail": "authority=3,workers=2,kills=1",
+      "id": "real_process_kill_and_empty_replacement",
+      "status": "pass"
+    },
+    {
+      "detail": "generation=7,transaction_system=tx-g7,wal_root=wal-g7",
+      "id": "stable_generation_publication_generation_read",
+      "status": "pass"
+    },
+    {
+      "detail": "records=4,tail=3,physical_bytes=16158",
+      "id": "non_empty_quorum_txlog_suffix",
+      "status": "pass"
+    },
+    {
+      "detail": "applied=3/3",
+      "id": "required_tail_replayed",
+      "status": "pass"
+    },
+    {
+      "detail": "named authoritative root",
+      "id": "no_object_list",
+      "status": "pass"
+    },
+    {
+      "detail": "manifest=1,index=5,range=0,full=5,response_bytes=1072772",
+      "id": "complete_row_closure_hydrated",
+      "status": "pass"
+    },
+    {
+      "detail": "8eba671990e2560e2c303fafe3bc211937b6afb52318847f6e6a4732cb264e82",
+      "id": "fresh_process_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "serving-worker-process-recovery",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0001553739999999998,
+    "median": 0.010176416,
+    "name": "okv.eval.recovery.first_correct_read_duration",
+    "samples": [
+      0.010021042,
+      0.010589375,
+      0.010176416
+    ],
+    "statistic": "p99",
+    "unit": "s",
+    "value": 0.010589375
+  },
+  "profile": {
+    "hash": "323da6392297933a4aff5595ac5e34068707f9e62bf8be3756f6f1009dddfcea",
+    "id": "local-fs",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "a70d6132-8c7c-4bc6-842f-628d6606ec8d",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 1.209345458,
+    "serving_recovery.correctness_anomalies": 0.0,
+    "serving_recovery.exact_replay": 1.0,
+    "serving_recovery.first_read_seconds.median": 0.010176416,
+    "serving_recovery.object_response_bytes.median": 1072772.0,
+    "serving_recovery.row_data_closure_bytes": 1066354.0,
+    "serving_recovery.row_segment_count": 5.0,
+    "serving_recovery.txlog_physical_bytes.median": 16158.0
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "serving-worker-process-recovery-v1",
+  "suite_hash": "9fefba95a605b3996cd3f96de082d54f059798cee6d55aa9db44732310027e7b",
+  "verdict": "inconclusive"
+}

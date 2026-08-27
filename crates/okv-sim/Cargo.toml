@@ -9,12 +9,16 @@ publish = false
 [dependencies]
 clap.workspace = true
 okv-model.workspace = true
+okv-history-oracle.workspace = true
 okv-wal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 turmoil.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
 
 [lints]
 workspace = true

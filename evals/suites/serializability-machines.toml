@@ -1,0 +1,94 @@
+schema_version = 1
+id = "strict-serializability-machines-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../schema/transaction-history-v1.schema.json",
+  "../schema/transaction-machine-config-v1.schema.json",
+]
+dataset_generator = "deterministic-three-machine-transaction-history-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcp-three-zone"]
+
+[dataset.gcp-three-zone]
+logical_bytes = 0
+key_count = 5
+seeds = [1103, 2207, 3301]
+
+[profiles.gcp-three-zone]
+budget_kind = "events"
+budget_limit = 30
+repeats = 1
+backend = "gcp-three-zone-pd-ssd+openraft"
+nodes = 3
+controller_nodes = 1
+machine_config_env = "OKV_TRANSACTION_MACHINE_CONFIG"
+machine_type = "frozen-at-run"
+stable_media = "pd-ssd"
+filesystem = "frozen-at-run"
+zones = 3
+transport = "private-vpc-tcp"
+consensus_library = "openraft-0.9.25"
+
+[[lanes]]
+id = "machine-strict-serializability"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "openraft-machine-transaction-serializability"
+lane = "machine-strict-serializability"
+operation = "transaction_process_serializability_contract"
+machine_config_env = "OKV_TRANSACTION_MACHINE_CONFIG"
+machine_artifact_dir_env = "OKV_EVAL_ARTIFACT_DIR"
+
+[[workloads]]
+id = "openraft-machine-transaction-accept-conflicts"
+lane = "machine-strict-serializability"
+operation = "transaction_process_serializability_contract"
+machine_config_env = "OKV_TRANSACTION_MACHINE_CONFIG"
+machine_artifact_dir_env = "OKV_EVAL_ARTIFACT_DIR"
+negative_control = "accept_conflicts"
+
+[[workloads]]
+id = "openraft-machine-transaction-partial-apply"
+lane = "machine-strict-serializability"
+operation = "transaction_process_serializability_contract"
+machine_config_env = "OKV_TRANSACTION_MACHINE_CONFIG"
+machine_artifact_dir_env = "OKV_EVAL_ARTIFACT_DIR"
+negative_control = "partial_apply"
+
+[hard_gates]
+correctness_anomalies = 0
+three_distinct_machine_ids = true
+three_distinct_non_loopback_ips = true
+three_distinct_failure_domains = true
+controller_outside_node_failure_domains = true
+lifecycle_hook_digest_recorded = true
+machine_topology_digest_recorded = true
+machine_receipt_persisted = true
+machine_loss_occurs_after_quorum_apply = true
+successor_recovers_durable_outcome = true
+exact_retry_returns_original_outcome = true
+restarted_machine_replays_transaction_state = true
+all_nodes_reconstruct_equal_state = true
+fresh_machine_replay_is_byte_exact = true
+negative_controls_detected = true
+schema_valid = true
+budget_must_hold = true

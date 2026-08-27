@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "addresses": {
+    "1": "10.77.0.11:32100",
+    "2": "10.77.0.12:32100",
+    "3": "10.77.0.13:32100"
+  },
+  "roots": {
+    "1": "/var/lib/objectkv/evals/g5-2/node-1",
+    "2": "/var/lib/objectkv/evals/g5-2/node-2",
+    "3": "/var/lib/objectkv/evals/g5-2/node-3"
+  },
+  "machine_ids": {
+    "1": "replace-with-gce-instance-id-1",
+    "2": "replace-with-gce-instance-id-2",
+    "3": "replace-with-gce-instance-id-3"
+  },
+  "failure_domains": {
+    "1": "us-central1-a",
+    "2": "us-central1-b",
+    "3": "us-central1-c"
+  },
+  "controller_machine_id": "replace-with-controller-instance-id",
+  "controller_failure_domain": "us-central1-f",
+  "lifecycle_hook": "/opt/objectkv/okv-transaction-machine-hook.sh",
+  "hook_timeout_seconds": 600
+}

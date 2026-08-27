@@ -50,6 +50,39 @@ Prototype A first. It is the only shape that tests the literal goal, full
 PostgreSQL compute on objectKV, without first rebuilding PostgreSQL. Treat B as a
 targeted experiment and C as a separate later decision.
 
+## pgRust findings
+
+[pgRust](https://github.com/malisper/pgrust) is an external AGPL-3.0 Rust
+reimplementation of PostgreSQL 18.3. Its stated target includes the same wire
+protocol, SQL semantics, error behavior, and on-disk format as PostgreSQL. The
+current project reports the complete default PostgreSQL regression-query corpus,
+but also says it is not production-ready and does not provide a stable extension
+ABI.
+
+Its source preserves PostgreSQL's heap, index, WAL, buffer-manager,
+storage-manager, and page boundaries. That makes pgRust a candidate compute
+process for shape A, not evidence that shape C already exists. Its vectorized
+push executor, thread-based concurrency, query scheduler, pipelined fsync,
+columnar layout, crash simulator, differential oracle, and exact benchmark
+receipts are useful research references.
+
+`[PROPOSED]` Add a pgRust evaluation lane beside the upstream PostgreSQL
+control:
+
+1. map the pgRust storage-manager and VFS seams needed for an objectKV page
+   bridge;
+2. run the same PostgreSQL regression and crash subset against upstream
+   PostgreSQL and pgRust;
+3. measure indexed point reads, contended writes, WAL/page amplification, and
+   restart against identical ObjectKV revisions;
+4. separately test whether pgRust's columnar and vectorized execution can
+   consume version-aligned ObjectKV analytical artifacts;
+5. keep pgRust code outside the proposed Apache-2.0 kernel unless the project
+   deliberately accepts AGPL licensing.
+
+Learn from pgRust's architecture and evidence discipline. Do not copy its AGPL
+source into ObjectKV.
+
 ## Bridge questions to answer
 
 1. How do PostgreSQL relation, fork, block, and tablespace identities map to keys?

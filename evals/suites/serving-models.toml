@@ -3,6 +3,10 @@ id = "serving-model-semantics-v1"
 status = "proposed"
 metric_registry = "../metrics.toml"
 result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/PRODUCT-SPEC-SHEET.md",
+  "../scenarios/objectkv-golden-path-v1.toml",
+]
 
 [telemetry]
 protocol = "otlp-http"
@@ -19,6 +23,9 @@ seeds = [1103, 2207, 3301]
 budget_kind = "operations"
 budget_limit = 100000
 repeats = 1
+serving_profile = "ssd_resident"
+durability_profile = "single_node_sync"
+topology = "one_cell_four_ranges"
 
 [profiles.gcs-dev]
 budget_kind = "operations"
@@ -137,9 +144,23 @@ operation = "redis_differential"
 command_manifest = "redis-v1"
 
 [[workloads]]
+id = "redis-skip-expiry-poison"
+lane = "redis"
+operation = "redis_differential"
+negative_control = "skip_expiry"
+command_manifest = "redis-v1"
+
+[[workloads]]
 id = "search-update-query-merge"
 lane = "search"
 operation = "inverted_index_differential"
+query_distribution = "zipf"
+
+[[workloads]]
+id = "search-ignore-delete-poison"
+lane = "search"
+operation = "inverted_index_differential"
+negative_control = "ignore_posting_delete"
 query_distribution = "zipf"
 
 [[workloads]]

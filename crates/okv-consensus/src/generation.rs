@@ -1,4 +1,8 @@
-use crate::RequestIdentity;
+use crate::{
+    ObjectFrontierAttestation, ObjectFrontierCertificate, ObjectFrontierCertificateStatement,
+    ObjectFrontierLogPosition, ObjectFrontierRecord, RequestIdentity,
+    OBJECT_FRONTIER_CERTIFICATE_VERSION,
+};
 use ring::signature::{Ed25519KeyPair, KeyPair, UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -7,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 const GENERATION_COMMAND_MAGIC: &[u8] = b"OKVG1";
 const RECOVERY_CERTIFICATE_MAGIC: &[u8] = b"OKV-RECOVERY-CERTIFICATE-V1\0";
 const RECOVERY_CERTIFICATE_VERSION: u16 = 1;
+const OBJECT_FRONTIER_CERTIFICATE_MAGIC: &[u8] = b"OKV-OBJECT-FRONTIER-CERTIFICATE-V1\0";
 
 mod member_map_wire {
     use serde::de::Error as _;
@@ -164,6 +169,108 @@ pub fn sign_recovery_statement(
         signer_id,
         signature: key_pair.sign(&bytes).as_ref().to_vec(),
     })
+}
+
+/// Compute the stable digest of the voter set authorized to certify a physical
+/// object-frontier apply.
+#[must_use]
+pub fn object_frontier_membership_digest(members: &BTreeMap<u64, Vec<u8>>) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"OKV-OBJECT-FRONTIER-MEMBERSHIP-V1\0");
+    digest.update((members.len() as u64).to_be_bytes());
+    for (node_id, public_key) in members {
+        digest.update(node_id.to_be_bytes());
+        digest.update((public_key.len() as u64).to_be_bytes());
+        digest.update(public_key);
+    }
+    digest.finalize().into()
+}
+
+/// Construct the only object-frontier statement admissible for one active
+/// generation and applied data-log position.
+#[must_use]
+pub fn object_frontier_certificate_statement(
+    state: &GenerationAuthorityState,
+    frontier: ObjectFrontierRecord,
+    data_log_position: ObjectFrontierLogPosition,
+) -> ObjectFrontierCertificateStatement {
+    ObjectFrontierCertificateStatement {
+        protocol_version: OBJECT_FRONTIER_CERTIFICATE_VERSION,
+        cell_id: state.cell_id,
+        generation: state.generation,
+        transaction_system_id: state.transaction_system_id.clone().unwrap_or_default(),
+        frontier,
+        data_log_position,
+        membership_sha256: object_frontier_membership_digest(&state.transaction_system_members),
+    }
+}
+
+fn object_frontier_signing_bytes(
+    statement: &ObjectFrontierCertificateStatement,
+) -> Result<Vec<u8>, serde_json::Error> {
+    let mut bytes = OBJECT_FRONTIER_CERTIFICATE_MAGIC.to_vec();
+    bytes.extend(serde_json::to_vec(statement)?);
+    Ok(bytes)
+}
+
+/// Sign one canonical object-frontier statement for a configured data voter.
+///
+/// # Errors
+///
+/// Returns an error when the seed or statement cannot be encoded.
+pub fn sign_object_frontier_statement(
+    signer_id: u64,
+    private_key_seed: &[u8],
+    statement: &ObjectFrontierCertificateStatement,
+) -> Result<ObjectFrontierAttestation, String> {
+    let key_pair = Ed25519KeyPair::from_seed_unchecked(private_key_seed)
+        .map_err(|_| "object-frontier signing seed must contain exactly 32 bytes".to_owned())?;
+    let bytes = object_frontier_signing_bytes(statement).map_err(|error| error.to_string())?;
+    Ok(ObjectFrontierAttestation {
+        signer_id,
+        signature: key_pair.sign(&bytes).as_ref().to_vec(),
+    })
+}
+
+/// Verify a data-quorum proof against the exact active generation membership.
+#[must_use]
+pub fn verify_object_frontier_certificate(
+    certificate: &ObjectFrontierCertificate,
+    state: &GenerationAuthorityState,
+) -> bool {
+    let statement = &certificate.statement;
+    if statement.protocol_version != OBJECT_FRONTIER_CERTIFICATE_VERSION
+        || state.phase != GenerationPhase::Active
+        || statement.cell_id != state.cell_id
+        || statement.generation != state.generation
+        || statement.frontier.owner_generation != state.generation
+        || Some(statement.transaction_system_id.as_str()) != state.transaction_system_id.as_deref()
+        || !statement.data_log_position.is_valid()
+        || !valid_recovery_members(&state.transaction_system_members)
+        || statement.membership_sha256
+            != object_frontier_membership_digest(&state.transaction_system_members)
+    {
+        return false;
+    }
+    let Ok(bytes) = object_frontier_signing_bytes(statement) else {
+        return false;
+    };
+    let mut distinct_signers = BTreeSet::new();
+    for attestation in &certificate.attestations {
+        if !distinct_signers.insert(attestation.signer_id) {
+            return false;
+        }
+        let Some(public_key) = state.transaction_system_members.get(&attestation.signer_id) else {
+            return false;
+        };
+        if UnparsedPublicKey::new(&ED25519, public_key)
+            .verify(&bytes, &attestation.signature)
+            .is_err()
+        {
+            return false;
+        }
+    }
+    distinct_signers.len() >= quorum_size(state.transaction_system_members.len())
 }
 
 /// Lifecycle phase owned by the external cell coordinator quorum.
@@ -679,6 +786,66 @@ mod tests {
                 .collect(),
             statement,
         }
+    }
+
+    #[test]
+    fn object_frontier_certificate_requires_exact_distinct_data_quorum() {
+        let voter_members = members(&[1, 2, 3]);
+        let mut state = GenerationAuthorityState::default();
+        assert_eq!(
+            GenerationCommandStatus::Accepted,
+            state.apply(
+                &GenerationAction::Bootstrap {
+                    cell_id: 19,
+                    generation: 7,
+                    transaction_system_id: "data-g7".to_owned(),
+                    transaction_system_members: voter_members.clone(),
+                    wal_root: "wal-g7".to_owned(),
+                    control_root_version: 1,
+                },
+                GenerationAuthorityFaults::default(),
+            )
+        );
+        let frontier = ObjectFrontierRecord {
+            owner_generation: 7,
+            source_root: "range-main".to_owned(),
+            manifest: crate::PublicationObjectReference {
+                kind: crate::PublicationObjectKind::Manifest,
+                key: "objects/frontier-manifest".to_owned(),
+                length: 128,
+                sha256: "d".repeat(64),
+            },
+            covered_through: 91,
+            prepared_at: crate::PublicationAuthorityPosition { term: 3, index: 44 },
+        };
+        let statement = object_frontier_certificate_statement(
+            &state,
+            frontier,
+            ObjectFrontierLogPosition { term: 8, index: 55 },
+        );
+        let certificate = ObjectFrontierCertificate {
+            attestations: [1_u8, 2]
+                .iter()
+                .map(|node_id| {
+                    sign_object_frontier_statement(u64::from(*node_id), &seed(*node_id), &statement)
+                        .unwrap()
+                })
+                .collect(),
+            statement: statement.clone(),
+        };
+        assert!(verify_object_frontier_certificate(&certificate, &state));
+
+        let mut subquorum = certificate.clone();
+        subquorum.attestations.truncate(1);
+        assert!(!verify_object_frontier_certificate(&subquorum, &state));
+
+        let mut duplicate = certificate.clone();
+        duplicate.attestations[1] = duplicate.attestations[0].clone();
+        assert!(!verify_object_frontier_certificate(&duplicate, &state));
+
+        let mut tampered = certificate;
+        tampered.statement.frontier.covered_through = 92;
+        assert!(!verify_object_frontier_certificate(&tampered, &state));
     }
 
     #[test]

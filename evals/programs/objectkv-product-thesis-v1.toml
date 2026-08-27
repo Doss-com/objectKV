@@ -1,0 +1,466 @@
+schema_version = 1
+id = "objectkv-product-thesis-v1"
+status = "evaluating"
+spec = "../../docs/PRODUCT-SPEC-SHEET.md"
+decision_log = "../../docs/PRODUCT-SPEC.md"
+comparison_schema = "../schema/comparison.schema.json"
+
+[[phases]]
+id = "P0"
+name = "Freeze semantic contracts"
+objective = "Reject impossible versions, mutations, retries, and commit envelopes before physical optimization."
+depends_on = []
+
+[[phases.gates]]
+id = "G0.1"
+status = "verified"
+kind = "correctness"
+claim = "The ordered MVCC model returns exact snapshots and rejects poisoned history semantics."
+falsifier = "Any poison subject keeps or any correct history diverges from the normalized oracle."
+requirement_ids = ["MVCC-001", "MVCC-002", "MVCC-003", "MVCC-004", "MVCC-005", "EVAL-006"]
+suite = "../suites/model-history.toml"
+profile = "generated-dev"
+workload = "generated-mvcc-history"
+backend = "model"
+lane = "mvcc-semantics"
+negative_controls = [
+  "generated-mvcc-history-ignore-range-clears",
+  "generated-mvcc-history-mutation-order-affects-replay",
+  "generated-mvcc-history-accept-conflicting-replay",
+  "generated-mvcc-history-future-read-fallback",
+  "generated-mvcc-history-reject-retention-boundary",
+  "generated-mvcc-history-serve-expired-read",
+  "generated-mvcc-history-accept-stale-generation",
+]
+evidence = ["experiments/ledger.jsonl: mvcc-semantics-v1 contract admission"]
+
+[[phases.gates]]
+id = "G0.2"
+status = "verified"
+kind = "correctness"
+claim = "A replayable commit envelope preserves request identity, complete conflict acceptance, required log tags, generation fencing, and quorum acknowledgement."
+falsifier = "A partial, stale, non-durable, or conflicting commit envelope is admitted."
+requirement_ids = ["TXN-001", "TXN-003", "TXN-004", "LOG-001", "EVAL-006"]
+suite = "../suites/commit-contract.toml"
+profile = "sim-dev"
+workload = "cell-commit-envelope"
+backend = "sim-model"
+lane = "commit-contract"
+negative_controls = [
+  "cell-commit-ram-only-dedup",
+  "cell-commit-accept-conflicting-retry",
+  "cell-commit-accept-partial-resolver",
+  "cell-commit-omit-required-log-tag",
+  "cell-commit-accept-stale-generation",
+  "cell-commit-ack-before-quorum",
+]
+evidence = ["experiments/ledger.jsonl: cell-commit-contract-v1 contract admission"]
+
+[[phases.gates]]
+id = "G0.3"
+status = "evaluating"
+kind = "correctness"
+claim = "An independent oracle accepts exact Cell v0 OCC histories and rejects point conflicts, range phantoms, partial commits, incomplete conflict coverage, and stale read versions."
+falsifier = "The correct single-authority subject produces an anomaly, any poison survives, or the checker depends on resolver implementation logic."
+requirement_ids = ["TXN-002", "TXN-005", "PRD-006", "EVAL-006"]
+suite = "../suites/serializability.toml"
+profile = "model-dev"
+workload = "strict-serializable-four-range-history"
+backend = "cell-v0-resolver-model"
+lane = "strict-serializability"
+negative_controls = [
+  "strict-serializability-accept-point-conflict",
+  "strict-serializability-accept-range-phantom",
+  "strict-serializability-partial-commit",
+  "strict-serializability-omit-read-conflict",
+  "strict-serializability-omit-write-conflict",
+  "strict-serializability-stale-read-version",
+]
+evidence = []
+
+[[phases.gates]]
+id = "G0.4"
+status = "evaluating"
+kind = "correctness"
+claim = "One OpenRaft data group applies strict-serializable multi-range transactions, retains exact retry outcomes through leader-process death, and reconstructs equal transaction state after killed-node restart."
+falsifier = "The independent history oracle observes an invalid read, conflict, or atomic effect; a lost reply loses or duplicates an outcome; a restarted replica diverges; or either poison subject survives."
+requirement_ids = ["TXN-002", "TXN-003", "TXN-005", "LOG-001", "LOG-002", "PRD-006", "EVAL-006"]
+suite = "../suites/serializability-process.toml"
+profile = "local-fs"
+workload = "openraft-transaction-serializability"
+backend = "process-openraft+transaction-authority"
+lane = "replicated-strict-serializability"
+negative_controls = [
+  "openraft-transaction-accept-conflicts",
+  "openraft-transaction-partial-apply",
+]
+evidence = [
+  "docs/research/strict-serializability-g0.4-process.md",
+  "experiments/ledger.jsonl: replicated-strict-serializability diagnostic",
+]
+
+[[phases]]
+id = "P1"
+name = "Prove the fast durable tail"
+objective = "Prove quorum acknowledgement, exact retry, failover, and bounded recovery debt without object storage in the normal commit path."
+depends_on = ["P0"]
+
+[[phases.gates]]
+id = "G1.1"
+status = "verified"
+kind = "correctness"
+claim = "A quorum-committed request survives a lost reply, real leader-process death, successor retry, and killed-node restart with one logical effect."
+falsifier = "An acknowledged effect disappears, applies twice, or cannot be recovered from committed history."
+requirement_ids = ["TXN-003", "LOG-001", "LOG-002", "LOG-003", "LOG-007"]
+suite = "../suites/raft-process.toml"
+profile = "local-fs"
+workload = "openraft-process-lost-reply"
+backend = "process-local-fs"
+lane = "commit-failover"
+negative_controls = [
+  "openraft-process-disable-dedup",
+  "openraft-process-ack-before-quorum",
+  "openraft-process-skip-killed-restart",
+]
+evidence = ["experiments/ledger.jsonl: openraft-process-contract-v1 contract admission"]
+
+[[phases.gates]]
+id = "G1.2"
+status = "proposed"
+kind = "operational"
+claim = "Object-store brownouts retain a bounded txLog suffix through explicit warning, rate-limit, and refusal thresholds."
+falsifier = "Retained txLog bytes grow without bound at admitted ingest or acknowledgement semantics weaken during a brownout."
+requirement_ids = ["TXN-010", "LOG-004", "LOG-008", "LOG-009", "PUB-010"]
+suite = "../suites/product-thesis.toml"
+profile = "ssd-resident-dev"
+workload = "objectification-brownout"
+backend = "object-store-local-fs+single-node-txlog"
+lane = "objectification-brownout"
+negative_controls = ["objectification-unbounded-debt-poison"]
+evidence = []
+control = { id = "direct-batch-uploader", suite = "../suites/product-thesis.toml", profile = "ssd-resident-dev", workload = "objectification-brownout", backend = "direct-object-uploader", lane = "objectification-brownout" }
+
+[[phases]]
+id = "P2"
+name = "Prove object authority"
+objective = "Recover immutable object and manifest publication across ambiguous effects, process death, authority failover, and garbage-collection races."
+depends_on = ["P1"]
+
+[[phases.gates]]
+id = "G2.1"
+status = "verified"
+kind = "correctness"
+claim = "A lost successful publication reply recovers the original outcome without a second authority or object effect."
+falsifier = "Final-state convergence hides duplicate publication, missing closure verification, or an unrecoverable successful outcome."
+requirement_ids = ["OBJ-005", "OBJ-006", "OBJ-008", "PUB-001", "PUB-002", "PUB-003", "PUB-004"]
+suite = "../suites/object-publication-publisher-publish-recovery.toml"
+profile = "local-fs"
+workload = "publisher-publish-unknown-restart"
+backend = "object-store-local-fs+process-openraft"
+lane = "publisher-publish-recovery"
+negative_controls = ["publisher-publish-unknown-convergence-only"]
+evidence = ["experiments/ledger.jsonl: object-publication-publisher-publish-recovery-v1 contract admission"]
+
+[[phases.gates]]
+id = "G2.2"
+status = "verified"
+kind = "correctness"
+claim = "Publication and garbage collection preserve every reachable object across pointer, intent, mark, reservation, LIST, and epoch interleavings."
+falsifier = "Any root, snapshot, or in-flight publication can reference an object reclaimed by the collector."
+requirement_ids = ["OBJ-009", "LIFE-003", "LIFE-006", "OPS-007"]
+suite = "../suites/object-publication-gc.toml"
+profile = "model-dev"
+workload = "object-publication-reachability"
+backend = "model"
+lane = "publication-gc-correctness"
+negative_controls = [
+  "object-publication-pointer-before-block",
+  "object-publication-omit-intent",
+  "object-gc-trust-counter",
+  "object-gc-trust-list",
+  "object-gc-incomplete-mark",
+  "object-gc-skip-delete-revalidation",
+]
+evidence = ["experiments/ledger.jsonl: object-publication-gc-v1 contract admission"]
+
+[[phases]]
+id = "P3"
+name = "Prove bounded serving leverage"
+objective = "Determine whether bounded local serving state plus an object-native base creates competitive resident latency, bounded cold reads, fast empty-worker recovery, and metadata-scale branches."
+depends_on = ["P2"]
+
+[[phases.gates]]
+id = "G3.1"
+status = "evaluating"
+kind = "performance"
+claim = "A complete SSD-resident range approaches direct NVMe RocksDB throughput and p99 without object requests after warmup."
+falsifier = "The serving wrapper remains more than twenty percent outside direct NVMe RocksDB after one focused optimization cycle."
+requirement_ids = ["SRV-001", "SRV-002", "SRV-004", "SRV-005", "SRV-009", "EVAL-007", "EVAL-008"]
+suite = "../suites/product-thesis.toml"
+profile = "ssd-resident-dev"
+workload = "ssd-resident-serving-image"
+backend = "serving-worker-rocksdb-11.8.1-local-fs"
+lane = "hot-ssd"
+negative_controls = ["ssd-resident-object-read-poison"]
+evidence = ["docs/research/resident-hot-path-prototype.md", "docs/research/resident-hot-path-g3.1.md", "rfcs/0023-resident-serving-hot-path.md"]
+control = { id = "direct-nvme-rocksdb", suite = "../suites/product-thesis.toml", profile = "ssd-resident-dev", workload = "direct-nvme-rocksdb-control", backend = "rocksdb-11.8.1-local-fs", lane = "hot-ssd" }
+
+[[phases.gates]]
+id = "G3.2"
+status = "proposed"
+kind = "performance"
+claim = "A bounded RAM-resident range materially improves one predeclared end-to-end metric over admitted SSD without object requests after warmup."
+falsifier = "The local-engine advantage disappears after RPC and concurrency, or memory cost and rebuild risk erase the benefit."
+requirement_ids = ["SRV-001", "SRV-002", "SRV-005", "SRV-011", "SRV-013", "EVAL-007", "EVAL-008"]
+suite = "../suites/product-thesis.toml"
+profile = "ram-resident-dev"
+workload = "ram-resident-serving-image"
+backend = "serving-worker-memory+object-local-fs"
+lane = "hot-ram"
+negative_controls = ["ram-resident-budget-poison"]
+evidence = []
+control = { id = "ssd-resident-matched-range", suite = "../suites/product-thesis.toml", profile = "ssd-resident-ram-control-dev", workload = "ssd-resident-serving-image", backend = "serving-worker-rocksdb-11.8.1-local-fs", lane = "hot-ssd" }
+
+[[phases.gates]]
+id = "G3.3"
+status = "proposed"
+kind = "correctness"
+claim = "A live range moves from SSD to RAM and back only after hydration, tail catch-up, coverage proof, generation flip, and stale-owner fencing."
+falsifier = "A read is missing, duplicated, stale, or served by the prior assignment after the generation flip."
+requirement_ids = ["CELL-002", "CELL-004", "CELL-006", "SRV-011", "SRV-012"]
+suite = "../suites/product-thesis.toml"
+profile = "profile-handoff-dev"
+workload = "ssd-to-ram-to-ssd-handoff"
+backend = "serving-worker-rocksdb+memory+object-local-fs"
+lane = "profile-handoff"
+negative_controls = ["profile-handoff-stale-generation-poison"]
+evidence = []
+
+[[phases.gates]]
+id = "G4.1"
+status = "evaluating"
+kind = "performance"
+claim = "Within one bounded range, a cold elastic point read uses admitted metadata and at most one indexed data range GET after manifest and index warmup."
+falsifier = "A point lookup scans an object, walks manifest history, exceeds the range metadata budget, or increases measured data requests or bytes as the range grows from 1 to 64 MiB."
+requirement_ids = ["SRV-003", "OBJ-001", "OBJ-002", "OBJ-003", "OBJ-004", "OBJ-007"]
+suite = "../suites/product-thesis.toml"
+profile = "elastic-dev"
+workload = "elastic-indexed-point-read"
+backend = "serving-worker-object-local-fs"
+lane = "elastic-cold-point"
+negative_controls = ["elastic-scan-object-poison"]
+evidence = [
+  "docs/research/bounded-row-object-scale-g4.1.md",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-1mib-dev/candidate.json",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-1mib-dev/control.json",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-1mib-dev/poison.json",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-8mib-dev/candidate.json",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-8mib-dev/control.json",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-8mib-dev/poison.json",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-dev/candidate.json",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-dev/control.json",
+  "docs/artifacts/eval-receipts/cold-read-scale-g4.1/elastic-dev/poison.json",
+]
+control = { id = "indexed-object-reader", suite = "../suites/product-thesis.toml", profile = "elastic-dev", workload = "indexed-object-reader-control", backend = "indexed-object-reader-local-fs", lane = "elastic-cold-point" }
+
+[[phases.gates]]
+id = "G4.2"
+status = "evaluating"
+kind = "performance"
+claim = "An empty ServingWorker returns its first correct range read after one manifest GET, one selected-index GET, and one data range GET without full range hydration."
+falsifier = "The first read hydrates every object, uses LIST, or transfers bytes proportional to the complete assigned range."
+requirement_ids = ["PRD-003", "SRV-006", "SRV-007", "PUB-008", "PUB-009"]
+suite = "../suites/product-thesis.toml"
+profile = "recovery-dev"
+workload = "empty-worker-first-read"
+backend = "serving-worker-empty-local-fs"
+lane = "empty-worker-recovery"
+negative_controls = ["empty-worker-full-hydration-poison"]
+evidence = [
+  "docs/research/lazy-empty-worker-g4.2.md",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-1mib-dev/candidate.json",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-1mib-dev/control.json",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-1mib-dev/poison.json",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-8mib-dev/candidate.json",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-8mib-dev/control.json",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-8mib-dev/poison.json",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-dev/candidate.json",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-dev/control.json",
+  "docs/artifacts/eval-receipts/empty-worker-g4.2-v2/recovery-dev/poison.json",
+]
+control = { id = "full-local-restore", suite = "../suites/product-thesis.toml", profile = "recovery-dev", workload = "full-local-restore-control", backend = "full-local-restore", lane = "empty-worker-recovery" }
+
+[[phases.gates]]
+id = "G4.3"
+status = "evaluating"
+kind = "correctness"
+claim = "After a serving process is killed, a distinct empty-scratch replacement opens the replicated authoritative row root, quorum-recovers a non-empty txLog suffix, and returns exact base and tail reads without complete range hydration."
+falsifier = "The replacement trusts worker-local recovery state, observes an unstable generation/root descriptor, skips or partially replays the required suffix, uses LIST, or hydrates the complete range before its first exact read."
+requirement_ids = ["PRD-003", "PRD-004", "LOG-001", "LOG-002", "SRV-001", "SRV-004", "SRV-006", "SRV-007", "PUB-008", "PUB-009"]
+suite = "../suites/serving-recovery-process.toml"
+profile = "local-fs"
+workload = "replacement-worker-object-plus-tail"
+backend = "object-store-local-fs+authority-openraft+quorum-wal-files"
+lane = "serving-worker-process-recovery"
+negative_controls = ["replacement-worker-skip-tail-poison"]
+evidence = [
+  "rfcs/0026-serving-worker-process-recovery.md",
+  "docs/research/serving-worker-process-recovery-g4.3.md",
+  "docs/artifacts/eval-receipts/serving-recovery-g4.3-v2/candidate.json",
+  "docs/artifacts/eval-receipts/serving-recovery-g4.3-v2/control.json",
+  "docs/artifacts/eval-receipts/serving-recovery-g4.3-v2/poison.json",
+]
+control = { id = "full-hydration-replacement", suite = "../suites/serving-recovery-process.toml", profile = "local-fs", workload = "replacement-worker-full-hydration-control", backend = "object-store-local-fs+authority-openraft+quorum-wal-files", lane = "serving-worker-process-recovery" }
+
+[[phases.gates]]
+id = "G5.1"
+status = "proposed"
+kind = "performance"
+claim = "Branch creation publishes metadata and reuses an immutable parent closure without copying base data."
+falsifier = "Branch creation time or initial durable bytes scale with parent database bytes."
+requirement_ids = ["LIFE-001", "LIFE-002", "LIFE-003", "LIFE-004", "LIFE-006"]
+suite = "../suites/product-thesis.toml"
+profile = "branch-dev"
+workload = "metadata-branch-create"
+backend = "objectkv-branch-local-fs"
+lane = "branch-lifecycle"
+negative_controls = ["branch-copy-base-poison"]
+evidence = []
+control = { id = "physical-copy-branch", suite = "../suites/product-thesis.toml", profile = "branch-dev", workload = "physical-copy-branch-control", backend = "physical-copy-local-fs", lane = "branch-lifecycle" }
+
+[[phases.gates]]
+id = "G5.2"
+status = "proposed"
+kind = "correctness"
+claim = "After object-native serving leverage clears its controls, the exact G0.4 transaction history survives one data-machine loss and restart across three distinct machines, disks, and failure domains while a fourth machine runs the controller and independent oracle."
+falsifier = "Topology aliases one machine or failure domain; an acknowledged outcome is lost or duplicated; restarted disk state diverges; exact replay changes; or either semantic poison survives."
+requirement_ids = ["TXN-002", "TXN-003", "TXN-005", "LOG-001", "LOG-002", "LOG-003", "PRD-006", "EVAL-006"]
+suite = "../suites/serializability-machines.toml"
+profile = "gcp-three-zone"
+workload = "openraft-machine-transaction-serializability"
+backend = "gcp-three-zone-pd-ssd+openraft"
+lane = "machine-strict-serializability"
+negative_controls = [
+  "openraft-machine-transaction-accept-conflicts",
+  "openraft-machine-transaction-partial-apply",
+]
+evidence = ["infra/gcp/README.md: Three-machine transaction gate"]
+
+[[phases]]
+id = "P4"
+name = "Distribute one cell"
+objective = "Partition range order and recovery while preserving tenant-wide strict serializability and bounded coordination."
+depends_on = ["P3"]
+
+[[phases.gates]]
+id = "G6.1"
+status = "proposed"
+kind = "performance"
+claim = "Independent range groups increase cell throughput while multi-range transactions retain one exact serializable outcome."
+falsifier = "One global service caps throughput before range groups scale, or a coordinator fault admits a partial transaction."
+requirement_ids = ["TXN-002", "TXN-005", "TXN-006", "TXN-007", "CELL-002", "CELL-003", "LOG-005", "LOG-006"]
+suite = "../suites/product-thesis.toml"
+profile = "cell-dev"
+workload = "strict-serializable-four-range-cell"
+backend = "objectkv-four-range-local-fs"
+lane = "multi-range-cell"
+negative_controls = ["multi-range-partial-commit-poison"]
+evidence = []
+control = { id = "single-group-cell", suite = "../suites/product-thesis.toml", profile = "cell-dev", workload = "single-group-cell-control", backend = "objectkv-single-group-local-fs", lane = "multi-range-cell" }
+
+[[phases]]
+id = "P5"
+name = "Prove PostgreSQL and exact HTAP consumers"
+objective = "Preserve upstream PostgreSQL semantics through a page adapter and serve exact DataFusion snapshots without external CDC or ETL."
+depends_on = ["P3"]
+
+[[phases.gates]]
+id = "G7.1"
+status = "proposed"
+kind = "compatibility"
+claim = "The page-native adapter preserves the selected PostgreSQL storage, transaction, and crash-recovery behavior."
+falsifier = "Upstream-compatible behavior requires kernel SQL semantics or recovery admits lost, duplicated, or impossible page state."
+requirement_ids = ["PG-001", "PG-002", "PG-003", "PG-004", "PG-005", "PG-006", "PG-009", "PG-010"]
+suite = "../suites/product-thesis.toml"
+profile = "postgres-dev"
+workload = "postgres-page-compatibility"
+backend = "postgres-objectkv-page-adapter"
+lane = "postgres-page-compat"
+negative_controls = ["postgres-page-double-apply-poison"]
+evidence = []
+control = { id = "postgres-local-compat", suite = "../suites/product-thesis.toml", profile = "postgres-dev", workload = "postgres-local-compat-control", backend = "postgres-local-storage", lane = "postgres-page-compat" }
+
+[[phases.gates]]
+id = "G7.2"
+status = "proposed"
+kind = "performance"
+claim = "Resident page-native PostgreSQL approaches the same upstream revision on local storage without hidden logging or write amplification."
+falsifier = "Double logging, page amplification, or recovery overhead remains structurally outside the declared target after one focused optimization cycle."
+requirement_ids = ["PG-004", "PG-005", "PG-007", "PG-008", "EVAL-007", "EVAL-008"]
+suite = "../suites/product-thesis.toml"
+profile = "postgres-dev"
+workload = "postgres-page-resident-performance"
+backend = "postgres-objectkv-page-adapter"
+lane = "postgres-page-performance"
+negative_controls = []
+evidence = []
+control = { id = "postgres-local-performance", suite = "../suites/product-thesis.toml", profile = "postgres-dev", workload = "postgres-local-performance-control", backend = "postgres-local-storage", lane = "postgres-page-performance" }
+
+[[phases.gates]]
+id = "G8.1"
+status = "verified"
+kind = "correctness"
+claim = "A streaming DataFusion overlay returns one exact target version while preserving invalidations, row identity, and bounded-memory semantics."
+falsifier = "Batch boundaries, watermarks, projection, or unsorted inputs produce an incorrect row set or duplicate identity."
+requirement_ids = ["HTAP-001", "HTAP-002", "HTAP-003", "HTAP-004", "HTAP-006"]
+suite = "../suites/htap-streaming.toml"
+profile = "local-fs"
+workload = "zebradb-streaming-overlay"
+backend = "datafusion-local-fs"
+lane = "htap-streaming-exactness"
+negative_controls = [
+  "zebradb-streaming-materialize-inputs",
+  "zebradb-streaming-reset-batch-group",
+  "zebradb-streaming-max-watermark",
+  "zebradb-streaming-rebase-continuation",
+  "zebradb-streaming-accept-unsorted",
+]
+evidence = ["experiments/ledger.jsonl: zebradb-datafusion-streaming-v1 contract admission"]
+
+[[phases.gates]]
+id = "G8.2"
+status = "proposed"
+kind = "performance"
+claim = "Exact base-plus-tail queries retain bounded latency and memory inside the admitted materialization policy."
+falsifier = "At or below one percent tail, overlay work dominates the base-only control or exactness requires external CDC."
+requirement_ids = ["HTAP-005", "HTAP-006", "HTAP-007", "HTAP-010", "EVAL-007", "EVAL-008"]
+suite = "../suites/product-thesis.toml"
+profile = "htap-dev"
+workload = "datafusion-exact-overlay-scale"
+backend = "datafusion-parquet-objectkv-tail"
+lane = "htap-performance"
+negative_controls = ["datafusion-drop-invalidation-poison"]
+evidence = []
+control = { id = "datafusion-base-only", suite = "../suites/product-thesis.toml", profile = "htap-dev", workload = "datafusion-base-only-control", backend = "datafusion-parquet-base-only", lane = "htap-performance" }
+
+[[phases]]
+id = "P6"
+name = "Decide product economics"
+objective = "Determine whether object-native branching, recovery, footprint, or HTAP leverage outweighs the cost and complexity of owning the kernel."
+depends_on = ["P4", "P5"]
+
+[[phases.gates]]
+id = "G9.1"
+status = "proposed"
+kind = "economics"
+claim = "At least one target workload has a material total-cost or operational advantage over TiKV or PostgreSQL plus object tiering."
+falsifier = "The system costs more while providing no material branch, recovery, footprint, or exact HTAP advantage."
+requirement_ids = ["PRD-003", "PRD-004", "SRV-005", "LIFE-001", "HTAP-007", "EVAL-007", "EVAL-008", "EVAL-010"]
+suite = "../suites/product-thesis.toml"
+profile = "economics-dev"
+workload = "objectkv-total-cost"
+backend = "objectkv-regional-quorum+object-base"
+lane = "product-economics"
+negative_controls = []
+evidence = []
+control = { id = "tikv-tiered", suite = "../suites/product-thesis.toml", profile = "economics-dev", workload = "tikv-tiered-cost-control", backend = "tikv-rocksdb+object-tier", lane = "product-economics" }

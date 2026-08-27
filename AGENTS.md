@@ -6,6 +6,10 @@ change before editing.
 ## Hard rules
 
 - Never describe a proposed capability as implemented.
+- Active status uses `[CODE-COMPLETE]`, `[VERIFIED]`, `[EVALUATING]`,
+  `[PROPOSED]`, or `[FUTURE]`. Do not use `[EXISTS]` or `[ACTIVE-WORK]` in new
+  or canonical material. `[VERIFIED]` requires a named metric receipt; code
+  presence alone is `[CODE-COMPLETE]`.
 - Correctness oracles, held-out eval inputs, and eval result schemas are frozen
   during an experiment. Change them in a separate reviewed change.
 - One research commit tests one hypothesis. Record every result, including

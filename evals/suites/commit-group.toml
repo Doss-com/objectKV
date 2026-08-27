@@ -1,0 +1,94 @@
+schema_version = 1
+id = "commit-group-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0008-transaction-isolation.md",
+  "../../rfcs/0029-split-transaction-authority-frontiers.md",
+  "../../rfcs/0031-bounded-concurrent-group-commit.md",
+]
+dataset_generator = "fixed-live-key-concurrent-commit-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 32768
+key_count = 256
+seeds = [4801, 4802, 4803]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 120
+repeats = 1
+backend = "data-openraft-local-process+stable-journal"
+authority_nodes = 3
+transaction_count = 512
+value_bytes = 128
+candidate_max_in_flight = 32
+control_max_in_flight = 1
+candidate_min_transactions_per_second = 200
+candidate_min_entries_per_append = 4
+candidate_max_commit_p99_seconds = 0.25
+paired_min_throughput_improvement = 4
+build_profile = "release"
+durability_profile = "openraft-node-journal-sync-all"
+
+[[lanes]]
+id = "commit-group"
+primary_metric = "commit.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "bounded-concurrency-candidate"
+lane = "commit-group"
+operation = "commit_group_contract"
+window_class = "candidate"
+
+[[workloads]]
+id = "sequential-same-durability-control"
+lane = "commit-group"
+operation = "commit_group_contract"
+subject = "sequential_control"
+window_class = "control"
+
+[[workloads]]
+id = "early-ack-poison"
+lane = "commit-group"
+operation = "commit_group_contract"
+negative_control = "acknowledge_before_quorum"
+window_class = "poison"
+
+[hard_gates]
+correctness_anomalies = 0
+authority_processes = 3
+transaction_count = 512
+live_keys = 256
+value_bytes = 128
+release_build = true
+unique_strictly_increasing_commit_versions = true
+exact_final_values = true
+exact_retry_returns_original_outcome = true
+leader_failover_preserves_state = true
+killed_voter_restart_preserves_state = true
+linearizable_retained_stream_is_complete = true
+candidate_min_transactions_per_second = 200
+candidate_min_entries_per_append = 4
+candidate_max_commit_p99_seconds = 0.25
+early_ack_poison_detected = true
+fresh_controller_semantic_replay_is_exact = true
+schema_valid = true
+budget_must_hold = true

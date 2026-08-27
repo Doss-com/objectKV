@@ -1,0 +1,139 @@
+{
+  "artifact_refs": [
+    "okv-eval://commit-proxy-v1/overload_control/5051/9f7599a18ec0f4fe6657a1754564a7d1183206056e3f4e7eadece4796c1d0933",
+    "okv-eval://commit-proxy-v1/overload_control/5052/d15bb96ce1a9aac716a330cf6faf1ed1bc33200b52914c2fd50ca6e021ee32c7",
+    "okv-eval://commit-proxy-v1/overload_control/5053/8351b61d037fc3f6ae3269609baa44ed08a09c2271991591a717405f541dc27f"
+  ],
+  "backend": "data-openraft-local-process+stable-journal",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 0.677947959
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T13:03:06.388765+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    },
+    {
+      "detail": "attempted=512,accepted=32,resolved=32,anomalies=0",
+      "id": "commit_proxy_correctness_contract",
+      "status": "pass"
+    },
+    {
+      "detail": "max_observed=20074",
+      "id": "entry_byte_bound",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=900,observed=[1444.6517569877242, 1387.5690120456602, 1427.3156456810232]",
+      "id": "candidate_min_transactions_per_second",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=16,observed=[32.0, 32.0, 32.0]",
+      "id": "candidate_min_logical_transactions_per_append",
+      "status": "pass"
+    },
+    {
+      "detail": "maximum=0.1,observed=[0.021951292, 0.022892084, 0.022296209]",
+      "id": "candidate_max_commit_p99_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "maximum=0.1",
+      "id": "admission_knee_max_commit_p99_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=overload_control",
+      "id": "sparse_delay_closure",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=overload_control",
+      "id": "byte_bound_closure",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=overload_control",
+      "id": "explicit_overload_backpressure",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=overload_control",
+      "id": "oversized_item_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "9f7599a18ec0f4fe6657a1754564a7d1183206056e3f4e7eadece4796c1d0933",
+      "id": "fresh_controller_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "commit-proxy-batch32",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 17.336111306701014,
+    "median": 1427.3156456810232,
+    "name": "okv.eval.commit.throughput",
+    "samples": [
+      1444.6517569877242,
+      1387.5690120456602,
+      1427.3156456810232
+    ],
+    "statistic": "median",
+    "unit": "{transaction}/s",
+    "value": 1427.3156456810232
+  },
+  "profile": {
+    "hash": "8c47183f13a08ee56e6e3bb42402d892cb4c0e934132c8b047a5798e57d2b6f6",
+    "id": "local-process",
+    "lockfile_hash": "42f2eb49b88531815b763396ed07a0b0e06be758979e9e988412ac2e34e62059",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "dcb667b9-fa56-4850-982f-64bb7c7e6c0c",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "commit_proxy.batch_items.median": 32.0,
+    "commit_proxy.p99_seconds.maximum": 0.022892084,
+    "commit_proxy.throughput.median": 1427.3156456810232,
+    "commit_proxy.wall_seconds": 0.677893542,
+    "operation.duration.median": 0.677947959
+  },
+  "seeds": [
+    5051,
+    5052,
+    5053
+  ],
+  "suite": "commit-proxy-batch32-v1",
+  "suite_hash": "c0e2981a4b06df11b140e1b595e0824514a15c9be953eea5f3aef41d5047ace6",
+  "verdict": "inconclusive"
+}

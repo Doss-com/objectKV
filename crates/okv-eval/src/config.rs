@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -73,6 +74,8 @@ pub struct LaneConfig {
     pub practical_improvement_fraction: f64,
     #[serde(default)]
     pub constraints: Vec<ConstraintConfig>,
+    #[serde(default)]
+    pub comparison_constraints: Vec<ComparisonConstraintConfig>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -88,6 +91,17 @@ pub struct ConstraintConfig {
     pub statistic: String,
     pub op: ConstraintOp,
     pub value: f64,
+}
+
+/// One candidate-to-control scalar constraint evaluated after both receipts exist.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ComparisonConstraintConfig {
+    pub id: String,
+    pub candidate_metric: String,
+    pub control_metric: String,
+    pub unit: String,
+    pub direction: Direction,
+    pub max_regression_fraction: f64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -241,6 +255,28 @@ pub fn load_suite(path: &Path) -> Result<LoadedSuite, ConfigError> {
     }
 }
 
+/// Hash one complete suite contract, including the registry, result schema, and
+/// every named contract file.
+///
+/// # Errors
+///
+/// Returns an error when any contract input cannot be read.
+pub fn contract_hash(loaded: &LoadedSuite) -> Result<String, Box<dyn Error>> {
+    let registry_bytes = fs::read(&loaded.registry_path)?;
+    let schema_bytes = fs::read(&loaded.result_schema_path)?;
+    let mut hasher = Sha256::new();
+    for bytes in [&loaded.suite_bytes, &registry_bytes, &schema_bytes] {
+        hasher.update(u64::try_from(bytes.len())?.to_be_bytes());
+        hasher.update(bytes);
+    }
+    for path in &loaded.contract_paths {
+        let bytes = fs::read(path)?;
+        hasher.update(u64::try_from(bytes.len())?.to_be_bytes());
+        hasher.update(bytes);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 fn read(path: &Path) -> Result<Vec<u8>, ConfigError> {
     fs::read(path).map_err(|error| ConfigError::Io {
         path: path.to_path_buf(),
@@ -269,8 +305,20 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
     if suite.id.trim().is_empty() {
         errors.push("suite id must not be empty".to_owned());
     }
-    if suite.status.trim().is_empty() {
-        errors.push("suite status must not be empty".to_owned());
+    let supported_statuses: BTreeSet<&str> = [
+        "code_complete",
+        "verified",
+        "evaluating",
+        "proposed",
+        "future",
+    ]
+    .into_iter()
+    .collect();
+    if !supported_statuses.contains(suite.status.as_str()) {
+        errors.push(format!(
+            "suite status {} must use the canonical proof taxonomy",
+            suite.status
+        ));
     }
     if !loaded.result_schema_path.is_file() {
         errors.push(format!(
@@ -339,8 +387,11 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
                 lane.id
             ));
         }
-        if lane.statistic.trim().is_empty() {
-            errors.push(format!("lane {} statistic must not be empty", lane.id));
+        if !supported_statistic(&lane.statistic) {
+            errors.push(format!(
+                "lane {} has unsupported statistic {}",
+                lane.id, lane.statistic
+            ));
         }
         for constraint in &lane.constraints {
             if !metric_ids.contains(constraint.metric.as_str()) {
@@ -352,10 +403,37 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
             if !constraint.value.is_finite() {
                 errors.push(format!("lane {} constraint value must be finite", lane.id));
             }
-            if constraint.statistic.trim().is_empty() {
+            if !supported_statistic(&constraint.statistic) {
                 errors.push(format!(
-                    "lane {} has an empty constraint statistic",
+                    "lane {} has unsupported constraint statistic {}",
+                    lane.id, constraint.statistic
+                ));
+            }
+        }
+        let mut comparison_constraint_ids = BTreeSet::new();
+        for constraint in &lane.comparison_constraints {
+            if !comparison_constraint_ids.insert(constraint.id.as_str()) {
+                errors.push(format!(
+                    "lane {} repeats comparison constraint {}",
+                    lane.id, constraint.id
+                ));
+            }
+            if constraint.id.trim().is_empty()
+                || constraint.candidate_metric.trim().is_empty()
+                || constraint.control_metric.trim().is_empty()
+                || constraint.unit.trim().is_empty()
+            {
+                errors.push(format!(
+                    "lane {} comparison constraints require non-empty id, metrics, and unit",
                     lane.id
+                ));
+            }
+            if !constraint.max_regression_fraction.is_finite()
+                || constraint.max_regression_fraction < 0.0
+            {
+                errors.push(format!(
+                    "lane {} comparison constraint {} requires a finite non-negative regression fraction",
+                    lane.id, constraint.id
                 ));
             }
         }
@@ -393,6 +471,13 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
     }
 
     errors
+}
+
+fn supported_statistic(statistic: &str) -> bool {
+    matches!(
+        statistic,
+        "median" | "p99" | "total" | "minimum" | "maximum" | "per_operation" | "passed"
+    )
 }
 
 fn validate_telemetry(suite: &Suite, errors: &mut Vec<String>) {
@@ -460,6 +545,7 @@ fn validate_registry_contract(registry: &MetricRegistry, errors: &mut Vec<String
         "service.version",
         "deployment.environment.name",
         "okv.eval.run.id",
+        "okv.eval.batch.id",
         "okv.eval.suite.id",
         "okv.eval.suite.hash",
         "okv.eval.profile.id",

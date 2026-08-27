@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">objectKV systems to infrastructure proof ladder</title>
+  <desc id="desc">A seven-rung proof ladder. Model, local files, local MinIO, and local operating-system processes have measured evidence. Independent machines and zones are not yet verified. GCP configuration is code complete while deployment is evaluating.</desc>
+  <defs>
+    <style>
+      .bg{fill:#fafafa}.v{fill:#ecfdf5;stroke:#059669;stroke-width:2}.c{fill:#eff6ff;stroke:#2563eb;stroke-width:2}.e{fill:#fffbeb;stroke:#d97706;stroke-width:2}.f{fill:#fafafa;stroke:#a1a1aa;stroke-width:2;stroke-dasharray:8 6}.title{font:700 22px Arial,sans-serif;fill:#18181b}.label{font:700 15px Arial,sans-serif;fill:#27272a}.body{font:13px Arial,sans-serif;fill:#52525b}.small{font:11px Arial,sans-serif;fill:#71717a}.num{font:700 18px Arial,sans-serif;fill:#18181b}.axis{stroke:#a1a1aa;stroke-width:2}
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1200" height="520"/>
+  <text class="title" x="48" y="42">What execution substrate backs each current claim?</text>
+  <line class="axis" x1="78" y1="462" x2="1120" y2="462"/>
+
+  <g transform="translate(48,76)">
+    <rect class="v" width="144" height="350" rx="4"/>
+    <text class="num" x="18" y="34">1</text>
+    <text class="label" x="18" y="68">Deterministic</text><text class="label" x="18" y="87">model</text>
+    <text class="body" x="18" y="126">MVCC, commit,</text><text class="body" x="18" y="145">HTAP, GC</text>
+    <text class="small" x="18" y="314">VERIFIED</text><text class="small" x="18" y="332">not systems proof</text>
+  </g>
+  <g transform="translate(206,118)">
+    <rect class="v" width="144" height="308" rx="4"/>
+    <text class="num" x="18" y="34">2</text>
+    <text class="label" x="18" y="68">Local files</text>
+    <text class="body" x="18" y="107">real sync calls,</text><text class="body" x="18" y="126">reopen, corruption</text>
+    <text class="small" x="18" y="272">VERIFIED</text><text class="small" x="18" y="290">one machine</text>
+  </g>
+  <g transform="translate(364,160)">
+    <rect class="v" width="144" height="266" rx="4"/>
+    <text class="num" x="18" y="34">3</text>
+    <text class="label" x="18" y="68">Local MinIO</text>
+    <text class="body" x="18" y="107">real S3-compatible</text><text class="body" x="18" y="126">protocol server</text>
+    <text class="small" x="18" y="230">VERIFIED</text><text class="small" x="18" y="248">loopback Docker</text>
+  </g>
+  <g transform="translate(522,202)">
+    <rect class="v" width="144" height="224" rx="4"/>
+    <text class="num" x="18" y="34">4</text>
+    <text class="label" x="18" y="68">OS processes</text>
+    <text class="body" x="18" y="107">TCP, SIGKILL,</text><text class="body" x="18" y="126">leader failover</text>
+    <text class="small" x="18" y="188">VERIFIED</text><text class="small" x="18" y="206">one machine</text>
+  </g>
+  <g transform="translate(680,244)">
+    <rect class="f" width="144" height="182" rx="4"/>
+    <text class="num" x="18" y="34">5</text>
+    <text class="label" x="18" y="68">Machines</text>
+    <text class="body" x="18" y="107">independent NVMe</text><text class="body" x="18" y="126">and power loss</text>
+    <text class="small" x="18" y="164">PROPOSED</text>
+  </g>
+  <g transform="translate(838,286)">
+    <rect class="e" width="144" height="140" rx="4"/>
+    <text class="num" x="18" y="34">6</text>
+    <text class="label" x="18" y="68">Zones + GCS</text>
+    <text class="body" x="18" y="105">config complete</text>
+    <text class="small" x="18" y="124">EVALUATING</text>
+  </g>
+  <g transform="translate(996,328)">
+    <rect class="f" width="144" height="98" rx="4"/>
+    <text class="num" x="18" y="34">7</text>
+    <text class="label" x="18" y="64">Sustained curves</text>
+    <text class="small" x="18" y="84">PROPOSED</text>
+  </g>
+
+  <text class="small" x="48" y="488">More realistic execution substrate →</text>
+  <rect class="v" x="812" y="468" width="14" height="14"/><text class="small" x="834" y="480">Verified</text>
+  <rect class="c" x="914" y="468" width="14" height="14"/><text class="small" x="936" y="480">Code Complete</text>
+  <rect class="e" x="1052" y="468" width="14" height="14"/><text class="small" x="1074" y="480">Evaluating</text>
+</svg>

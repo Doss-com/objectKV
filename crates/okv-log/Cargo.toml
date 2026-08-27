@@ -1,0 +1,11 @@
+[package]
+name = "okv-log"
+description = "Deterministic ordered-log state machine for objectKV"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true

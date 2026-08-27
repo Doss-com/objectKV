@@ -1,0 +1,98 @@
+schema_version = 1
+id = "frontiered-process-snapshot-v1"
+status = "code_complete"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0029-split-transaction-authority-frontiers.md",
+  "../../rfcs/0030-authenticated-object-frontier.md",
+  "../../rfcs/0036-independent-media-frontier-convergence.md",
+]
+dataset_generator = "fixed-live-key-frontiered-snapshot-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 32768
+key_count = 256
+seeds = [5601, 5602, 5603]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 240
+repeats = 1
+backend = "local-fs+publication-openraft+data-openraft+frontiered-durable-snapshot"
+data_authority_processes = 3
+publication_authority_processes = 3
+frontier_cycles = 4
+transactions_per_cycle = 256
+transactions_per_batch = 32
+live_keys = 256
+value_bytes = 128
+retry_window = 64
+resolver_frontier = "latest_committed_version_at_cycle"
+object_frontier = "authenticated_frozen_commit_version_at_cycle"
+snapshot_purge_position = "minimum_voter_applied_position_after_frontiers"
+max_physical_amplification = 8.0
+max_snapshot_growth_ratio = 1.25
+build_profile = "release"
+durability_profile = "sync-snapshot+atomic-replace+canonical-journal"
+
+[[lanes]]
+id = "frontiered-process-snapshot"
+primary_metric = "storage.amplification"
+statistic = "maximum"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "frontiered-process-snapshot-candidate"
+lane = "frontiered-process-snapshot"
+operation = "frontiered_process_snapshot_contract"
+subject = "aligned_r_q_o_candidate"
+
+[[workloads]]
+id = "frontiered-process-snapshot-no-retry-frontier"
+lane = "frontiered-process-snapshot"
+operation = "frontiered_process_snapshot_contract"
+subject = "no_retry_frontier_control"
+
+[[workloads]]
+id = "frontiered-process-snapshot-accounting-poison"
+lane = "frontiered-process-snapshot"
+operation = "frontiered_process_snapshot_contract"
+negative_control = "omit_retry_and_recovery_state_from_accounting"
+
+[hard_gates]
+correctness_anomalies = 0
+three_real_openraft_data_processes = true
+three_real_openraft_publication_processes = true
+release_build = true
+four_complete_frontier_cycles = true
+frozen_object_frontiers_are_authenticated = true
+resolver_frontier_equals_cycle_commit_version = true
+retry_window_is_exactly_64_requests = true
+expired_retry_is_rejected_without_mutation = true
+retained_retry_replays_exactly = true
+durable_snapshot_covers_purge = true
+physical_journals_reclaim_bytes = true
+full_quorum_restart_is_exact_each_cycle = true
+object_plus_suffix_reconstruction_is_exact = true
+suffix_commit_after_final_restart = true
+max_physical_amplification = 8.0
+max_snapshot_growth_ratio = 1.25
+bounded_lifetime_media_curve = true
+accounting_poison_detected = true
+schema_valid = true
+budget_must_hold = true

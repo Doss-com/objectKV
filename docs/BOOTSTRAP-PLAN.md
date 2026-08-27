@@ -1,5 +1,79 @@
 # objectKV bootstrap and implementation plan
 
+## Program goal
+
+Prove or falsify objectKV as an open-source, open-format storage substrate for
+distributed applications and, if admitted by evidence, build its first
+production-credible cell.
+
+The target is a cell-scoped, strict-serializable ordered KV composed from
+reusable `okv-log` and `okv-wal` primitives, a quorum-durable txLog hot path,
+bounded disposable RAM or SSD serving state, and immutable S3-compatible
+objects as permanent, branchable history. Prove that one version history can
+support low-latency point and range OLTP, replay and branching, PostgreSQL
+storage semantics, and DataFusion base-plus-tail OLAP without ETL.
+
+Advance each layer from `[CODE-COMPLETE]` to `[VERIFIED]` only through frozen
+correctness, crash-recovery, bounded-state, latency, throughput, and economics
+gates. Run those gates with OTel telemetry and immutable receipts on real
+infrastructure against same-durability RocksDB, TiKV, FoundationDB, or other
+appropriate controls.
+
+If native transaction authority cannot establish material object-native
+leverage over an incumbent, pivot transaction authority to TiKV or FoundationDB
+while retaining `okv-log`, `okv-wal`, object publication, branching, and the
+version-aligned PostgreSQL plus DataFusion history. Material leverage means a
+measured advantage in at least one load-bearing property such as independent
+storage and compute scaling, branch and recovery cost, open-format access, or
+total economics without an unacceptable correctness or latency regression.
+
+The program succeeds with a documented go or pivot decision backed by the full
+eval record. A go decision additionally requires contributor-ready
+specifications, runnable examples, code, operational bounds, and immutable eval
+receipts for the first production-credible cell. Until those receipts exist,
+objectKV remains a research program rather than an admitted database product.
+
+### Current golden-path frontier
+
+`[VERIFIED]` The R0 mechanism reconstructs one public range from regional GCS
+plus a retained txLog suffix into bounded local NVMe, survives worker loss, and
+performs zero object operations during the measured hot-read window.
+
+`[VERIFIED]` The GP3.1 native experiment reached its stop condition. The final
+candidate retained 84.11 and 82.68 percent of owned-value direct RocksDB
+throughput, passing the frozen floor. P99 was 1.210x and 1.272x control, failing
+the ceiling in both process orders. Exact replay, bounded native state, empty-
+worker reconstruction, zero measured object operations, and all three OTel
+signals passed.
+
+`[EVALUATING]` The next rung is the incumbent-plane selection, not RAM,
+MultiRaft, PostgreSQL, or HTAP. objectKV retains `okv-log`, `okv-wal`, immutable
+publication, branching, reconstruction, versioned history, and DataFusion
+projection. TiKV or FoundationDB supplies resident MVCC and transaction
+processing. The immutable evidence is under
+`docs/artifacts/eval-receipts/single-range-native-resident-gcp-r2-2026-08-27/`.
+
+### What the goal optimizes for
+
+- One small, composable ordered transaction substrate for distributed
+  applications.
+- Fast resident reads and writes with permanent, open, branchable object state.
+- Independent storage and compute scaling without putting object latency in the
+  normal commit path.
+- One exact version history usable by OLTP serving models, PostgreSQL, and
+  DataFusion rather than an ETL-copied analytical truth.
+- Claims backed by reproducible receipts, including negative controls and
+  matched-durability alternatives.
+
+### What the goal gives up
+
+- Cross-cell transactions and a global synchronous version space.
+- Object-only low-latency commits as the default durability profile.
+- Immediate work on MultiRaft, PostgreSQL completeness, metaclusters, or HTAP
+  optimization before the resident and cold-object performance curves pass.
+- A commitment to owning transaction authority if TiKV or FoundationDB is the
+  stronger measured foundation.
+
 ## Original intent
 
 Launch objectKV as a contributor-ready open-source project, then use an eval-led
@@ -51,7 +125,7 @@ models that pressure-test the kernel without replacing the PostgreSQL north star
 - Mechanism: a single-threaded executable specification, generated histories,
   differential checks, and an immutable-segment interface.
 - First files: `crates/okv-model`, RFC-0002, RFC-0003, RFC-0004.
-- `[EXISTS]` The logical model fixes generation-aware versions, gaps, canonical
+- `[VERIFIED]` The logical model fixes generation-aware versions, gaps, canonical
   exact replay, range tombstones, scans, read-your-writes, and an inclusive
   oldest-readable boundary. Large-value references remain open.
 - Failure mode: implementation and oracle share the same bug or the version
@@ -174,7 +248,7 @@ models that pressure-test the kernel without replacing the PostgreSQL north star
 
 ### S0. Bootstrap the project
 
-Status: `[ACTIVE-WORK]`.
+Status: `[EVALUATING]`.
 
 Deliverables:
 
@@ -189,15 +263,16 @@ the architecture memo.
 
 ### S1. Establish the Phase 0 baseline
 
-Status: `[ACTIVE-WORK]`. Object-store conformance and the repaired SlateDB
+Status: `[EVALUATING]`. Object-store conformance and the repaired SlateDB
 filesystem scale curve now execute; MinIO physical storage, GCS, compaction,
 one bounded layout pass, and target-workload ceilings remain open.
 
 Memory, filesystem, and pinned MinIO now have executable capability-profiled
 conformance evidence. Filesystem is intentionally segment-only because the
 shared Apache `object_store` API does not expose conditional update for its
-local backend. GCS remains unexecuted until `objectKV-dev` authentication and
-provisioning are available.
+local backend. A bounded real-GCS cache-admission canary now executes in
+`doss-objectkv-dev`; Phase 0 SlateDB and object-authority conformance on GCS,
+clean-source repetition, and required OTel remain open.
 
 RFC-0021 and `phase0-slate-filesystem-v1` run 8 MiB per seed through pinned
 SlateDB at revision `e0161973`. The original 129.9 ms reopen result included
@@ -223,7 +298,7 @@ stops SlateDB as the incumbent without stopping objectKV.
 
 ### S2. Build the versioned object engine
 
-Status: `[ACTIVE-WORK]` logical contract; storage-engine implementation remains
+Status: `[EVALUATING]` logical contract; storage-engine implementation remains
 `[PROPOSED]`.
 
 Introduce externally assigned versions, point reads, range reads, exact replay,
@@ -241,7 +316,7 @@ Exit: Gate 1 re-runs against the objectKV adapter with no correctness failures.
 
 ### S3. Add the fast durability tier
 
-Status: `[ACTIVE-WORK]` the simulator, local stable storage, three-node OpenRaft
+Status: `[EVALUATING]` the simulator, local stable storage, three-node OpenRaft
 replication, real-process retry recovery, and generation handoff gates exist;
 the production WAL remains `[PROPOSED]`.
 
@@ -267,8 +342,9 @@ preserve every acknowledged commit within the published RPO contract.
 
 ### S4. Make serving disposable
 
-Status: `[ACTIVE-WORK]` for publication workers; read serving and full
-materialization recovery remain `[PROPOSED]`.
+Status: `[EVALUATING]` for publication and disposable read serving. Complete
+single-range materialization recovery is `[VERIFIED]` on the R0 mechanism; its
+steady-state p99 is not admitted.
 
 Separate read/materialization workers from permanent bytes. Start with an empty
 cache and demonstrate bounded logical readiness independent of dataset size.

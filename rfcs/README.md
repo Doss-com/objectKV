@@ -10,7 +10,7 @@ not harden until their RFC is accepted.
 |---|---|---|---|
 | 0001 | project principles | proposed | public contract |
 | 0002 | version and MVCC model | proposed, implementation active | reference model and adapter |
-| 0003 | immutable segment contract | proposed | segment adapter |
+| 0003 | immutable segment contract | proposed, point-read pilot implementation active | segment adapter and cold-point curve |
 | 0004 | object-store correctness | proposed | backend conformance |
 | 0005 | durability and WAL | proposed | replicated fast log |
 | 0006 | logical range model | draft | routing and movement |
@@ -30,5 +30,24 @@ not harden until their RFC is accepted.
 | 0020 | Publisher recovery after lost replicated Publish response | proposed, implementation active | acknowledgement-aligned authority outcome recovery |
 | 0021 | SlateDB Phase 0 filesystem baseline | proposed, implementation active | first executable physical-economics incumbent |
 | 0022 | SlateDB filesystem scale curve | proposed, implementation active | 1 MiB to 64 MiB reopen and object-I/O shape |
+| 0023 | Resident ServingWorker hot path | proposed, implementation active | direct RocksDB control and object-fallback poison |
+| 0024 | Ordered log substrate and WAL layering | proposed, implementation active | reusable log algebra and WAL adapter |
+| 0025 | SSD and RAM serving profiles with independent durability | proposed | common serving-image contract, profile transitions, and explicit durability modes |
+| 0026 | ServingWorker process recovery from objects plus txLog | `[EVALUATING]` | authoritative-root, durable-tail, and empty-replacement composition |
+| 0027 | Authority-owned retained transaction stream | proposed, implementation active | journal-independent recovery suffix and concurrent catch-up |
+| 0028 | Bound transaction-authority state before safe pop | `[EVALUATING]`, current layout discarded | 9.172x ideal-pop snapshot growth requires state-owner split |
+| 0029 | Split transaction-authority retention frontiers | `[EVALUATING]` | separate serving, resolver, retry, and recovery ownership |
+| 0030 | Authenticated object frontier and crash-safe txLog pop | `[PROPOSED]` | pending-to-active publication proof and physical recovery-stream reclamation |
+| 0031 | Bounded concurrent group commit | `[CODE-COMPLETE]`, final mechanism discarded | same-durability pipelining and stable-I/O curve |
+| 0032 | Transaction batch entry | `[CODE-COMPLETE]`, local receipt evaluating | shared commit version, ordered versionstamps, and explicit leader-side batching |
+| 0033 | Commit-proxy batch closure and admission | `[CODE-COMPLETE]`, G4.10a.1 local receipt evaluating | independent requests, bounded delay and bytes, explicit overload |
+| 0034 | Compact transaction and batch wire | `[CODE-COMPLETE]`, local receipt evaluating | backward-readable base64 byte fields for v2 bootstrap wire |
+| 0035 | Concurrent commit-proxy and object-frontier composition | `[CODE-COMPLETE]`, G4.10b local receipt evaluating | conflict curve, concurrent safe pop, and exact object-plus-tail recovery |
+| 0036 | Independent-media object-frontier convergence | `[PROPOSED]`, G4.11a mechanism code complete | frontiered bounded snapshots, remote objects, and host-loss proof |
+| 0037 | Manifested multi-layout LSM | `[PROPOSED]`, evaluation contract frozen | row, Parquet, random-access columnar, and hybrid object-layout fork before G4.11b |
+| 0038 | First integrated single-range kernel API | `[PROPOSED]`, implementation code complete, local receipt evaluating | public object-base plus versionstamp-safe txLog-tail composition |
+| 0039 | SingleRange serving-image boundary | `[CODE-COMPLETE]`, `[EVALUATING]` | provider-neutral hot-state activation and the public SSD point-read curve |
+| 0040 | Native resident-engine data plane | `[EVALUATING]`, measured candidate rejected | preserve the prototype as evidence and select TiKV or FoundationDB for the resident transaction plane |
+| 0041 | Incumbent transaction-plane adapter | `[CODE-COMPLETE]` contract and source-pinned preflight, `[EVALUATING]` live selection | semantic preflight, object continuity, and TiKV versus FoundationDB provider selection |
 
 Use `0000-template.md` for new proposals.

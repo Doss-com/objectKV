@@ -1,0 +1,90 @@
+schema_version = 1
+id = "serving-worker-process-recovery-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0015-replicated-publication-authority.md",
+  "../../rfcs/0025-hot-serving-and-durability-profiles.md",
+  "../../rfcs/0026-serving-worker-process-recovery.md",
+]
+dataset_generator = "deterministic-object-base-plus-point-tail-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-fs]
+logical_bytes = 1048576
+key_count = 1024
+seeds = [1103, 2207, 3301]
+
+[profiles.local-fs]
+budget_kind = "seconds"
+budget_limit = 180
+repeats = 1
+backend = "object-store-local-fs+authority-openraft+quorum-wal-files"
+authority_nodes = 3
+worker_process_starts_per_seed = 2
+worker_process_kills_per_seed = 1
+cache_state = "empty_worker"
+serving_profile = "ram_resident"
+durability_profile = "local_quorum_files_diagnostic"
+row_object_target_bytes = 262144
+row_object_block_bytes = 32768
+kill_boundary = "recovered_before_first_read"
+replacement_scratch = "distinct_empty_directory"
+
+[[lanes]]
+id = "serving-worker-process-recovery"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.05
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "replacement-worker-object-plus-tail"
+lane = "serving-worker-process-recovery"
+operation = "serving_worker_process_recovery_contract"
+
+[[workloads]]
+id = "replacement-worker-full-hydration-control"
+lane = "serving-worker-process-recovery"
+operation = "serving_worker_process_recovery_contract"
+subject = "full_hydration"
+
+[[workloads]]
+id = "replacement-worker-skip-tail-poison"
+lane = "serving-worker-process-recovery"
+operation = "serving_worker_process_recovery_contract"
+negative_control = "skip_tail_replay"
+
+[hard_gates]
+correctness_anomalies = 0
+authority_processes = 3
+generation_publication_generation_read_is_stable = true
+manifest_identity_is_authoritative = true
+txlog_suffix_is_quorum_recovered = true
+txlog_suffix_is_non_empty = true
+first_worker_is_killed_after_recovery_before_read = true
+replacement_uses_distinct_empty_scratch = true
+replacement_returns_exact_base_update_delete_and_insert_reads = true
+candidate_uses_one_manifest_get = true
+candidate_uses_one_selected_index_get = true
+candidate_uses_at_most_one_data_range_get = true
+candidate_uses_zero_complete_data_gets = true
+candidate_uses_zero_list_operations = true
+fresh_process_semantic_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true

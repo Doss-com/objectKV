@@ -1,0 +1,139 @@
+{
+  "artifact_refs": [
+    "okv-eval://commit-proxy-v1/oversized_item_poison/5001/c796552929638b62244b635cd613e3b328af127c4b98534a798e7e66fe3203c4",
+    "okv-eval://commit-proxy-v1/oversized_item_poison/5002/741e83e3412b8567aea6c8c81560d2d29d34a2c89133d6c9f8564f1b7ebcc267",
+    "okv-eval://commit-proxy-v1/oversized_item_poison/5003/fb48101c6c667b8554d8638e339ff3da77843abcb4f371e58397d0a3e8a85084"
+  ],
+  "backend": "data-openraft-local-process+stable-journal",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 0.427127
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T12:58:57.273231+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    },
+    {
+      "detail": "attempted=1,accepted=0,resolved=0,anomalies=0",
+      "id": "commit_proxy_correctness_contract",
+      "status": "pass"
+    },
+    {
+      "detail": "max_observed=0",
+      "id": "entry_byte_bound",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=500,observed=[0.0, 0.0, 0.0]",
+      "id": "candidate_min_transactions_per_second",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=8,observed=[0.0, 0.0, 0.0]",
+      "id": "candidate_min_logical_transactions_per_append",
+      "status": "pass"
+    },
+    {
+      "detail": "maximum=0.1,observed=[0.0, 0.0, 0.0]",
+      "id": "candidate_max_commit_p99_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "maximum=0.1",
+      "id": "admission_knee_max_commit_p99_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=oversized_item_poison",
+      "id": "sparse_delay_closure",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=oversized_item_poison",
+      "id": "byte_bound_closure",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=oversized_item_poison",
+      "id": "explicit_overload_backpressure",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=oversized_item_poison",
+      "id": "oversized_item_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "c796552929638b62244b635cd613e3b328af127c4b98534a798e7e66fe3203c4",
+      "id": "fresh_controller_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "commit-proxy",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 0.0,
+    "median": 0.0,
+    "name": "okv.eval.commit.throughput",
+    "samples": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "statistic": "median",
+    "unit": "{transaction}/s",
+    "value": 0.0
+  },
+  "profile": {
+    "hash": "e1d312426f350a86118cc04d7c2ac335e8f0a9d15a6784c9db4bcea17653a9d3",
+    "id": "local-process",
+    "lockfile_hash": "42f2eb49b88531815b763396ed07a0b0e06be758979e9e988412ac2e34e62059",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "oversized transaction was rejected before admission and mutation",
+  "run_id": "14e546e2-fd8e-4c13-9688-bd86329bba51",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "commit_proxy.batch_items.median": 0.0,
+    "commit_proxy.p99_seconds.maximum": 0.0,
+    "commit_proxy.throughput.median": 0.0,
+    "commit_proxy.wall_seconds": 0.427067208,
+    "operation.duration.median": 0.427127
+  },
+  "seeds": [
+    5001,
+    5002,
+    5003
+  ],
+  "suite": "commit-proxy-v1",
+  "suite_hash": "89381b04a5df70ff631138a98fb777d89a0895cad7e92a911d97e0ff93aeb1ba",
+  "verdict": "discard"
+}

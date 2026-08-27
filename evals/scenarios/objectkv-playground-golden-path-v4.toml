@@ -1,0 +1,94 @@
+schema_version = 1
+id = "objectkv-playground-golden-path-v4"
+description = "Paired Tetris and Chess proof ladder through one integrated objectKV cell, preserving the frozen application boundary while joining transaction authority, retained txLog, bounded serving, authenticated object publication, exact recovery, and copy-on-write branching."
+generator = "deterministic-tetris-and-chess-v4"
+seeds = [1]
+initial_artifacts = ["objectkv-boundary-v0", "application-record-v1", "history-manifest-v1"]
+
+[[surfaces]]
+id = "application-history"
+name = "Application history"
+question = "Do compact records and checkpoints reconstruct the exact materialized state and reject false history?"
+
+[[surfaces]]
+id = "transaction-and-consensus"
+name = "Transaction and process consensus"
+question = "Do business mutations and application records remain atomic through failover and retry?"
+
+[[surfaces]]
+id = "serving"
+name = "Bounded disposable serving"
+question = "Can bounded RAM and SSD images serve exact reads and rebuild without local authoritative state?"
+
+[[surfaces]]
+id = "object-lifecycle"
+name = "Object history lifecycle"
+question = "Can verified immutable closures publish, recover, fork without prefix copies, and collect only unreachable objects?"
+
+[[surfaces]]
+id = "integrated-cell"
+name = "Integrated objectKV cell"
+question = "Does one unchanged application boundary compose the transaction, serving, and object planes into a measurable recoverable system?"
+
+[[checkpoints]]
+id = "gp-g0-g1"
+name = "Frozen encoding and replay"
+surface = "application-history"
+objective = "Require matching Tetris and Chess fingerprints, bounded replay, exact checkpoint identity, and seven poison controls per workload."
+depends_on = []
+inputs = ["application-record-v1"]
+outputs = ["gp-g1-receipts"]
+
+[[checkpoints]]
+id = "gp-g2"
+name = "Transactional alignment"
+surface = "transaction-and-consensus"
+objective = "Require application record and business mutations to commit or abort together."
+depends_on = ["gp-g0-g1"]
+inputs = ["gp-g1-receipts", "objectkv-boundary-v0"]
+outputs = ["gp-g2-receipts"]
+
+[[checkpoints]]
+id = "gp-g3"
+name = "Process consensus recovery"
+surface = "transaction-and-consensus"
+objective = "Require canonical envelopes to survive lost reply, leader kill, duplicate retry, restart, and three-node catch-up on one host."
+depends_on = ["gp-g2"]
+inputs = ["gp-g2-receipts"]
+outputs = ["gp-g3-receipts"]
+
+[[checkpoints]]
+id = "gp-g4"
+name = "Bounded serving and rebuild"
+surface = "serving"
+objective = "Require exact hot and historical reads, enforced RAM and SSD budgets, and complete serving-image discard and rebuild."
+depends_on = ["gp-g2"]
+inputs = ["gp-g2-receipts"]
+outputs = ["gp-g4-serving-receipts"]
+
+[[checkpoints]]
+id = "gp-g5"
+name = "Authenticated object publication"
+surface = "object-lifecycle"
+objective = "Require recursive closure verification, authenticated publication authority, exact cold reopen, and measured GCS requests and bytes."
+depends_on = ["gp-g0-g1"]
+inputs = ["gp-g1-receipts", "history-manifest-v1"]
+outputs = ["gp-g5-receipts"]
+
+[[checkpoints]]
+id = "gp-g6"
+name = "Copy-on-write branch and reserved GC"
+surface = "object-lifecycle"
+objective = "Require zero copied prefix objects, exact parent-root pinning, exact root removal, reserved deletion, and surviving-root reopen."
+depends_on = ["gp-g5"]
+inputs = ["gp-g5-receipts"]
+outputs = ["gp-g6-receipts"]
+
+[[checkpoints]]
+id = "gp-g7"
+name = "Integrated Tetris cell"
+surface = "integrated-cell"
+objective = "Keep boundary v0 unchanged; commit through replicated authority and retained txLog; serve from bounded RAM or SSD; publish an authenticated GCS base; kill the serving process; recover the exact game from the object watermark plus txLog suffix; create a zero-prefix-copy branch; and emit OTel latency, recovery, object, branch, and cost receipts."
+depends_on = ["gp-g3", "gp-g4", "gp-g6"]
+inputs = ["gp-g3-receipts", "gp-g4-serving-receipts", "gp-g6-receipts"]
+outputs = ["objectkv-playground-v4-receipt"]

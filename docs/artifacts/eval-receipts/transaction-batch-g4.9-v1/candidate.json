@@ -1,0 +1,120 @@
+{
+  "artifact_refs": [
+    "okv-eval://transaction-batch-v1/candidate/4901/f713dbac1f2cbc96d336ed78828642e3c7123f0d78e7610242a0d632a39760de",
+    "okv-eval://transaction-batch-v1/candidate/4902/7d34f0c23206b1da5fc9c66550036df47564a301b9d6003708753452d6f289b1",
+    "okv-eval://transaction-batch-v1/candidate/4903/898c704ddd34bedf4c59b7906f80f2e629b716e9a3745224add6e72db9d5eabd",
+    "/private/tmp/okv-g49-candidate.json"
+  ],
+  "backend": "data-openraft-local-process+stable-journal",
+  "budget": {
+    "kind": "seconds",
+    "limit": 120.0,
+    "observed": 10.811396542
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T12:27:41.532586+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "authority_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    },
+    {
+      "detail": "committed=512,versionstamps=true,stream=true,retry=true,failover=true,restart=true",
+      "id": "transaction_batch_recovery_contract",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=400,observed=[547.1914317140479, 566.373273400982, 559.5110943974171]",
+      "id": "candidate_min_transactions_per_second",
+      "status": "pass"
+    },
+    {
+      "detail": "minimum=8,observed=[16.0, 16.0, 16.0]",
+      "id": "candidate_min_logical_transactions_per_append",
+      "status": "pass"
+    },
+    {
+      "detail": "maximum=0.1,observed=[0.034015666, 0.03345375, 0.033918708]",
+      "id": "candidate_max_commit_p99_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "duplicate_identity_control_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "early_ack_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "f713dbac1f2cbc96d336ed78828642e3c7123f0d78e7610242a0d632a39760de",
+      "id": "fresh_controller_semantic_replay",
+      "status": "pass"
+    }
+  ],
+  "lane": "transaction-batch",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "higher",
+    "mad": 6.862179003564961,
+    "median": 559.5110943974171,
+    "name": "okv.eval.commit.throughput",
+    "samples": [
+      547.1914317140479,
+      566.373273400982,
+      559.5110943974171
+    ],
+    "statistic": "median",
+    "unit": "{transaction}/s",
+    "value": 559.5110943974171
+  },
+  "profile": {
+    "hash": "8dbf4d754f07ee26f3182015ca4fd8965803d00e25ebb1e479c5af24ec00afc5",
+    "id": "local-process",
+    "lockfile_hash": "7ab75cea173b897bb31f6a33fbd635995efc1d648ebcc3f8f78db714f109c5ad",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "diagnostic dirty-tree run; hard gates passed but the result is not comparable",
+  "run_id": "0f50aeae-d153-43ef-b347-112411a70ad7",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 10.811396542,
+    "transaction_batch.logical_transactions_per_append.minimum": 16.0,
+    "transaction_batch.p99_seconds.maximum": 0.034015666,
+    "transaction_batch.throughput.median": 559.5110943974171,
+    "transaction_batch.wall_seconds": 10.811318708
+  },
+  "seeds": [
+    4901,
+    4902,
+    4903
+  ],
+  "suite": "transaction-batch-v1",
+  "suite_hash": "c34b47eb5965dedf95d529c9b72a6fe8af4c73adc58bdec45060b6816862f585",
+  "verdict": "inconclusive"
+}

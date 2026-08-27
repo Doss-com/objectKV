@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://objectkv.dev/schema/transaction-machine-config-v1.schema.json",
+  "title": "objectKV transaction machine configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "addresses",
+    "roots",
+    "machine_ids",
+    "failure_domains",
+    "controller_machine_id",
+    "controller_failure_domain",
+    "lifecycle_hook",
+    "hook_timeout_seconds"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "addresses": { "$ref": "#/$defs/nodeStrings" },
+    "roots": { "$ref": "#/$defs/nodeStrings" },
+    "machine_ids": { "$ref": "#/$defs/nodeStrings" },
+    "failure_domains": { "$ref": "#/$defs/nodeStrings" },
+    "controller_machine_id": { "type": "string", "minLength": 1 },
+    "controller_failure_domain": { "type": "string", "minLength": 1 },
+    "lifecycle_hook": { "type": "string", "minLength": 1 },
+    "hook_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 900 }
+  },
+  "$defs": {
+    "nodeStrings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["1", "2", "3"],
+      "properties": {
+        "1": { "type": "string", "minLength": 1 },
+        "2": { "type": "string", "minLength": 1 },
+        "3": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

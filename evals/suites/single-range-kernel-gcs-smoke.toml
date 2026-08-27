@@ -1,0 +1,87 @@
+schema_version = 1
+id = "single-range-kernel-gcs-smoke-v1"
+status = "code_complete"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0004-object-store-correctness.md",
+  "../../rfcs/0005-durability-and-wal.md",
+  "../../rfcs/0007-manifest-publication.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0027-retained-transaction-stream.md",
+  "../../rfcs/0032-transaction-batch-entry.md",
+  "../../rfcs/0038-single-range-kernel-api.md",
+]
+dataset_generator = "deterministic-single-range-object-base-plus-versionstamped-tail-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["local-controller-gcs-smoke"]
+
+[dataset.local-controller-gcs-smoke]
+logical_bytes = 34816
+key_count = 256
+seeds = [1103]
+
+[profiles.local-controller-gcs-smoke]
+budget_kind = "seconds"
+budget_limit = 180
+repeats = 1
+backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process"
+publication_authority_nodes = 3
+transaction_authority_nodes = 3
+worker_process_starts_per_seed = 2
+worker_process_kills_per_seed = 1
+cache_state = "empty_worker_with_remote_gcs_object_base"
+serving_profile = "ram_overlay_with_gcs_object_fallback"
+durability_profile = "gcs-object-base+openraft-node-journal-single-host-diagnostic"
+row_object_target_bytes = 16384
+row_object_block_bytes = 4096
+retained_stream_page_records = 1
+kill_boundary = "initial_versionstamped_catchup_complete_before_read"
+concurrent_commit_boundary = "replacement_initial_catchup_complete"
+replacement_scratch = "distinct_empty_directory"
+
+[[lanes]]
+id = "single-range-kernel-gcs-smoke"
+primary_metric = "recovery.first_correct_read_duration"
+statistic = "p99"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "integrated-single-range-gcs-versionstamp-recovery"
+lane = "single-range-kernel-gcs-smoke"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "integrated_kernel"
+value_bytes = 128
+
+[hard_gates]
+correctness_anomalies = 0
+publication_authority_processes = 3
+transaction_authority_processes = 3
+worker_process_starts = 2
+worker_process_kills = 1
+replacement_uses_distinct_empty_scratch = true
+initial_transactions_share_one_commit_version = true
+versionstamp_cursor_resumes_inside_batch = true
+initial_records_applied = 3
+concurrent_records_applied = 4
+set_clear_insert_and_clear_range_are_exact = true
+physical_raft_journal_path_accesses = 0
+candidate_uses_one_manifest_get = true
+candidate_uses_one_selected_index_get = true
+candidate_uses_at_most_one_data_range_get = true
+candidate_uses_zero_complete_data_gets = true
+candidate_uses_zero_list_operations = true
+fresh_process_semantic_replay_is_byte_exact = true
+schema_valid = true
+budget_must_hold = true

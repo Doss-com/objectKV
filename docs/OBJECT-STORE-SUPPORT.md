@@ -1,6 +1,6 @@
 # Object-store capability evidence
 
-Status: `[ACTIVE-WORK]` local profiles are executable; GCS evidence is pending.
+Status: `[EVALUATING]` local profiles are verified; GCS evidence is pending.
 
 Support means an exact backend and version passed one named profile. A segment
 row does not permit the backend to host mutable authority metadata.
@@ -10,7 +10,7 @@ row does not permit the backend to host mutable authority metadata.
 | Memory | Apache `object_store 0.14.1`, in-process | pass | pass | ETag | SHA-256 pass | no, reservation plus horizon fallback |
 | Filesystem | Apache `object_store 0.14.1`, local filesystem | pass | fail as expected | unsupported | SHA-256 pass | no, reservation plus horizon fallback |
 | MinIO | `RELEASE.2025-09-07T16-13-09Z`, Apache `object_store 0.14.1` | pass | pass | `If-Match` ETag | SHA-256 pass | no, reservation plus horizon fallback |
-| GCS dev | `[PROPOSED]` protected `objectKV-dev` bucket | not run | not run | generation match | not run | not implemented; live receipt pending |
+| GCS dev | `[EVALUATING]` `doss-objectkv-dev-okv-evals`, `us-central1` | not run | real namespaced range-read canary passed exactness gates | generation match | not run | adapter and performance canary ran; authority conformance remains open |
 
 ## Accepted local receipts
 

@@ -1,6 +1,6 @@
 # RFC-0002: Version and MVCC model
 
-- Status: proposed; implementation evidence `[ACTIVE-WORK]`
+- Status: proposed; implementation evidence `[EVALUATING]`
 - Authors: DOSS
 - Created: 2026-08-22
 
@@ -135,21 +135,21 @@ immediate physical deletion.
 
 ## Executable evidence
 
-- `[EXISTS]` `okv-model` implements the 16-byte generation-aware value, exact
+- `[VERIFIED]` `okv-model` implements the 16-byte generation-aware value, exact
   replay identity, point and half-open range tombstones, scans, retention
   boundaries, and read-your-writes.
-- `[EXISTS]` `evals/suites/model-history.toml` runs five deterministic seeds,
+- `[VERIFIED]` `evals/suites/model-history.toml` runs five deterministic seeds,
   1,000 events per seed, against an independently normalized full-snapshot
   oracle. It does not reuse the model's replay fingerprint.
-- `[EXISTS]` The current developer diagnostic covers 5,000 events, 78,505
+- `[VERIFIED]` The current developer diagnostic covers 5,000 events, 78,505
   point/scan reads, 925 range clears, 75 exact replays, 55 conflicting replays,
   65 future reads, 65 retention advances, 70 expired reads, 85 historical/gap
   reads, and 60 stale-generation attempts with zero divergence.
-- `[EXISTS]` Seven deliberate subjects separately break range clears, canonical
+- `[VERIFIED]` Seven deliberate subjects separately break range clears, canonical
   replay order, conflicting replay, future-read availability, inclusive
   retention, expired-read rejection, and stale-generation fencing. Each is
   rejected at a deterministic prefix between steps 2 and 9.
-- `[ACTIVE-WORK]` Run the same histories against storage-engine adapters after
+- `[EVALUATING]` Run the same histories against storage-engine adapters after
   their range-clear, explicit-version read, and retention seams exist.
 
 ## Compatibility and migration

@@ -6,7 +6,7 @@
 
 mod node_journal;
 
-pub use node_journal::{JournalError, JournalMarker, JournalState, NodeJournal};
+pub use node_journal::{JournalCompaction, JournalError, JournalMarker, JournalState, NodeJournal};
 
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};

@@ -1,0 +1,158 @@
+{
+  "artifact_refs": [
+    "okv-eval://frontiered-process-snapshot-v1/aligned_r_q_o_candidate/5601/eb88be071e61e2e39ddfe5fad4f18ef36360bb7a896a659c54dd86764c76b2af",
+    "okv-eval://frontiered-process-snapshot-v1/aligned_r_q_o_candidate/5602/b63f9c35ca390a3c7e072af699756d6b506fd495a92c3cacfc02210227001305",
+    "okv-eval://frontiered-process-snapshot-v1/aligned_r_q_o_candidate/5603/785f297b0a79410976d2f25430c78d133608d39f95ef0f4fc33f6ed4e3ad199e",
+    "docs/artifacts/eval-receipts/frontiered-process-snapshot-g4.11a.1-v1/candidate.json"
+  ],
+  "backend": "local-fs+publication-openraft+data-openraft+frontiered-durable-snapshot",
+  "budget": {
+    "kind": "seconds",
+    "limit": 240.0,
+    "observed": 17.243167
+  },
+  "candidate_commit": "a56442ad800deedd72a404a0886e88831eb308a0+dirty",
+  "created_at": "2026-08-26T15:08:14.557236+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "data_processes=3",
+      "id": "three_real_openraft_data_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "publication_processes=3",
+      "id": "three_real_openraft_publication_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    },
+    {
+      "detail": "frontier_cycles=4",
+      "id": "four_complete_frontier_cycles",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=aligned_r_q_o_candidate",
+      "id": "frozen_object_frontiers_are_authenticated",
+      "status": "pass"
+    },
+    {
+      "id": "resolver_frontier_equals_cycle_commit_version",
+      "status": "pass"
+    },
+    {
+      "detail": "retry_window=64",
+      "id": "retry_window_is_exactly_64_requests",
+      "status": "pass"
+    },
+    {
+      "id": "expired_retry_is_rejected_without_mutation",
+      "status": "pass"
+    },
+    {
+      "id": "retained_retry_replays_exactly",
+      "status": "pass"
+    },
+    {
+      "id": "durable_snapshot_covers_purge",
+      "status": "pass"
+    },
+    {
+      "id": "physical_journals_reclaim_bytes",
+      "status": "pass"
+    },
+    {
+      "id": "full_quorum_restart_is_exact_each_cycle",
+      "status": "pass"
+    },
+    {
+      "id": "object_plus_suffix_reconstruction_is_exact",
+      "status": "pass"
+    },
+    {
+      "id": "suffix_commit_after_final_restart",
+      "status": "pass"
+    },
+    {
+      "detail": "actual_max=19.692719, limit=8.000000",
+      "id": "max_physical_amplification",
+      "status": "fail"
+    },
+    {
+      "detail": "actual_max=1.091759, limit=1.250000",
+      "id": "max_snapshot_growth_ratio",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=aligned_r_q_o_candidate",
+      "id": "bounded_lifetime_media_curve",
+      "status": "fail"
+    },
+    {
+      "detail": "mode=aligned_r_q_o_candidate",
+      "id": "accounting_poison_detected",
+      "status": "pass"
+    }
+  ],
+  "lane": "frontiered-process-snapshot",
+  "parent_commit": "50cb23f2897905b35030782dfcb80ec23265ae7f",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.00201416015625,
+    "median": 19.68951416015625,
+    "name": "okv.eval.storage.amplification",
+    "samples": [
+      19.68951416015625,
+      19.692718505859375,
+      19.6875
+    ],
+    "statistic": "maximum",
+    "unit": "1",
+    "value": 19.692718505859375
+  },
+  "profile": {
+    "hash": "fbf463766eeea24260e874dd7a48b98dd169a74d6fa05d4ea5a7932cbafdacbf",
+    "id": "local-process",
+    "lockfile_hash": "42f2eb49b88531815b763396ed07a0b0e06be758979e9e988412ac2e34e62059",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "frontiered process-snapshot candidate exceeded the frozen 8.000x media or 1.250x growth gate",
+  "run_id": "be53d36c-5794-4882-9519-714fb1ce1ff6",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "frontiered_snapshot.actual_physical_amplification.maximum": 19.692718505859375,
+    "frontiered_snapshot.batch_commit_p99_seconds.maximum": 0.083336125,
+    "frontiered_snapshot.maintenance_seconds.maximum": 0.296027709,
+    "frontiered_snapshot.snapshot_growth_ratio.maximum": 1.0917587172308476,
+    "frontiered_snapshot.wall_seconds": 17.243129875,
+    "operation.duration.median": 17.243167
+  },
+  "seeds": [
+    5601,
+    5602,
+    5603
+  ],
+  "suite": "frontiered-process-snapshot-v1",
+  "suite_hash": "cbae8831df2ca626a1dd0376621fbc1c9bc29c527867acc0cb695a8ae1449ee3",
+  "verdict": "discard"
+}

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>objectKV Tetris</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0a0a;
+      --panel: #111;
+      --panel-2: #171717;
+      --border: #303030;
+      --text: #ededed;
+      --muted: #999;
+      --quiet: #666;
+      --green: #62c073;
+      --red: #ff6166;
+      --purple: #8e4ec6;
+      --font: Geist, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.45; }
+    button { font: inherit; cursor: pointer; }
+    button:focus-visible { outline: 2px solid #1a85ff; outline-offset: 2px; }
+    .shell { width: 100%; margin: 0 auto; padding: 24px 32px 64px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 5px; font-weight: 600; }
+    h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+    .status { display: flex; align-items: center; gap: 7px; color: var(--green); font-size: 12px; white-space: nowrap; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .truth { padding: 10px 12px; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); font-size: 12px; }
+    .truth strong { color: var(--text); font-weight: 500; }
+    .layout { display: grid; grid-template-columns: minmax(400px, .9fr) minmax(480px, 1.1fr); gap: 20px; align-items: stretch; }
+    .layout > * { min-width: 0; }
+    .panel { border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow: hidden; }
+    .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .panel-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
+    .label { color: var(--quiet); font: 10px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .badge { padding: 2px 7px; border-radius: 999px; background: #252525; color: var(--muted); font-size: 11px; }
+    .board-wrap { padding: 16px; display: grid; place-items: center; }
+    .board { width: min(100%, 320px); aspect-ratio: 10 / 16; display: grid; grid-template-columns: repeat(10, 1fr); grid-template-rows: repeat(16, 1fr); gap: 2px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: #0d0d0d; }
+    .cell { min-width: 0; min-height: 0; border: 1px solid rgba(255,255,255,.035); border-radius: 2px; background: rgba(255,255,255,.018); }
+    .cell.filled { border-color: rgba(255,255,255,.18); }
+    .piece-1 { background: #1a85ff; }
+    .piece-2 { background: #f5a623; }
+    .piece-3 { background: var(--purple); }
+    .piece-4 { background: #12a594; }
+    .piece-5 { background: #45a557; }
+    .piece-6 { background: #e93d82; }
+    .piece-7 { background: #e5484d; }
+    .game-stats { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--border); }
+    .game-stat { padding: 9px 12px; border-right: 1px solid var(--border); }
+    .game-stat:last-child { border-right: 0; }
+    .game-stat span { display: block; color: var(--quiet); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+    .game-stat strong { display: block; margin-top: 2px; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; padding: 12px; border-top: 1px solid var(--border); }
+    .button { min-height: 36px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--text); font-size: 12px; font-weight: 500; transition: transform 100ms cubic-bezier(.23, 1, .32, 1); }
+    .button:hover { background: #1c1c1c; border-color: #454545; }
+    .button:active:not(:disabled) { transform: scale(.98); }
+    .button.primary { grid-column: 1 / -1; background: var(--text); color: var(--bg); border-color: var(--text); }
+    .button.danger { color: var(--red); }
+    .button:disabled { cursor: wait; }
+    .key { margin-left: 3px; color: var(--quiet); font: 10px var(--mono); }
+    .workbench { min-height: 100%; }
+    .panel-tabs { display: flex; gap: 20px; min-height: 45px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+    .panel-tab { position: relative; padding: 0; border: 0; background: transparent; color: var(--quiet); font-size: 12px; font-weight: 500; }
+    .panel-tab::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: transparent; content: ""; }
+    .panel-tab:hover { color: var(--muted); }
+    .panel-tab[aria-selected="true"] { color: var(--text); }
+    .panel-tab[aria-selected="true"]::after { background: #1a85ff; }
+    .tab-panel[hidden] { display: none; }
+    .workbench-section + .workbench-section { border-top: 1px solid var(--border); }
+    .kv { margin: 0; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+    .row:last-child { border-bottom: 0; }
+    .row dt { color: var(--muted); }
+    .row dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+    .receipt { padding: 13px 14px; color: var(--muted); font: 11px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .side-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 12px; border-top: 1px solid var(--border); }
+    .snapshot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--border); }
+    .snapshot span { color: var(--muted); font-size: 11px; }
+    .snapshot-buttons { display: flex; gap: 5px; }
+    .snapshot-buttons .button { min-height: 30px; padding: 4px 8px; }
+    .lineage { padding: 12px 16px 16px; overflow-x: hidden; }
+    .lineage-row { display: grid; grid-template-columns: minmax(144px, 180px) minmax(0, 1fr) 56px; gap: 12px; min-height: 42px; align-items: center; }
+    .lineage-label { display: grid; gap: 2px; overflow: hidden; padding: 4px 0 4px calc(var(--depth) * 10px); border: 0; background: transparent; color: var(--muted); font: 11px var(--mono); text-align: left; }
+    .lineage-label:hover, .lineage-label.active { color: var(--text); }
+    .lineage-label.child .lineage-name::before { content: "└ "; color: var(--quiet); }
+    .lineage-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lineage-meta { color: var(--quiet); font-size: 9px; white-space: nowrap; }
+    .lineage-track { display: flex; align-items: center; min-width: 0; }
+    .lineage-range { width: 100%; margin: 0; accent-color: #1a85ff; cursor: ew-resize; }
+    .lineage-range:focus-visible { outline: 2px solid #1a85ff; outline-offset: 3px; }
+    .lineage-version { color: var(--muted); font: 10px var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+    .lineage-row:has(.lineage-label.active) .lineage-version { color: #8ec5ff; }
+    .lineage-caption { margin: 0; padding: 0 16px 16px; color: var(--quiet); font-size: 11px; }
+    .vision { padding: 16px; }
+    .vision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .vision-card { min-width: 0; border: 1px solid rgba(255,255,255,.14); border-radius: 4px; background: rgba(255,255,255,.03); overflow: hidden; }
+    .vision-card.wide { grid-column: 1 / -1; }
+    .vision-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.14); }
+    .vision-card-head h3 { margin: 0; font-size: 12px; font-weight: 600; }
+    .vision-card-body { padding: 12px; color: var(--muted); font-size: 12px; }
+    .vision-card-body p { margin: 0; }
+    .vision-flow { margin: 0; color: var(--text); font: 11px/1.8 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .vision-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 0; }
+    .vision-metric { padding: 10px 12px; border-right: 1px solid rgba(255,255,255,.14); border-bottom: 1px solid rgba(255,255,255,.14); }
+    .vision-metric:nth-child(3n) { border-right: 0; }
+    .vision-metric:nth-last-child(-n+3) { border-bottom: 0; }
+    .vision-metric dt { color: var(--quiet); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+    .vision-metric dd { margin: 3px 0 0; color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .decision-list { margin: 0; padding-left: 18px; }
+    .decision-list li + li { margin-top: 6px; }
+    .toast { position: fixed; right: 20px; bottom: 20px; max-width: 320px; padding: 10px 12px; border: 1px solid #454545; border-radius: 4px; background: var(--panel-2); opacity: 0; transform: translateY(6px); transition: opacity 150ms ease, transform 150ms ease; pointer-events: none; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) { .shell { padding: 20px 14px 48px; } }
+    @media (max-width: 620px) { .vision-grid { grid-template-columns: 1fr; } .vision-card.wide { grid-column: auto; } .vision-metrics { grid-template-columns: repeat(2, 1fr); } .vision-metric:nth-child(3n) { border-right: 1px solid rgba(255,255,255,.14); } .vision-metric:nth-child(2n) { border-right: 0; } .vision-metric:nth-last-child(-n+3) { border-bottom: 1px solid rgba(255,255,255,.14); } .vision-metric:nth-last-child(-n+2) { border-bottom: 0; } }
+    @media (max-width: 520px) { .lineage { padding-inline: 12px; } .lineage-row { grid-template-columns: 112px minmax(0, 1fr) 44px; gap: 8px; } .lineage-caption { padding-inline: 12px; } }
+    @media (max-width: 460px) { .topbar { align-items: flex-start; } .status { display: none; } .game-stats { grid-template-columns: repeat(2, 1fr); } .game-stat:nth-child(2) { border-right: 0; } .game-stat:nth-child(-n+2) { border-bottom: 1px solid var(--border); } }
+    @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+  </style>
+</head>
+<body>
+  <div class="shell" id="app">
+    <header class="topbar">
+      <div class="brand"><div class="mark">okv</div><div><h1>objectKV Tetris</h1><p class="subtitle">Play the game. Verify the kernel.</p></div></div>
+      <div class="status"><span class="dot"></span>local backend running</div>
+    </header>
+
+    <div class="truth"><strong>[CODE-COMPLETE] real okv-model + okv-log path.</strong> Single process and volatile memory. WAL, Raft, object publication, and distributed durability are not running here.</div>
+
+    <main class="layout">
+      <section class="panel">
+        <div class="panel-head"><div><span class="label">playfield</span><h2>Snapshot <span data-field="viewed_version">1</span></h2></div><span class="badge" data-field="branch">main</span></div>
+        <div class="board-wrap"><div class="board" id="board" aria-label="Tetris board"></div></div>
+        <div class="game-stats">
+          <div class="game-stat"><span>Score</span><strong data-game="score">0</strong></div>
+          <div class="game-stat"><span>Lines</span><strong data-game="lines">0</strong></div>
+          <div class="game-stat"><span>Ticks</span><strong data-game="ticks">0</strong></div>
+          <div class="game-stat"><span>Piece</span><strong data-game="piece">T</strong></div>
+        </div>
+        <div class="controls">
+          <button class="button" data-action="left">Left <span class="key">A</span></button>
+          <button class="button" data-action="rotate">Rotate <span class="key">W</span></button>
+          <button class="button" data-action="right">Right <span class="key">D</span></button>
+          <button class="button" data-action="tick">Down <span class="key">S</span></button>
+          <button class="button primary" data-action="drop">Drop and commit <span class="key">F</span></button>
+        </div>
+      </section>
+
+      <aside class="panel workbench">
+        <div class="panel-tabs" role="tablist" aria-label="Tetris workbench">
+          <button class="panel-tab" id="config-tab" role="tab" aria-selected="true" aria-controls="config-panel" data-panel-tab="config">Config</button>
+          <button class="panel-tab" id="history-tab" role="tab" aria-selected="false" aria-controls="history-panel" data-panel-tab="history" tabindex="-1">History</button>
+          <button class="panel-tab" id="vision-tab" role="tab" aria-selected="false" aria-controls="vision-panel" data-panel-tab="vision" tabindex="-1">Vision</button>
+        </div>
+
+        <section class="tab-panel" id="config-panel" role="tabpanel" aria-labelledby="config-tab" data-panel="config">
+          <div class="workbench-section">
+            <div class="panel-head"><h2>Kernel proof</h2><span class="label">live</span></div>
+          <dl class="kv">
+            <div class="row"><dt>Commit version</dt><dd data-field="latest_version">1</dd></div>
+            <div class="row"><dt>txLog index</dt><dd data-field="txlog_entries">1</dd></div>
+            <div class="row"><dt>Branch</dt><dd data-field="branch">main</dd></div>
+            <div class="row"><dt>Recoveries</dt><dd data-field="recoveries">0</dd></div>
+            <div class="row"><dt>Last operation</dt><dd data-field="last_action">reset</dd></div>
+          </dl>
+          <div class="snapshot"><span>Read another MVCC version</span><div class="snapshot-buttons"><button class="button" data-snapshot="older" aria-label="Older snapshot">←</button><button class="button" data-snapshot="latest">Latest</button><button class="button" data-snapshot="newer" aria-label="Newer snapshot">→</button></div></div>
+          <div class="side-actions"><button class="button danger" data-operation="recover">Crash + replay</button><button class="button" data-operation="branch">Fork</button></div>
+          </div>
+          <div class="workbench-section">
+            <div class="panel-head"><h2>Last commit</h2><span class="label">boundary v0</span></div>
+            <div class="receipt" id="receipt">waiting for receipt</div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="history-panel" role="tabpanel" aria-labelledby="history-tab" data-panel="history" hidden>
+          <div class="panel-head"><h2>Branch history</h2><span class="label">lineage</span></div>
+          <div class="lineage" id="lineage" aria-label="Branch and snapshot lineage"></div>
+          <p class="lineage-caption">Drag a branch lane to inspect exact snapshots. The active lane is the write head.</p>
+        </section>
+
+        <section class="tab-panel" id="vision-panel" role="tabpanel" aria-labelledby="vision-tab" data-panel="vision" hidden>
+          <div class="panel-head"><h2>Architecture decision gate</h2><span class="label">tetris-cell-v1</span></div>
+          <div class="vision">
+            <div class="vision-grid">
+              <article class="vision-card">
+                <div class="vision-card-head"><h3>Running now</h3><span class="label">[CODE-COMPLETE]</span></div>
+                <div class="vision-card-body"><pre class="vision-flow">Tetris action
+  ↓
+boundary v0
+  ↓
+volatile okv-log
+  ↓
+in-process MVCC image</pre></div>
+              </article>
+              <article class="vision-card">
+                <div class="vision-card-head"><h3>Next integrated gate</h3><span class="label">[PROPOSED]</span></div>
+                <div class="vision-card-body"><pre class="vision-flow">same boundary
+  ↓
+commit proxy + quorum txLog
+  ↓
+bounded RAM or SSD serving
+  ↓
+authenticated GCS base</pre></div>
+              </article>
+              <article class="vision-card wide">
+                <div class="vision-card-head"><h3>Live playground evidence</h3><span class="label">current branch</span></div>
+                <dl class="vision-metrics">
+                  <div class="vision-metric"><dt>Head version</dt><dd data-field="latest_version">1</dd></div>
+                  <div class="vision-metric"><dt>txLog entries</dt><dd data-field="txlog_entries">1</dd></div>
+                  <div class="vision-metric"><dt>txLog bytes</dt><dd data-field="txlog_bytes">0</dd></div>
+                  <div class="vision-metric"><dt>Application bytes</dt><dd data-field="application_record_bytes">0</dd></div>
+                  <div class="vision-metric"><dt>Point reads</dt><dd data-field="point_reads">0</dd></div>
+                  <div class="vision-metric"><dt>Recoveries</dt><dd data-field="recoveries">0</dd></div>
+                </dl>
+              </article>
+              <article class="vision-card">
+                <div class="vision-card-head"><h3>Continue when</h3><span class="label">target</span></div>
+                <div class="vision-card-body"><ul class="decision-list"><li>hot latency is competitive with the SSD control</li><li>cold lookup remains bounded to indexed range reads</li><li>empty-worker recovery is exact before full hydration</li><li>branch bytes are metadata plus divergent suffix</li></ul></div>
+              </article>
+              <article class="vision-card">
+                <div class="vision-card-head"><h3>Stop or pivot when</h3><span class="label">falsifier</span></div>
+                <div class="vision-card-body"><ul class="decision-list"><li>object lag creates unbounded retained txLog debt</li><li>cold reads scale with total database size</li><li>recovery requires another full durable row or page image</li><li>branching, recovery, and HTAP do not beat TiKV tiering</li></ul></div>
+              </article>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    const board = document.getElementById("board");
+    const receipt = document.getElementById("receipt");
+    const toast = document.getElementById("toast");
+    let state = null;
+    let viewedVersion = null;
+    let busy = false;
+    let scheduledHistory = null;
+    let historyInFlight = false;
+    let historyRequestId = 0;
+
+    const setText = (selector, value) => document.querySelectorAll(selector).forEach(node => { node.textContent = value; });
+    const showToast = message => {
+      toast.textContent = message;
+      toast.classList.add("show");
+      window.setTimeout(() => toast.classList.remove("show"), 1800);
+    };
+
+    function render({ lineage = true } = {}) {
+      if (!state) return;
+      const game = state.game;
+      const storage = state.storage;
+      board.replaceChildren();
+      game.board.flat().forEach(value => {
+        const cell = document.createElement("div");
+        cell.className = value ? `cell filled piece-${value}` : "cell";
+        board.appendChild(cell);
+      });
+      Object.entries(game).forEach(([key, value]) => setText(`[data-game="${key}"]`, value));
+      Object.entries(storage).forEach(([key, value]) => { if (typeof value !== "object") setText(`[data-field="${key}"]`, value); });
+      setText('[data-field="viewed_version"]', storage.viewed_version);
+      const currentReceipt = storage.receipt;
+      receipt.textContent = currentReceipt ? `CommitReceipt {\n  commit_version: ${currentReceipt.version},\n  request_id: ${currentReceipt.request_id},\n  mutations: ${currentReceipt.mutations},\n  txlog_index: ${currentReceipt.log_index},\n  replayed: ${currentReceipt.replayed}\n}` : "waiting for receipt";
+      if (lineage) renderLineage(storage.branches || []);
+      document.querySelectorAll("button").forEach(button => { button.disabled = busy; });
+    }
+
+    function branchDepth(branch, byName) {
+      let depth = 0;
+      let cursor = branch;
+      while (cursor.parent && byName.has(cursor.parent) && depth < byName.size) {
+        depth += 1;
+        cursor = byName.get(cursor.parent);
+      }
+      return depth;
+    }
+
+    function renderLineage(branches) {
+      const target = document.getElementById("lineage");
+      target.replaceChildren();
+      const byName = new Map(branches.map(branch => [branch.name, branch]));
+      for (const branch of branches) {
+        const row = document.createElement("div");
+        row.className = "lineage-row";
+        row.style.setProperty("--depth", String(branchDepth(branch, byName)));
+
+        const label = document.createElement("button");
+        label.className = `lineage-label ${branch.active ? "active" : ""} ${branch.parent ? "child" : ""}`;
+        label.title = `${branch.name}, ${branch.txlog_entries} commits`;
+        label.addEventListener("click", () => navigateHistory(branch.name, branch.latest_version));
+
+        const name = document.createElement("span");
+        name.className = "lineage-name";
+        name.textContent = branch.name;
+        const meta = document.createElement("span");
+        meta.className = "lineage-meta";
+        meta.textContent = branch.parent ? `fork v${branch.fork_version} · head v${branch.latest_version}` : `root · head v${branch.latest_version}`;
+        label.append(name, meta);
+
+        const track = document.createElement("div");
+        track.className = "lineage-track";
+        const first = branch.parent ? branch.fork_version : 1;
+        const current = branch.active ? Math.min(branch.latest_version, Math.max(first, state.storage.viewed_version)) : branch.latest_version;
+        const range = document.createElement("input");
+        range.className = "lineage-range";
+        range.type = "range";
+        range.min = String(first);
+        range.max = String(branch.latest_version);
+        range.step = "1";
+        range.value = String(current);
+        range.dataset.lineageScrubber = "";
+        range.dataset.branch = branch.name;
+        range.dataset.forkVersion = String(first);
+        range.setAttribute("aria-label", `Scrub ${branch.name} snapshots from version ${first} to ${branch.latest_version}`);
+
+        const output = document.createElement("output");
+        output.className = "lineage-version";
+        output.value = `v${current}`;
+        output.setAttribute("aria-live", "polite");
+        range.addEventListener("input", () => scheduleHistory(branch.name, Number(range.value), output));
+        range.addEventListener("change", () => scheduleHistory(branch.name, Number(range.value), output, true));
+        track.append(range);
+        row.append(label, track, output);
+        target.append(row);
+      }
+    }
+
+    function scheduleHistory(branch, version, output, final = false) {
+      if (busy) return;
+      output.value = `v${version}`;
+      scheduledHistory = { branch, version, final };
+      void flushScheduledHistory();
+    }
+
+    async function flushScheduledHistory() {
+      if (historyInFlight || !scheduledHistory) return;
+      const next = scheduledHistory;
+      scheduledHistory = null;
+      historyInFlight = true;
+      try {
+        await navigateHistory(next.branch, next.version, { quiet: true, preserveLineage: !next.final });
+      } finally {
+        historyInFlight = false;
+        if (scheduledHistory) void flushScheduledHistory();
+      }
+    }
+
+    async function navigateHistory(branch, version, { quiet = false, preserveLineage = false } = {}) {
+      if (busy && !quiet) return;
+      const requestId = ++historyRequestId;
+      if (!quiet) {
+        busy = true;
+        render();
+      }
+      try {
+        if (branch !== state.storage.branch) {
+          const switched = await fetch("/api/switch", { method: "POST", body: branch, headers: { "Content-Type": "text/plain" } });
+          if (!switched.ok) throw new Error(await switched.text());
+        }
+        const response = await fetch(`/api/state?version=${version}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(await response.text());
+        const nextState = await response.json();
+        if (requestId !== historyRequestId) return;
+        state = nextState;
+        viewedVersion = state.storage.viewed_version;
+      } catch (error) {
+        if (requestId === historyRequestId) showToast(error.message || "history navigation failed");
+      } finally {
+        if (requestId === historyRequestId) {
+          busy = false;
+          render({ lineage: !preserveLineage });
+        }
+      }
+    }
+
+    async function request(path, options) {
+      busy = true;
+      render();
+      try {
+        const response = await fetch(path, options);
+        if (!response.ok) throw new Error(await response.text());
+        state = await response.json();
+        viewedVersion = state.storage.viewed_version;
+        render();
+      } catch (error) {
+        showToast(error.message || "request failed");
+      } finally {
+        busy = false;
+        render();
+      }
+    }
+
+    function selectPanel(name) {
+      document.querySelectorAll("[data-panel-tab]").forEach(tab => {
+        const selected = tab.dataset.panelTab === name;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+      });
+      document.querySelectorAll("[data-panel]").forEach(panel => {
+        panel.hidden = panel.dataset.panel !== name;
+      });
+    }
+
+    const act = action => request("/api/action", { method: "POST", body: action });
+    document.querySelectorAll("[data-panel-tab]").forEach(tab => tab.addEventListener("click", () => selectPanel(tab.dataset.panelTab)));
+    document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => act(button.dataset.action)));
+    document.querySelectorAll("[data-operation]").forEach(button => button.addEventListener("click", () => {
+      request(button.dataset.operation === "recover" ? "/api/recover" : "/api/branch", {
+        method: "POST",
+        body: button.dataset.operation === "branch" ? String(viewedVersion) : undefined
+      });
+    }));
+    document.querySelectorAll("[data-snapshot]").forEach(button => button.addEventListener("click", () => {
+      if (!state) return;
+      const mode = button.dataset.snapshot;
+      const latest = state.storage.latest_version;
+      const next = mode === "latest" ? latest : mode === "older" ? Math.max(1, viewedVersion - 1) : Math.min(latest, viewedVersion + 1);
+      request(`/api/state?version=${next}`);
+    }));
+
+    window.addEventListener("keydown", event => {
+      if (event.metaKey || event.ctrlKey || event.altKey || busy) return;
+      const action = { a: "left", ArrowLeft: "left", d: "right", ArrowRight: "right", w: "rotate", ArrowUp: "rotate", s: "tick", ArrowDown: "tick", f: "drop", " ": "drop", n: "reset" }[event.key];
+      if (action) { event.preventDefault(); act(action); return; }
+      if (event.key === "x") request("/api/recover", { method: "POST" });
+      if (event.key === "b") request("/api/branch", { method: "POST", body: String(viewedVersion) });
+      if (event.key === "[") document.querySelector('[data-snapshot="older"]').click();
+      if (event.key === "]") document.querySelector('[data-snapshot="newer"]').click();
+    });
+
+    request("/api/state");
+  </script>
+</body>
+</html>

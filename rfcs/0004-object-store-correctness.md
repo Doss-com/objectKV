@@ -128,7 +128,7 @@ precondition races. One negative backend that uses LIST as authority and one
 that overwrites immutable keys must fail. Correctness failures are hard gates;
 request, byte, latency, and cost curves are lane metrics.
 
-Status: `[ACTIVE-WORK]` all listed cases except live throttling and timeout
+Status: `[EVALUATING]` all listed cases except live throttling and timeout
 classification execute against memory, filesystem, and pinned MinIO. The two
 negative controls fail in CI configuration. GCS is configured but has not run.
 

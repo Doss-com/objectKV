@@ -1,0 +1,4 @@
+ba8220ae8748069c5a633270a9daa0c18cc23ceba2f0eab999ab458a05d275ba  docs/artifacts/eval-receipts/transaction-batch-g4.9-v1/candidate.json
+18568e46bdf1d09e8f295140cf860bd8e6b262839b62a10039cfa525eb42c701  docs/artifacts/eval-receipts/transaction-batch-g4.9-v1/one-entry-control.json
+1d69f4962923782b0ae55397cd582453dcc3faa988b87b5eeeb019b9bee8d8db  docs/artifacts/eval-receipts/transaction-batch-g4.9-v1/duplicate-identity-control.json
+25a3c7520210f759e785b94f564f5f62458b7a8dff20781de2e56bba8786116d  docs/artifacts/eval-receipts/transaction-batch-g4.9-v1/early-ack-poison.json

@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Current unpublished publication state format.
 pub const PUBLICATION_FORMAT_VERSION: u32 = 1;
+/// Current canonical object-frontier certificate statement format.
+pub const OBJECT_FRONTIER_CERTIFICATE_VERSION: u16 = 1;
 
 /// Exact committed authority-log position that ordered one transition.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -113,6 +115,77 @@ pub struct PreparedPublication {
     pub intent: PublicationIntent,
 }
 
+/// Exact immutable closure retained while the data authority advances its
+/// recovery-stream floor.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ObjectFrontierRecord {
+    pub owner_generation: u64,
+    pub source_root: String,
+    pub manifest: ObjectReference,
+    pub covered_through: u64,
+    pub prepared_at: AuthorityPosition,
+}
+
+impl ObjectFrontierRecord {
+    /// Whether this record can name a generation-bound immutable closure.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        self.owner_generation != 0
+            && !self.source_root.is_empty()
+            && self.manifest.kind == ObjectKind::Manifest
+            && self.manifest.is_valid()
+            && self.covered_through != 0
+            && self.prepared_at.is_valid()
+    }
+}
+
+/// Exact data-authority log position certified by its voters.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ObjectFrontierLogPosition {
+    pub term: u64,
+    pub index: u64,
+}
+
+impl ObjectFrontierLogPosition {
+    /// Whether the position can name a committed data-authority transition.
+    #[must_use]
+    pub const fn is_valid(self) -> bool {
+        self.index != 0
+    }
+}
+
+/// Canonical data-voter statement authorizing frontier activation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ObjectFrontierCertificateStatement {
+    pub protocol_version: u16,
+    pub cell_id: u64,
+    pub generation: u64,
+    pub transaction_system_id: String,
+    pub frontier: ObjectFrontierRecord,
+    pub data_log_position: ObjectFrontierLogPosition,
+    pub membership_sha256: [u8; 32],
+}
+
+/// One data-voter signature over an object-frontier statement.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ObjectFrontierAttestation {
+    pub signer_id: u64,
+    pub signature: Vec<u8>,
+}
+
+/// Quorum proof that the data authority physically applied one object frontier.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ObjectFrontierCertificate {
+    pub statement: ObjectFrontierCertificateStatement,
+    pub attestations: Vec<ObjectFrontierAttestation>,
+}
+
+/// Authentication facts derived by the replicated outer authority.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PublicationAuthorization {
+    pub object_frontier_certificate_valid: bool,
+}
+
 /// Opaque capability created only by an accepted replicated reservation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DeletePermit {
@@ -175,6 +248,10 @@ pub struct PublicationAuthorityState {
     pub roots: BTreeMap<String, ObjectReference>,
     pub pins: BTreeMap<String, ObjectReference>,
     pub deletion_reservations: BTreeMap<String, DeletePermit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_object_frontier: Option<ObjectFrontierRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_object_frontier: Option<ObjectFrontierRecord>,
 }
 
 impl Default for PublicationAuthorityState {
@@ -187,6 +264,8 @@ impl Default for PublicationAuthorityState {
             roots: BTreeMap::new(),
             pins: BTreeMap::new(),
             deletion_reservations: BTreeMap::new(),
+            active_object_frontier: None,
+            pending_object_frontier: None,
         }
     }
 }
@@ -210,9 +289,19 @@ pub enum PublicationAction {
         expected: Option<ObjectReference>,
         manifest: ObjectReference,
     },
+    PinFromRoot {
+        source_root: String,
+        expected_manifest: ObjectReference,
+        pin_id: String,
+        expected_pin: Option<ObjectReference>,
+    },
     Unpin {
         pin_id: String,
         expected: ObjectReference,
+    },
+    RemoveRoot {
+        root_id: String,
+        expected_manifest: ObjectReference,
     },
     ReserveDelete {
         plan_id: String,
@@ -222,6 +311,16 @@ pub enum PublicationAction {
     },
     RetireDelete {
         permit: DeletePermit,
+    },
+    PrepareObjectFrontier {
+        source_root: String,
+        manifest: ObjectReference,
+        covered_through: u64,
+        expected_active: Option<ObjectFrontierRecord>,
+    },
+    ActivateObjectFrontier {
+        expected_pending: ObjectFrontierRecord,
+        certificate: ObjectFrontierCertificate,
     },
 }
 
@@ -237,6 +336,7 @@ pub enum PublicationCommandStatus {
     PublicationIntentMismatch,
     CrossGenerationIntent,
     RootCompareFailed,
+    SourceRootCompareFailed,
     PinCompareFailed,
     RootIntentEpochChanged,
     ObjectDeletionReserved,
@@ -245,6 +345,10 @@ pub enum PublicationCommandStatus {
     DeleteReservationMissing,
     CrossGenerationDeletePermit,
     DeletePlanMismatch,
+    ObjectFrontierPending,
+    ObjectFrontierCompareFailed,
+    ObjectFrontierCoverageRegressed,
+    ObjectFrontierCertificateInvalid,
 }
 
 /// Optional capability returned by an accepted transition.
@@ -298,6 +402,22 @@ impl PublicationAuthorityState {
         context: AuthorityContext,
         faults: PublicationAuthorityFaults,
     ) -> PublicationTransition {
+        self.apply_authenticated(action, context, faults, PublicationAuthorization::default())
+    }
+
+    /// Apply one transition with authentication facts derived by the outer
+    /// replicated authority.
+    ///
+    /// The pure publication domain deliberately does not own data-voter public
+    /// keys. Callers must set the object-frontier fact only after deterministic
+    /// quorum-certificate verification against the active generation.
+    pub fn apply_authenticated(
+        &mut self,
+        action: &PublicationAction,
+        context: AuthorityContext,
+        faults: PublicationAuthorityFaults,
+        authorization: PublicationAuthorization,
+    ) -> PublicationTransition {
         if self.format_version != PUBLICATION_FORMAT_VERSION || !context.is_valid() {
             return PublicationTransition::rejected(PublicationCommandStatus::InvalidRequest);
         }
@@ -325,7 +445,22 @@ impl PublicationAuthorityState {
                 expected,
                 manifest,
             } => self.pin(pin_id, expected.as_ref(), manifest),
+            PublicationAction::PinFromRoot {
+                source_root,
+                expected_manifest,
+                pin_id,
+                expected_pin,
+            } => self.pin_from_root(
+                source_root,
+                expected_manifest,
+                pin_id,
+                expected_pin.as_ref(),
+            ),
             PublicationAction::Unpin { pin_id, expected } => self.unpin(pin_id, expected),
+            PublicationAction::RemoveRoot {
+                root_id,
+                expected_manifest,
+            } => self.remove_root(root_id, expected_manifest),
             PublicationAction::ReserveDelete {
                 plan_id,
                 mark_epoch,
@@ -335,11 +470,41 @@ impl PublicationAuthorityState {
             PublicationAction::RetireDelete { permit } => {
                 self.retire_delete(permit, context.generation, faults)
             }
+            PublicationAction::PrepareObjectFrontier {
+                source_root,
+                manifest,
+                covered_through,
+                expected_active,
+            } => self.prepare_object_frontier(
+                source_root,
+                manifest,
+                *covered_through,
+                expected_active.as_ref(),
+                context,
+            ),
+            PublicationAction::ActivateObjectFrontier {
+                expected_pending,
+                certificate,
+            } => self.activate_object_frontier(
+                expected_pending,
+                certificate,
+                authorization.object_frontier_certificate_valid,
+            ),
         };
         if transition.status == PublicationCommandStatus::Accepted {
             self.revision = context.position;
         }
         transition
+    }
+
+    /// Exact manifests retained by the active and in-flight object frontiers.
+    #[must_use]
+    pub fn object_frontier_manifests(&self) -> Vec<&ObjectReference> {
+        self.active_object_frontier
+            .iter()
+            .chain(self.pending_object_frontier.iter())
+            .map(|frontier| &frontier.manifest)
+            .collect()
     }
 
     fn prepare(
@@ -445,6 +610,34 @@ impl PublicationAuthorityState {
         PublicationTransition::accepted(PublicationOutcome::Applied)
     }
 
+    fn pin_from_root(
+        &mut self,
+        source_root: &str,
+        expected_manifest: &ObjectReference,
+        pin_id: &str,
+        expected_pin: Option<&ObjectReference>,
+    ) -> PublicationTransition {
+        if source_root.is_empty()
+            || pin_id.is_empty()
+            || expected_manifest.kind != ObjectKind::Manifest
+            || !expected_manifest.is_valid()
+        {
+            return PublicationTransition::rejected(PublicationCommandStatus::InvalidRequest);
+        }
+        if self.roots.get(source_root) != Some(expected_manifest) {
+            return PublicationTransition::rejected(
+                PublicationCommandStatus::SourceRootCompareFailed,
+            );
+        }
+        if self.pins.get(pin_id) != expected_pin {
+            return PublicationTransition::rejected(PublicationCommandStatus::PinCompareFailed);
+        }
+        self.pins
+            .insert(pin_id.to_owned(), expected_manifest.clone());
+        self.root_intent_epoch = self.root_intent_epoch.saturating_add(1);
+        PublicationTransition::accepted(PublicationOutcome::Applied)
+    }
+
     fn unpin(&mut self, pin_id: &str, expected: &ObjectReference) -> PublicationTransition {
         if pin_id.is_empty() || !expected.is_valid() {
             return PublicationTransition::rejected(PublicationCommandStatus::InvalidRequest);
@@ -453,6 +646,106 @@ impl PublicationAuthorityState {
             return PublicationTransition::rejected(PublicationCommandStatus::PinCompareFailed);
         }
         self.pins.remove(pin_id);
+        self.root_intent_epoch = self.root_intent_epoch.saturating_add(1);
+        PublicationTransition::accepted(PublicationOutcome::Applied)
+    }
+
+    fn remove_root(
+        &mut self,
+        root_id: &str,
+        expected_manifest: &ObjectReference,
+    ) -> PublicationTransition {
+        if root_id.is_empty()
+            || expected_manifest.kind != ObjectKind::Manifest
+            || !expected_manifest.is_valid()
+        {
+            return PublicationTransition::rejected(PublicationCommandStatus::InvalidRequest);
+        }
+        if self.roots.get(root_id) != Some(expected_manifest) {
+            return PublicationTransition::rejected(PublicationCommandStatus::RootCompareFailed);
+        }
+        self.roots.remove(root_id);
+        self.root_intent_epoch = self.root_intent_epoch.saturating_add(1);
+        PublicationTransition::accepted(PublicationOutcome::Applied)
+    }
+
+    fn prepare_object_frontier(
+        &mut self,
+        source_root: &str,
+        manifest: &ObjectReference,
+        covered_through: u64,
+        expected_active: Option<&ObjectFrontierRecord>,
+        context: AuthorityContext,
+    ) -> PublicationTransition {
+        if self.pending_object_frontier.is_some() {
+            return PublicationTransition::rejected(
+                PublicationCommandStatus::ObjectFrontierPending,
+            );
+        }
+        if source_root.is_empty()
+            || manifest.kind != ObjectKind::Manifest
+            || !manifest.is_valid()
+            || covered_through == 0
+        {
+            return PublicationTransition::rejected(PublicationCommandStatus::InvalidRequest);
+        }
+        if self.roots.get(source_root) != Some(manifest) {
+            return PublicationTransition::rejected(
+                PublicationCommandStatus::SourceRootCompareFailed,
+            );
+        }
+        if self.active_object_frontier.as_ref() != expected_active {
+            return PublicationTransition::rejected(
+                PublicationCommandStatus::ObjectFrontierCompareFailed,
+            );
+        }
+        if self
+            .active_object_frontier
+            .as_ref()
+            .is_some_and(|active| covered_through <= active.covered_through)
+        {
+            return PublicationTransition::rejected(
+                PublicationCommandStatus::ObjectFrontierCoverageRegressed,
+            );
+        }
+        self.pending_object_frontier = Some(ObjectFrontierRecord {
+            owner_generation: context.generation,
+            source_root: source_root.to_owned(),
+            manifest: manifest.clone(),
+            covered_through,
+            prepared_at: context.position,
+        });
+        self.root_intent_epoch = self.root_intent_epoch.saturating_add(1);
+        PublicationTransition::accepted(PublicationOutcome::Applied)
+    }
+
+    fn activate_object_frontier(
+        &mut self,
+        expected_pending: &ObjectFrontierRecord,
+        certificate: &ObjectFrontierCertificate,
+        certificate_valid: bool,
+    ) -> PublicationTransition {
+        if !expected_pending.is_valid()
+            || self.pending_object_frontier.as_ref() != Some(expected_pending)
+        {
+            return PublicationTransition::rejected(
+                PublicationCommandStatus::ObjectFrontierCompareFailed,
+            );
+        }
+        let statement = &certificate.statement;
+        if !certificate_valid
+            || statement.protocol_version != OBJECT_FRONTIER_CERTIFICATE_VERSION
+            || statement.cell_id == 0
+            || statement.generation != expected_pending.owner_generation
+            || statement.transaction_system_id.is_empty()
+            || statement.frontier != *expected_pending
+            || !statement.data_log_position.is_valid()
+        {
+            return PublicationTransition::rejected(
+                PublicationCommandStatus::ObjectFrontierCertificateInvalid,
+            );
+        }
+        self.active_object_frontier = self.pending_object_frontier.take();
         self.root_intent_epoch = self.root_intent_epoch.saturating_add(1);
         PublicationTransition::accepted(PublicationOutcome::Applied)
     }
@@ -906,5 +1199,180 @@ mod tests {
             },
         );
         assert_eq!(PublicationCommandStatus::Accepted, cross_generation.status);
+    }
+
+    #[test]
+    fn pin_from_root_and_remove_root_are_exact_serialized_transitions() {
+        let manifest = reference("objects/main-manifest", ObjectKind::Manifest);
+        let mut state = PublicationAuthorityState {
+            roots: BTreeMap::from([("main".to_owned(), manifest.clone())]),
+            ..PublicationAuthorityState::default()
+        };
+        let pin = state.apply(
+            &PublicationAction::PinFromRoot {
+                source_root: "main".to_owned(),
+                expected_manifest: manifest.clone(),
+                pin_id: "branch-build".to_owned(),
+                expected_pin: None,
+            },
+            context(1),
+            PublicationAuthorityFaults::default(),
+        );
+        assert_eq!(PublicationCommandStatus::Accepted, pin.status);
+        assert_eq!(state.pins.get("branch-build"), Some(&manifest));
+
+        let removed = state.apply(
+            &PublicationAction::RemoveRoot {
+                root_id: "main".to_owned(),
+                expected_manifest: manifest.clone(),
+            },
+            context(2),
+            PublicationAuthorityFaults::default(),
+        );
+        assert_eq!(PublicationCommandStatus::Accepted, removed.status);
+        assert!(!state.roots.contains_key("main"));
+
+        let late_pin = state.apply(
+            &PublicationAction::PinFromRoot {
+                source_root: "main".to_owned(),
+                expected_manifest: manifest,
+                pin_id: "late".to_owned(),
+                expected_pin: None,
+            },
+            context(3),
+            PublicationAuthorityFaults::default(),
+        );
+        assert_eq!(
+            PublicationCommandStatus::SourceRootCompareFailed,
+            late_pin.status
+        );
+        assert!(!state.pins.contains_key("late"));
+    }
+
+    #[test]
+    fn object_frontier_is_pending_until_an_authenticated_data_proof() {
+        let manifest = reference("objects/frontier-manifest", ObjectKind::Manifest);
+        let mut state = PublicationAuthorityState {
+            roots: BTreeMap::from([("range-main".to_owned(), manifest.clone())]),
+            ..PublicationAuthorityState::default()
+        };
+        let prepared = state.apply(
+            &PublicationAction::PrepareObjectFrontier {
+                source_root: "range-main".to_owned(),
+                manifest: manifest.clone(),
+                covered_through: 41,
+                expected_active: None,
+            },
+            context(11),
+            PublicationAuthorityFaults::default(),
+        );
+        assert_eq!(PublicationCommandStatus::Accepted, prepared.status);
+        let pending = state.pending_object_frontier.clone().unwrap();
+        assert_eq!(41, pending.covered_through);
+        assert_eq!(context(11).position, pending.prepared_at);
+        assert_eq!(vec![&manifest], state.object_frontier_manifests());
+
+        let certificate = ObjectFrontierCertificate {
+            statement: ObjectFrontierCertificateStatement {
+                protocol_version: OBJECT_FRONTIER_CERTIFICATE_VERSION,
+                cell_id: 17,
+                generation: 7,
+                transaction_system_id: "data-g7".to_owned(),
+                frontier: pending.clone(),
+                data_log_position: ObjectFrontierLogPosition { term: 5, index: 9 },
+                membership_sha256: [3; 32],
+            },
+            attestations: Vec::new(),
+        };
+        let rejected = state.apply(
+            &PublicationAction::ActivateObjectFrontier {
+                expected_pending: pending.clone(),
+                certificate: certificate.clone(),
+            },
+            context(12),
+            PublicationAuthorityFaults::default(),
+        );
+        assert_eq!(
+            PublicationCommandStatus::ObjectFrontierCertificateInvalid,
+            rejected.status
+        );
+        assert_eq!(Some(&pending), state.pending_object_frontier.as_ref());
+
+        let activated = state.apply_authenticated(
+            &PublicationAction::ActivateObjectFrontier {
+                expected_pending: pending.clone(),
+                certificate,
+            },
+            context(13),
+            PublicationAuthorityFaults::default(),
+            PublicationAuthorization {
+                object_frontier_certificate_valid: true,
+            },
+        );
+        assert_eq!(PublicationCommandStatus::Accepted, activated.status);
+        assert_eq!(Some(&pending), state.active_object_frontier.as_ref());
+        assert!(state.pending_object_frontier.is_none());
+        assert_eq!(vec![&manifest], state.object_frontier_manifests());
+    }
+
+    #[test]
+    fn object_frontier_prepare_is_monotonic_and_single_flight() {
+        let manifest = reference("objects/frontier-one", ObjectKind::Manifest);
+        let replacement = reference("objects/frontier-two", ObjectKind::Manifest);
+        let active = ObjectFrontierRecord {
+            owner_generation: 7,
+            source_root: "range-main".to_owned(),
+            manifest: manifest.clone(),
+            covered_through: 40,
+            prepared_at: context(4).position,
+        };
+        let mut state = PublicationAuthorityState {
+            roots: BTreeMap::from([("range-main".to_owned(), replacement.clone())]),
+            active_object_frontier: Some(active.clone()),
+            ..PublicationAuthorityState::default()
+        };
+
+        let regressed = state.apply(
+            &PublicationAction::PrepareObjectFrontier {
+                source_root: "range-main".to_owned(),
+                manifest: replacement.clone(),
+                covered_through: 40,
+                expected_active: Some(active.clone()),
+            },
+            context(20),
+            PublicationAuthorityFaults::default(),
+        );
+        assert_eq!(
+            PublicationCommandStatus::ObjectFrontierCoverageRegressed,
+            regressed.status
+        );
+
+        let advanced = state.apply(
+            &PublicationAction::PrepareObjectFrontier {
+                source_root: "range-main".to_owned(),
+                manifest: replacement.clone(),
+                covered_through: 80,
+                expected_active: Some(active),
+            },
+            context(21),
+            PublicationAuthorityFaults::default(),
+        );
+        assert_eq!(PublicationCommandStatus::Accepted, advanced.status);
+        assert_eq!(2, state.object_frontier_manifests().len());
+
+        let second = state.apply(
+            &PublicationAction::PrepareObjectFrontier {
+                source_root: "range-main".to_owned(),
+                manifest: replacement,
+                covered_through: 90,
+                expected_active: state.active_object_frontier.clone(),
+            },
+            context(22),
+            PublicationAuthorityFaults::default(),
+        );
+        assert_eq!(
+            PublicationCommandStatus::ObjectFrontierPending,
+            second.status
+        );
     }
 }
