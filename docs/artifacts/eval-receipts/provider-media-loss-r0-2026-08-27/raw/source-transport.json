@@ -1,0 +1,50 @@
+{
+  "created_at": "2026-08-27T13:47:07Z",
+  "kind": "objectkv_gp253_source_transport",
+  "objects": [
+    {
+      "bytes": 1778,
+      "generation": "1787838422576767",
+      "name": "source-phase.json",
+      "sha256": "a87148e237316c17550646d24a2550bba39c68fd6a1b43018e9e48b421a252ec",
+      "uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/transport/source-phase.json"
+    },
+    {
+      "bytes": 1034,
+      "generation": "1787838422729716",
+      "name": "poison-phase.json",
+      "sha256": "7a06207a804d448156f6dc29013c89227e7470ef6689e1f893e67b96aa84c0cc",
+      "uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/transport/poison-phase.json"
+    },
+    {
+      "bytes": 4433,
+      "generation": "1787838422878641",
+      "name": "media-loss-poison.json",
+      "sha256": "a5708ffd3096b78fdde316385ff7b2ba3fb70ef0ad0fc3b6cc33130b9d460797",
+      "uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/transport/media-loss-poison.json"
+    },
+    {
+      "bytes": 692,
+      "generation": "1787838422994677",
+      "name": "source-identity.json",
+      "sha256": "9ae707bf302baa59571143e0c9994cfa26529518bdfb9d4e8974bb689b657a96",
+      "uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/transport/source-identity.json"
+    },
+    {
+      "bytes": 2027,
+      "generation": "1787838423106984",
+      "name": "source-machine.json",
+      "sha256": "a34eddbb49481e6288930692d7df6add7a587b3e9ea94d8fc07bf017a026b8a8",
+      "uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/transport/source-machine.json"
+    },
+    {
+      "bytes": 217792192,
+      "generation": "1787838427127419",
+      "name": "okv-eval",
+      "sha256": "6eaf31478a3c32eac12a80520e720d0c9f32526b706847dfe6d17a72ef78bdce",
+      "uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/transport/okv-eval"
+    }
+  ],
+  "run_id": "gp253-r0-20260827t1345z",
+  "schema_version": 1
+}

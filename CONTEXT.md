@@ -163,9 +163,14 @@ performance or operational claim.
   commit, retained-change, and request-outcome versionstamps. TiKV 8.5.7
   committed both disjoint writers, matching its documented snapshot isolation
   and failing P1. This is single-machine semantic evidence, not HA.
-- `[EVALUATING]` FoundationDB is the only candidate advancing to lifecycle
-  work. No incumbent is selected until objectification, media-loss,
-  empty-generation restore, and matched hot-path receipts pass.
+- `[VERIFIED]` FoundationDB is the only candidate advancing. GP2.5.2 rebuilt
+  950 rows into an empty logical generation, matched the digest, fenced the old
+  generation, and discarded three poisons. GP2.5.3 then deleted the source VM,
+  boot disk, and provider SSD before reproducing the exact 950-record digest on
+  a fresh cluster. Its formal positive passed 16 gates and its hidden-media
+  control was discarded, with both run IDs in all three OTel signals. No
+  incumbent is selected until GP2.5.4 external incarnation authority and GP3.1
+  matched hot-path receipts pass.
 - `[CODE-COMPLETE]` The unpublished `okv` crate exposes the first integrated
   `SingleRange` kernel API. It selects a generation-fenced publication root,
   verifies one immutable row-object base, catches up through the logical txLog

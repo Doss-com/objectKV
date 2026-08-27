@@ -141,15 +141,28 @@ zero anomalies. TiKV 8.5.7 committed both transactions in the write-skew
 history and failed P1. The provider-neutral `okv-plane` contract, RFC-0041, and
 preflight define the remaining lifecycle boundary.
 
-`[EVALUATING]` The first FoundationDB plus GCS logical-lifecycle run passed its
-positive history and three poisons. It wrote one content-addressed 205,256-byte
-closure, verified named GETs, advanced the object frontier once, restored 950
-rows into an empty generation in five idempotent chunks, matched the state
-digest, and fenced the previous generation. The positive run took 821.410 ms;
-its 31.401 ms restore timing is diagnostic only. The source provider media
-remained present, so provider-media-loss, clean `okv-eval` plus OTel admission,
-and matched hot-path overhead remain open. The golden path now names these as
-GP2.5.2, GP2.5.3, and GP3.1 rather than blending them into one claim.
+`[VERIFIED]` GP2.5.2 now has a clean `okv-eval` plus OTel receipt at candidate
+`ca9195186c4bd85573dddfe2d63a376693a031e9`. The positive FoundationDB plus GCS
+run wrote a 205,262-byte closure, verified named GETs, advanced the object
+frontier once, restored 950 rows into an empty generation in five idempotent
+chunks, matched the state digest, fenced the previous generation, and recorded
+zero anomalies. The three closure and generation poisons received `discard`.
+All seven final semantic and lifecycle run IDs occur in logs, metrics, and
+traces. Its 512.560 ms internal and 840.212 ms end-to-end timings are diagnostic
+only. That GP2.5.2 receipt kept source provider media present; the separate
+GP2.5.3 receipt below owns physical provider-media loss.
+
+`[VERIFIED]` GP2.5.3 now has a clean real-infrastructure receipt at candidate
+`50c72159781e14d3db06d792beac34838572fc91`. The source phase wrote a
+950-record closure and manifest to exact GCS generations. Terraform then
+deleted the source FoundationDB VM, boot disk, and provider SSD; the controller
+observed all three absent before restore. A fresh destination cluster with
+distinct provider and GCP identities restored and replayed five chunks,
+matched the exact digest and row count, activated after ready, and committed a
+fresh transaction. The formal positive received `keep` with 16 passing gates;
+the executed same-cluster hidden-media control received `discard`. OTel logs,
+metrics, and traces contain both run IDs. GP2.5.4 incarnation authority and
+GP3.1 retained-write overhead remain open.
 
 `[VERIFIED]` The SSD mechanism now composes with the public kernel on real R0
 infrastructure. `SingleRange` verifies the complete GCS closure, activates a

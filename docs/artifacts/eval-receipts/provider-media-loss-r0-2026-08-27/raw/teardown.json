@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "kind": "objectkv_gp253_teardown_observation",
+  "observed_at": "2026-08-27T14:00:28Z",
+  "terraform_state_resources": 0,
+  "matching_instances": 0,
+  "matching_disks": 0,
+  "retained_gcs_objects": 9,
+  "checks": {
+    "terraform_state_empty": true,
+    "matching_instances_absent": true,
+    "matching_disks_absent": true,
+    "evidence_objects_retained": true
+  }
+}

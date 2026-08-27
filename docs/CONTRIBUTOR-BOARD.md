@@ -539,12 +539,17 @@ become one GitHub issue.
   `[CODE-COMPLETE]`. `[VERIFIED]` the R0 FoundationDB probe rejected write skew
   and aligned commit, change, and outcome stamps. The R0 TiKV probe committed
   both disjoint writers and is removed from lifecycle work. FoundationDB is the
-  sole remaining candidate, not yet the selected provider. `[EVALUATING]` the
-  FoundationDB plus GCS logical-lifecycle probe passed exact closure, named
-  GET, object-frontier CAS, empty-generation restore, chunk replay, digest, and
-  stale-generation gates. All three poisons were detected. Next is the clean
-  OTel-backed suite receipt, then provider-media-loss reconstruction, then the
-  GP3.1 direct-FoundationDB overhead pair.
+  sole remaining candidate, not yet the selected provider. `[VERIFIED]`
+  GP2.5.2 repeated exact closure, named GET, object-frontier CAS,
+  empty-generation restore, chunk replay, digest, and stale-generation gates
+  under the frozen `ca919518` evaluator and private GCP machine receipt. All
+  three poisons were discarded, and all final run IDs occur in OTel logs,
+  metrics, and traces. `[VERIFIED]` GP2.5.3 then deleted the source VM, boot
+  disk, and provider SSD, observed all three absent, and reconstructed the
+  exact 950-record digest on a fresh FoundationDB cluster. Its positive run
+  passed 16 gates; the hidden-source-media control was discarded. Next are
+  GP2.5.4 external cell-incarnation authority and the GP3.1
+  direct-FoundationDB overhead pair.
 
 ## Opens after Gate 1
 

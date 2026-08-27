@@ -1,0 +1,30 @@
+{
+  "api_version": 740,
+  "cluster": {
+    "cluster_file_sha256": "c8127715707e032f79b7d2f4587a5c21bded8a2bc17552d3aabb3bc597b9264b",
+    "cluster_id": "771da699009584c8ec863758814fa942"
+  },
+  "duration_ns": 55519971,
+  "finished_at": "2026-08-27T13:46:02Z",
+  "kind": "foundationdb_objectkv_media_restore_phase_r0",
+  "provider": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "restore": {
+    "activated_after_ready": true,
+    "destination_empty_before_restore": true,
+    "finished_at": "2026-08-27T13:46:02Z",
+    "fresh_commit_succeeded": true,
+    "named_object_hashes_match": true,
+    "replayed_chunks": 5,
+    "restored_chunks": 5,
+    "restored_record_count": 950,
+    "restored_state_digest": "9fc46142a6d53447d30c357bdff009944cc7cc554fecdedf89e0f99c74db6d60",
+    "source_provider_inputs": [
+      "source-cluster",
+      "source-provider-media"
+    ],
+    "started_at": "2026-08-27T13:46:02Z"
+  },
+  "run_id": "gp253-r0-20260827t1345z",
+  "schema_version": 1,
+  "started_at": "2026-08-27T13:46:02Z"
+}

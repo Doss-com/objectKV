@@ -1,7 +1,8 @@
 # RFC-0041: Incumbent transaction-plane adapter
 
-- Status: `[CODE-COMPLETE]` adapter types and source-pinned preflight,
-  `[EVALUATING]` live provider selection
+- Status: `[CODE-COMPLETE]` adapter types, `[VERIFIED]` semantic selection,
+  logical lifecycle, and provider-media-loss reconstruction; `[EVALUATING]`
+  final provider admission
 - Authors: DOSS
 - Created: 2026-08-27
 - Supersedes: the production direction of RFC-0040, not its prototype or evidence
@@ -20,8 +21,9 @@ which permits write skew. A layer that adds predicate locking, read-conflict
 ranges, or serializable validation above TiKV would reopen the transaction-plane
 work stopped by D52.
 
-This is not yet a provider selection. The source-derived preflight can remove
-work, but selection requires a live executable receipt.
+This is not yet final provider admission. FoundationDB passed the live semantic,
+logical-lifecycle, and provider-media-loss gates. External incarnation
+authority and matched retained-write overhead remain open.
 
 ## Context and invariant
 
@@ -332,7 +334,9 @@ Measure:
 
 The frozen GP2.5.3 topology, receipt fields, positive gates, and executed
 hidden-source-media poison are in
-`docs/research/provider-media-loss-gp2.5.3.md`.
+`docs/research/provider-media-loss-gp2.5.3.md`. Candidate
+`50c72159781e14d3db06d792beac34838572fc91` passed the positive lane with
+zero anomalies after all source media was absent; the poison was discarded.
 
 ### Stage C, R1 durability comparison
 
@@ -345,7 +349,8 @@ solution-level latency or throughput claim.
 
 1. Reject any provider that fails P1 through P10.
 2. Do not repair a P1 failure with objectKV-owned distributed coordination.
-3. If one provider remains, run its R0 lifecycle and hot-path overhead gates.
+3. If one provider remains, run its R0 lifecycle, provider-media-loss, external
+   incarnation-authority, and hot-path overhead gates.
 4. If FoundationDB's retained-change overhead exceeds 25 percent at p99 or
    throughput after one bounded optimization, evaluate its backup-worker or
    Blob Granule path as one orthogonal mechanism.

@@ -1,0 +1,132 @@
+{
+  "artifact_refs": [
+    "/var/lib/objectkv/receipts/media-loss-poison.json",
+    "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/manifest-1ba46902d6fa4fe8ba575c28644c89ee7c08983dc91ed923aa3ceb7f17265e51.json",
+    "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/closure-0ce84a9313b06715c637bf5152cf00221c9c0bf703d49fc90ef9df04471c7fdb.json",
+    "/var/lib/objectkv/receipts/eval-poison.json",
+    "/var/lib/objectkv/receipts/destination-machine.json"
+  ],
+  "backend": "foundationdb-7.4.6+fresh-provider+objectkv-lifecycle+gcs",
+  "batch_id": "gp253-r0-poison",
+  "budget": {
+    "kind": "operations",
+    "limit": 10000.0,
+    "observed": 1010.0
+  },
+  "candidate_commit": "50c72159781e14d3db06d792beac34838572fc91",
+  "created_at": "2026-08-27T13:54:12.956334478+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "poison restored inside the source provider cluster",
+      "id": "provider_identities_distinct",
+      "status": "fail"
+    },
+    {
+      "detail": "poison kept the source instance and disks reachable",
+      "id": "source_provider_media_removed_before_restore",
+      "status": "fail"
+    },
+    {
+      "detail": "empty logical generation in source cluster",
+      "id": "destination_empty_before_restore",
+      "status": "pass"
+    },
+    {
+      "detail": "manifest and closure named GETs matched",
+      "id": "named_object_hashes_match",
+      "status": "pass"
+    },
+    {
+      "detail": "expected=9fc46142a6d53447d30c357bdff009944cc7cc554fecdedf89e0f99c74db6d60 actual=9fc46142a6d53447d30c357bdff009944cc7cc554fecdedf89e0f99c74db6d60",
+      "id": "exact_state_digest",
+      "status": "pass"
+    },
+    {
+      "detail": "restored=5 replayed=5",
+      "id": "restore_chunks_idempotent",
+      "status": "pass"
+    },
+    {
+      "detail": "logical destination activated after ready marker",
+      "id": "activated_after_ready",
+      "status": "pass"
+    },
+    {
+      "detail": "fresh logical-generation transaction committed",
+      "id": "fresh_destination_commit",
+      "status": "pass"
+    },
+    {
+      "detail": "inputs=['source-cluster', 'source-provider-media']",
+      "id": "restore_has_no_source_provider_inputs",
+      "status": "fail"
+    },
+    {
+      "detail": "executed same-cluster hidden-source-media poison; exact logical restore is not provider-media-loss evidence",
+      "id": "provider_media_loss_receipt_admitted",
+      "status": "pass"
+    },
+    {
+      "detail": "control=restore_with_hidden_source_media",
+      "id": "negative_control_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+      "id": "provider_revision_pinned",
+      "status": "pass"
+    }
+  ],
+  "lane": "provider-media-loss",
+  "parent_commit": "8bf10d9f367faccc574cdd24cab5d92d3b12fada",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0,
+    "median": 3.0,
+    "name": "okv.eval.correctness.anomalies",
+    "samples": [
+      3.0
+    ],
+    "statistic": "total",
+    "unit": "{anomaly}",
+    "value": 3.0
+  },
+  "profile": {
+    "hash": "9828566fdb72ac1a2cfae953b39eaa5555080ea69cc7c42b4a572b7c27f8f2da",
+    "id": "gcp-r0-foundationdb-media-loss",
+    "lockfile_hash": "beb0417472798168cf49ad23473ec657fd94925f242b154b899ae6b6b30a8412",
+    "machine": "receipt-sha256:9cfea4d31e7ee386031dadf29e7ff0a3a24c124003a2f2aa14c203ccabaeeb5b",
+    "rustc": "unknown"
+  },
+  "reason": "FoundationDB media-loss negative control restore_with_hidden_source_media was detected",
+  "run_id": "865c06d8-9a7d-4874-aa44-c7cd6683c170",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 0.000409176,
+    "provider_media_loss.object_bytes": 205855.0,
+    "provider_media_loss.restore_chunks": 5.0,
+    "provider_media_loss.restored_records": 950.0
+  },
+  "seeds": [
+    2026082703
+  ],
+  "suite": "incumbent-media-loss-r0-v1",
+  "suite_hash": "cf37f27cec18723b34538bb8b8766ef5ff6371244fc79d315e06d5107ce57d78",
+  "verdict": "discard"
+}

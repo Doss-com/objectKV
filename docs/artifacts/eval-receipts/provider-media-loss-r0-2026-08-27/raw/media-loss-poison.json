@@ -1,0 +1,114 @@
+{
+  "correctness_anomalies": 3,
+  "destination": {
+    "boot_disk_id": "6795792039540524596",
+    "boot_disk_name": "objectkv-bench-gp253-r0-source",
+    "cluster_file_sha256": "c8127715707e032f79b7d2f4587a5c21bded8a2bc17552d3aabb3bc597b9264b",
+    "cluster_id": "771da699009584c8ec863758814fa942",
+    "data_disk_id": "354061258476848685",
+    "data_disk_name": "objectkv-bench-gp253-r0-source-data",
+    "instance_id": "152250640842458676",
+    "instance_name": "objectkv-bench-gp253-r0-source"
+  },
+  "gates": [
+    {
+      "detail": "poison restored inside the source provider cluster",
+      "id": "provider_identities_distinct",
+      "passed": false
+    },
+    {
+      "detail": "poison kept the source instance and disks reachable",
+      "id": "source_provider_media_removed_before_restore",
+      "passed": false
+    },
+    {
+      "detail": "empty logical generation in source cluster",
+      "id": "destination_empty_before_restore",
+      "passed": true
+    },
+    {
+      "detail": "manifest and closure named GETs matched",
+      "id": "named_object_hashes_match",
+      "passed": true
+    },
+    {
+      "detail": "expected=9fc46142a6d53447d30c357bdff009944cc7cc554fecdedf89e0f99c74db6d60 actual=9fc46142a6d53447d30c357bdff009944cc7cc554fecdedf89e0f99c74db6d60",
+      "id": "exact_state_digest",
+      "passed": true
+    },
+    {
+      "detail": "restored=5 replayed=5",
+      "id": "restore_chunks_idempotent",
+      "passed": true
+    },
+    {
+      "detail": "logical destination activated after ready marker",
+      "id": "activated_after_ready",
+      "passed": true
+    },
+    {
+      "detail": "fresh logical-generation transaction committed",
+      "id": "fresh_destination_commit",
+      "passed": true
+    },
+    {
+      "detail": "inputs=['source-cluster', 'source-provider-media']",
+      "id": "restore_has_no_source_provider_inputs",
+      "passed": false
+    }
+  ],
+  "kind": "foundationdb_objectkv_media_loss_r0",
+  "media_loss": {
+    "observed_at": "2026-08-27T13:46:02Z",
+    "removed_before_restore": false,
+    "source_boot_disk_absent": false,
+    "source_data_disk_absent": false,
+    "source_instance_absent": false
+  },
+  "media_loss_verified": false,
+  "negative_control": "restore_with_hidden_source_media",
+  "object_closure": {
+    "closure_bytes": 205248,
+    "closure_generation": "1787838362037593",
+    "closure_sha256": "0ce84a9313b06715c637bf5152cf00221c9c0bf703d49fc90ef9df04471c7fdb",
+    "closure_uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/closure-0ce84a9313b06715c637bf5152cf00221c9c0bf703d49fc90ef9df04471c7fdb.json",
+    "manifest_bytes": 607,
+    "manifest_generation": "1787838362208618",
+    "manifest_sha256": "1ba46902d6fa4fe8ba575c28644c89ee7c08983dc91ed923aa3ceb7f17265e51",
+    "manifest_uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/media-loss/gp253-r0-20260827t1345z/manifest-1ba46902d6fa4fe8ba575c28644c89ee7c08983dc91ed923aa3ceb7f17265e51.json",
+    "record_count": 950,
+    "state_digest": "9fc46142a6d53447d30c357bdff009944cc7cc554fecdedf89e0f99c74db6d60",
+    "through_provider_stamp": "0000000022f2ac3c0000"
+  },
+  "provider": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "restore": {
+    "activated_after_ready": true,
+    "destination_empty_before_restore": true,
+    "finished_at": "2026-08-27T13:46:02Z",
+    "fresh_commit_succeeded": true,
+    "named_object_hashes_match": true,
+    "replayed_chunks": 5,
+    "restored_chunks": 5,
+    "restored_record_count": 950,
+    "restored_state_digest": "9fc46142a6d53447d30c357bdff009944cc7cc554fecdedf89e0f99c74db6d60",
+    "source_provider_inputs": [
+      "source-cluster",
+      "source-provider-media"
+    ],
+    "started_at": "2026-08-27T13:46:02Z"
+  },
+  "run_id": "gp253-r0-20260827t1345z",
+  "schema_version": 1,
+  "scope": "executed same-cluster hidden-source-media poison; exact logical restore is not provider-media-loss evidence",
+  "source": {
+    "boot_disk_id": "6795792039540524596",
+    "boot_disk_name": "objectkv-bench-gp253-r0-source",
+    "cluster_file_sha256": "c8127715707e032f79b7d2f4587a5c21bded8a2bc17552d3aabb3bc597b9264b",
+    "cluster_id": "771da699009584c8ec863758814fa942",
+    "data_disk_id": "354061258476848685",
+    "data_disk_name": "objectkv-bench-gp253-r0-source-data",
+    "instance_id": "152250640842458676",
+    "instance_name": "objectkv-bench-gp253-r0-source"
+  },
+  "timings": []
+}

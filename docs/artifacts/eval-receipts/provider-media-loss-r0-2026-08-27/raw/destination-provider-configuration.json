@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "kind": "objectkv_foundationdb_r0_configuration",
+  "configured_at": "2026-08-27T13:51:03Z",
+  "run_label": "gp253-r0",
+  "phase": "restore",
+  "provider": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "cluster_id": "ead1a090b56d6635f6edb53b14393172",
+  "cluster_file_sha256": "14d6afac814354706491422e5a0aa1c1aa68841a7b7bc3c21f475ceecc3b2537",
+  "cluster_file": "/etc/foundationdb/fdb.cluster",
+  "datadir": "/var/lib/objectkv/foundationdb"
+}

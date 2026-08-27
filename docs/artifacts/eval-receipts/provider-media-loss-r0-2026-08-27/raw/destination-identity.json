@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "kind": "objectkv_provider_media_identity_r0",
+  "captured_at": "2026-08-27T13:52:56Z",
+  "run_label": "gp253-r0",
+  "phase": "restore",
+  "project": "doss-objectkv-dev",
+  "zone": "us-central1-a",
+  "identity": {
+    "cluster_id": "ead1a090b56d6635f6edb53b14393172",
+    "cluster_file_sha256": "14d6afac814354706491422e5a0aa1c1aa68841a7b7bc3c21f475ceecc3b2537",
+    "instance_name": "objectkv-bench-gp253-r0-restore",
+    "instance_id": "3411644288906165933",
+    "boot_disk_name": "objectkv-bench-gp253-r0-restore",
+    "boot_disk_id": "8565772745399205549",
+    "data_disk_name": "objectkv-bench-gp253-r0-restore-data",
+    "data_disk_id": "1306254030531329753"
+  }
+}

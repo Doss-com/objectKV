@@ -1,0 +1,45 @@
+{
+  "api_version": 740,
+  "cluster": {
+    "cluster_file_sha256": "14d6afac814354706491422e5a0aa1c1aa68841a7b7bc3c21f475ceecc3b2537",
+    "cluster_id": "ead1a090b56d6635f6edb53b14393172"
+  },
+  "duration_ns": 305666535,
+  "finished_at": "2026-08-27T13:53:20Z",
+  "kind": "foundationdb_objectkv_media_restore_phase_r0",
+  "provider": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "restore": {
+    "activated_after_ready": true,
+    "destination_empty_before_restore": true,
+    "finished_at": "2026-08-27T13:53:20Z",
+    "fresh_commit_succeeded": true,
+    "named_object_hashes_match": true,
+    "replayed_chunks": 5,
+    "restored_chunks": 5,
+    "restored_record_count": 950,
+    "restored_state_digest": "9fc46142a6d53447d30c357bdff009944cc7cc554fecdedf89e0f99c74db6d60",
+    "source_provider_inputs": [],
+    "started_at": "2026-08-27T13:53:19Z"
+  },
+  "run_id": "gp253-r0-20260827t1345z",
+  "schema_version": 1,
+  "started_at": "2026-08-27T13:53:19Z",
+  "timings": [
+    {
+      "duration_ns": 231942795,
+      "id": "named_get"
+    },
+    {
+      "duration_ns": 37924861,
+      "id": "restore"
+    },
+    {
+      "duration_ns": 3421965,
+      "id": "activate"
+    },
+    {
+      "duration_ns": 3716673,
+      "id": "fresh_commit"
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 # objectKV real-infrastructure evaluation program
 
 Status: `[VERIFIED]` for the private runner, named local NVMe, regional GCS,
-required OTel, machine receipt, and schema-valid paired-comparison mechanism.
+required OTel, machine receipt, schema-valid paired-comparison mechanism, and
+GP2.5.3 physical provider-media-loss reconstruction.
 `[EVALUATING]` for GP3.1 provider selection. The final native resident candidate
 was 15.89 and 17.32 percent below owned-value direct RocksDB throughput in
 opposite process orders, inside the 20 percent envelope. P99 was 21.04 and 27.17
@@ -185,13 +186,20 @@ were discarded. All seven semantic and lifecycle run IDs occur in the captured
 OTel logs, metrics, and traces. These are correctness receipts, not performance
 claims.
 
-`[EVALUATING]` GP2.5.3 now has a frozen two-cluster media-loss contract and a
-code-complete receipt validator. Its sequential Terraform topology runs one
-source VM, executes a same-cluster hidden-media poison, replaces the VM and
-provider disk, observes all source media absent, then reconstructs on a fresh
-destination FoundationDB cluster. No GP2.5.3 cloud receipt has passed yet.
+`[VERIFIED]` GP2.5.3 executed that two-cluster media-loss contract. Candidate
+`50c72159781e14d3db06d792beac34838572fc91` wrote a 950-record, 205,248-byte
+closure plus a 607-byte manifest to named GCS generations. Terraform deleted
+the source VM, boot disk, and 100 GiB provider SSD; the controller observed all
+three absent before restore began. A fresh FoundationDB cluster with distinct
+cluster, instance, boot-disk, and data-disk identities restored five chunks,
+replayed them idempotently, matched the exact source digest and row count,
+activated after its ready marker, and accepted one fresh commit. The formal
+positive received `keep` with 16 passing gates and zero anomalies. The
+same-cluster hidden-media control received `discard`. Both run IDs occur in
+captured OTel logs, metrics, and traces. See
+`docs/artifacts/eval-receipts/provider-media-loss-r0-2026-08-27/README.md`.
 
-GP2.5.4 separately gates external provider-incarnation authority. Physical
+`[PROPOSED]` GP2.5.4 separately gates external provider-incarnation authority. Physical
 source deletion cannot prove that a later-resurrected old cluster is fenced.
 GP3.1 compares mandatory retained-write overhead against direct FoundationDB
 at matched durability after these correctness gates.

@@ -1,10 +1,11 @@
 # objectKV benchmark runner v1
 
-Status: `[VERIFIED]` one private-runner GCS smoke produced a machine-bound result
-and all three required OTel signals. `[CODE-COMPLETE]` the isolated Terraform
-root validates and defaults to zero compute resources. `[EVALUATING]` a clean
-bundle repeat and scale calibration. The completed R0 lease destroyed all nine
-managed resources and left no benchmark compute running.
+Status: `[VERIFIED]` one private-runner GCS smoke and the sequential GP2.5.3
+provider-media-loss lifecycle produced machine-bound results with all three
+required OTel signals. `[CODE-COMPLETE]` the isolated Terraform root validates
+and defaults to zero compute resources. `[EVALUATING]` scale calibration. The
+completed leases destroyed all nine managed resources and left no benchmark
+compute running.
 
 This root owns the first stable real-infrastructure benchmark environment. It
 does not share Terraform state with the existing project and bucket root. State
@@ -34,6 +35,14 @@ identities; the collector and regional GCS objects remain. This keeps only one
 data VM active while an external controller can prove the exact source media is
 absent. These correctness phases set `enable_local_ssd=false`; local NVMe is an
 unrelated serving-path variable and is not provisioned for this gate.
+
+The verified `gp253-r0` execution wrote an exact 950-record closure on the
+source phase, replaced the source VM and provider disk, observed the source VM,
+boot disk, and data disk absent, then reconstructed the exact digest on a fresh
+restore phase. Its formal positive passed 16 gates; the hidden-source-media
+control was discarded. After capture, the root destroyed nine managed
+resources and returned to an empty Terraform state. Receipts are under
+`docs/artifacts/eval-receipts/provider-media-loss-r0-2026-08-27/`.
 
 OS Login is the default operator path. If OS Login is unavailable, an explicit
 break-glass key may be passed as `operator_ssh_public_key`. This creates only the

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-27T13:52:49Z",
+  "run_label": "gp253-r0",
+  "project": "doss-objectkv-dev",
+  "region": "us-central1",
+  "zone": "us-central1-a",
+  "source_revision": "50c72159781e14d3db06d792beac34838572fc91",
+  "bucket": {
+    "name": "doss-objectkv-dev-okv-evals",
+    "location": "US-CENTRAL1",
+    "storage_class": "STANDARD",
+    "versioning_enabled": true
+  },
+  "runner": {
+    "name": "objectkv-bench-gp253-r0-restore",
+    "instance_id": "3411644288906165933",
+    "machine_type": "n2-standard-8",
+    "cpu_platform": "Intel Cascade Lake",
+    "image": "https://www.googleapis.com/compute/v1/projects/debian-cloud/global/images/debian-12-bookworm-v20260817",
+    "internal_ip": "10.77.0.4",
+    "public_ip": null,
+    "service_account": "objectkv-eval-runner@doss-objectkv-dev.iam.gserviceaccount.com",
+    "data_disk_type": "pd-ssd",
+    "data_disk_gib": 100,
+    "lease_expires_epoch": "1787847401",
+    "binary_sha256": "6eaf31478a3c32eac12a80520e720d0c9f32526b706847dfe6d17a72ef78bdce",
+    "runtime_identity": "Linux 6.1.0-52-cloud-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.180-1 (2026-08-03) x86_64 GNU/Linux",
+    "hot_scratch": null
+  },
+  "collector": {
+    "name": "objectkv-bench-gp253-r0-collector",
+    "instance_id": "2035128814094091828",
+    "machine_type": "e2-standard-2",
+    "cpu_platform": "Intel Broadwell",
+    "image": "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-78",
+    "internal_ip": "10.77.0.3",
+    "public_ip": null,
+    "service_account": "objectkv-eval-runner@doss-objectkv-dev.iam.gserviceaccount.com",
+    "data_disk_type": "pd-balanced",
+    "data_disk_gib": 20,
+    "lease_expires_epoch": "1787847401",
+    "binary_sha256": null,
+    "runtime_identity": "sha256:498c59b440c4ba5ea061c73a68ad14cf6d192acad52334a85a5126774f7ee759",
+    "hot_scratch": null
+  },
+  "checks": {
+    "runner_ready": true,
+    "binary_sha256_recorded": true,
+    "collector_healthy": true,
+    "no_public_ips": true
+  }
+}

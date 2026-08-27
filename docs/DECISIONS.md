@@ -1147,6 +1147,7 @@ TiKV live write skew: both commit -> reject for P1
 FoundationDB live write skew: one conflicts -> advance
   -> logical object lifecycle
   -> provider-media-loss reconstruction
+  -> provider-incarnation authority
   -> retained-write overhead vs direct FoundationDB
   -> provider admission or stop
 ```
@@ -1165,12 +1166,14 @@ into an empty generation, replayed five chunks idempotently, matched the state
 digest, fenced the old generation, and discarded all three poisons. Candidate
 `ca9195186c4bd85573dddfe2d63a376693a031e9` and its private GCP machine receipt
 produced complete logs, metrics, and traces. GP2.5.2 is `[VERIFIED]` for this
-logical scope. The source provider media remained present, so GP2.5.3 and GP3.1
-still gate provider admission.
+logical scope. GP2.5.3 then reconstructed the same logical state on a fresh
+provider after the source VM and both source disks were observed absent.
+GP2.5.4 incarnation authority and GP3.1 overhead still gate provider admission.
 
 ## D54. Separate provider-media loss from provider-incarnation fencing
 
-Status: `[ACTIVE-WORK]` provider-media-loss implementation, 2026-08-27.
+Status: `[VERIFIED]` GP2.5.3 provider-media-loss mechanism;
+`[PROPOSED]` GP2.5.4 provider-incarnation authority, 2026-08-27.
 
 Decision: GP2.5.3 uses two distinct FoundationDB cluster and disk identities.
 An external controller observes the source instance, boot disk, and provider
@@ -1194,5 +1197,10 @@ namespace-reset result into a distributed-fencing result.
 Gives up: treating physical deletion as complete HA evidence. An external cell
 incarnation authority remains required by RFC-0009 before provider admission.
 
-Evidence contract:
-`docs/research/provider-media-loss-gp2.5.3.md`.
+Evidence: candidate `50c72159781e14d3db06d792beac34838572fc91`
+reconstructed 950 exact records on a fresh FoundationDB cluster after the
+source VM, boot disk, and provider SSD were observed absent. All 16 formal
+positive gates passed, the same-cluster poison was discarded, and both run IDs
+occur in OTel logs, metrics, and traces. Contract and receipts:
+`docs/research/provider-media-loss-gp2.5.3.md` and
+`docs/artifacts/eval-receipts/provider-media-loss-r0-2026-08-27/README.md`.

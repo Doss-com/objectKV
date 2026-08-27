@@ -130,7 +130,7 @@ evidence = ["../../docs/artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/RE
 
 [[phases.gates]]
 id = "GP2.5.3"
-status = "proposed"
+status = "verified"
 kind = "correctness"
 claim = "The same object closure reconstructs exact logical state after the source FoundationDB data media is removed and a fresh provider generation is created."
 falsifier = "Restore starts before the source instance and disks are absent, reads a source-provider input, returns another digest, or exposes the destination before completion."
@@ -142,7 +142,7 @@ backend = "foundationdb-7.4.6+fresh-provider+objectkv-lifecycle+gcs"
 lane = "provider-media-loss"
 checkpoint = "resident-plane"
 negative_controls = ["foundationdb-restore-with-hidden-source-media-poison"]
-evidence = []
+evidence = ["../../docs/artifacts/eval-receipts/provider-media-loss-r0-2026-08-27/README.md"]
 
 [[phases.gates]]
 id = "GP2.5.4"

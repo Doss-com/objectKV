@@ -1,7 +1,8 @@
 # GP2.5.3 provider-media-loss reconstruction
 
-Status: `[ACTIVE-WORK]` contract and implementation. No provider-media-loss
-receipt has passed yet.
+Status: `[VERIFIED]` for the bounded R0 FoundationDB-to-GCS-to-fresh-
+FoundationDB reconstruction. Provider-incarnation fencing remains
+`[PROPOSED]` as GP2.5.4.
 
 ## Clarity
 
@@ -15,9 +16,8 @@ the first restore write.
 Counter: The result is invalid if the restore can reach a source cluster,
 provider backup, disk snapshot, copied provider file, or source process memory.
 
-Next: execute one bounded source -> objectify -> delete -> restore run and one
-same-cluster poison, then admit only the receipt whose exact state digest comes
-from named immutable GCS objects.
+Next: implement the external cell-incarnation authority in GP2.5.4, then run
+the GP3.1 retained-write overhead pair against direct FoundationDB.
 
 Confidence: high for the media-loss evidence boundary. This gate does not prove
 multi-cluster incarnation fencing or production HA.
@@ -52,6 +52,27 @@ into three executable workstreams:
 
 The order is dependency-first. No cloud run starts until the evaluator rejects
 the poison locally.
+
+## Verified R0 result
+
+Candidate `50c72159781e14d3db06d792beac34838572fc91` created a 950-record,
+205,248-byte closure and a 607-byte manifest in GCS. The controller then
+deleted the source FoundationDB VM, boot disk, and 100 GiB provider SSD and
+observed all three absent at `2026-08-27T13:49:32Z`. Restore began at
+`2026-08-27T13:53:19Z` on a fresh cluster with distinct cluster, instance,
+boot-disk, and data-disk identities.
+
+The destination performed exact generation-addressed GETs, applied five
+restore chunks, replayed all five without another effect, reproduced the
+source row count and state digest, activated after its ready marker, and
+committed one fresh transaction. The formal positive run
+`3093a364-b636-4b9e-bb7f-569d79853129` received `keep` with 16 passing hard
+gates and zero anomalies. The same-cluster hidden-media control
+`865c06d8-9a7d-4874-aa44-c7cd6683c170` received `discard`. Both run IDs occur
+in captured OTel logs, metrics, and traces.
+
+Evidence:
+`docs/artifacts/eval-receipts/provider-media-loss-r0-2026-08-27/README.md`.
 
 ## Frozen R0 topology
 
@@ -136,7 +157,7 @@ namespace reset as a provider-media-loss result.
 
 ## Scope boundary
 
-Passing GP2.5.3 means objectKV has one exact FoundationDB-to-GCS-to-fresh-
+The passing GP2.5.3 receipt means objectKV has one exact FoundationDB-to-GCS-to-fresh-
 FoundationDB reconstruction mechanism. It does not verify:
 
 - a FoundationDB-supported physical backup or restore;

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "kind": "objectkv_provider_media_loss_observation_r0",
+  "observed_at": "2026-08-27T13:49:32Z",
+  "project": "doss-objectkv-dev",
+  "zone": "us-central1-a",
+  "source_instance_name": "objectkv-bench-gp253-r0-source",
+  "source_boot_disk_name": "objectkv-bench-gp253-r0-source",
+  "source_data_disk_name": "objectkv-bench-gp253-r0-source-data",
+  "source_instance_absent": true,
+  "source_boot_disk_absent": true,
+  "source_data_disk_absent": true
+}
