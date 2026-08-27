@@ -24,7 +24,7 @@ pub struct Timing {
     pub duration_ns: u64,
 }
 
-/// Identity of one FoundationDB cluster and its GCP media.
+/// Identity of one `FoundationDB` cluster and its GCP media.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderIdentity {
@@ -41,6 +41,7 @@ pub struct ProviderIdentity {
 /// Controller observations made after the source Terraform phase ended.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct MediaLoss {
     pub observed_at: String,
     pub source_instance_absent: bool,
@@ -69,6 +70,7 @@ pub struct ObjectClosure {
 /// Destination observations made while reconstructing the object closure.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Restore {
     pub started_at: String,
     pub finished_at: String,
