@@ -559,7 +559,7 @@ become one GitHub issue.
   real receipt. Native concurrent-read and replicated-commit work proceed under
   separate gates.
 
-### T26. Verify the native concurrent-read curve `[EVALUATING]`
+### T26. Verify the native concurrent-read curve `[VERIFIED]`
 
 - Scope: GP3.1.1 native and matched direct RocksDB reads at 1, 8, and 32
   clients, with the exact GP3.1 recovery topology and owned-value boundary.
@@ -572,11 +572,13 @@ become one GitHub issue.
 - Review focus: synchronized start, exact operation partitioning, percentile
   aggregation, scheduler oversubscription, paired order, and whether native and
   control use the same RocksDB and value-ownership boundary.
-- Current result: `[CODE-COMPLETE]` the deterministic 1, 8, and 32-client
-  runner, six-workload suite, receipt client count, and operation-budget gate.
-  A dirty 32-client AB/BA diagnostic reached 0.9835x and 1.0324x control
-  throughput. Native p99 was 0.8321x and 0.8717x control, with all runtime hard
-  gates passing. The real GCP R0 curve is `[EVALUATING]`.
+- Current result: `[VERIFIED]` the deterministic runner and clean GCP R0
+  receipt. At 8 clients, native throughput was 0.8798x and 0.8734x control;
+  p99 was 1.1842x and 1.1220x. At 32 clients, throughput was 0.8803x and
+  0.8906x; p99 was 1.1072x and 1.1478x. All explicit constraints passed in both
+  orders. The eight results contain 120 samples, 24,000,000 measured reads,
+  zero wrong values, zero measured object operations, correlated OTel signals,
+  and complete scratch and lease teardown.
 
 ### T27. Freeze the native cache-pressure curve `[PROPOSED]`
 

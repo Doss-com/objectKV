@@ -2,18 +2,19 @@
 
 Status: `[VERIFIED]` for the private runner, named local NVMe, regional GCS,
 required OTel, machine receipt, schema-valid paired-comparison mechanism, and
-GP2.5.3 physical provider-media-loss reconstruction.
-`[EVALUATING]` for GP3.1 provider selection. The final native resident candidate
-was 15.89 and 17.32 percent below owned-value direct RocksDB throughput in
-opposite process orders, inside the 20 percent envelope. P99 was 21.04 and 27.17
-percent above control, so the executable p99 gate failed twice and triggered the
-TiKV or FoundationDB pivot. No cross-stack performance claim is `[VERIFIED]`.
+GP2.5.3 physical provider-media-loss reconstruction. `[VERIFIED]` GP3.1 and
+GP3.1.1 admit the topology-matched native resident read boundary through 32
+clients. `[EVALUATING]` cache pressure, same-durability replicated commit, and
+the complete transaction plane. No full-cell or cross-stack performance claim
+is `[VERIFIED]`.
 
 ## The answer we are trying to earn
 
-objectKV is worth continuing only if the same committed history produces a
-material win on at least one object-native curve without becoming structurally
-noncompetitive on quorum commit, hot point read, resource use, and recovery.
+The native transaction plane keeps ownership only if the same committed
+history produces a material win on at least one object-native curve without
+becoming structurally noncompetitive on quorum commit, hot point read, resource
+use, and recovery. A rejected native mechanism changes the implementation, not
+the objectKV program.
 There is no single valid "faster than TiKV" number. Each percentage must name
 the operation, consistency, durability, topology, cache state, dataset, and
 cost boundary it compares.
@@ -159,9 +160,28 @@ measurement. The final native AB pair measured 589,717 versus 701,119 reads/s
 and 2,226 versus 1,839 ns p99. The BA pair measured 587,199 versus 710,184
 reads/s and 2,261 versus 1,778 ns p99. All correctness, identity, byte, and OTel
 checks passed. Both throughput constraints passed; both p99 constraints failed.
-The D52 pivot therefore stops custom resident transaction-plane work and moves
-the next golden-path slice to TiKV versus FoundationDB selection. See
+That unmatched result triggered D52. D56 supersedes its permanent pivot because
+the control did not pay for the candidate's recovered six-process topology. See
 `docs/artifacts/eval-receipts/single-range-native-resident-gcp-r2-2026-08-27/README.md`.
+
+`[VERIFIED]` A fourth R0 execution put native and direct owned-value RocksDB
+inside the same recovered six-authority-process topology. Native retained
+0.9089x and 0.9197x control throughput in opposite process orders; p99 was
+0.9134x and 0.9132x control. All four results passed 64 total hard-gate
+evaluations and emitted correlated OTel logs, metrics, and traces. GP3.1 admits
+the single-range native read boundary, not replicated commit or a complete
+cell. See
+`docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md`.
+
+`[VERIFIED]` A fifth R0 execution held the same topology and changed only
+concurrent read clients. At 8 clients, native retained 0.8798x and 0.8734x
+control throughput; p99 was 1.1842x and 1.1220x. At 32 clients, throughput was
+0.8803x and 0.8906x control; p99 was 1.1072x and 1.1478x. All four explicit
+comparison pairs passed. The eight results contain 120 samples, 24,000,000
+measured reads, 128 passing workload gates, zero measured object operations,
+and complete OTel correlation. All 384 current scratch objects and all nine
+leased resources were removed after evidence capture. See
+`docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md`.
 
 The r0 profile uses a 4 MiB working set to isolate public-path software cost.
 It does not measure cache pressure. A 64 MiB attempt was stopped after more
@@ -299,12 +319,14 @@ schema-valid machine-bound result. The completed lease destroyed nine resources;
 zero matching instances, disks, firewall rules, subnetworks, or routers remain.
 `[EVALUATING]` the same smoke from one clean, digest-addressed experiment bundle.
 
-The next receipt sequence is deliberately incremental:
+The next receipt sequence remains incremental:
 
-1. repeat the tiny smoke from a clean bundle;
-2. scale one dimension at a time: keys, point operations, then repeats;
-3. choose a calibration size that completes in at most two minutes;
-4. run five samples per subject and measure noise;
-5. only then enable the real candidate/control admission thresholds;
-6. repeat the admitted batch to measure drift;
-7. add a second solution stack after the objectKV path is stable.
+1. freeze the cache budget and reusable larger-than-cache fixture;
+2. add CPU time, physical bytes, block-cache hits, read amplification, and
+   object-fetch attribution;
+3. run warm, mixed, and eviction-heavy points in both process orders;
+4. build the native three-node replicated commit path;
+5. compare it with a same-durability control under normal operation, leader
+   loss, and recovery;
+6. compose admitted read, commit, publication, and empty-worker recovery into
+   the first one-range Cell v0 slice.

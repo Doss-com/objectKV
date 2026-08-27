@@ -49,6 +49,6 @@ not harden until their RFC is accepted.
 | 0039 | SingleRange serving-image boundary | `[CODE-COMPLETE]`, `[EVALUATING]` | provider-neutral hot-state activation and the public SSD point-read curve |
 | 0040 | Native resident-engine data plane | `[VERIFIED]` topology-matched single-range read boundary under D56 | native concurrency and replicated-commit gates, with FoundationDB retained as oracle and fallback |
 | 0041 | Incumbent transaction-plane adapter | `[CODE-COMPLETE]` contract and source-pinned preflight, `[EVALUATING]` fallback lifecycle | semantic oracle, object continuity control, and fallback profile |
-| 0042 | Native resident concurrent-read curve | `[CODE-COMPLETE]` runner and suite, `[EVALUATING]` GCP R0 | 1, 8, and 32-client paired curve before cache pressure |
+| 0042 | Native resident concurrent-read curve | `[VERIFIED]` GCP R0 at 8 and 32 clients | paired resident concurrency admission before cache pressure |
 
 Use `0000-template.md` for new proposals.

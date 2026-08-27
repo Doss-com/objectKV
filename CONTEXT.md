@@ -88,7 +88,8 @@ This file defines vocabulary and current facts. Behavioral policy lives in
 - **serving profile**: the selected hot-state implementation for a range.
   `ssd_resident` is `[CODE-COMPLETE]` as a bounded RocksDB image on disposable
   local media and `[VERIFIED]` for the topology-matched single-range named-NVMe
-  read boundary; concurrent cache-pressure curves remain `[EVALUATING]`.
+  read boundary through 32 concurrent clients; cache-pressure curves remain
+  `[EVALUATING]`.
   `ram_resident` is `[PROPOSED]` as a bounded DRAM image with no data files or
   swap.
 - **durability provider**: `[PROPOSED]` the implementation that makes a commit
@@ -163,12 +164,12 @@ performance or operational claim.
   and emitted OTel logs, metrics, and traces. This admits the single-range read
   boundary, not replicated commit or a complete cell. D56 keeps the plane
   native-first; FoundationDB remains the semantic oracle and fallback profile.
-- `[CODE-COMPLETE]` GP3.1.1 runs the same native and direct RocksDB boundaries
-  with exact operation budgets across 1, 8, and 32 synchronized clients. A
-  dirty 32-client local diagnostic produced 0.9835x and 1.0324x control
-  throughput in opposite process orders. Native p99 was 0.8321x and 0.8717x
-  control, with every runtime gate passing. Clean GCP R0 evaluation is pending;
-  cache pressure is a separate gate.
+- `[VERIFIED]` GP3.1.1 runs the same native and direct RocksDB boundaries with
+  exact operation budgets at 8 and 32 synchronized clients. Across both process
+  orders, native retained 0.8734x through 0.8906x control throughput and kept
+  p99 between 1.1072x and 1.1842x control. All eight results passed 128 total
+  hard gates, issued zero measured object operations, and emitted correlated
+  OTel logs, metrics, and traces. Cache pressure is a separate gate.
 - `[CODE-COMPLETE]` RFC-0041 and `okv-plane` freeze the incumbent adapter,
   provider stamp, generation, retained-change, object-frontier, and restore
   boundaries. The source-pinned preflight models FoundationDB 7.4.6 and TiKV

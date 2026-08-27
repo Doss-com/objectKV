@@ -296,7 +296,8 @@ into one system claim.
 | Optimized public SingleRange versus direct RocksDB, GCP R0 AB and BA | 575,498 versus 713,304 and 573,999 versus 717,362 reads/s; p99 ratios 1.353x and 1.300x; 15 samples per subject and order | `[VERIFIED]` optimization and comparison validity; throughput entered the envelope, executable p99 failed twice, GP3.1 remains `[EVALUATING]` |
 | Native resident engine versus bare owned-value direct RocksDB, GCP R0 AB and BA | 589,717 versus 701,119 and 587,199 versus 710,184 reads/s; p99 ratios 1.210x and 1.272x; 15 samples per subject and order | `[VERIFIED]` historical unmatched-topology result; its permanent pivot conclusion is superseded by D56 and the matched control below |
 | Native resident engine versus topology-matched owned-value direct RocksDB, GCP R0 AB and BA | 656,662 versus 722,443 and 660,783 versus 718,492 reads/s; p99 ratios 0.913x and 0.913x; 15 samples per subject and order | `[VERIFIED]` GP3.1 single-range mechanism admission; all throughput, p99, correctness, object-operation, identity, and OTel constraints passed twice |
-| Native resident engine versus topology-matched direct RocksDB, 32-client local AB/BA diagnostic | Throughput ratios 0.9835x and 1.0324x; p99 ratios 0.8321x and 0.8717x; one dirty sample per subject and order | `[CODE-COMPLETE]` GP3.1.1 runner evidence only; clean GCP curve remains `[EVALUATING]` |
+| Native resident engine versus topology-matched direct RocksDB, GCP R0 at 8 clients | Throughput ratios 0.8798x and 0.8734x; p99 ratios 1.1842x and 1.1220x; 15 samples per subject and order | `[VERIFIED]` GP3.1.1 8-client admission; all constraints passed twice |
+| Native resident engine versus topology-matched direct RocksDB, GCP R0 at 32 clients | Throughput ratios 0.8803x and 0.8906x; p99 ratios 1.1072x and 1.1478x; 15 samples per subject and order | `[VERIFIED]` GP3.1.1 32-client admission; all constraints passed twice |
 | Commit-proxy batch32 | 1,157.369 median tx/s and 76.101 ms maximum p99, 6.356x one-entry control | `[EVALUATING]`, dirty single-host isolated contract |
 | DataFusion columnar range source | 2.544M rows/s, 54 projection requests versus 1,761 one-stripe requests | `[EVALUATING]`, dirty release-local isolated contract |
 | Prior R0 GCS infrastructure smoke | 6.925 s wall time, 24 gates, all three OTel signals | `[VERIFIED]` infrastructure plumbing, not performance |
@@ -361,8 +362,9 @@ read result.
 
 Next sequence:
 
-1. Run the code-complete GP3.1.1 1, 8, and 32-client curve on clean GCP R0 in
-   both process orders.
+1. Freeze and run the cache-pressure curve with an explicit block-cache budget,
+   a reusable larger-than-cache fixture, CPU time, physical bytes, read
+   amplification, and object-fetch attribution.
 2. Split the resident-kernel eval binary from the full DataFusion build and
    record the Rust toolchain rather than `unknown` in real-infrastructure
    receipts.

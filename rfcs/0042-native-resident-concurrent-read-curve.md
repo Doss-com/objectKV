@@ -1,6 +1,6 @@
 # RFC-0042: Native resident concurrent-read curve
 
-- Status: `[CODE-COMPLETE]`, real-infrastructure evaluation pending
+- Status: `[VERIFIED]`, GCP R0 admission at 8 and 32 clients
 - Authors: DOSS
 - Created: 2026-08-27
 - Scope: GP3.1.1 concurrency scaling at the admitted single-range read boundary
@@ -64,16 +64,19 @@ throughput floor at 8 and 32:  0.80x matched direct RocksDB
 p99 ceiling at 8 and 32:       1.20x matched direct RocksDB
 ```
 
-The 1-client point is a regression anchor against GP3.1. The 8-client point
-shows the first useful parallel curve. The 32-client point is the admission
-subject because it exceeds the GCP R0 vCPU count and exposes scheduler and
-engine contention.
+The 1-client point is a diagnostic regression anchor against GP3.1. GP3.1's
+frozen single-client GCP receipt remains the admission anchor, so GP3.1.1 does
+not rerun it. The 8-client point shows the first useful parallel curve. The
+32-client point exceeds the GCP R0 vCPU count and exposes scheduler and engine
+contention. Both 8 and 32 clients are admission subjects.
 
 ## Receipt requirements
 
-One admitted evidence set contains:
+One admitted GP3.1.1 evidence set contains:
 
-- all six workloads in each process order;
+- the 8-client and 32-client native and control workloads in each process
+  order, plus the admitted GP3.1 single-client receipt as the regression
+  anchor;
 - one source revision, binary hash, suite hash, and machine receipt;
 - identical object base, txLog suffix, keys, values, seeds, and operation counts;
 - exact reported client count and measured-operation count for every sample;
@@ -105,6 +108,15 @@ Do not advance native replicated commit based on a single-client result alone.
 
 - GP3.1 admitted baseline:
   `docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/`
+- GP3.1.1 admitted concurrency curve:
+  `docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/`
+- `[VERIFIED]` On clean source `e478806`, the 8-client AB/BA throughput ratios
+  were 0.8798x and 0.8734x; p99 ratios were 1.1842x and 1.1220x. The 32-client
+  AB/BA throughput ratios were 0.8803x and 0.8906x; p99 ratios were 1.1072x and
+  1.1478x. Every explicit comparison constraint passed in both orders. The
+  eight workload results contain 120 total samples, 24,000,000 measured reads,
+  zero wrong values, zero measured object operations, and correlated OTel
+  logs, metrics, and traces. All leased resources were destroyed.
 - Suite: `evals/suites/single-range-native-concurrency-admission.toml`
 - Dirty local 32-client diagnostic: source `def98f5+dirty`, suite hash
   `f78d1d9db73947d6cd0e98e45875488406fd6bc71e0eecf5e15dadb94d92d019`.

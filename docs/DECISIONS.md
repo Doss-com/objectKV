@@ -1251,8 +1251,8 @@ required. Contract and local receipt:
 
 ## D56. Keep objectKV native-first and expose applications through okv-fabric
 
-Status: `[VERIFIED]` single-range native read boundary; `[EVALUATING]` native
-transaction-plane admission, 2026-08-27.
+Status: `[VERIFIED]` single-range native read boundary through 32 clients;
+`[EVALUATING]` native transaction-plane admission, 2026-08-27.
 
 Decision: objectKV is the fixed product program. Evaluations select mechanisms,
 serving profiles, and transaction-plane implementations; they do not decide
@@ -1280,10 +1280,12 @@ The topology-matched GP3.1 rerun admits the single-range native snapshot
 boundary, but it does not show that the distributed system is nearly complete.
 Native retained 0.9089x and 0.9197x direct RocksDB throughput in opposite
 process orders. Its p99 was 0.9134x and 0.9132x control. Both frozen constraints
-passed twice. The next native sequence separates three claims:
+passed twice. GP3.1.1 then retained 0.8734x through 0.8906x direct RocksDB
+throughput and kept p99 between 1.1072x and 1.1842x control at 8 and 32 clients
+in both process orders. The next native sequence separates three claims:
 
-1. measure concurrent-client, CPU-per-read, and cache-pressure curves without
-   weakening the admitted single-range semantics;
+1. measure CPU-per-read and cache-pressure curves without weakening the
+   admitted single-range semantics;
 2. measure one three-node replicated commit path against a same-durability
    control;
 3. prove strict serializability, failover, object-frontier safety, and empty
@@ -1303,12 +1305,13 @@ Evidence: RFC-0040 and the topology-matched GP3.1 AB/BA receipt establish the
 current native performance boundary. RFC-0041 and the FoundationDB receipts
 remain the semantic and lifecycle controls. Neither set of receipts verifies a
 complete native distributed cell. See
-`docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md`.
+`docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md`
+and
+`docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md`.
 
 ## D57. Separate concurrent-read admission from cache-pressure admission
 
-Status: `[CODE-COMPLETE]` concurrent runner and frozen suite; `[EVALUATING]`
-GCP R0 receipt, 2026-08-27.
+Status: `[VERIFIED]` concurrent runner and GCP R0 receipt, 2026-08-27.
 
 Decision: GP3.1.1 changes only concurrent point-read clients at the admitted
 single-range native snapshot boundary. It runs native and matched direct
@@ -1320,19 +1323,20 @@ Cache budget, larger-than-cache fixtures, CPU time, and RocksDB read
 amplification remain a separate next gate. They do not enter the first
 concurrency receipt.
 
-The corrected dirty local 32-client diagnostic executed exactly 50,000
-measured reads per subject in both process orders. Native versus control was
-5.168 versus 5.255 million reads/s in AB order and 5.266 versus 5.101 million
-reads/s in BA order. Native p99 was 79.500 versus 95.541 microseconds and
-88.875 versus 101.958 microseconds. The throughput ratios were 0.9835x and
-1.0324x; p99 ratios were 0.8321x and 0.8717x. All runtime hard gates passed.
-This is implementation evidence, not a performance admission.
+The clean GCP R0 receipt executed 24,000,000 measured reads across 120 samples.
+At 8 clients, native retained 0.8798x and 0.8734x control throughput; p99 was
+1.1842x and 1.1220x control. At 32 clients, throughput was 0.8803x and 0.8906x
+control; p99 was 1.1072x and 1.1478x control. Every comparison constraint
+passed in both process orders. All 128 workload gates passed, all hot-read
+windows issued zero object operations, and every run ID appears in OTel logs,
+metrics, and traces.
 
 Optimizes for: attributing a regression to parallel reader contention before
 changing cache policy or working-set size.
 
-Gives up: one combined concurrency and eviction result. GP3.1.1 must pass on
-clean GCP R0 before its curve is generalized.
+Gives up: one combined concurrency and eviction result. The verified result is
+limited to one 4 MiB resident working set; it cannot be generalized to cache
+pressure.
 
 Evidence: RFC-0042 and
-`evals/suites/single-range-native-concurrency-admission.toml`.
+`docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md`.

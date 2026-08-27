@@ -195,7 +195,7 @@ def render() -> str:
 """
     required = [
         "Highest verified rung",
-        "Incumbent resident transaction plane",
+        "Native resident transaction plane",
         "Golden path levels",
         "Systems to infrastructure",
         "Recent measured receipts",

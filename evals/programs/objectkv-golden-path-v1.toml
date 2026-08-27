@@ -185,7 +185,7 @@ control = { id = "direct-rocksdb-matched-topology", suite = "../suites/single-ra
 
 [[phases.gates]]
 id = "GP3.1.1"
-status = "code_complete"
+status = "verified"
 kind = "performance"
 claim = "At 8 and 32 concurrent clients, the native version-bound snapshot preserves at least eighty percent of matched direct RocksDB throughput and keeps p99 within twenty percent in both process orders."
 falsifier = "Native throughput falls below eighty percent or p99 exceeds one hundred twenty percent of matched control at 8 or 32 clients after operation count, topology, source, machine, and process order are matched."
@@ -197,7 +197,7 @@ backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local
 lane = "hot-ssd-native-concurrency"
 checkpoint = "ssd-resident"
 negative_controls = []
-evidence = []
+evidence = ["../../docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md"]
 control = { id = "direct-rocksdb-concurrency-32", suite = "../suites/single-range-native-concurrency-admission.toml", profile = "gcp-r0-nvme", workload = "direct-rocksdb-concurrency-32-control", backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme", lane = "hot-ssd-native-concurrency" }
 
 [[phases.gates]]

@@ -45,17 +45,18 @@ RocksDB throughput in opposite process orders. P99 was 0.913x control in both
 orders. Exact replay, bounded native state, empty-worker reconstruction, zero
 measured object operations, and all three OTel signals passed.
 
-`[EVALUATING]` The next native rungs are concurrent and cache-pressure read
-curves, then three-node replicated commit against a same-durability control.
-RAM, multi-range, PostgreSQL, and HTAP remain blocked on those gates.
-FoundationDB remains the semantic oracle and fallback profile. The immutable
-evidence is under
-`docs/artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/`.
+`[VERIFIED]` GP3.1.1 admits the resident read boundary at 8 and 32 concurrent
+clients. Native retained 87.34 through 89.06 percent of matched direct RocksDB
+throughput and kept p99 between 1.107x and 1.184x control in both orders.
 
-`[CODE-COMPLETE]` GP3.1.1 freezes the concurrent-read curve at 1, 8, and 32
-clients. The clean R0 receipt is `[EVALUATING]`. Cache pressure follows as a
-separate gate with an explicit cache budget and reusable larger-than-cache
-fixture.
+`[EVALUATING]` The next native rungs are cache-pressure reads and three-node
+replicated commit against a same-durability control. RAM, multi-range,
+PostgreSQL, and HTAP remain blocked on those gates.
+FoundationDB remains the semantic oracle and fallback profile. The immutable
+concurrency evidence is under
+`docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/`.
+Cache pressure follows as a separate gate with an explicit cache budget and
+reusable larger-than-cache fixture.
 
 ### What the goal optimizes for
 

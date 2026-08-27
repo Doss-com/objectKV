@@ -53,13 +53,19 @@ Most receipts remain local-system results rather than
 independent-failure-domain claims. One bounded private Google Cloud run now
 verifies the complete single-range recovery and resident-read mechanism over
 regional GCS, a persistent SSD authority volume, and local NVMe serving
-scratch. A final engine-native experiment corrected value-ownership semantics
-and replayed both process orders. It retained 84.11\% and 82.68\% of direct
-RocksDB throughput, inside the frozen 20\% regression envelope. P99 remained
-21.04\% and 27.17\% worse, so the executable tail-latency constraint failed
-twice and fired the predeclared pivot. A live semantic eliminator then rejected
-TiKV because both transactions in the frozen write-skew history committed.
-FoundationDB rejected the same write skew and advanced alone. A frozen
+scratch. An engine-native experiment corrected value ownership but compared a
+six-process recovered candidate with a bare RocksDB control. It passed
+throughput and missed p99. A topology-matched rerun then retained 90.89\% and
+91.97\% of direct RocksDB throughput; p99 was 0.913x control in both process
+orders. At 8 and 32 synchronized clients, the native boundary retained 87.34\%
+through 89.06\% of control throughput and kept p99 between 1.107x and 1.184x
+control. All eight concurrent results passed their explicit constraints, issued
+zero measured object operations, and emitted correlated OTel signals. These
+results admit a single-range resident-read mechanism, not a complete cell. A
+live semantic eliminator rejected TiKV as the strict-serializability control
+because both transactions in the frozen write-skew history committed.
+FoundationDB rejected the same write skew and remains the semantic oracle and
+fallback profile. A frozen
 FoundationDB plus GCS logical-lifecycle batch reconstructed 950 rows into an
 empty logical generation with the exact source digest, fenced an old
 generation transaction, and discarded three negative controls. A second
@@ -75,9 +81,9 @@ source fencing, destination activation, and stale commit, route, and
 publication checks. Its positive received \texttt{keep} with zero anomalies;
 the three-surface stale-source control received \texttt{discard}. This verifies
 the compound-fence process mechanism, not yet a resurrected FoundationDB
-provider. \okv{} retains
-its log, object publication, branching,
-reconstruction, and HTAP layers around the surviving transaction plane. Multiple
+provider. The native RocksDB and OpenRaft plane remains the primary bounded
+research lane; \okv{} retains FoundationDB as a comparison and fallback rather
+than making it the product boundary. Multiple
 machines, multiple zones, RAM admission, multi-range transactions, and
 sustained capacity curves remain proposed or are being evaluated. The paper
 defines the proof ladder and falsifiable curves that must clear before \okv{}
@@ -374,12 +380,14 @@ All four workloads passed sixteen hard gates and emitted correlated OTel logs,
 metrics, and traces. This admits the single-range native snapshot boundary, not
 replicated commit or a complete cell.
 
-The next runner partitions one exact read budget across 1, 8, and 32 clients
-behind shared ready and start barriers. A dirty 32-client AB/BA diagnostic
-produced native-to-control throughput ratios of 0.9835x and 1.0324x. Native
-p99 ratios were 0.8321x and 0.8717x. This only establishes that the concurrent
-runner operates. Clean paired infrastructure receipts remain required. Cache
-pressure is isolated into a later gate with explicit cache sizing and a
+The concurrent runner partitions one exact read budget behind shared ready and
+start barriers. On clean GCP R0, the 8-client AB/BA native-to-control throughput
+ratios were 0.8798x and 0.8734x; p99 ratios were 1.1842x and 1.1220x. At 32
+clients, throughput ratios were 0.8803x and 0.8906x; p99 ratios were 1.1072x
+and 1.1478x. The eight results contain 120 samples and 24 million measured
+reads. All 128 workload gates passed, every hot-read window issued zero object
+operations, and every run ID occurs in OTel logs, metrics, and traces. Cache
+pressure remains isolated into a later gate with explicit cache sizing and a
 reusable larger-than-cache fixture.
 
 \subsection{Objectification and publication}
@@ -1027,9 +1035,11 @@ same work into a more expensive medium. The cold-read and reopen curves
 determine whether object separation is real rather than a renamed full replica.
 Objectification and brownout curves determine whether asynchronous permanence
 stays bounded. The HTAP curve determines whether exact base-plus-tail execution
-is useful in practice. The economics curve is the final product gate. If no
-workload gains a material advantage, the project should use FoundationDB,
-TiKV, or PostgreSQL with an object tier instead of owning a new kernel.
+is useful in practice. The economics curve selects which implementation owns
+each layer. If native transaction authority fails its frozen gates, the project
+should select FoundationDB or another admitted incumbent behind the same
+\okv{} log, object, history, and fabric boundaries rather than stop the
+program.
 
 \section{Design Tradeoffs and Alternatives}
 
@@ -1118,12 +1128,15 @@ more directly, but it would own much more PostgreSQL behavior. The project does
 not need to decide one permanent representation before measuring the page
 bridge and its double-logging cost.
 
-\subsection{Incumbent transaction-plane checkpoint}
+\subsection{Transaction-plane controls}
 
-The native resident experiment failed its frozen p99 gate. The next checkpoint
-therefore asks an incumbent to own strict-serializable transactions while
-\okv{} owns retained history, immutable object closures, reconstruction, and
-generation fencing. The current bounded data flow is:
+The matched native resident boundary passed its frozen throughput and p99
+envelopes through 32 clients. It remains the primary implementation lane. The
+unmatched failure is retained as evidence that controls must pay for the same
+recovery topology and owned-value semantics. FoundationDB separately owns the
+strict-serializability and lifecycle control while \okv{} develops retained
+history, immutable object closures, reconstruction, and generation fencing.
+The current bounded control data flow is:
 
 \begin{figure}[t]
 \centering
@@ -1222,10 +1235,10 @@ The dependency order is evidence driven:
   batching with one-entry-per-transaction control under the same stable-media
   durability contract. Keep the native authority only if correctness holds and
   the throughput curve clears its frozen gate.
-  \item The native SSD-resident experiment passed exact-read, object-request,
-  local-byte, and throughput gates but failed the frozen p99 constraint in both
-  process orders. The semantic eliminator removed TiKV and advanced
-  FoundationDB. Freeze the FoundationDB lifecycle adapter before RAM work.
+  \item The topology-matched native SSD-resident experiment passed exact-read,
+  object-request, local-byte, throughput, and p99 gates in both process orders.
+  The 8-client and 32-client curves also passed. Next freeze cache pressure and
+  native replicated commit while FoundationDB remains the semantic oracle.
   \item The GCS closure passed empty logical-generation reconstruction and
   fresh-provider reconstruction after source VM and disk deletion. The local
   external incarnation authority is verified and the real-provider harness is
@@ -1295,23 +1308,20 @@ durable encoding. Its next rung must append each delta transactionally, recover
 through \texttt{okv-wal}, bind checkpoints to exact positions and reducer
 identities, and reject corrupt or unsupported histories before serving state.
 
-The native resident boundary has now supplied its decision. It passed
-throughput and failed p99 in both frozen process orders, so the custom resident
-transaction plane stops. TiKV then failed the strict-serializable write-skew
-gate; FoundationDB passed and is the sole lifecycle candidate. Its frozen
-logical-generation probe passed objectification, exact reconstruction,
-idempotent chunk replay, generation fencing, negative controls, and formal OTel
-receipt. GP2.5.2 is verified for that logical scope. The next decisive evidence
-was GP2.5.3, which reconstructed the same digest after the source provider and
-both disks were absent and discarded the hidden-media control. GP2.5.4 now
-verifies its local compound-fence processes and detects the three-surface
-stale-source poison. Real FoundationDB resurrection and the matched hot-path
-overhead curve remain. The
-golden scenario is code
-complete as a plan, but no complete application-to-object checkpoint is
-verified. The project proceeds only if the retained log, publication, and HTAP
-components demonstrate lifecycle or economics leverage above the selected
-incumbent.
+The native resident boundary has supplied two decisions. First, comparisons
+must match recovery topology and value ownership. Second, once matched, the
+native version-bound read boundary stays inside the frozen direct RocksDB
+envelope through 32 clients. The native plane therefore continues to cache
+pressure and replicated-commit gates. TiKV failed the strict-serializable
+write-skew control; FoundationDB passed and remains the semantic oracle and
+fallback profile. Its logical-generation and media-loss probes verify exact
+object reconstruction in their bounded scopes, while the local compound-fence
+process detects stale commit, route, and publication attempts. No receipt yet
+proves a complete native transaction cell, independent-zone quorum durability,
+cache-pressure behavior, PostgreSQL execution, or end-to-end HTAP economics.
+The golden scenario is code complete as a plan. The next decisive results are
+the bounded cache curve, same-durability native replicated commit, and exact
+object-plus-tail recovery under those admitted rates.
 
 \balance
 \bibliographystyle{ACM-Reference-Format}
