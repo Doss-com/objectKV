@@ -56,7 +56,7 @@ if [[ ! "${description}" =~ ^[A-Za-z0-9_]+$ ]]; then
 fi
 printf '%s:%s@127.0.0.1:4500\n' "${description}" "${cluster_id}" >"${cluster_file}"
 chown foundationdb:foundationdb "${cluster_file}"
-chmod 0640 "${cluster_file}"
+chmod 0644 "${cluster_file}"
 
 cat >"${config_file}" <<EOF
 [fdbmonitor]
