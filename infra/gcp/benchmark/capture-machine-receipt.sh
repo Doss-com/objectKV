@@ -49,7 +49,11 @@ bucket_json="$(gcloud storage buckets describe "gs://${bucket}" --project="${pro
 source_revision="$(jq -r '.metadata.items[] | select(.key == "objectkv-revision") | .value' <<<"${runner_json}")"
 lease_expires="$(jq -r '.metadata.items[] | select(.key == "objectkv-lease-expires") | .value' <<<"${runner_json}")"
 runner_ready_document="$(gcloud compute ssh "${runner_target}" "${ssh_args[@]}" --command='cat /var/lib/objectkv/runner-ready.json' 2>/dev/null || printf '{}')"
-runner_ready="$(jq -e '.status == "ready" and (.hot_bytes // 0) > 0 and (.hot_interface // "") == "nvme"' <<<"${runner_ready_document}" >/dev/null 2>&1 && printf true || printf false)"
+if [[ "${runner_phase}" == "standard" ]]; then
+  runner_ready="$(jq -e '.status == "ready" and (.hot_bytes // 0) > 0 and (.hot_interface // "") == "nvme"' <<<"${runner_ready_document}" >/dev/null 2>&1 && printf true || printf false)"
+else
+  runner_ready="$(jq -e '.status == "ready"' <<<"${runner_ready_document}" >/dev/null 2>&1 && printf true || printf false)"
+fi
 binary_sha256="$(gcloud compute ssh "${runner_target}" "${ssh_args[@]}" --command='sha256sum /opt/objectkv/bin/okv-eval 2>/dev/null | cut -d " " -f 1' 2>/dev/null || true)"
 runner_runtime="$(gcloud compute ssh "${runner_target}" "${ssh_args[@]}" --command='uname -srvmo' 2>/dev/null || true)"
 collector_runtime="$(gcloud compute ssh "${collector_target}" "${ssh_args[@]}" --command='sudo docker inspect objectkv-otel --format={{.Image}} 2>/dev/null' 2>/dev/null || true)"
@@ -117,7 +121,7 @@ jq -n \
         $runner_disk;
         $runner_runtime;
         $binary_sha256;
-        (if $runner_ready_document.status == "ready" then {
+        (if ($runner_ready_document.hot_bytes // 0) > 0 then {
           kind: "gcp-local-ssd",
           device: $runner_ready_document.hot_device,
           interface: $runner_ready_document.hot_interface,

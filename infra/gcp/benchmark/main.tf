@@ -166,10 +166,13 @@ resource "google_compute_instance" "runner" {
     mode        = "READ_WRITE"
   }
 
-  # Disposable complete serving images live here. The persistent pd-ssd above
-  # remains available for stable-media controls and receipts.
-  scratch_disk {
-    interface = "NVME"
+  # Disposable complete serving images live here for serving-path benchmarks.
+  # Provider-media-loss correctness phases disable the unrelated local SSD.
+  dynamic "scratch_disk" {
+    for_each = var.enable_local_ssd ? [1] : []
+    content {
+      interface = "NVME"
+    }
   }
 
   network_interface {
@@ -185,6 +188,7 @@ resource "google_compute_instance" "runner" {
     objectkv-lease-expires  = var.lease_expires_epoch
     objectkv-results-bucket = var.bucket_name
     objectkv-hot-mount      = var.runner_hot_mount
+    objectkv-local-ssd      = tostring(var.enable_local_ssd)
     startup-script          = file("${path.module}/runner-startup.sh")
     }, var.operator_ssh_public_key == "" ? {} : {
     objectkv-operator-ssh-key = var.operator_ssh_public_key

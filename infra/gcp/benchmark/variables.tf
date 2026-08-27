@@ -118,6 +118,12 @@ variable "runner_hot_mount" {
   }
 }
 
+variable "enable_local_ssd" {
+  description = "Attach local NVMe scratch for serving-path benchmarks. Media-loss correctness phases disable it."
+  type        = bool
+  default     = true
+}
+
 variable "collector_machine_type" {
   description = "Separate machine so telemetry processing does not consume runner CPU."
   type        = string

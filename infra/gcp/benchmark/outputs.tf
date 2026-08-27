@@ -43,5 +43,5 @@ output "resolved_collector_image" {
 }
 
 output "destroy_command" {
-  value = var.create ? "terraform -chdir=infra/gcp/benchmark destroy -var=create=true -var=run_label=${var.run_label} -var=runner_phase=${var.runner_phase} -var=benchmark_revision=${var.benchmark_revision} -var=lease_expires_epoch=${var.lease_expires_epoch}" : null
+  value = var.create ? "terraform -chdir=infra/gcp/benchmark destroy -var=create=true -var=run_label=${var.run_label} -var=runner_phase=${var.runner_phase} -var=enable_local_ssd=${var.enable_local_ssd} -var=benchmark_revision=${var.benchmark_revision} -var=lease_expires_epoch=${var.lease_expires_epoch}" : null
 }

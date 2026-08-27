@@ -32,7 +32,8 @@ sequentially. The phase changes both the VM name and persistent provider-disk
 name. Terraform destroys the source identities before creating the restore
 identities; the collector and regional GCS objects remain. This keeps only one
 data VM active while an external controller can prove the exact source media is
-absent.
+absent. These correctness phases set `enable_local_ssd=false`; local NVMe is an
+unrelated serving-path variable and is not provisioned for this gate.
 
 OS Login is the default operator path. If OS Login is unavailable, an explicit
 break-glass key may be passed as `operator_ssh_public_key`. This creates only the
