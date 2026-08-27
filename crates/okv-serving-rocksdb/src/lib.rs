@@ -130,7 +130,7 @@ impl ServingImage for RocksDbServingImage {
         self.database
             .flush()
             .map_err(|error| format!("flush RocksDB serving image: {error}"))?;
-        let local_bytes = directory_bytes(&self.root)?;
+        let local_bytes = database_directory_bytes(&self.database, &self.root)?;
         if local_bytes > self.max_local_bytes {
             return Err(format!(
                 "RocksDB serving image uses {local_bytes} bytes above its {} byte budget",
@@ -337,7 +337,7 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
             };
             batch.put_cf(metadata, b"active", encode_metadata(&active)?);
             write_and_flush(&self.database, batch)?;
-            active.local_bytes = directory_bytes(&self.root)?;
+            active.local_bytes = database_directory_bytes(&self.database, &self.root)?;
             if active.local_bytes > self.max_local_bytes {
                 return Err(format!(
                     "native resident engine uses {} bytes above its {} byte budget",
@@ -399,7 +399,7 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
             };
             batch.put_cf(metadata, b"active", encode_metadata(&advanced)?);
             write_and_flush(&self.database, batch)?;
-            advanced.local_bytes = directory_bytes(&self.root)?;
+            advanced.local_bytes = database_directory_bytes(&self.database, &self.root)?;
             if advanced.local_bytes > self.max_local_bytes {
                 return Err(format!(
                     "native resident engine uses {} bytes above its {} byte budget",
@@ -840,6 +840,24 @@ fn directory_bytes(root: &Path) -> Result<u64, String> {
         }
     }
     Ok(total)
+}
+
+fn database_directory_bytes(database: &DB, root: &Path) -> Result<u64, String> {
+    database
+        .disable_file_deletions()
+        .map_err(|error| format!("pause RocksDB file deletion for byte accounting: {error}"))?;
+    let measured = directory_bytes(root);
+    let resumed = database
+        .enable_file_deletions()
+        .map_err(|error| format!("resume RocksDB file deletion after byte accounting: {error}"));
+    match (measured, resumed) {
+        (Ok(bytes), Ok(())) => Ok(bytes),
+        (Err(measure_error), Ok(())) => Err(measure_error),
+        (Ok(_), Err(resume_error)) => Err(resume_error),
+        (Err(measure_error), Err(resume_error)) => Err(format!(
+            "{measure_error}; additionally failed to resume file deletion: {resume_error}"
+        )),
+    }
 }
 
 #[cfg(test)]
