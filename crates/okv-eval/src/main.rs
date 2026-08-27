@@ -55,8 +55,9 @@ use okv_eval::serving_recovery::{
 };
 use okv_eval::serving_recovery_openraft::{
     run_openraft_serving_recovery_contract, run_openraft_serving_recovery_contract_with_hot_reads,
-    run_openraft_serving_recovery_node, OpenRaftHotReadProfile, OpenRaftServingObjectBackend,
-    OpenRaftServingProcessConfig, OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport,
+    run_openraft_serving_recovery_node, OpenRaftHotReadProfile, OpenRaftHotReadSubject,
+    OpenRaftServingObjectBackend, OpenRaftServingProcessConfig, OpenRaftServingRecoveryMode,
+    OpenRaftServingRecoveryReport,
 };
 use okv_eval::storage_layout::{
     run_columnar_cache_admission_contract, run_columnar_cache_admission_contract_on_backend,
@@ -1666,7 +1667,6 @@ fn transaction_authority_state_scale_execution(
     } else {
         None
     };
-
     let mode_name = match mode {
         AuthorityStateScaleMode::AlignedFrontiersProjection => "aligned_frontiers_projection",
         AuthorityStateScaleMode::IdealStreamPopProjection => "ideal_stream_pop_projection",
@@ -2621,6 +2621,17 @@ fn run_openraft_serving_worker_recovery(
     } else {
         None
     };
+    let hot_read_subject = match workload
+        .parameters
+        .get("hot_read_subject")
+        .and_then(toml::Value::as_str)
+    {
+        None | Some("native_snapshot") => OpenRaftHotReadSubject::NativeSnapshot,
+        Some("direct_owned_rocksdb") => OpenRaftHotReadSubject::DirectOwnedRocksdb,
+        Some(other) => {
+            return execution_from_result(Err(format!("unknown OpenRaft hot-read subject {other}")))
+        }
+    };
     let mut reports = Vec::with_capacity(
         seeds
             .len()
@@ -2635,6 +2646,7 @@ fn run_openraft_serving_worker_recovery(
             );
             let hot_read = hot_read_operations.map(|(warmup_operations, measured_operations)| {
                 OpenRaftHotReadProfile {
+                    subject: hot_read_subject,
                     seed: *seed,
                     key_count: recovery_profile.key_count,
                     value_bytes: recovery_profile.value_bytes,
@@ -2658,6 +2670,7 @@ fn run_openraft_serving_worker_recovery(
     }
     let replay_hot_read = hot_read_operations.map(|(warmup_operations, measured_operations)| {
         OpenRaftHotReadProfile {
+            subject: hot_read_subject,
             seed: seeds[0],
             key_count: recovery_profile.key_count,
             value_bytes: recovery_profile.value_bytes,
@@ -3032,6 +3045,24 @@ fn openraft_serving_recovery_execution(
         });
     }
     if mode == OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate {
+        let hot_read_subject = first
+            .and_then(|report| report.process.hot_read.as_ref())
+            .map(|hot_read| hot_read.subject)
+            .unwrap_or_default();
+        let (read_gate, object_gate, ownership_gate, ownership_detail) = match hot_read_subject {
+            OpenRaftHotReadSubject::NativeSnapshot => (
+                "exact_bound_native_snapshot_hot_reads",
+                "bound_native_snapshot_issues_zero_object_operations",
+                "native_snapshot_returns_owned_value",
+                "ReadOutcome::Value(Vec<u8>)",
+            ),
+            OpenRaftHotReadSubject::DirectOwnedRocksdb => (
+                "exact_matched_topology_direct_rocksdb_hot_reads",
+                "matched_topology_direct_rocksdb_issues_zero_object_operations",
+                "matched_topology_direct_rocksdb_returns_owned_value",
+                "DB::get -> Option<Vec<u8>>",
+            ),
+        };
         hard_gates.push(HardGateResult {
             id: "native_resident_engine_activated_and_advanced".to_owned(),
             status: gate_status(resident_engine_exact),
@@ -3050,7 +3081,7 @@ fn openraft_serving_recovery_execution(
             }),
         });
         hard_gates.push(HardGateResult {
-            id: "exact_bound_native_snapshot_hot_reads".to_owned(),
+            id: read_gate.to_owned(),
             status: gate_status(hot_read_exact),
             detail: first.and_then(|report| {
                 report.process.hot_read.as_ref().map(|hot_read| {
@@ -3064,7 +3095,7 @@ fn openraft_serving_recovery_execution(
             }),
         });
         hard_gates.push(HardGateResult {
-            id: "bound_native_snapshot_issues_zero_object_operations".to_owned(),
+            id: object_gate.to_owned(),
             status: gate_status(hot_read_exact),
             detail: first.and_then(|report| {
                 report
@@ -3075,9 +3106,9 @@ fn openraft_serving_recovery_execution(
             }),
         });
         hard_gates.push(HardGateResult {
-            id: "native_snapshot_returns_owned_value".to_owned(),
+            id: ownership_gate.to_owned(),
             status: gate_status(true),
-            detail: Some("ReadOutcome::Value(Vec<u8>)".to_owned()),
+            detail: Some(ownership_detail.to_owned()),
         });
     }
     let durations = reports
@@ -3112,6 +3143,36 @@ fn openraft_serving_recovery_execution(
                 .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p99))
         })
         .collect::<Vec<_>>();
+    let hot_p50_ns = reports
+        .iter()
+        .filter_map(|report| {
+            report
+                .process
+                .hot_read
+                .as_ref()
+                .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p50))
+        })
+        .collect::<Vec<_>>();
+    let hot_p95_ns = reports
+        .iter()
+        .filter_map(|report| {
+            report
+                .process
+                .hot_read
+                .as_ref()
+                .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p95))
+        })
+        .collect::<Vec<_>>();
+    let hot_p999_ns = reports
+        .iter()
+        .filter_map(|report| {
+            report
+                .process
+                .hot_read
+                .as_ref()
+                .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p999))
+        })
+        .collect::<Vec<_>>();
     let mut secondary_metrics = BTreeMap::from([
         (
             "serving_recovery_openraft.first_read_seconds.median".to_owned(),
@@ -3140,8 +3201,20 @@ fn openraft_serving_recovery_execution(
             median(&hot_throughput),
         );
         secondary_metrics.insert(
+            "single_range.hot_read_p50_ns.median".to_owned(),
+            median(&hot_p50_ns),
+        );
+        secondary_metrics.insert(
+            "single_range.hot_read_p95_ns.median".to_owned(),
+            median(&hot_p95_ns),
+        );
+        secondary_metrics.insert(
             "single_range.hot_read_p99_ns.median".to_owned(),
             median(&hot_p99_ns),
+        );
+        secondary_metrics.insert(
+            "single_range.hot_read_p999_ns.median".to_owned(),
+            median(&hot_p999_ns),
         );
     }
     WorkloadExecution {

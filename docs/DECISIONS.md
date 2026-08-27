@@ -1248,3 +1248,58 @@ than source and destination wall-clock comparisons. Real GCP execution remains
 required. Contract and local receipt:
 `docs/research/provider-incarnation-gp2.5.4.md` and
 `docs/artifacts/eval-receipts/provider-incarnation-local-r0-2026-08-27/README.md`.
+
+## D56. Keep objectKV native-first and expose applications through okv-fabric
+
+Status: `[EVALUATING]` architecture direction and native-plane admission,
+2026-08-27.
+
+Decision: objectKV is the fixed product program. Evaluations select mechanisms,
+serving profiles, and transaction-plane implementations; they do not decide
+whether the project continues. Reopen the objectKV-native RocksDB and OpenRaft
+transaction plane as the primary bounded research lane. Keep FoundationDB as a
+strict-serializability oracle, matched comparison, and fallback transaction
+profile while the native lane earns admission through explicit gates.
+
+Applications and data platforms integrate through `okv-fabric`, the unified
+API above the value-native kernel:
+
+```text
+PostgreSQL | Redis | search | filesystem | DataFusion | applications
+                              |
+                         okv-fabric
+       transactions | KV | log/WAL | snapshots | branches | projections
+                              |
+                        objectKV kernel
+       native transaction plane | serving images | object publication
+                              |
+                  immutable S3-compatible state
+```
+
+The GP3.1 result is close enough to justify another bounded native pass, but it
+does not show that the distributed system is nearly complete. AB p99 was 1.210x
+against a 1.20x ceiling, a 0.83 percent relative miss. BA p99 was 1.272x, a 6.0
+percent relative miss. Throughput passed at 0.8411x and 0.8268x. The next native
+sequence separates three claims:
+
+1. reproduce and profile the single-range tail with clean-source matched ABBA
+   receipts;
+2. measure one three-node replicated commit path against a same-durability
+   control;
+3. prove strict serializability, failover, object-frontier safety, and empty
+   recovery before adding range splitting or cross-range commit.
+
+Optimizes for: full control of the hot path, a Rust-native kernel, portable
+object state, and one application fabric that can expose transactional,
+log-oriented, branch, and analytical abstractions without an incumbent database
+becoming the product boundary.
+
+Gives up: the shorter route to production maturity offered by making
+FoundationDB the default plane. Consensus operations, MVCC, resolver scaling,
+range placement, repair, and production failure handling remain objectKV work
+and must be admitted one bounded claim at a time.
+
+Evidence: RFC-0040 and the GP3.1 AB/BA receipts establish the current native
+performance boundary. RFC-0041 and the FoundationDB receipts remain the
+semantic and lifecycle controls. Neither set of receipts verifies a complete
+native distributed cell.

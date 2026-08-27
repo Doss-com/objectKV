@@ -219,6 +219,12 @@ in both process orders. The native resident engine is retained as a correctness
 prototype and evidence artifact, not promoted as objectKV's production data
 plane.
 
+D56 supersedes the permanent pivot implied by this rule. The receipt still
+rejects this exact candidate at this exact gate. It does not reject an
+objectKV-native transaction plane. Native work resumes through bounded
+single-range profiling, replicated commit, and failure/recovery gates before
+any production-plane claim.
+
 ## Evidence
 
 - Prior gate:
@@ -242,5 +248,5 @@ runs each completed fifteen candidate and fifteen control samples, three
 million measured reads per subject, exact replay, zero measured object
 operations, bounded local bytes, and OTel logs, metrics, and traces.
 
-`[EVALUATING]` TiKV versus FoundationDB selection and the adapter contract above
-that incumbent plane. The custom native plane does not advance to GP3.2.
+`[EVALUATING]` The native plane remains the primary research lane. FoundationDB
+continues as a semantic oracle, comparison control, and fallback profile.

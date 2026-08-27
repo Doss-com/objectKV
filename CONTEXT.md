@@ -9,10 +9,16 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   KV kernel and public repository name.
 - **okv**: the CLI, Rust package/module, configuration-prefix, and local
   shorthand namespace for objectKV.
+- **okv-fabric**: `[PROPOSED]` the unified application API above the objectKV
+  kernel. Applications use one version, transaction, log, snapshot, branch,
+  projection, and lifecycle fabric instead of integrating separate application
+  adapters. PostgreSQL, Redis, search, filesystem, and DataFusion compatibility
+  surfaces bind to this fabric without moving their semantics into the kernel.
 - **ZebraDB**: `[FUTURE]` the DOSS database product intended to consume
   objectKV through PostgreSQL and version-aligned DataFusion execution.
 - **serving model**: Redis, inverted search, PostgreSQL, or another semantic
-  consumer implemented above the ordered transaction contract.
+  surface implemented through `okv-fabric` above the ordered transaction
+  contract.
 - **value-native kernel**: objectKV owns ordered keys, opaque value bytes,
   versions, transactions, and recovery. A serving model decides whether a value
   represents a PostgreSQL page, logical row, index entry, posting, or another
@@ -87,10 +93,11 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   envelope and required consensus state recoverable before `COMMITTED`. The
   default is a regional stable-media txLog; synchronous object acknowledgement
   and an external durable journal are explicit alternatives.
-- **transaction plane**: `[EVALUATING]` the incumbent distributed system that
-  owns current MVCC, conflict resolution, commit, replication, placement, and
-  active-main-branch serving. D52 requires objectKV to adapt one instead of
-  building another production transaction system.
+- **transaction plane**: `[EVALUATING]` the distributed system that owns current
+  MVCC, conflict resolution, commit, replication, placement, and
+  active-main-branch serving. D56 reopens the objectKV-native RocksDB and
+  OpenRaft plane as the primary bounded research lane. FoundationDB remains a
+  correctness oracle, comparison control, and fallback transaction profile.
 - **lifecycle adapter**: `[CODE-COMPLETE]` as provider-neutral types and a
   source-pinned preflight in `okv-plane`; `[EVALUATING]` as a live provider
   implementation. It owns retained changes, request outcomes, object frontier,
@@ -150,8 +157,9 @@ performance or operational claim.
 - `[VERIFIED]` The final native GP3.1 candidate preserved exact recovery,
   bounded resident bytes, and zero measured object operations, but failed the
   frozen p99 ceiling in both process orders at 1.210x and 1.272x direct RocksDB.
-  D52 stopped custom resident transaction-plane expansion. The throughput
-  ratios were 0.8411x and 0.8268x.
+  D52 stopped that exact candidate sequence. D56 reopened the native plane
+  through a topology-matched admission suite. The original throughput ratios
+  were 0.8411x and 0.8268x.
 - `[CODE-COMPLETE]` RFC-0041 and `okv-plane` freeze the incumbent adapter,
   provider stamp, generation, retained-change, object-frontier, and restore
   boundaries. The source-pinned preflight models FoundationDB 7.4.6 and TiKV
@@ -163,14 +171,14 @@ performance or operational claim.
   commit, retained-change, and request-outcome versionstamps. TiKV 8.5.7
   committed both disjoint writers, matching its documented snapshot isolation
   and failing P1. This is single-machine semantic evidence, not HA.
-- `[VERIFIED]` FoundationDB is the only candidate advancing. GP2.5.2 rebuilt
+- `[VERIFIED]` FoundationDB is the semantic and lifecycle control. GP2.5.2 rebuilt
   950 rows into an empty logical generation, matched the digest, fenced the old
   generation, and discarded three poisons. GP2.5.3 then deleted the source VM,
   boot disk, and provider SSD before reproducing the exact 950-record digest on
   a fresh cluster. Its formal positive passed 16 gates and its hidden-media
-  control was discarded, with both run IDs in all three OTel signals. No
-  incumbent is selected until GP2.5.4 external incarnation authority and GP3.1
-  matched hot-path receipts pass.
+  control was discarded, with both run IDs in all three OTel signals. These
+  receipts do not make FoundationDB the default plane. The native lane remains
+  `[EVALUATING]` through GP3.1 and subsequent replicated-commit gates.
 - `[CODE-COMPLETE]` The unpublished `okv` crate exposes the first integrated
   `SingleRange` kernel API. It selects a generation-fenced publication root,
   verifies one immutable row-object base, catches up through the logical txLog

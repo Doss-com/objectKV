@@ -19,9 +19,13 @@ The project and repository are named `objectKV`; CLI commands, Rust packages and
 modules, configuration prefixes, and day-to-day shorthand use `okv`.
 
 ```text
-Redis / search / PostgreSQL / DataFusion
+applications and data platforms
                   |
-    FoundationDB-inspired ordered transactions
+             okv-fabric
+ KV | log | WAL | snapshots | branches | projections
+                  |
+            objectKV kernel
+ ordered transactions | txLog | serving | publication
                   |
  transactional row segments + analytical artifacts
                   |
@@ -37,7 +41,8 @@ Redis / search / PostgreSQL / DataFusion
 3. Persist immutable state through an object-store implementation.
 4. Measure hot reads, cold reads, request amplification, compaction cost, and
    empty-cache reopen behavior.
-5. Reject the architecture if the physical economics do not clear Gate 1.
+5. Reject or redesign the candidate mechanism if its physical economics do not
+   clear Gate 1.
 
 The first pinned SlateDB filesystem incumbent now executes deterministic ingest,
 warm and cold point reads, ordered scans, and empty-cache reopen across three

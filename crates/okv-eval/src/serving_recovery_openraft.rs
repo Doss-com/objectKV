@@ -28,6 +28,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::{Builder as TempDirBuilder, TempDir};
 
+#[cfg(feature = "resident-rocksdb")]
+use rocksdb::{Options, WriteBatch, WriteOptions, DB};
+
 const GENERATION: u64 = 7;
 const LOGICAL_TXLOG_ROOT: &str = "wal-g7";
 const PAGE_RECORDS: u32 = 2;
@@ -110,6 +113,8 @@ pub struct OpenRaftServingProcessConfig {
 /// is complete and the retained transaction suffix has been applied.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OpenRaftHotReadProfile {
+    #[serde(default)]
+    pub subject: OpenRaftHotReadSubject,
     pub seed: u64,
     pub key_count: u64,
     pub value_bytes: usize,
@@ -117,9 +122,19 @@ pub struct OpenRaftHotReadProfile {
     pub measured_operations: usize,
 }
 
+/// Point-read implementation measured after the same full recovery topology.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenRaftHotReadSubject {
+    #[default]
+    NativeSnapshot,
+    DirectOwnedRocksdb,
+}
+
 /// Public-kernel point-read evidence from one replacement worker.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OpenRaftHotReadReport {
+    pub subject: OpenRaftHotReadSubject,
     pub warmup_operations: u64,
     pub measured_operations: u64,
     pub elapsed_seconds: f64,
@@ -527,6 +542,7 @@ async fn run_integrated_kernel_node(
     scratch_was_empty: bool,
 ) -> Result<OpenRaftServingProcessReport, String> {
     let backend = config.object_backend.open(&config.object_store_root)?;
+    let matched_control_root = config.scratch_root.join("matched-direct-rocksdb");
     let serving_image =
         if config.mode == OpenRaftServingRecoveryMode::IntegratedKernelRocksDbCandidate {
             Some(open_rocksdb_serving_image(&config.scratch_root)?)
@@ -574,11 +590,14 @@ async fn run_integrated_kernel_node(
     let first_read_seconds = started.elapsed().as_secs_f64();
     let hot_read = if let Some(profile) = config.hot_read.as_ref() {
         if config.mode == OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate {
-            Some(run_native_hot_reads(
-                &range,
-                concurrent.target_version,
-                profile,
-            )?)
+            Some(match profile.subject {
+                OpenRaftHotReadSubject::NativeSnapshot => {
+                    run_native_hot_reads(&range, concurrent.target_version, profile)?
+                }
+                OpenRaftHotReadSubject::DirectOwnedRocksdb => {
+                    run_matched_direct_hot_reads(&matched_control_root, profile)?
+                }
+            })
         } else {
             Some(run_integrated_hot_reads(&mut range, concurrent.target_version, profile).await?)
         }
@@ -716,6 +735,7 @@ async fn run_integrated_hot_reads(
     let object_requests =
         total_request_count(&range.object_stats()).saturating_sub(object_requests_before);
     Ok(OpenRaftHotReadReport {
+        subject: OpenRaftHotReadSubject::NativeSnapshot,
         warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
         measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
         elapsed_seconds,
@@ -789,6 +809,7 @@ fn run_native_hot_reads(
     let object_requests =
         total_request_count(&range.object_stats()).saturating_sub(object_requests_before);
     Ok(OpenRaftHotReadReport {
+        subject: OpenRaftHotReadSubject::NativeSnapshot,
         warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
         measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
         elapsed_seconds,
@@ -803,6 +824,107 @@ fn run_native_hot_reads(
         object_requests,
         checksum: std::hint::black_box(checksum),
     })
+}
+
+#[cfg(feature = "resident-rocksdb")]
+fn run_matched_direct_hot_reads(
+    root: &Path,
+    profile: &OpenRaftHotReadProfile,
+) -> Result<OpenRaftHotReadReport, String> {
+    let mut options = Options::default();
+    options.create_if_missing(true);
+    options.optimize_for_point_lookup(128);
+    options.set_max_open_files(256);
+    let database = DB::open(&options, root)
+        .map_err(|error| format!("open matched direct RocksDB control: {error}"))?;
+    let mut write_options = WriteOptions::default();
+    write_options.disable_wal(true);
+    let mut batch = WriteBatch::default();
+    for key_id in 16..profile.key_count {
+        batch.put(
+            key_bytes(key_id),
+            base_value(profile.seed, key_id, profile.value_bytes),
+        );
+    }
+    database
+        .write_opt(batch, &write_options)
+        .map_err(|error| format!("populate matched direct RocksDB control: {error}"))?;
+    database
+        .flush()
+        .map_err(|error| format!("flush matched direct RocksDB control: {error}"))?;
+
+    let mut correctness_failures = 0_u64;
+    for key_id in 16..profile.key_count {
+        let actual = database
+            .get(key_bytes(key_id))
+            .map_err(|error| format!("verify matched direct RocksDB control: {error}"))?;
+        let expected = base_value(profile.seed, key_id, profile.value_bytes);
+        if actual.as_deref() != Some(expected.as_slice()) {
+            correctness_failures = correctness_failures.saturating_add(1);
+        }
+    }
+
+    let operation_count = profile.warmup_operations.max(profile.measured_operations);
+    let keys = hot_operation_keys(profile.key_count, operation_count, profile.seed)
+        .into_iter()
+        .map(key_bytes)
+        .collect::<Vec<_>>();
+    let mut checksum = 0_u64;
+    for key in keys.iter().cycle().take(profile.warmup_operations) {
+        match database
+            .get(key)
+            .map_err(|error| format!("warm matched direct RocksDB control: {error}"))?
+        {
+            Some(value) => checksum = fold_hot_value(checksum, &value),
+            None => correctness_failures = correctness_failures.saturating_add(1),
+        }
+    }
+
+    let measured_started = Instant::now();
+    let mut latencies = Vec::with_capacity(profile.measured_operations);
+    for key in keys.iter().cycle().take(profile.measured_operations) {
+        let read_started = Instant::now();
+        match database
+            .get(key)
+            .map_err(|error| format!("read matched direct RocksDB control: {error}"))?
+        {
+            Some(value) => checksum = fold_hot_value(checksum, &value),
+            None => correctness_failures = correctness_failures.saturating_add(1),
+        }
+        latencies.push(
+            read_started
+                .elapsed()
+                .as_nanos()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
+    }
+    let elapsed_seconds = measured_started.elapsed().as_secs_f64();
+    latencies.sort_unstable();
+    Ok(OpenRaftHotReadReport {
+        subject: OpenRaftHotReadSubject::DirectOwnedRocksdb,
+        warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
+        measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
+        elapsed_seconds,
+        operations_per_second: count_as_f64(
+            u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
+        ) / elapsed_seconds,
+        latency_ns_p50: percentile(&latencies, 50, 100),
+        latency_ns_p95: percentile(&latencies, 95, 100),
+        latency_ns_p99: percentile(&latencies, 99, 100),
+        latency_ns_p999: percentile(&latencies, 999, 1_000),
+        correctness_failures,
+        object_requests: 0,
+        checksum: std::hint::black_box(checksum),
+    })
+}
+
+#[cfg(not(feature = "resident-rocksdb"))]
+fn run_matched_direct_hot_reads(
+    _root: &Path,
+    _profile: &OpenRaftHotReadProfile,
+) -> Result<OpenRaftHotReadReport, String> {
+    Err("matched direct RocksDB control requires resident-rocksdb".to_owned())
 }
 
 fn hot_operation_keys(key_count: u64, operations: usize, seed: u64) -> Vec<u64> {
@@ -1929,6 +2051,8 @@ fn count_as_f64(value: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{key_bytes, OpenRaftServingRecoveryMode, TailOverlay};
+    #[cfg(feature = "resident-rocksdb")]
+    use super::{run_matched_direct_hot_reads, OpenRaftHotReadProfile, OpenRaftHotReadSubject};
     use crate::serving_recovery::ServingReadOutcome;
     use okv_consensus::{RetainedTransactionRecord, TransactionMutation};
     use okv_transaction::{KeyRange, TransactionCommand};
@@ -1959,5 +2083,29 @@ mod tests {
             Some(ServingReadOutcome::Tombstone)
         );
         assert_eq!(OpenRaftServingRecoveryMode::Candidate.id(), "candidate");
+    }
+
+    #[cfg(feature = "resident-rocksdb")]
+    #[test]
+    fn matched_topology_control_returns_exact_owned_values() {
+        let root = tempfile::TempDir::new().expect("create matched-control root");
+        let report = run_matched_direct_hot_reads(
+            root.path(),
+            &OpenRaftHotReadProfile {
+                subject: OpenRaftHotReadSubject::DirectOwnedRocksdb,
+                seed: 1103,
+                key_count: 64,
+                value_bytes: 128,
+                warmup_operations: 128,
+                measured_operations: 256,
+            },
+        )
+        .expect("run matched topology control");
+
+        assert_eq!(report.subject, OpenRaftHotReadSubject::DirectOwnedRocksdb);
+        assert_eq!(report.correctness_failures, 0);
+        assert_eq!(report.object_requests, 0);
+        assert_eq!(report.measured_operations, 256);
+        assert!(report.operations_per_second.is_finite());
     }
 }
