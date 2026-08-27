@@ -62,12 +62,14 @@ id = "tikv-8.5.7-snapshot-isolation-negative"
 lane = "resident-plane-semantic-fit"
 operation = "provider_semantic_preflight"
 subject = "tikv-8.5.7"
+negative_control = "snapshot_isolation_write_skew"
 
 [[workloads]]
 id = "tikv-false-serializable-label-negative"
 lane = "resident-plane-semantic-fit"
 operation = "provider_semantic_preflight"
 subject = "tikv-false-serializable-label"
+negative_control = "false_serializable_label"
 
 [hard_gates]
 correctness_anomalies = 0

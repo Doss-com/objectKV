@@ -1,0 +1,86 @@
+{
+  "api_version": 740,
+  "closure_bytes": 205256,
+  "closure_uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-logical-20260827-02/closure-51fb31d3df206f933d7243f71062f64bb76e42751efd42865e7d64864b9d8902.json",
+  "correctness_anomalies": 0,
+  "duration_ns": 821409986,
+  "empty_logical_generation_lifecycle_passed": true,
+  "frontier_manifest_uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-logical-20260827-02/manifest-bac3a61d01628ea1908b5f6d92d6bd3421d6370d6762871d2d6958468f706128.json",
+  "gates": [
+    {
+      "detail": "source_generation=1 rows=950 through=000000003aa28d4a0000",
+      "id": "source_generation_and_retained_changes",
+      "passed": true
+    },
+    {
+      "detail": "closure=gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-logical-20260827-02/closure-51fb31d3df206f933d7243f71062f64bb76e42751efd42865e7d64864b9d8902.json manifest=gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-logical-20260827-02/manifest-bac3a61d01628ea1908b5f6d92d6bd3421d6370d6762871d2d6958468f706128.json through=000000003aa28d4a0000",
+      "id": "immutable_named_object_closure",
+      "passed": true
+    },
+    {
+      "detail": "manifest_bytes=622 closure_bytes=205256",
+      "id": "named_get_hash_verification",
+      "passed": true
+    },
+    {
+      "detail": "named manifest advanced once; stale compare failed with not_committed",
+      "id": "compare_and_advance_object_frontier",
+      "passed": true
+    },
+    {
+      "detail": "generation=2 rows=950 chunks=5 replays=5 digest=a91484ae07365a109f40106ebaf10d472ee33061427c074c2d59a230d61cca0e",
+      "id": "empty_generation_exact_idempotent_restore",
+      "passed": true
+    },
+    {
+      "detail": "active_generation=2 rows=950; stale commit failed with not_committed",
+      "id": "atomic_generation_activation_and_stale_fence",
+      "passed": true
+    }
+  ],
+  "ha_verified": false,
+  "kind": "foundationdb_objectkv_lifecycle_r0",
+  "manifest_bytes": 622,
+  "manifest_uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-logical-20260827-02/manifest-bac3a61d01628ea1908b5f6d92d6bd3421d6370d6762871d2d6958468f706128.json",
+  "media_loss_verified": false,
+  "negative_control": null,
+  "provider": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "record_count_requested": 1000,
+  "replayed_chunks": 5,
+  "restore_chunk_records": 200,
+  "restored_chunks": 5,
+  "run_id": "provider-r0-logical-20260827-02",
+  "schema_version": 1,
+  "scope": "single-process R0 logical lifecycle on one existing FoundationDB cluster; source provider media remained present",
+  "through_provider_stamp": "000000003aa28d4a0000",
+  "timings": [
+    {
+      "duration_ns": 5811128,
+      "id": "reset_namespace"
+    },
+    {
+      "duration_ns": 42650781,
+      "id": "seed_source_generation"
+    },
+    {
+      "duration_ns": 350084083,
+      "id": "objectify"
+    },
+    {
+      "duration_ns": 371410715,
+      "id": "named_get"
+    },
+    {
+      "duration_ns": 7281099,
+      "id": "advance_frontier"
+    },
+    {
+      "duration_ns": 31401348,
+      "id": "restore_empty_generation"
+    },
+    {
+      "duration_ns": 12689812,
+      "id": "activate_and_fence"
+    }
+  ]
+}

@@ -1,23 +1,105 @@
 # Incumbent transaction-plane selection
 
-Status: `[EVALUATING]` until the frozen semantic preflight runs against both
-providers. Source inspection and RFC-0041 are `[CODE-COMPLETE]`.
+Status: `[VERIFIED]` for the bounded R0 semantic elimination and
+`[EVALUATING]` for FoundationDB lifecycle admission. The first logical
+objectification and empty-generation probe passed, but its clean eval-runner,
+OTel, provider-media-loss, and hot-path receipts remain open. Source
+inspection, RFC-0041, and the provider-neutral contract are
+`[CODE-COMPLETE]`.
 
 ## Clarity
 
 Question: which incumbent can supply objectKV's transaction plane without
 objectKV rebuilding distributed serializable validation?
 
-Punchline: FoundationDB is the only current candidate because it provides
-strict serializability and commit versionstamps, while TiKV documents snapshot
-isolation and write skew.
+Punchline: FoundationDB is the only provider advancing to lifecycle work, and
+the first FoundationDB plus GCS probe reconstructed an exact empty logical
+generation and fenced the old generation without objectKV owning a resolver.
 
-Counter: this call is wrong if the real TiKV 8.5.7 preflight rejects the frozen
-write-skew history without objectKV adding predicate locks, range locks, or a
-serializable certifier.
+Counter: the provider direction is still wrong if the same closure cannot
+recover after source provider-media loss, if the formal eval path misses its
+telemetry or negative-control gates, or if mandatory retained writes exceed
+the frozen hot-path overhead ceiling.
 
-Next: implement the provider-neutral adapter contract and run the same semantic
-preflight before provisioning a broader lifecycle benchmark.
+Next: freeze the logical lifecycle through `okv-eval` with clean source and
+OTel, then remove the source provider media and repeat exact reconstruction
+before matched direct-FoundationDB overhead work.
+
+## Live R0 semantic receipts
+
+The bounded single-machine R0 run used FoundationDB 7.4.6 at source revision
+`e77b64d4c5d01d240931c08c5384a834cae27337`, TiKV 8.5.7 at source revision
+`3f446cfa9eb1d5c653031d261e185911495d0359`, and TiKV Rust client revision
+`88688d6eb3a55a864885d7bccc8abf428dce076c`.
+
+FoundationDB completed five of five implemented semantic gates with zero
+anomalies in 34.010 milliseconds:
+
+- one of two transactions at a shared read version committed;
+- the returned commit, retained-change key, and request-outcome value contained
+  the same ten-byte versionstamp;
+- a deliberately discarded successful reply recovered one durable outcome and
+  exactly one retained change;
+- an ordered range returned only `a` and `d` after clearing `[b,d)`;
+- a stale object-frontier compare failed with `not_committed`.
+
+TiKV committed both optimistic transactions after both read the same absent
+`left` and `right` keys and wrote disjoint keys. Both commit calls succeeded in
+20.867 milliseconds. That behavior matches documented snapshot isolation and
+fails RFC-0041 P1. Building a TiKV lifecycle adapter would require the
+objectKV-owned serializable coordination prohibited by D52.
+
+These receipts verify semantic elimination only. The FoundationDB probe used a
+single process and memory storage with an SSD txLog. It does not verify HA,
+object restore, production durability, or performance admission.
+
+Evidence:
+
+- [`foundationdb-semantic-01.json`](../artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/foundationdb-semantic-01.json)
+- [`tikv-write-skew-01.json`](../artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/tikv-write-skew-01.json)
+
+## Live R0 logical lifecycle receipts
+
+The next bounded probe used the surviving FoundationDB 7.4.6 process and the
+regional versioned GCS bucket. It committed 1,000 initial rows, updated the
+head, deleted 50 tail rows, and transactionally retained each request outcome
+and change batch. The final logical snapshot contained 950 rows.
+
+The clean positive history then:
+
+1. captured one exact FoundationDB snapshot;
+2. uploaded a 205,256-byte content-addressed closure and a 622-byte manifest;
+3. downloaded both objects by exact GCS name and generation and verified their
+   SHA-256 digests;
+4. compare-and-advanced the object frontier and rejected a stale competing
+   frontier;
+5. reconstructed 950 rows into an empty logical generation in five chunks;
+6. replayed all five chunks without changing state;
+7. matched the source state digest; and
+8. activated generation 2 while a transaction that began under generation 1
+   failed with `not_committed`.
+
+The positive run completed in 821.410 milliseconds. Objectification took
+350.084 milliseconds, named object reads took 371.411 milliseconds, and the
+five-chunk restore took 31.401 milliseconds. These are one-sample diagnostic
+timings, not admitted performance curves.
+
+All three poisons were detected. Omitting one retained change and omitting one
+durable request outcome each failed closure completeness. Removing the active
+generation read let the stale transaction commit, so the activation fence gate
+failed as intended.
+
+The mechanism passed its bounded history, but GP2.5.2 remains `[EVALUATING]`.
+The source provider media stayed present, and this run preceded the final clean
+`okv-eval` source identity and required OTel receipt. GP2.5.3 separately owns
+provider-media-loss reconstruction.
+
+Evidence:
+
+- [`foundationdb-lifecycle-logical-02.json`](../artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/foundationdb-lifecycle-logical-02.json)
+- [`foundationdb-lifecycle-omit_retained_change-01.json`](../artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/foundationdb-lifecycle-omit_retained_change-01.json)
+- [`foundationdb-lifecycle-accept_unknown_without_outcome-01.json`](../artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/foundationdb-lifecycle-accept_unknown_without_outcome-01.json)
+- [`foundationdb-lifecycle-restore_without_generation-01.json`](../artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/foundationdb-lifecycle-restore_without_generation-01.json)
 
 ## Primary-source observations
 

@@ -1,0 +1,82 @@
+{
+  "api_version": 740,
+  "closure_bytes": 205274,
+  "closure_uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-poison-missing-generation-20260827-01/closure-66b573aabba480bb590d75e58148968813c0840435f1b1a4e9dc0040c8176628.json",
+  "correctness_anomalies": 1,
+  "duration_ns": 633242718,
+  "empty_logical_generation_lifecycle_passed": false,
+  "frontier_manifest_uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-poison-missing-generation-20260827-01/manifest-10fe115a200b14a70ee3d497a2636dc0cd8f2176a9c25ec8e94b829ad9b460a0.json",
+  "gates": [
+    {
+      "detail": "source_generation=1 rows=950 through=0000000039f4185c0000",
+      "id": "source_generation_and_retained_changes",
+      "passed": true
+    },
+    {
+      "detail": "closure=gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-poison-missing-generation-20260827-01/closure-66b573aabba480bb590d75e58148968813c0840435f1b1a4e9dc0040c8176628.json manifest=gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-poison-missing-generation-20260827-01/manifest-10fe115a200b14a70ee3d497a2636dc0cd8f2176a9c25ec8e94b829ad9b460a0.json through=0000000039f4185c0000",
+      "id": "immutable_named_object_closure",
+      "passed": true
+    },
+    {
+      "detail": "manifest_bytes=658 closure_bytes=205274",
+      "id": "named_get_hash_verification",
+      "passed": true
+    },
+    {
+      "detail": "named manifest advanced once; stale compare failed with not_committed",
+      "id": "compare_and_advance_object_frontier",
+      "passed": true
+    },
+    {
+      "detail": "generation=2 rows=950 chunks=5 replays=5 digest=aa84f220fedb39af0cff25bb30d318e0ea7db8f1448cece7ad66e82f50afa476",
+      "id": "empty_generation_exact_idempotent_restore",
+      "passed": true
+    },
+    {
+      "detail": "AssertionError: stale generation commit was not rejected: None; code=None",
+      "id": "atomic_generation_activation_and_stale_fence",
+      "passed": false
+    }
+  ],
+  "ha_verified": false,
+  "kind": "foundationdb_objectkv_lifecycle_r0",
+  "manifest_bytes": 658,
+  "manifest_uri": "gs://doss-objectkv-dev-okv-evals/results/provider-r0/lifecycle/provider-r0-poison-missing-generation-20260827-01/manifest-10fe115a200b14a70ee3d497a2636dc0cd8f2176a9c25ec8e94b829ad9b460a0.json",
+  "media_loss_verified": false,
+  "negative_control": "restore_without_generation",
+  "provider": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "record_count_requested": 1000,
+  "replayed_chunks": 5,
+  "restore_chunk_records": 200,
+  "restored_chunks": 5,
+  "run_id": "provider-r0-poison-missing-generation-20260827-01",
+  "schema_version": 1,
+  "scope": "single-process R0 logical lifecycle on one existing FoundationDB cluster; source provider media remained present",
+  "through_provider_stamp": "0000000039f4185c0000",
+  "timings": [
+    {
+      "duration_ns": 3174216,
+      "id": "reset_namespace"
+    },
+    {
+      "duration_ns": 41733722,
+      "id": "seed_source_generation"
+    },
+    {
+      "duration_ns": 389963916,
+      "id": "objectify"
+    },
+    {
+      "duration_ns": 150428954,
+      "id": "named_get"
+    },
+    {
+      "duration_ns": 7540417,
+      "id": "advance_frontier"
+    },
+    {
+      "duration_ns": 35584708,
+      "id": "restore_empty_generation"
+    }
+  ]
+}

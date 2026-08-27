@@ -57,9 +57,14 @@ scratch. A final engine-native experiment corrected value-ownership semantics
 and replayed both process orders. It retained 84.11\% and 82.68\% of direct
 RocksDB throughput, inside the frozen 20\% regression envelope. P99 remained
 21.04\% and 27.17\% worse, so the executable tail-latency constraint failed
-twice and fired the predeclared pivot. \okv{} retains its log, object
-publication, branching, reconstruction, and HTAP layers, while TiKV or
-FoundationDB becomes the candidate resident transaction plane. Multiple
+twice and fired the predeclared pivot. A live semantic eliminator then rejected
+TiKV because both transactions in the frozen write-skew history committed.
+FoundationDB rejected the same write skew and advanced alone. A first
+FoundationDB plus GCS logical-lifecycle probe reconstructed 950 rows into an
+empty logical generation with the exact source digest and fenced an old
+generation transaction. This did not remove the source provider media and is
+not an HA result. \okv{} retains its log, object publication, branching,
+reconstruction, and HTAP layers around the surviving transaction plane. Multiple
 machines, multiple zones, RAM admission, multi-range transactions, and
 sustained capacity curves remain proposed or are being evaluated. The paper
 defines the proof ladder and falsifiable curves that must clear before \okv{}
@@ -1077,14 +1082,53 @@ more directly, but it would own much more PostgreSQL behavior. The project does
 not need to decide one permanent representation before measuring the page
 bridge and its double-logging cost.
 
+\subsection{Incumbent transaction-plane checkpoint}
+
+The native resident experiment failed its frozen p99 gate. The next checkpoint
+therefore asks an incumbent to own strict-serializable transactions while
+\okv{} owns retained history, immutable object closures, reconstruction, and
+generation fencing. The current bounded data flow is:
+
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.92\columnwidth}
+\begin{verbatim}
+user data + retained change + outcome
+              | one FDB transaction
+              v
+FoundationDB active generation
+              | exact closure at C
+              v
+immutable GCS manifest + closure
+              | idempotent chunks
+              v
+fenced empty generation -> atomic activation
+\end{verbatim}
+\end{minipage}
+\caption{The first incumbent lifecycle seam. Provider-media-loss recovery is a
+separate next gate.}
+\label{fig:incumbent-lifecycle}
+\end{figure}
+
+The first positive run captured 950 rows in a 205,256-byte closure, verified
+named GCS reads, restored five chunks twice without changing state, matched the
+source digest, and rejected a transaction that began before generation
+activation. Three poisons for missing retained change, missing request outcome,
+and missing generation dependency were detected. The 821.410 ms end-to-end,
+350.084 ms objectification, 371.411 ms named-read, and 31.401 ms restore values
+are single-sample diagnostics. The source FoundationDB media remained present,
+so the result does not establish provider-media-loss recovery, HA, or an
+admitted performance curve.
+
 \section{Limitations and Open Questions}
 
 The current implementation does not yet support a full client transaction from
-read version through multi-range commit and routed read. It has no verified
-SSD-resident or RAM-resident serving profile, stable complete transactional
+read version through multi-range commit and routed read. It has no admitted
+RAM-resident serving profile, stable complete transactional
 segment format, compactor, range splitter, data distributor, multi-range commit
-protocol, PostgreSQL adapter, application-log service, snapshot manifest and
-lease service, or cloud deployment.
+protocol, PostgreSQL adapter, application-log service, or snapshot manifest
+and lease service. Its cloud receipts remain bounded R0 runs rather than a
+production deployment.
 
 Five questions can still invalidate the architecture:
 
@@ -1117,8 +1161,11 @@ The dependency order is evidence driven:
   the throughput curve clears its frozen gate.
   \item The native SSD-resident experiment passed exact-read, object-request,
   local-byte, and throughput gates but failed the frozen p99 constraint in both
-  process orders. Freeze the adapter above TiKV or FoundationDB, evaluate both,
-  and select the incumbent resident transaction plane before RAM work.
+  process orders. The semantic eliminator removed TiKV and advanced
+  FoundationDB. Freeze the FoundationDB lifecycle adapter before RAM work.
+  \item Prove one content-addressed GCS closure through empty logical-generation
+  reconstruction, then repeat after removing the source provider media. Only
+  then compare mandatory retained-write overhead against direct FoundationDB.
   \item Verify generation-fenced SSD-to-RAM and RAM-to-SSD handoff without
   stale reads, stale publication, or lost committed state.
   \item Define and verify the indexed row-object format, bounded cold lookup,
@@ -1184,9 +1231,12 @@ identities, and reject corrupt or unsupported histories before serving state.
 
 The native resident boundary has now supplied its decision. It passed
 throughput and failed p99 in both frozen process orders, so the custom resident
-transaction plane stops. The next decisive evidence is a minimal TiKV and
-FoundationDB adapter comparison that preserves the same objectification,
-branch, rebuild, and exact-version contracts. The golden scenario is code
+transaction plane stops. TiKV then failed the strict-serializable write-skew
+gate; FoundationDB passed and is the sole lifecycle candidate. Its first
+logical-generation probe passed objectification, exact reconstruction,
+idempotent chunk replay, and generation fencing. The next decisive evidence is
+provider-media-loss reconstruction followed by matched hot-path overhead. The
+golden scenario is code
 complete as a plan, but no complete application-to-object checkpoint is
 verified. The project proceeds only if the retained log, publication, and HTAP
 components demonstrate lifecycle or economics leverage above the selected

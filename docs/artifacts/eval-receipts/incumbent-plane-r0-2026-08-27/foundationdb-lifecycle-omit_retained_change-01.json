@@ -1,0 +1,46 @@
+{
+  "api_version": 740,
+  "closure_bytes": 0,
+  "closure_uri": "",
+  "correctness_anomalies": 1,
+  "duration_ns": 45577663,
+  "empty_logical_generation_lifecycle_passed": false,
+  "frontier_manifest_uri": "",
+  "gates": [
+    {
+      "detail": "source_generation=1 rows=950 through=0000000039e7876c0000",
+      "id": "source_generation_and_retained_changes",
+      "passed": true
+    },
+    {
+      "detail": "AssertionError: retained change and outcome request sets differ: missing_changes=['update-head'] missing_outcomes=[]; code=None",
+      "id": "immutable_named_object_closure",
+      "passed": false
+    }
+  ],
+  "ha_verified": false,
+  "kind": "foundationdb_objectkv_lifecycle_r0",
+  "manifest_bytes": 0,
+  "manifest_uri": "",
+  "media_loss_verified": false,
+  "negative_control": "omit_retained_change",
+  "provider": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "record_count_requested": 1000,
+  "replayed_chunks": 0,
+  "restore_chunk_records": 200,
+  "restored_chunks": 0,
+  "run_id": "provider-r0-poison-omit-change-20260827-01",
+  "schema_version": 1,
+  "scope": "single-process R0 logical lifecycle on one existing FoundationDB cluster; source provider media remained present",
+  "through_provider_stamp": "0000000039e7876c0000",
+  "timings": [
+    {
+      "duration_ns": 3601168,
+      "id": "reset_namespace"
+    },
+    {
+      "duration_ns": 34366793,
+      "id": "seed_source_generation"
+    }
+  ]
+}

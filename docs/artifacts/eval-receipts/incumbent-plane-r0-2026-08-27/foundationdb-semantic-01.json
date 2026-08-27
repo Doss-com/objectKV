@@ -1,0 +1,38 @@
+{
+  "api_version": 740,
+  "correctness_anomalies": 0,
+  "duration_ns": 34010067,
+  "eligible_for_lifecycle_spike": true,
+  "gates": [
+    {
+      "detail": "one of two attempts committed at shared read version 172821040",
+      "id": "strict_serializable_write_skew",
+      "passed": true
+    },
+    {
+      "detail": "atomic stamp=000000000a4d35280000 retained_records=1",
+      "id": "ordered_versionstamp_and_atomic_outcome",
+      "passed": true
+    },
+    {
+      "detail": "discarded first reply; retry recovered one outcome and one retained change",
+      "id": "exact_unknown_result_retry",
+      "passed": true
+    },
+    {
+      "detail": "read_version=172841325 keys=a,d",
+      "id": "ordered_range_and_range_clear",
+      "passed": true
+    },
+    {
+      "detail": "one frontier advanced; stale compare failed with not_committed",
+      "id": "compare_and_advance_frontier",
+      "passed": true
+    }
+  ],
+  "kind": "foundationdb_semantic_preflight",
+  "provider": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337",
+  "run_id": "fdb746-semantic-01",
+  "schema_version": 1,
+  "scope": "single-process R0 semantics, not HA or production durability"
+}

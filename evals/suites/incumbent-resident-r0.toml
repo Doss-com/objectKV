@@ -73,10 +73,17 @@ direction = "lower"
 max_regression_fraction = 0.25
 
 [[workloads]]
-id = "foundationdb-objectkv-lifecycle"
+id = "foundationdb-objectkv-media-loss-lifecycle"
 lane = "resident-plane-lifecycle"
-operation = "foundationdb_objectkv_lifecycle"
+operation = "foundationdb_objectkv_media_loss_lifecycle"
 subject = "foundationdb-7.4.6"
+
+[[workloads]]
+id = "foundationdb-restore-with-hidden-source-media-poison"
+lane = "resident-plane-lifecycle"
+operation = "foundationdb_objectkv_media_loss_lifecycle"
+subject = "foundationdb-7.4.6"
+negative_control = "restore_with_hidden_source_media"
 
 [[workloads]]
 id = "foundationdb-omit-retained-change-poison"
@@ -123,6 +130,7 @@ unknown_result_retry_is_exact = true
 retained_change_order_is_complete = true
 object_frontier_follows_complete_closure = true
 empty_generation_restore_is_exact = true
+source_provider_media_is_removed_before_restore = true
 candidate_and_control_share_machine_receipt = true
 candidate_and_control_share_batch_id = true
 candidate_and_control_share_source_and_lockfile = true

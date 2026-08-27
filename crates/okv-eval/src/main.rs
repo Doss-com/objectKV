@@ -1353,6 +1353,9 @@ fn execute_workload(
     match workload.operation.as_str() {
         "model_smoke" => execution_from_result(run_model_smoke()),
         "provider_semantic_preflight" => run_provider_semantic_preflight(workload, backend),
+        "foundationdb_objectkv_logical_lifecycle" => {
+            run_foundationdb_logical_lifecycle(workload, run_id, backend, dataset, profile)
+        }
         "deterministic_generation_recovery" => {
             run_generation_recovery(workload, candidate_commit, seeds)
         }
@@ -13481,6 +13484,298 @@ fn run_provider_semantic_preflight(workload: &WorkloadConfig, backend: &str) -> 
             (
                 "provider.eligible_for_live_spike".to_owned(),
                 f64::from(report.result.eligible_for_live_spike),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_foundationdb_logical_lifecycle(
+    workload: &WorkloadConfig,
+    run_id: &str,
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile: &ProfileConfig,
+) -> WorkloadExecution {
+    const EXPECTED_BACKEND: &str = "foundationdb-7.4.6+objectkv-lifecycle+gcs";
+    if backend != EXPECTED_BACKEND {
+        return execution_from_result(Err(format!(
+            "FoundationDB logical lifecycle requires {EXPECTED_BACKEND}, got {backend}"
+        )));
+    }
+    let Some(dataset) = dataset else {
+        return execution_from_result(Err(
+            "FoundationDB logical lifecycle requires a dataset".to_owned()
+        ));
+    };
+    let Some(subject) = workload
+        .parameters
+        .get("subject")
+        .and_then(toml::Value::as_str)
+    else {
+        return execution_from_result(Err(
+            "FoundationDB logical lifecycle requires a subject".to_owned()
+        ));
+    };
+    if subject != "foundationdb-7.4.6" {
+        return execution_from_result(Err(format!(
+            "FoundationDB logical lifecycle requires subject foundationdb-7.4.6, got {subject}"
+        )));
+    }
+    let env_name = |parameter: &str| -> Result<&str, String> {
+        profile
+            .parameters
+            .get(parameter)
+            .and_then(toml::Value::as_str)
+            .ok_or_else(|| format!("FoundationDB lifecycle profile requires {parameter}"))
+    };
+    let env_value = |parameter: &str| -> Result<String, String> {
+        let name = env_name(parameter)?;
+        std::env::var(name).map_err(|_| format!("FoundationDB lifecycle requires env {name}"))
+    };
+    let python = match env_value("lifecycle_python_env") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let probe = match env_value("lifecycle_probe_env") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let bucket = match env_value("gcs_bucket_env") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let artifact_directory = match env_value("artifact_directory_env") {
+        Ok(value) => PathBuf::from(value),
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    if let Err(error) = fs::create_dir_all(&artifact_directory) {
+        return execution_from_result(Err(format!(
+            "create FoundationDB lifecycle artifact directory: {error}"
+        )));
+    }
+    let output_path = artifact_directory.join(format!(
+        "foundationdb-logical-lifecycle-{run_id}-{}.json",
+        workload.id
+    ));
+    let chunk_records = profile
+        .parameters
+        .get("restore_chunk_records")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| u64::try_from(value).ok())
+        .unwrap_or(200);
+    let object_prefix = profile
+        .parameters
+        .get("gcs_object_prefix")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("results/provider-r0/lifecycle");
+    let negative_control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+
+    let mut command = Command::new(&python);
+    command
+        .arg(&probe)
+        .arg("--run-id")
+        .arg(run_id)
+        .arg("--bucket")
+        .arg(&bucket)
+        .arg("--object-prefix")
+        .arg(object_prefix)
+        .arg("--record-count")
+        .arg(dataset.key_count.to_string())
+        .arg("--restore-chunk-records")
+        .arg(chunk_records.to_string())
+        .arg("--output")
+        .arg(&output_path);
+    if let Some(control) = negative_control {
+        command.arg("--negative-control").arg(control);
+    }
+    if let Ok(cluster_file) = std::env::var("OKV_FOUNDATIONDB_CLUSTER_FILE") {
+        command.arg("--cluster-file").arg(cluster_file);
+    }
+    let process = match command.output() {
+        Ok(output) => output,
+        Err(error) => {
+            return execution_from_result(Err(format!(
+                "execute FoundationDB lifecycle probe: {error}"
+            )));
+        }
+    };
+    let receipt_bytes = match fs::read(&output_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let stderr = String::from_utf8_lossy(&process.stderr);
+            return execution_from_result(Err(format!(
+                "FoundationDB lifecycle probe produced no receipt: {error}; stderr={stderr}"
+            )));
+        }
+    };
+    let receipt = match okv_eval::provider_lifecycle::Receipt::from_json(&receipt_bytes) {
+        Ok(receipt) => receipt,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    if receipt.run_id != run_id {
+        return execution_from_result(Err(format!(
+            "FoundationDB lifecycle receipt run {} != eval run {run_id}",
+            receipt.run_id
+        )));
+    }
+    let candidate_passed = receipt.candidate_passed() && process.status.success();
+    let poison_detected = negative_control.is_some_and(|control| {
+        receipt.negative_control_detected(control) && !process.status.success()
+    });
+    let result = if let Some(control) = negative_control {
+        if poison_detected {
+            Err(format!(
+                "FoundationDB lifecycle negative control {control} was detected"
+            ))
+        } else {
+            Err(format!(
+                "FoundationDB lifecycle negative control {control} escaped detection"
+            ))
+        }
+    } else if candidate_passed {
+        Ok(())
+    } else {
+        Err("FoundationDB logical lifecycle failed one or more frozen gates".to_owned())
+    };
+    let total_object_bytes = receipt.closure_bytes.saturating_add(receipt.manifest_bytes);
+    let outcome = if candidate_passed { "pass" } else { "fail" };
+    let mut measurements = vec![
+        Measurement {
+            metric: "correctness.anomalies",
+            value: bounded_count(receipt.correctness_anomalies),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("oracle", "foundationdb-logical-lifecycle-r0-v1"),
+                (
+                    "anomaly.class",
+                    negative_control.unwrap_or(if candidate_passed {
+                        "none"
+                    } else {
+                        "candidate"
+                    }),
+                ),
+            ]),
+        },
+        Measurement {
+            metric: "object_store.bytes",
+            value: bounded_count(total_object_bytes),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("store", "gcs"),
+                ("direction", "write"),
+                ("api", "put"),
+            ]),
+        },
+        Measurement {
+            metric: "object_store.bytes",
+            value: bounded_count(total_object_bytes),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("store", "gcs"),
+                ("direction", "read"),
+                ("api", "get"),
+            ]),
+        },
+        Measurement {
+            metric: "recovery.hydration_bytes",
+            value: bounded_count(receipt.closure_bytes),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("source", "gcs-named-object"),
+                ("range.class", "logical-generation"),
+            ]),
+        },
+    ];
+    if let Some(seconds) = receipt.timing_seconds("objectify") {
+        measurements.push(Measurement {
+            metric: "objectification.lag",
+            value: seconds,
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("result", outcome),
+            ]),
+        });
+    }
+    if let Some(seconds) = receipt.timing_seconds("restore_empty_generation") {
+        measurements.push(Measurement {
+            metric: "recovery.hydration_duration",
+            value: seconds,
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("range.class", "logical-generation"),
+                ("result", outcome),
+            ]),
+        });
+    }
+    let mut hard_gates = receipt
+        .gates
+        .iter()
+        .map(|gate| HardGateResult {
+            id: gate.id.clone(),
+            status: gate_status(gate.passed),
+            detail: Some(gate.detail.clone()),
+        })
+        .collect::<Vec<_>>();
+    hard_gates.extend([
+        HardGateResult {
+            id: "negative_control_detected".to_owned(),
+            status: gate_status(negative_control.is_none() || poison_detected),
+            detail: negative_control.map(|control| format!("control={control}")),
+        },
+        HardGateResult {
+            id: "logical_scope_does_not_claim_media_loss_or_ha".to_owned(),
+            status: gate_status(!receipt.media_loss_verified && !receipt.ha_verified),
+            detail: Some(receipt.scope.clone()),
+        },
+        HardGateResult {
+            id: "provider_revision_pinned".to_owned(),
+            status: GateStatus::Pass,
+            detail: Some(receipt.provider.clone()),
+        },
+    ]);
+    let error = result.err();
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates,
+        budget_units: bounded_count(
+            receipt
+                .record_count_requested
+                .saturating_add(receipt.restored_chunks)
+                .saturating_add(receipt.replayed_chunks),
+        ),
+        artifact_refs: vec![
+            output_path.display().to_string(),
+            receipt.closure_uri.clone(),
+            receipt.manifest_uri.clone(),
+        ],
+        secondary_metrics: BTreeMap::from([
+            (
+                "foundationdb_lifecycle.duration_seconds".to_owned(),
+                std::time::Duration::from_nanos(receipt.duration_ns).as_secs_f64(),
+            ),
+            (
+                "foundationdb_lifecycle.closure_bytes".to_owned(),
+                bounded_count(receipt.closure_bytes),
+            ),
+            (
+                "foundationdb_lifecycle.restore_chunks".to_owned(),
+                bounded_count(receipt.restored_chunks),
             ),
         ]),
     }

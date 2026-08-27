@@ -536,9 +536,15 @@ become one GitHub issue.
   preflight. Remove the losing adapter after its evidence and decision record
   are durable.
 - Current result: RFC-0041, `okv-plane`, and the source-pinned preflight are
-  `[CODE-COMPLETE]`. FoundationDB advances to a live semantic and lifecycle
-  spike. TiKV remains a live negative subject because its documented snapshot
-  isolation permits the frozen write-skew history. No provider is selected yet.
+  `[CODE-COMPLETE]`. `[VERIFIED]` the R0 FoundationDB probe rejected write skew
+  and aligned commit, change, and outcome stamps. The R0 TiKV probe committed
+  both disjoint writers and is removed from lifecycle work. FoundationDB is the
+  sole remaining candidate, not yet the selected provider. `[EVALUATING]` the
+  FoundationDB plus GCS logical-lifecycle probe passed exact closure, named
+  GET, object-frontier CAS, empty-generation restore, chunk replay, digest, and
+  stale-generation gates. All three poisons were detected. Next is the clean
+  OTel-backed suite receipt, then provider-media-loss reconstruction, then the
+  GP3.1 direct-FoundationDB overhead pair.
 
 ## Opens after Gate 1
 

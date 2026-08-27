@@ -158,10 +158,13 @@ performance or operational claim.
   8.5.7 against the same P1 through P10 gates and catches a false serializable
   label with an executed write-skew history. This is not a live provider
   receipt.
-- `[EVALUATING]` FoundationDB is the only candidate advancing to the first live
-  R0 spike. TiKV remains a required negative subject because its documented
-  snapshot isolation admits write skew. No incumbent is selected until the
-  live history, retained-change, unknown-outcome, objectification, media-loss,
+- `[VERIFIED]` The bounded R0 provider probes resolved the semantic branch.
+  FoundationDB 7.4.6 rejected one write-skew transaction and aligned the exact
+  commit, retained-change, and request-outcome versionstamps. TiKV 8.5.7
+  committed both disjoint writers, matching its documented snapshot isolation
+  and failing P1. This is single-machine semantic evidence, not HA.
+- `[EVALUATING]` FoundationDB is the only candidate advancing to lifecycle
+  work. No incumbent is selected until objectification, media-loss,
   empty-generation restore, and matched hot-path receipts pass.
 - `[CODE-COMPLETE]` The unpublished `okv` crate exposes the first integrated
   `SingleRange` kernel API. It selects a generation-fenced publication root,

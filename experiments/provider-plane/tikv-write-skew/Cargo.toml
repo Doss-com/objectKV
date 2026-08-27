@@ -1,0 +1,12 @@
+[package]
+name = "okv-tikv-write-skew"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde_json = "1.0"
+tikv-client = { git = "https://github.com/tikv/client-rust.git", rev = "88688d6eb3a55a864885d7bccc8abf428dce076c", default-features = false }
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread"] }
+
+[workspace]

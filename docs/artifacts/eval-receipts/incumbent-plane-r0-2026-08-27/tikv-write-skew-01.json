@@ -1,0 +1,15 @@
+{
+  "client": "tikv-client@88688d6eb3a55a864885d7bccc8abf428dce076c",
+  "duration_ns": 20867128,
+  "eligible_for_objectkv_transaction_plane": false,
+  "first_commit_error": null,
+  "kind": "tikv_write_skew_preflight",
+  "provider_behavior_matches_documented_snapshot_isolation": true,
+  "run_id": "tikv857-semantic-01",
+  "schema_version": 1,
+  "scope": "single-node R0 semantic negative, not HA or production durability",
+  "second_commit_error": null,
+  "server": "tikv-8.5.7@3f446cfa9eb1d5c653031d261e185911495d0359",
+  "strict_serializable_write_skew": false,
+  "transactions_committed": 2
+}

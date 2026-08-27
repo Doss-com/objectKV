@@ -168,6 +168,27 @@ than five minutes because fixture construction serialized 65,536 records
 through the local authority before object publication. Reusable frozen fixtures
 are required before the 64 MiB and 10 GiB scale points return.
 
+`[EVALUATING]` The incumbent-plane R0 runner then executed the semantic and
+logical-lifecycle gates. FoundationDB 7.4.6 rejected the frozen write-skew
+history and passed all five implemented semantic gates. TiKV 8.5.7 committed
+both disjoint writers, which matches its snapshot-isolation contract but fails
+objectKV P1. TiKV therefore does not advance to lifecycle work.
+
+The first FoundationDB plus GCS lifecycle probe produced a 205,256-byte exact
+closure for 950 current rows, verified its closure and manifest by named GCS
+generation and SHA-256, restored the state into an empty logical generation in
+five idempotent chunks, matched the state digest, and fenced a transaction that
+began under the old generation. The positive path took 821.410 ms end to end;
+objectification was 350.084 ms, named reads were 371.411 ms, and restore was
+31.401 ms. Three poisons covering missing retained change, missing durable
+outcome, and missing generation dependency were all detected.
+
+This is not yet a `[VERIFIED]` lifecycle admission. The source provider media
+remained present, and the final clean `okv-eval` plus OTel receipt is still
+being produced. GP2.5.3 will remove source provider media before reconstructing
+a fresh generation. GP3.1 starts only after that and compares mandatory
+retained-write overhead against direct FoundationDB at matched durability.
+
 R0 is enough to answer:
 
 - GCS request, byte, latency, and storage-amplification curves;
@@ -182,7 +203,7 @@ independent failure domains.
 ### R1, three data machines plus controller
 
 `[PROPOSED]` R1 adds three equal data machines in separate zones and a controller
-outside the data identities. It runs objectKV and a pinned TiKV control on the
+outside the data identities. It runs objectKV and direct FoundationDB on the
 same shapes in alternating batches. R1 starts only after R0 results reproduce.
 
 ```text

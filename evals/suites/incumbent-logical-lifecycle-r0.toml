@@ -1,0 +1,91 @@
+schema_version = 1
+id = "incumbent-logical-lifecycle-r0-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/PRODUCT-SPEC-SHEET.md",
+  "../../rfcs/0041-incumbent-transaction-plane-adapter.md",
+]
+dataset_generator = "deterministic-foundationdb-logical-lifecycle-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcp-r0-foundationdb-logical"]
+
+[dataset.gcp-r0-foundationdb-logical]
+logical_bytes = 44000
+key_count = 1000
+value_bytes = 32
+seeds = [2026082702]
+
+[profiles.gcp-r0-foundationdb-logical]
+budget_kind = "operations"
+budget_limit = 10000
+repeats = 1
+topology = "single-private-r0-runner-foundationdb-7.4.6-and-regional-gcs"
+durability_profile = "logical-lifecycle-mechanism-only-source-provider-media-remains-present"
+cache_state = "warm-provider-cache"
+restore_chunk_records = 200
+machine_receipt_env = "OKV_EVAL_MACHINE_RECEIPT"
+machine_receipt_schema = "../schema/benchmark-machine-receipt-v1.schema.json"
+lifecycle_python_env = "OKV_FOUNDATIONDB_PYTHON"
+lifecycle_probe_env = "OKV_FOUNDATIONDB_LIFECYCLE_PROBE"
+gcs_bucket_env = "OKV_EVAL_GCS_BUCKET"
+artifact_directory_env = "OKV_EVAL_ARTIFACT_DIR"
+gcs_object_prefix = "results/provider-r0/lifecycle"
+
+[[lanes]]
+id = "resident-plane-lifecycle"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "foundationdb-objectkv-lifecycle"
+lane = "resident-plane-lifecycle"
+operation = "foundationdb_objectkv_logical_lifecycle"
+subject = "foundationdb-7.4.6"
+
+[[workloads]]
+id = "foundationdb-omit-retained-change-poison"
+lane = "resident-plane-lifecycle"
+operation = "foundationdb_objectkv_logical_lifecycle"
+subject = "foundationdb-7.4.6"
+negative_control = "omit_retained_change"
+
+[[workloads]]
+id = "foundationdb-accept-unknown-without-outcome-poison"
+lane = "resident-plane-lifecycle"
+operation = "foundationdb_objectkv_logical_lifecycle"
+subject = "foundationdb-7.4.6"
+negative_control = "accept_unknown_without_outcome"
+
+[[workloads]]
+id = "foundationdb-restore-without-generation-poison"
+lane = "resident-plane-lifecycle"
+operation = "foundationdb_objectkv_logical_lifecycle"
+subject = "foundationdb-7.4.6"
+negative_control = "restore_without_generation"
+
+[hard_gates]
+correctness_anomalies = 0
+retained_change_and_outcome_sets_match = true
+named_object_hashes_match = true
+object_frontier_follows_complete_closure = true
+empty_generation_restore_is_exact = true
+restore_chunks_are_idempotent = true
+stale_generation_is_fenced = true
+source_provider_media_loss_is_not_claimed = true
+otel_logs_metrics_traces = true
+schema_valid = true
+budget_must_hold = true

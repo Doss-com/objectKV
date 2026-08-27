@@ -135,12 +135,21 @@ retained 84.11 percent of control throughput with 1.210x p99. Final BA retained
 custom transaction-plane expansion. The next golden-path slice selects TiKV or
 FoundationDB and freezes the adapter above it. RAM remains blocked.
 
-`[CODE-COMPLETE]` The provider-neutral `okv-plane` contract, RFC-0041, and the
-source-pinned preflight now define P1 through P10, logical versions, retained
-changes, object-frontier advancement, and generation restore. FoundationDB is
-the first live candidate. TiKV stays in the suite as a negative subject for its
-documented snapshot-isolation write skew. This is not a provider-selection
-receipt; the leased R0 lifecycle run remains `[EVALUATING]`.
+`[VERIFIED]` The first leased R0 semantic run reduced the provider branch to
+FoundationDB. FoundationDB 7.4.6 passed five implemented semantic gates with
+zero anomalies. TiKV 8.5.7 committed both transactions in the write-skew
+history and failed P1. The provider-neutral `okv-plane` contract, RFC-0041, and
+preflight define the remaining lifecycle boundary.
+
+`[EVALUATING]` The first FoundationDB plus GCS logical-lifecycle run passed its
+positive history and three poisons. It wrote one content-addressed 205,256-byte
+closure, verified named GETs, advanced the object frontier once, restored 950
+rows into an empty generation in five idempotent chunks, matched the state
+digest, and fenced the previous generation. The positive run took 821.410 ms;
+its 31.401 ms restore timing is diagnostic only. The source provider media
+remained present, so provider-media-loss, clean `okv-eval` plus OTel admission,
+and matched hot-path overhead remain open. The golden path now names these as
+GP2.5.2, GP2.5.3, and GP3.1 rather than blending them into one claim.
 
 `[VERIFIED]` The SSD mechanism now composes with the public kernel on real R0
 infrastructure. `SingleRange` verifies the complete GCS closure, activates a

@@ -45,7 +45,7 @@ pub fn run(subject: &str, backend: &str) -> Result<Report, String> {
             profile
                 .advertised_capabilities
                 .insert(Capability::AtomicRetainedChangeAndOutcome);
-            profile.id = "tikv-8.5.7-unsafe-serializable-label".to_owned();
+            "tikv-8.5.7-unsafe-serializable-label".clone_into(&mut profile.id);
             profile
         }
         other => return Err(format!("unsupported provider preflight subject {other}")),

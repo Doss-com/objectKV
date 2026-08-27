@@ -3109,6 +3109,7 @@ dependencies = [
  "okv-htap",
  "okv-model",
  "okv-object",
+ "okv-plane",
  "okv-serving-rocksdb",
  "okv-sim",
  "okv-slate",

@@ -83,7 +83,7 @@ evidence = []
 [[phases]]
 id = "GP2.5"
 name = "Select the incumbent transaction plane"
-objective = "Reject providers that cannot satisfy the objectKV transaction contract, then prove the surviving provider through one bounded R0 lifecycle run."
+objective = "Reject providers that cannot satisfy the objectKV transaction contract, then advance the survivor through logical lifecycle and provider-media-loss gates in that order."
 depends_on = ["GP2"]
 
 [[phases.gates]]
@@ -107,13 +107,13 @@ evidence = ["../../docs/research/incumbent-transaction-plane-selection-2026-08-2
 
 [[phases.gates]]
 id = "GP2.5.2"
-status = "proposed"
+status = "evaluating"
 kind = "correctness"
-claim = "FoundationDB executes the frozen history, retained-change, unknown-outcome, objectification, media-loss, and empty-generation restore contract without an objectKV-owned resolver."
-falsifier = "A committed effect is absent or duplicated, ordering is ambiguous, publication outruns a complete closure, or restore needs the lost provider media."
+claim = "FoundationDB emits a complete immutable GCS closure, reconstructs the exact state into an empty logical generation in idempotent chunks, and fences a transaction from the previous generation."
+falsifier = "A committed effect is absent or duplicated, publication outruns a complete closure, reconstruction returns another digest, a repeated chunk changes state, or a stale-generation transaction commits."
 requirement_ids = ["MVCC-001", "MVCC-002", "MVCC-003", "TXN-001", "TXN-003", "TXN-004", "OBJ-001", "OBJ-004", "OBJ-006", "SRV-006"]
-suite = "../suites/incumbent-resident-r0.toml"
-profile = "gcp-r0-foundationdb"
+suite = "../suites/incumbent-logical-lifecycle-r0.toml"
+profile = "gcp-r0-foundationdb-logical"
 workload = "foundationdb-objectkv-lifecycle"
 backend = "foundationdb-7.4.6+objectkv-lifecycle+gcs"
 lane = "resident-plane-lifecycle"
@@ -123,6 +123,22 @@ negative_controls = [
   "foundationdb-accept-unknown-without-outcome-poison",
   "foundationdb-restore-without-generation-poison",
 ]
+evidence = ["../../docs/artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/"]
+
+[[phases.gates]]
+id = "GP2.5.3"
+status = "proposed"
+kind = "correctness"
+claim = "The same object closure reconstructs exact logical state after the source FoundationDB data media is removed and a fresh provider generation is created."
+falsifier = "Restore reads or depends on lost provider media, returns another digest, exposes the destination before completion, or accepts a stale source-generation writer."
+requirement_ids = ["MVCC-003", "TXN-003", "TXN-004", "OBJ-001", "OBJ-004", "OBJ-006", "SRV-006"]
+suite = "../suites/incumbent-resident-r0.toml"
+profile = "gcp-r0-foundationdb"
+workload = "foundationdb-objectkv-media-loss-lifecycle"
+backend = "foundationdb-7.4.6+fresh-generation+objectkv-lifecycle+gcs"
+lane = "resident-plane-lifecycle"
+checkpoint = "resident-plane"
+negative_controls = ["foundationdb-restore-with-hidden-source-media-poison"]
 evidence = []
 
 [[phases]]
