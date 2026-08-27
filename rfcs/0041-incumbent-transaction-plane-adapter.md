@@ -300,9 +300,25 @@ Negative controls:
 
 ### Stage B, R0 lifecycle
 
-Run the surviving provider on one private R0 runner with named local NVMe,
-regional versioned GCS, and required OTel. This stage proves mechanism and
+Run the surviving provider on sequential private R0 source and restore runners,
+regional versioned GCS, and required OTel. GP2.5.2 first proves logical
+generation reconstruction while source media remains present. GP2.5.3 then
+replaces the source VM and provider disk, observes the source instance, boot
+disk, and data disk absent from an external controller, and restores into a
+fresh FoundationDB cluster identity. This stage proves mechanism and
 single-machine lifecycle only.
+
+Provider-media loss and provider-incarnation fencing are separate claims:
+
+```text
+GP2.5.3 source cluster and disks absent -> exact fresh-cluster restore
+GP2.5.4 old cluster resurrected         -> cannot commit, route, or publish
+```
+
+The logical generation key inside FoundationDB cannot fence another
+FoundationDB cluster after the first cluster is lost. GP2.5.4 therefore
+requires external cell-incarnation authority consistent with RFC-0009. A
+deleted source process is not fencing evidence.
 
 Measure:
 
@@ -313,6 +329,10 @@ Measure:
 - exact post-restore digest;
 - active hot reads with and without lifecycle emission;
 - branch-create metadata bytes and first-read cost.
+
+The frozen GP2.5.3 topology, receipt fields, positive gates, and executed
+hidden-source-media poison are in
+`docs/research/provider-media-loss-gp2.5.3.md`.
 
 ### Stage C, R1 durability comparison
 

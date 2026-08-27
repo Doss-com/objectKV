@@ -27,6 +27,13 @@ The runner and control execute sequentially on the same machine. This optimizes
 for paired-measurement stability. It gives up concurrent solution-stack testing
 until the one-runner curves reproduce.
 
+For GP2.5.3, `runner_phase=source` and `runner_phase=restore` replace that runner
+sequentially. The phase changes both the VM name and persistent provider-disk
+name. Terraform destroys the source identities before creating the restore
+identities; the collector and regional GCS objects remain. This keeps only one
+data VM active while an external controller can prove the exact source media is
+absent.
+
 OS Login is the default operator path. If OS Login is unavailable, an explicit
 break-glass key may be passed as `operator_ssh_public_key`. This creates only the
 `objectkv` account on the two leased private machines. Set

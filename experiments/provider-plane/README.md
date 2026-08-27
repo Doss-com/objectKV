@@ -49,3 +49,23 @@ and matched hot-path overhead also pass.
 The source FoundationDB media remains present during this run. A passing result
 is evidence for the lifecycle seam, not provider media-loss recovery, HA, or
 production durability. Those remain separate golden-path gates.
+
+## FoundationDB provider-media-loss R0
+
+`foundationdb_media_loss_r0.py` splits GP2.5.3 into explicit source, restore,
+and assembly commands. The source command emits one immutable GCS closure and
+also executes `restore_with_hidden_source_media` before its cluster is removed.
+The restore command requires a fresh FoundationDB cluster ID, reads the exact
+manifest and closure by name, generation, and SHA-256, applies idempotent
+chunks, activates generation 2, and commits one fresh transaction.
+
+`configure-foundationdb-r0.sh` pins the FoundationDB 7.4.6 Debian package
+digests and places the provider data directory on the phase-owned persistent
+disk. `infra/gcp/benchmark/provider-media-topology.sh` captures both cluster and
+Compute media identities and observes source deletion from the external
+controller.
+
+The final `foundationdb_objectkv_media_loss_r0` receipt is admitted by
+`okv-eval` only when source and destination cluster, instance, boot-disk, and
+data-disk identities differ and all source media was absent before restore.
+This does not prove HA or fencing of a resurrected source cluster.

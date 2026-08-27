@@ -1,0 +1,66 @@
+schema_version = 1
+id = "provider-incarnation-r0-v1"
+status = "proposed"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/PRODUCT-SPEC-SHEET.md",
+  "../../docs/research/provider-media-loss-gp2.5.3.md",
+  "../../rfcs/0009-failure-and-recovery-generations.md",
+  "../../rfcs/0041-incumbent-transaction-plane-adapter.md",
+]
+dataset_generator = "deterministic-provider-incarnation-history-v1"
+
+[telemetry]
+protocol = "none"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = []
+required_for_profiles = []
+
+[dataset.local-model]
+logical_bytes = 4096
+key_count = 32
+seeds = [2026082704]
+
+[profiles.local-model]
+budget_kind = "operations"
+budget_limit = 10000
+repeats = 1
+topology = "external-cell-incarnation-authority-two-provider-identities"
+durability_profile = "deterministic-contract-model"
+cache_state = "not-applicable"
+
+[[lanes]]
+id = "provider-incarnation-authority"
+primary_metric = "correctness.anomalies"
+statistic = "total"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "provider-incarnation-authority"
+lane = "provider-incarnation-authority"
+operation = "provider_incarnation_authority_contract"
+subject = "external-cell-incarnation-authority"
+
+[[workloads]]
+id = "provider-incarnation-accept-stale-source-poison"
+lane = "provider-incarnation-authority"
+operation = "provider_incarnation_authority_contract"
+subject = "external-cell-incarnation-authority"
+negative_control = "accept_stale_source_incarnation"
+
+[hard_gates]
+correctness_anomalies = 0
+newer_incarnation_fences_old_commit_authority = true
+newer_incarnation_fences_old_routing = true
+newer_incarnation_fences_old_object_publication = true
+stale_source_poison_is_detected = true
+schema_valid = true
+budget_must_hold = true

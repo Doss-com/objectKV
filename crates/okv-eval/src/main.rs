@@ -1356,6 +1356,9 @@ fn execute_workload(
         "foundationdb_objectkv_logical_lifecycle" => {
             run_foundationdb_logical_lifecycle(workload, run_id, backend, dataset, profile)
         }
+        "foundationdb_objectkv_media_loss_lifecycle" => {
+            run_foundationdb_media_loss_lifecycle(workload, backend, dataset, profile)
+        }
         "deterministic_generation_recovery" => {
             run_generation_recovery(workload, candidate_commit, seeds)
         }
@@ -13779,6 +13782,204 @@ fn run_foundationdb_logical_lifecycle(
             (
                 "foundationdb_lifecycle.restore_chunks".to_owned(),
                 bounded_count(receipt.restored_chunks),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_foundationdb_media_loss_lifecycle(
+    workload: &WorkloadConfig,
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile: &ProfileConfig,
+) -> WorkloadExecution {
+    const EXPECTED_BACKEND: &str = "foundationdb-7.4.6+fresh-provider+objectkv-lifecycle+gcs";
+    if backend != EXPECTED_BACKEND {
+        return execution_from_result(Err(format!(
+            "FoundationDB media-loss lifecycle requires {EXPECTED_BACKEND}, got {backend}"
+        )));
+    }
+    let Some(dataset) = dataset else {
+        return execution_from_result(Err(
+            "FoundationDB media-loss lifecycle requires a dataset".to_owned()
+        ));
+    };
+    let subject = workload
+        .parameters
+        .get("subject")
+        .and_then(toml::Value::as_str);
+    if subject != Some("foundationdb-7.4.6") {
+        return execution_from_result(Err(format!(
+            "FoundationDB media-loss lifecycle requires subject foundationdb-7.4.6, got {subject:?}"
+        )));
+    }
+    let Some(receipt_env) = workload
+        .parameters
+        .get("receipt_env")
+        .and_then(toml::Value::as_str)
+    else {
+        return execution_from_result(Err(
+            "FoundationDB media-loss workload requires receipt_env".to_owned()
+        ));
+    };
+    let receipt_path = match std::env::var(receipt_env) {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => {
+            return execution_from_result(Err(format!(
+                "FoundationDB media-loss lifecycle requires env {receipt_env}"
+            )));
+        }
+    };
+    let receipt_bytes = match fs::read(&receipt_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return execution_from_result(Err(format!(
+                "read provider-media-loss receipt {}: {error}",
+                receipt_path.display()
+            )));
+        }
+    };
+    let receipt = match okv_eval::provider_media_loss::Receipt::from_json(&receipt_bytes) {
+        Ok(receipt) => receipt,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let negative_control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let candidate_passed = receipt.candidate_passed();
+    let poison_detected =
+        negative_control.is_some_and(|control| receipt.negative_control_detected(control));
+    let result = if let Some(control) = negative_control {
+        if poison_detected {
+            Err(format!(
+                "FoundationDB media-loss negative control {control} was detected"
+            ))
+        } else {
+            Err(format!(
+                "FoundationDB media-loss negative control {control} escaped detection"
+            ))
+        }
+    } else if candidate_passed {
+        Ok(())
+    } else {
+        Err("FoundationDB provider-media-loss receipt failed one or more frozen gates".to_owned())
+    };
+    let object_bytes = receipt
+        .object_closure
+        .closure_bytes
+        .saturating_add(receipt.object_closure.manifest_bytes);
+    let outcome = if candidate_passed { "pass" } else { "fail" };
+    let mut measurements = vec![
+        Measurement {
+            metric: "correctness.anomalies",
+            value: bounded_count(receipt.correctness_anomalies),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("oracle", "provider-media-loss-r0-v1"),
+                (
+                    "anomaly.class",
+                    negative_control.unwrap_or(if candidate_passed {
+                        "none"
+                    } else {
+                        "candidate"
+                    }),
+                ),
+            ]),
+        },
+        Measurement {
+            metric: "object_store.bytes",
+            value: bounded_count(object_bytes),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("store", "gcs"),
+                ("direction", "read"),
+                ("api", "get"),
+            ]),
+        },
+        Measurement {
+            metric: "recovery.hydration_bytes",
+            value: bounded_count(receipt.object_closure.closure_bytes),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("source", "gcs-named-object"),
+                ("range.class", "fresh-provider-generation"),
+            ]),
+        },
+    ];
+    if let Some(seconds) = receipt.timing_seconds("restore") {
+        measurements.push(Measurement {
+            metric: "recovery.hydration_duration",
+            value: seconds,
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("range.class", "fresh-provider-generation"),
+                ("result", outcome),
+            ]),
+        });
+    }
+    let mut hard_gates = receipt
+        .gates
+        .iter()
+        .map(|gate| HardGateResult {
+            id: gate.id.clone(),
+            status: gate_status(gate.passed),
+            detail: Some(gate.detail.clone()),
+        })
+        .collect::<Vec<_>>();
+    hard_gates.extend([
+        HardGateResult {
+            id: "provider_media_loss_receipt_admitted".to_owned(),
+            status: gate_status(negative_control.is_some() || candidate_passed),
+            detail: Some(receipt.scope.clone()),
+        },
+        HardGateResult {
+            id: "negative_control_detected".to_owned(),
+            status: gate_status(negative_control.is_none() || poison_detected),
+            detail: negative_control.map(|control| format!("control={control}")),
+        },
+        HardGateResult {
+            id: "provider_revision_pinned".to_owned(),
+            status: GateStatus::Pass,
+            detail: Some(receipt.provider.clone()),
+        },
+    ]);
+    let error = result.err();
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates,
+        budget_units: bounded_count(
+            dataset
+                .key_count
+                .saturating_add(receipt.restore.restored_chunks)
+                .saturating_add(receipt.restore.replayed_chunks),
+        ),
+        artifact_refs: vec![
+            receipt_path.display().to_string(),
+            receipt.object_closure.manifest_uri.clone(),
+            receipt.object_closure.closure_uri.clone(),
+        ],
+        secondary_metrics: BTreeMap::from([
+            (
+                "provider_media_loss.object_bytes".to_owned(),
+                bounded_count(object_bytes),
+            ),
+            (
+                "provider_media_loss.restore_chunks".to_owned(),
+                bounded_count(receipt.restore.restored_chunks),
+            ),
+            (
+                "provider_media_loss.restored_records".to_owned(),
+                bounded_count(receipt.restore.restored_record_count),
             ),
         ]),
     }

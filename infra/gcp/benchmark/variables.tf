@@ -51,6 +51,17 @@ variable "run_label" {
   }
 }
 
+variable "runner_phase" {
+  description = "Runner identity for a standard benchmark or one side of a sequential provider-media-loss lifecycle."
+  type        = string
+  default     = "standard"
+
+  validation {
+    condition     = contains(["standard", "source", "restore"], var.runner_phase)
+    error_message = "runner_phase must be standard, source, or restore."
+  }
+}
+
 variable "benchmark_revision" {
   description = "Clean objectKV Git revision whose binary is installed on the runner."
   type        = string

@@ -1,20 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: $0 <run-label> <output.json>" >&2
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "usage: $0 <run-label> <output.json> [standard|source|restore]" >&2
   exit 64
 fi
 
 run_label="$1"
 output="$2"
+runner_phase="${3:-standard}"
+if [[ "${runner_phase}" != "standard" && "${runner_phase}" != "source" && "${runner_phase}" != "restore" ]]; then
+  echo "runner phase must be standard, source, or restore" >&2
+  exit 64
+fi
 project="${OKV_GCP_PROJECT:-doss-objectkv-dev}"
 region="${OKV_GCP_REGION:-us-central1}"
 zone="${OKV_GCP_ZONE:-us-central1-a}"
 bucket="${OKV_GCS_BUCKET:-doss-objectkv-dev-okv-evals}"
 ssh_user="${OKV_GCP_SSH_USER:-}"
 ssh_key_file="${OKV_GCP_SSH_KEY_FILE:-}"
-runner="objectkv-bench-${run_label}-runner"
+runner_suffix="runner"
+runner_disk_suffix="data"
+if [[ "${runner_phase}" != "standard" ]]; then
+  runner_suffix="${runner_phase}"
+  runner_disk_suffix="${runner_phase}-data"
+fi
+runner="objectkv-bench-${run_label}-${runner_suffix}"
 collector="objectkv-bench-${run_label}-collector"
 runner_target="${runner}"
 collector_target="${collector}"
@@ -31,7 +42,7 @@ runner_json="$(gcloud compute instances describe "${runner}" --project="${projec
 collector_json="$(gcloud compute instances describe "${collector}" --project="${project}" --zone="${zone}" --format=json)"
 runner_boot_json="$(gcloud compute disks describe "${runner}" --project="${project}" --zone="${zone}" --format=json)"
 collector_boot_json="$(gcloud compute disks describe "${collector}" --project="${project}" --zone="${zone}" --format=json)"
-runner_disk_json="$(gcloud compute disks describe "objectkv-bench-${run_label}-data" --project="${project}" --zone="${zone}" --format=json)"
+runner_disk_json="$(gcloud compute disks describe "objectkv-bench-${run_label}-${runner_disk_suffix}" --project="${project}" --zone="${zone}" --format=json)"
 collector_disk_json="$(gcloud compute disks describe "objectkv-bench-${run_label}-otel" --project="${project}" --zone="${zone}" --format=json)"
 bucket_json="$(gcloud storage buckets describe "gs://${bucket}" --project="${project}" --format=json)"
 

@@ -2,12 +2,24 @@ output "run_label" {
   value = var.create ? var.run_label : null
 }
 
+output "runner_phase" {
+  value = var.create ? var.runner_phase : null
+}
+
 output "runner_name" {
   value = try(google_compute_instance.runner["active"].name, null)
 }
 
 output "runner_internal_ip" {
   value = try(google_compute_instance.runner["active"].network_interface[0].network_ip, null)
+}
+
+output "runner_data_disk_name" {
+  value = try(google_compute_disk.runner_data["active"].name, null)
+}
+
+output "runner_data_disk_id" {
+  value = try(google_compute_disk.runner_data["active"].id, null)
 }
 
 output "collector_name" {
@@ -31,5 +43,5 @@ output "resolved_collector_image" {
 }
 
 output "destroy_command" {
-  value = var.create ? "terraform -chdir=infra/gcp/benchmark destroy -var=create=true -var=run_label=${var.run_label} -var=benchmark_revision=${var.benchmark_revision} -var=lease_expires_epoch=${var.lease_expires_epoch}" : null
+  value = var.create ? "terraform -chdir=infra/gcp/benchmark destroy -var=create=true -var=run_label=${var.run_label} -var=runner_phase=${var.runner_phase} -var=benchmark_revision=${var.benchmark_revision} -var=lease_expires_epoch=${var.lease_expires_epoch}" : null
 }

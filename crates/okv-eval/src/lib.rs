@@ -12,6 +12,7 @@ pub mod object_frontier;
 pub mod process_snapshot_compaction;
 pub mod program;
 pub mod provider_lifecycle;
+pub mod provider_media_loss;
 pub mod provider_selection;
 #[cfg(feature = "resident-rocksdb")]
 pub mod resident;

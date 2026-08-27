@@ -1129,3 +1129,70 @@ Next decision boundary: freeze the minimal plane interface, implement the same
 single-range objectification and rebuild adapter against TiKV and FoundationDB,
 and compare operational fit before selecting one. This is a provider choice,
 not authorization to rebuild either system inside objectKV.
+
+## D53. Advance FoundationDB alone through the lifecycle gates
+
+Status: `[VERIFIED]` semantic elimination and logical lifecycle with
+`[EVALUATING]` FoundationDB admission, 2026-08-27.
+
+Decision: remove TiKV from the objectKV lifecycle implementation branch. TiKV
+remains a useful alternative-stack reference, but objectKV will not add a
+resolver, predicate-lock service, or certifier above TiKV to turn snapshot
+isolation into the strict-serializable P1 contract. Advance FoundationDB alone
+through logical reconstruction, provider-media-loss recovery, and matched
+hot-path overhead. Do not call FoundationDB selected before those gates pass.
+
+```text
+TiKV live write skew: both commit -> reject for P1
+FoundationDB live write skew: one conflicts -> advance
+  -> logical object lifecycle
+  -> provider-media-loss reconstruction
+  -> retained-write overhead vs direct FoundationDB
+  -> provider admission or stop
+```
+
+Optimizes for: preserving the strict-serializable kernel contract without
+rebuilding distributed transaction validation inside objectKV.
+
+Gives up: TiKV's direct RocksDB and MultiRaft data path as the implementation
+base. A future TiKV integration would require an explicitly weaker transaction
+product or a separately justified serializable layer.
+
+Evidence: FoundationDB 7.4.6 passed five live semantic gates with zero
+anomalies. TiKV 8.5.7 committed both writers in the frozen write-skew history.
+The frozen FoundationDB plus GCS logical-lifecycle batch reconstructed 950 rows
+into an empty generation, replayed five chunks idempotently, matched the state
+digest, fenced the old generation, and discarded all three poisons. Candidate
+`ca9195186c4bd85573dddfe2d63a376693a031e9` and its private GCP machine receipt
+produced complete logs, metrics, and traces. GP2.5.2 is `[VERIFIED]` for this
+logical scope. The source provider media remained present, so GP2.5.3 and GP3.1
+still gate provider admission.
+
+## D54. Separate provider-media loss from provider-incarnation fencing
+
+Status: `[ACTIVE-WORK]` provider-media-loss implementation, 2026-08-27.
+
+Decision: GP2.5.3 uses two distinct FoundationDB cluster and disk identities.
+An external controller observes the source instance, boot disk, and provider
+data disk absent before the first write to the fresh destination cluster. A
+same-cluster restore while the source media remains reachable is the executed
+poison. This gate proves object-closure sufficiency after media loss only.
+
+Add GP2.5.4 for provider-incarnation authority. A source process being deleted
+cannot prove that a later-resurrected source identity is fenced. The current
+logical generation key resides inside FoundationDB and therefore cannot govern
+two separate clusters after one cluster is lost.
+
+```text
+GP2.5.3: source disk gone -> exact fresh-cluster restore
+GP2.5.4: old cluster returns -> cannot acknowledge, route, or publish
+```
+
+Optimizes for: one falsifiable correctness claim per gate and no promotion of a
+namespace-reset result into a distributed-fencing result.
+
+Gives up: treating physical deletion as complete HA evidence. An external cell
+incarnation authority remains required by RFC-0009 before provider admission.
+
+Evidence contract:
+`docs/research/provider-media-loss-gp2.5.3.md`.

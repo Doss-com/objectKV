@@ -168,26 +168,33 @@ than five minutes because fixture construction serialized 65,536 records
 through the local authority before object publication. Reusable frozen fixtures
 are required before the 64 MiB and 10 GiB scale points return.
 
-`[EVALUATING]` The incumbent-plane R0 runner then executed the semantic and
-logical-lifecycle gates. FoundationDB 7.4.6 rejected the frozen write-skew
-history and passed all five implemented semantic gates. TiKV 8.5.7 committed
-both disjoint writers, which matches its snapshot-isolation contract but fails
-objectKV P1. TiKV therefore does not advance to lifecycle work.
+`[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
+and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
+write-skew history and passed all five implemented semantic gates. TiKV 8.5.7
+committed both disjoint writers, which matches its snapshot-isolation contract
+but fails objectKV P1. TiKV therefore does not advance to lifecycle work.
 
-The first FoundationDB plus GCS lifecycle probe produced a 205,256-byte exact
+The frozen FoundationDB plus GCS lifecycle probe produced a 205,262-byte exact
 closure for 950 current rows, verified its closure and manifest by named GCS
 generation and SHA-256, restored the state into an empty logical generation in
 five idempotent chunks, matched the state digest, and fenced a transaction that
-began under the old generation. The positive path took 821.410 ms end to end;
-objectification was 350.084 ms, named reads were 371.411 ms, and restore was
-31.401 ms. Three poisons covering missing retained change, missing durable
-outcome, and missing generation dependency were all detected.
+began under the old generation. The formal positive path took 512.560 ms inside
+the lifecycle probe and 840.212 ms end to end. Three poisons covering missing
+retained change, missing durable outcome, and missing generation dependency
+were discarded. All seven semantic and lifecycle run IDs occur in the captured
+OTel logs, metrics, and traces. These are correctness receipts, not performance
+claims.
 
-This is not yet a `[VERIFIED]` lifecycle admission. The source provider media
-remained present, and the final clean `okv-eval` plus OTel receipt is still
-being produced. GP2.5.3 will remove source provider media before reconstructing
-a fresh generation. GP3.1 starts only after that and compares mandatory
-retained-write overhead against direct FoundationDB at matched durability.
+`[EVALUATING]` GP2.5.3 now has a frozen two-cluster media-loss contract and a
+code-complete receipt validator. Its sequential Terraform topology runs one
+source VM, executes a same-cluster hidden-media poison, replaces the VM and
+provider disk, observes all source media absent, then reconstructs on a fresh
+destination FoundationDB cluster. No GP2.5.3 cloud receipt has passed yet.
+
+GP2.5.4 separately gates external provider-incarnation authority. Physical
+source deletion cannot prove that a later-resurrected old cluster is fenced.
+GP3.1 compares mandatory retained-write overhead against direct FoundationDB
+at matched durability after these correctness gates.
 
 R0 is enough to answer:
 

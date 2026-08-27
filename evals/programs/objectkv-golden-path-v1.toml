@@ -83,12 +83,12 @@ evidence = []
 [[phases]]
 id = "GP2.5"
 name = "Select the incumbent transaction plane"
-objective = "Reject providers that cannot satisfy the objectKV transaction contract, then advance the survivor through logical lifecycle and provider-media-loss gates in that order."
+objective = "Reject providers that cannot satisfy the objectKV transaction contract, then advance the survivor through logical lifecycle, provider-media-loss, incarnation-authority, and overhead gates in that order."
 depends_on = ["GP2"]
 
 [[phases.gates]]
 id = "GP2.5.1"
-status = "evaluating"
+status = "verified"
 kind = "correctness"
 claim = "The source-pinned preflight fails closed on snapshot isolation and on a provider whose label claims stronger semantics than its executed history."
 falsifier = "TiKV or the false-serializable poison advances to a live spike, or the FoundationDB mapping cannot name every P1 through P10 mechanism."
@@ -103,11 +103,14 @@ negative_controls = [
   "tikv-8.5.7-snapshot-isolation-negative",
   "tikv-false-serializable-label-negative",
 ]
-evidence = ["../../docs/research/incumbent-transaction-plane-selection-2026-08-27.md"]
+evidence = [
+  "../../docs/research/incumbent-transaction-plane-selection-2026-08-27.md",
+  "../../docs/artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/README.md",
+]
 
 [[phases.gates]]
 id = "GP2.5.2"
-status = "evaluating"
+status = "verified"
 kind = "correctness"
 claim = "FoundationDB emits a complete immutable GCS closure, reconstructs the exact state into an empty logical generation in idempotent chunks, and fences a transaction from the previous generation."
 falsifier = "A committed effect is absent or duplicated, publication outruns a complete closure, reconstruction returns another digest, a repeated chunk changes state, or a stale-generation transaction commits."
@@ -123,22 +126,38 @@ negative_controls = [
   "foundationdb-accept-unknown-without-outcome-poison",
   "foundationdb-restore-without-generation-poison",
 ]
-evidence = ["../../docs/artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/"]
+evidence = ["../../docs/artifacts/eval-receipts/incumbent-plane-r0-2026-08-27/README.md"]
 
 [[phases.gates]]
 id = "GP2.5.3"
 status = "proposed"
 kind = "correctness"
 claim = "The same object closure reconstructs exact logical state after the source FoundationDB data media is removed and a fresh provider generation is created."
-falsifier = "Restore reads or depends on lost provider media, returns another digest, exposes the destination before completion, or accepts a stale source-generation writer."
+falsifier = "Restore starts before the source instance and disks are absent, reads a source-provider input, returns another digest, or exposes the destination before completion."
 requirement_ids = ["MVCC-003", "TXN-003", "TXN-004", "OBJ-001", "OBJ-004", "OBJ-006", "SRV-006"]
-suite = "../suites/incumbent-resident-r0.toml"
-profile = "gcp-r0-foundationdb"
+suite = "../suites/incumbent-media-loss-r0.toml"
+profile = "gcp-r0-foundationdb-media-loss"
 workload = "foundationdb-objectkv-media-loss-lifecycle"
-backend = "foundationdb-7.4.6+fresh-generation+objectkv-lifecycle+gcs"
-lane = "resident-plane-lifecycle"
+backend = "foundationdb-7.4.6+fresh-provider+objectkv-lifecycle+gcs"
+lane = "provider-media-loss"
 checkpoint = "resident-plane"
 negative_controls = ["foundationdb-restore-with-hidden-source-media-poison"]
+evidence = []
+
+[[phases.gates]]
+id = "GP2.5.4"
+status = "proposed"
+kind = "correctness"
+claim = "A newer cell incarnation prevents an old provider identity from acknowledging transactions, receiving routed traffic, or publishing an object frontier."
+falsifier = "A resurrected source provider acknowledges a commit, receives authoritative routing, or advances an object root after the destination incarnation activates."
+requirement_ids = ["CELL-002", "CELL-004", "CELL-006", "TXN-003", "OBJ-006", "SRV-006"]
+suite = "../suites/provider-incarnation-r0.toml"
+profile = "local-model"
+workload = "provider-incarnation-authority"
+backend = "external-cell-incarnation-authority"
+lane = "provider-incarnation-authority"
+checkpoint = "resident-plane"
+negative_controls = ["provider-incarnation-accept-stale-source-poison"]
 evidence = []
 
 [[phases]]

@@ -1,5 +1,7 @@
 locals {
-  resources = var.create ? { active = var.run_label } : {}
+  resources          = var.create ? { active = var.run_label } : {}
+  runner_name_suffix = var.runner_phase == "standard" ? "runner" : var.runner_phase
+  runner_data_suffix = var.runner_phase == "standard" ? "data" : "${var.runner_phase}-data"
   common_labels = {
     environment = "development"
     managed_by  = "terraform"
@@ -116,7 +118,7 @@ resource "google_compute_firewall" "runner_to_collector" {
 resource "google_compute_disk" "runner_data" {
   for_each = local.resources
 
-  name    = "objectkv-bench-${each.value}-data"
+  name    = "objectkv-bench-${each.value}-${local.runner_data_suffix}"
   project = var.project_id
   zone    = var.zone
   type    = var.runner_data_disk_type
@@ -142,7 +144,7 @@ resource "google_compute_disk" "collector_data" {
 resource "google_compute_instance" "runner" {
   for_each = local.resources
 
-  name         = "objectkv-bench-${each.value}-runner"
+  name         = "objectkv-bench-${each.value}-${local.runner_name_suffix}"
   project      = var.project_id
   zone         = var.zone
   machine_type = var.runner_machine_type
@@ -178,6 +180,7 @@ resource "google_compute_instance" "runner" {
     enable-oslogin          = var.operator_ssh_public_key == "" ? "TRUE" : "FALSE"
     block-project-ssh-keys  = "TRUE"
     objectkv-run-label      = var.run_label
+    objectkv-runner-phase   = var.runner_phase
     objectkv-revision       = var.benchmark_revision
     objectkv-lease-expires  = var.lease_expires_epoch
     objectkv-results-bucket = var.bucket_name
