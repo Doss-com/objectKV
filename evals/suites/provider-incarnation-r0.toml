@@ -12,9 +12,9 @@ contract_files = [
 dataset_generator = "deterministic-provider-incarnation-history-v1"
 
 [telemetry]
-protocol = "none"
+protocol = "otlp-http"
 endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
-required_signals = []
+required_signals = ["metrics", "traces", "logs"]
 required_for_profiles = []
 
 [dataset.local-model]
