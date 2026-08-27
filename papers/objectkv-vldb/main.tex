@@ -69,7 +69,13 @@ cluster from two named GCS objects. Its formal positive passed 16 hard gates;
 the same-cluster hidden-media control was discarded. The exact source,
 machines, evaluator binary, and OTel logs, metrics, and traces are recorded.
 This proves object-closure sufficiency for one physical media-loss case, not
-HA, old-cluster incarnation fencing, or a performance curve. \okv{} retains
+HA or a performance curve. A subsequent clean local-process contract composed
+three-process generation and publication authorities, one authority failover,
+source fencing, destination activation, and stale commit, route, and
+publication checks. Its positive received \texttt{keep} with zero anomalies;
+the three-surface stale-source control received \texttt{discard}. This verifies
+the compound-fence process mechanism, not yet a resurrected FoundationDB
+provider. \okv{} retains
 its log, object publication, branching,
 reconstruction, and HTAP layers around the surviving transaction plane. Multiple
 machines, multiple zones, RAM admission, multi-range transactions, and
@@ -541,6 +547,9 @@ runner. It verifies that mechanism but does not admit its performance or prove
 independent-host durability. GP2.5.3 separately uses sequential source and
 restore VMs to verify reconstruction after complete source-provider media
 deletion.
+The GP2.5.4 local process rung separately verifies the external generation,
+routing, and publication decisions. A dual-provider GCP harness is code
+complete but has not executed.
 
 \begin{table*}[t]
   \caption{Selected implementation evidence as of 2026-08-27. A zero-anomaly
@@ -567,6 +576,7 @@ deletion.
     GCP single-range mechanism & \verified{} & Private n2-standard-8 runner, regional GCS, 200 GiB persistent SSD, 375 GiB local NVMe, OTel & Runs \texttt{662481a8} and \texttt{c571ff45} & Exact recovery, zero hot object operations, zero anomalies, full lease teardown \\
     SSD public read admission & \evaluating{} & Same frozen GCP runner and 4 MiB warm working set, 15 samples per subject and order & Batches \texttt{gp31nvme2-ab-r1} and \texttt{gp31nvme2-ba-r1} & Throughput 19.32\% and 19.98\% worse; p99 35.25\% and 29.99\% worse; executable p99 constraint failed twice \\
     Provider media loss & \verified{} & Sequential private source and restore VMs, distinct 100 GiB provider SSDs, regional GCS, OTel & Runs \texttt{3093a364} and \texttt{865c06d8} & Exact 950-record reconstruction after source VM and disk deletion; 16 positive gates passed; hidden-media control discarded \\
+    Provider incarnation authority & \evaluating{} & Three-process generation and publication authorities on one host; dual-provider GCP resurrection harness pending & Runs \texttt{15260d66} and \texttt{b05dd054} & Local positive kept with zero anomalies; stale commit, route, and publication poison discarded with three anomalies \\
     Independent hosts and zones & \evaluating{} & Not yet executed & No admitted receipt & Single-runner evidence does not establish distributed durability \\
     \bottomrule
   \end{tabularx}
@@ -1143,6 +1153,17 @@ anomalies. The same-cluster hidden-source-media control received
 305.667 ms destination lifecycle is a single-sample diagnostic and does not
 establish HA, incarnation fencing, RPO, RTO, or performance.
 
+GP2.5.4 now has a clean local-process receipt for the compound authority. The
+positive started twelve authority or publication processes, six data
+processes, killed seven processes, crossed three authority failovers, rejected
+four fenced commit attempts, and retained valid destination publication. The
+stale-source control bypassed commit, route, and publication fencing and was
+discarded with exactly three anomalies. The remaining GP2.5.4 claim is the
+provider composition: a source FoundationDB fence must persist across a VM
+restart after a distinct destination activates. The code-complete GCP harness
+retains both provider disks, orders source fence before destination activation,
+restarts the source without replacing its media, and emits a strict receipt.
+
 \section{Limitations and Open Questions}
 
 The current implementation does not yet support a full client transaction from
@@ -1187,9 +1208,11 @@ The dependency order is evidence driven:
   process orders. The semantic eliminator removed TiKV and advanced
   FoundationDB. Freeze the FoundationDB lifecycle adapter before RAM work.
   \item The GCS closure passed empty logical-generation reconstruction and
-  fresh-provider reconstruction after source VM and disk deletion. Next prove
-  external cell-incarnation authority, then compare mandatory retained-write
-  overhead against direct FoundationDB.
+  fresh-provider reconstruction after source VM and disk deletion. The local
+  external incarnation authority is verified and the real-provider harness is
+  code complete. Next execute the source-fence, destination-activation, and
+  source-resurrection receipt, then compare mandatory retained-write overhead
+  against direct FoundationDB.
   \item Verify generation-fenced SSD-to-RAM and RAM-to-SSD handoff without
   stale reads, stale publication, or lost committed state.
   \item Define and verify the indexed row-object format, bounded cold lookup,
@@ -1261,8 +1284,10 @@ logical-generation probe passed objectification, exact reconstruction,
 idempotent chunk replay, generation fencing, negative controls, and formal OTel
 receipt. GP2.5.2 is verified for that logical scope. The next decisive evidence
 was GP2.5.3, which reconstructed the same digest after the source provider and
-both disks were absent and discarded the hidden-media control. GP2.5.4
-external incarnation authority and the matched hot-path overhead curve remain. The
+both disks were absent and discarded the hidden-media control. GP2.5.4 now
+verifies its local compound-fence processes and detects the three-surface
+stale-source poison. Real FoundationDB resurrection and the matched hot-path
+overhead curve remain. The
 golden scenario is code
 complete as a plan, but no complete application-to-object checkpoint is
 verified. The project proceeds only if the retained log, publication, and HTAP

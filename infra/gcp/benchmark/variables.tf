@@ -62,6 +62,12 @@ variable "runner_phase" {
   }
 }
 
+variable "provider_pair" {
+  description = "Create a simultaneous restore provider while retaining the source provider VM and disk for GP2.5.4 resurrection."
+  type        = bool
+  default     = false
+}
+
 variable "benchmark_revision" {
   description = "Clean objectKV Git revision whose binary is installed on the runner."
   type        = string

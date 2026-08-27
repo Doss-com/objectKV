@@ -549,7 +549,11 @@ become one GitHub issue.
   exact 950-record digest on a fresh FoundationDB cluster. Its positive run
   passed 16 gates; the hidden-source-media control was discarded. Next are
   GP2.5.4 external cell-incarnation authority and the GP3.1
-  direct-FoundationDB overhead pair.
+  direct-FoundationDB overhead pair. `[VERIFIED]` GP2.5.4's local authority
+  composition now rejects stale commit, route, and publication operations and
+  detects the corresponding three-surface poison. `[CODE-COMPLETE]` the
+  dual-provider GCP resurrection harness. The next owned action is its real
+  receipt; no contributor should start GP3.1 before that result.
 
 ## Opens after Gate 1
 

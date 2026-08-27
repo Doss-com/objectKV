@@ -1,6 +1,6 @@
 schema_version = 1
 id = "provider-incarnation-r0-v1"
-status = "proposed"
+status = "evaluating"
 metric_registry = "../metrics.toml"
 result_schema = "../schema/result.schema.json"
 contract_files = [
@@ -9,6 +9,9 @@ contract_files = [
   "../../docs/research/provider-incarnation-gp2.5.4.md",
   "../../rfcs/0009-failure-and-recovery-generations.md",
   "../../rfcs/0041-incumbent-transaction-plane-adapter.md",
+  "../schema/provider-incarnation-receipt-v1.schema.json",
+  "../../experiments/provider-plane/foundationdb_incarnation_r0.py",
+  "../../infra/gcp/benchmark/provider-media-topology.sh",
 ]
 dataset_generator = "deterministic-provider-incarnation-history-v1"
 
@@ -16,9 +19,14 @@ dataset_generator = "deterministic-provider-incarnation-history-v1"
 protocol = "otlp-http"
 endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
 required_signals = ["metrics", "traces", "logs"]
-required_for_profiles = ["local-process"]
+required_for_profiles = ["local-process", "gcp-r0-foundationdb-incarnation"]
 
 [dataset.local-process]
+logical_bytes = 4096
+key_count = 32
+seeds = [2026082704]
+
+[dataset.gcp-r0-foundationdb-incarnation]
 logical_bytes = 4096
 key_count = 32
 seeds = [2026082704]
@@ -30,6 +38,15 @@ repeats = 1
 topology = "external-cell-incarnation-authority-two-provider-identities"
 durability_profile = "three-process-openraft-authority-plus-provider-local-fence-model"
 cache_state = "not-applicable"
+
+[profiles.gcp-r0-foundationdb-incarnation]
+budget_kind = "operations"
+budget_limit = 10000
+repeats = 1
+topology = "controller-openraft-authority-plus-simultaneous-source-and-destination-foundationdb-providers"
+durability_profile = "source-provider-fence-plus-external-generation-routing-and-publication-authority"
+cache_state = "not-applicable"
+provider_receipt_schema = "../schema/provider-incarnation-receipt-v1.schema.json"
 
 [[lanes]]
 id = "provider-incarnation-authority"
@@ -57,6 +74,21 @@ operation = "provider_incarnation_authority_contract"
 subject = "external-cell-incarnation-authority"
 negative_control = "accept_stale_source_incarnation"
 
+[[workloads]]
+id = "foundationdb-provider-incarnation"
+lane = "provider-incarnation-authority"
+operation = "foundationdb_objectkv_provider_incarnation"
+subject = "foundationdb-7.4.6"
+receipt_env = "OKV_PROVIDER_INCARNATION_RECEIPT"
+
+[[workloads]]
+id = "foundationdb-provider-incarnation-stale-source-poison"
+lane = "provider-incarnation-authority"
+operation = "foundationdb_objectkv_provider_incarnation"
+subject = "foundationdb-7.4.6"
+receipt_env = "OKV_PROVIDER_INCARNATION_POISON_RECEIPT"
+negative_control = "accept_stale_source_incarnation"
+
 [hard_gates]
 correctness_anomalies = 0
 newer_incarnation_fences_old_commit_authority = true
@@ -67,6 +99,8 @@ source_provider_fence_precedes_destination_activation = true
 destination_incarnation_routes_commits_and_publishes = true
 exact_fresh_process_replay = true
 stale_source_poison_is_detected = true
+external_authority_trace_reproduced = true
+provider_incarnation_receipt_admitted = true
 otel_logs_metrics_traces = true
 schema_valid = true
 budget_must_hold = true

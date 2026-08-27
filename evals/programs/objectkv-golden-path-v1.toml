@@ -146,19 +146,19 @@ evidence = ["../../docs/artifacts/eval-receipts/provider-media-loss-r0-2026-08-2
 
 [[phases.gates]]
 id = "GP2.5.4"
-status = "proposed"
+status = "evaluating"
 kind = "correctness"
 claim = "A newer cell incarnation prevents an old provider identity from acknowledging transactions, receiving routed traffic, or publishing an object frontier."
 falsifier = "A resurrected source provider acknowledges a commit, receives authoritative routing, or advances an object root after the destination incarnation activates."
 requirement_ids = ["CELL-002", "CELL-004", "CELL-006", "TXN-003", "OBJ-006", "SRV-006"]
 suite = "../suites/provider-incarnation-r0.toml"
-profile = "local-process"
-workload = "provider-incarnation-authority"
-backend = "external-cell-incarnation-authority"
+profile = "gcp-r0-foundationdb-incarnation"
+workload = "foundationdb-provider-incarnation"
+backend = "foundationdb-7.4.6+external-incarnation-authority+gcs"
 lane = "provider-incarnation-authority"
 checkpoint = "resident-plane"
-negative_controls = ["provider-incarnation-accept-stale-source-poison"]
-evidence = []
+negative_controls = ["foundationdb-provider-incarnation-stale-source-poison"]
+evidence = ["../../docs/artifacts/eval-receipts/provider-incarnation-local-r0-2026-08-27/README.md"]
 
 [[phases]]
 id = "GP3"

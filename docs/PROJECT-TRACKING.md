@@ -164,6 +164,18 @@ the executed same-cluster hidden-media control received `discard`. OTel logs,
 metrics, and traces contain both run IDs. GP2.5.4 incarnation authority and
 GP3.1 retained-write overhead remain open.
 
+`[VERIFIED]` GP2.5.4a now has a clean local-process receipt at candidate
+`b415d502665eff9b6df4c095e33480b628348db2`. The combined generation and
+publication authority positive received `keep` with zero anomalies and exact
+fresh-process replay. The stale-source poison bypassed commit, routing, and
+publication fences and received `discard` with exactly three anomalies. Both
+run IDs occur in OTel logs, metrics, and traces. `[CODE-COMPLETE]` GP2.5.4b now
+has a simultaneous dual-provider Terraform shape, a FoundationDB source-fence
+and resurrection probe, a strict controller receipt, and formal positive and
+poison evaluator workloads. `[EVALUATING]` the real GCP run is blocked on a
+fresh operator authentication token. GP3.1 remains closed until that receipt
+passes.
+
 `[VERIFIED]` The SSD mechanism now composes with the public kernel on real R0
 infrastructure. `SingleRange` verifies the complete GCS closure, activates a
 bounded RocksDB image with its local WAL disabled, applies the newer txLog

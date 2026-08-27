@@ -1,5 +1,6 @@
 locals {
   resources          = var.create ? { active = var.run_label } : {}
+  provider_pair      = var.create && var.provider_pair ? { active = var.run_label } : {}
   runner_name_suffix = var.runner_phase == "standard" ? "runner" : var.runner_phase
   runner_data_suffix = var.runner_phase == "standard" ? "data" : "${var.runner_phase}-data"
   common_labels = {
@@ -128,6 +129,19 @@ resource "google_compute_disk" "runner_data" {
   physical_block_size_bytes = 4096
 }
 
+resource "google_compute_disk" "destination_data" {
+  for_each = local.provider_pair
+
+  name    = "objectkv-bench-${each.value}-restore-data"
+  project = var.project_id
+  zone    = var.zone
+  type    = var.runner_data_disk_type
+  size    = var.runner_data_disk_gib
+  labels  = local.common_labels
+
+  physical_block_size_bytes = 4096
+}
+
 resource "google_compute_disk" "collector_data" {
   for_each = local.resources
 
@@ -206,6 +220,74 @@ resource "google_compute_instance" "runner" {
     enable_secure_boot          = true
     enable_vtpm                 = true
     enable_integrity_monitoring = true
+  }
+
+  depends_on = [google_compute_router_nat.benchmark]
+}
+
+resource "google_compute_instance" "destination" {
+  for_each = local.provider_pair
+
+  name         = "objectkv-bench-${each.value}-restore"
+  project      = var.project_id
+  zone         = var.zone
+  machine_type = var.runner_machine_type
+  tags         = ["objectkv-benchmark", "objectkv-benchmark-runner"]
+  labels       = local.common_labels
+
+  boot_disk {
+    auto_delete = true
+    initialize_params {
+      image = data.google_compute_image.runner.self_link
+      size  = 30
+      type  = "pd-balanced"
+    }
+  }
+
+  attached_disk {
+    source      = google_compute_disk.destination_data[each.key].id
+    device_name = "objectkv-data"
+    mode        = "READ_WRITE"
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.benchmark[each.key].id
+  }
+
+  metadata = merge({
+    enable-oslogin          = var.operator_ssh_public_key == "" ? "TRUE" : "FALSE"
+    block-project-ssh-keys  = "TRUE"
+    objectkv-run-label      = var.run_label
+    objectkv-runner-phase   = "restore"
+    objectkv-revision       = var.benchmark_revision
+    objectkv-lease-expires  = var.lease_expires_epoch
+    objectkv-results-bucket = var.bucket_name
+    objectkv-hot-mount      = var.runner_hot_mount
+    objectkv-local-ssd      = "false"
+    startup-script          = file("${path.module}/runner-startup.sh")
+    }, var.operator_ssh_public_key == "" ? {} : {
+    objectkv-operator-ssh-key = var.operator_ssh_public_key
+  })
+
+  service_account {
+    email  = data.google_service_account.eval_runner.email
+    scopes = ["cloud-platform"]
+  }
+
+  allow_stopping_for_update = true
+  deletion_protection       = false
+
+  shielded_instance_config {
+    enable_secure_boot          = true
+    enable_vtpm                 = true
+    enable_integrity_monitoring = true
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.runner_phase == "source"
+      error_message = "provider_pair requires runner_phase=source so provider identities are unambiguous."
+    }
   }
 
   depends_on = [google_compute_router_nat.benchmark]

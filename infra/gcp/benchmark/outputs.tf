@@ -22,6 +22,22 @@ output "runner_data_disk_id" {
   value = try(google_compute_disk.runner_data["active"].id, null)
 }
 
+output "destination_name" {
+  value = try(google_compute_instance.destination["active"].name, null)
+}
+
+output "destination_internal_ip" {
+  value = try(google_compute_instance.destination["active"].network_interface[0].network_ip, null)
+}
+
+output "destination_data_disk_name" {
+  value = try(google_compute_disk.destination_data["active"].name, null)
+}
+
+output "destination_data_disk_id" {
+  value = try(google_compute_disk.destination_data["active"].id, null)
+}
+
 output "collector_name" {
   value = try(google_compute_instance.collector["active"].name, null)
 }
@@ -43,5 +59,5 @@ output "resolved_collector_image" {
 }
 
 output "destroy_command" {
-  value = var.create ? "terraform -chdir=infra/gcp/benchmark destroy -var=create=true -var=run_label=${var.run_label} -var=runner_phase=${var.runner_phase} -var=enable_local_ssd=${var.enable_local_ssd} -var=benchmark_revision=${var.benchmark_revision} -var=lease_expires_epoch=${var.lease_expires_epoch}" : null
+  value = var.create ? "terraform -chdir=infra/gcp/benchmark destroy -var=create=true -var=run_label=${var.run_label} -var=runner_phase=${var.runner_phase} -var=provider_pair=${var.provider_pair} -var=enable_local_ssd=${var.enable_local_ssd} -var=benchmark_revision=${var.benchmark_revision} -var=lease_expires_epoch=${var.lease_expires_epoch}" : null
 }

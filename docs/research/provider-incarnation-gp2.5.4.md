@@ -1,8 +1,9 @@
 # GP2.5.4 provider-incarnation authority
 
-Status: `[PROPOSED]` until the local process contract and real FoundationDB
-resurrection receipt both pass. GP2.5.3 provider-media-loss reconstruction is
-`[VERIFIED]` and is an input to this gate, not a substitute for it.
+Status: `[VERIFIED]` for the local compound-fence process mechanism and
+`[EVALUATING]` for the real FoundationDB resurrection receipt. GP2.5.3
+provider-media-loss reconstruction is `[VERIFIED]` and is an input to this
+gate, not a substitute for it.
 
 ## Clarity
 
@@ -19,12 +20,12 @@ Counter: A source image rolled back to before its local fence can still accept
 local writes; preventing that case requires a bounded route lease or per-commit
 external authorization and changes the GP3.1 hot-path cost.
 
-Next: execute the process contract with a stale-incarnation poison, then run a
-two-provider GCP resurrection using the exact GP2.5.3 closure.
+Next: run a two-provider GCP resurrection using the exact GP2.5.3 closure and
+the verified process contract.
 
-Confidence: medium. The existing OpenRaft generation and publication authority
-already provides the external decision points, but the FoundationDB-specific
-fence and rollback boundary have not yet been measured together.
+Confidence: medium-high for the process authority and medium for the complete
+provider handoff. The FoundationDB-specific fence and rollback boundary have
+not yet been measured together.
 
 ## Decision boundary
 
@@ -69,6 +70,18 @@ The local process contract is necessary but insufficient. It proves that the
 objectKV authority composition rejects stale operations. The GCP receipt must
 then prove that the FoundationDB adapter installs and retains the provider-local
 fence on a real resurrected source identity.
+
+## Verified local-process result
+
+Candidate `b415d502665eff9b6df4c095e33480b628348db2` received `keep` with zero
+anomalies across the generation, routing, and publication surfaces. The
+`accept_stale_source_incarnation` control received `discard` with exactly three
+anomalies while destination operations remained available. The evaluator
+reproduced each semantic report in fresh process executions, and both run IDs
+were captured in OTLP logs, metrics, and traces.
+
+Evidence:
+`docs/artifacts/eval-receipts/provider-incarnation-local-r0-2026-08-27/README.md`.
 
 ## Frozen local process contract
 

@@ -231,6 +231,13 @@ enum Commands {
         #[arg(long, default_value = "correct")]
         mode: String,
     },
+    /// Emit the combined generation, routing, and publication incarnation trace.
+    ProviderIncarnationTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "correct")]
+        mode: String,
+    },
     /// Emit one canonical publication-authority process trace without suite orchestration.
     PublicationProcessTrace {
         #[arg(long)]
@@ -530,6 +537,22 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let mode = parse_generation_process_mode(&mode).map_err(std::io::Error::other)?;
             let executable = std::env::current_exe()?;
             let report = run_generation_process_contract(seed, mode, &executable)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::ProviderIncarnationTrace { seed, mode } => {
+            let mode = match mode.as_str() {
+                "correct" | "none" => {
+                    okv_eval::provider_incarnation::ProviderIncarnationMode::Correct
+                }
+                "accept_stale_source_incarnation" => okv_eval::provider_incarnation::ProviderIncarnationMode::AcceptStaleSourceIncarnation,
+                other => return Err(std::io::Error::other(format!("unknown provider incarnation mode {other}")).into()),
+            };
+            let executable = std::env::current_exe()?;
+            let report = okv_eval::provider_incarnation::run_provider_incarnation_contract(
+                seed,
+                mode,
+                &executable,
+            )?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Commands::PublicationProcessTrace { seed, mode } => {
@@ -1361,6 +1384,9 @@ fn execute_workload(
         }
         "provider_incarnation_authority_contract" => {
             run_provider_incarnation_authority(workload, seeds, backend)
+        }
+        "foundationdb_objectkv_provider_incarnation" => {
+            run_foundationdb_provider_incarnation(workload, seeds, backend, profile)
         }
         "deterministic_generation_recovery" => {
             run_generation_recovery(workload, candidate_commit, seeds)
@@ -14203,6 +14229,221 @@ fn run_provider_incarnation_authority(
             (
                 "provider_incarnation.publication_writes".to_owned(),
                 bounded_count(publication_writes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_foundationdb_provider_incarnation(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+    profile: &ProfileConfig,
+) -> WorkloadExecution {
+    const EXPECTED_BACKEND: &str = "foundationdb-7.4.6+external-incarnation-authority+gcs";
+    if backend != EXPECTED_BACKEND {
+        return execution_from_result(Err(format!(
+            "FoundationDB provider-incarnation lifecycle requires {EXPECTED_BACKEND}, got {backend}"
+        )));
+    }
+    if seeds.len() != 1 {
+        return execution_from_result(Err(
+            "FoundationDB provider-incarnation lifecycle requires exactly one seed".to_owned(),
+        ));
+    }
+    if profile
+        .parameters
+        .get("provider_receipt_schema")
+        .and_then(toml::Value::as_str)
+        != Some("../schema/provider-incarnation-receipt-v1.schema.json")
+    {
+        return execution_from_result(Err(
+            "FoundationDB provider-incarnation profile does not name the frozen receipt schema"
+                .to_owned(),
+        ));
+    }
+    let receipt_env = match workload
+        .parameters
+        .get("receipt_env")
+        .and_then(toml::Value::as_str)
+    {
+        Some(value) => value,
+        None => {
+            return execution_from_result(Err(
+                "FoundationDB provider-incarnation workload requires receipt_env".to_owned(),
+            ));
+        }
+    };
+    let receipt_path = match std::env::var(receipt_env) {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => {
+            return execution_from_result(Err(format!(
+                "FoundationDB provider-incarnation lifecycle requires env {receipt_env}"
+            )));
+        }
+    };
+    let receipt_bytes = match fs::read(&receipt_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return execution_from_result(Err(format!(
+                "read provider-incarnation receipt {}: {error}",
+                receipt_path.display()
+            )));
+        }
+    };
+    let receipt = match okv_eval::provider_incarnation_provider::Receipt::from_json(&receipt_bytes)
+    {
+        Ok(receipt) => receipt,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let negative_control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match negative_control {
+        None => okv_eval::provider_incarnation::ProviderIncarnationMode::Correct,
+        Some("accept_stale_source_incarnation") => {
+            okv_eval::provider_incarnation::ProviderIncarnationMode::AcceptStaleSourceIncarnation
+        }
+        Some(control) => {
+            return execution_from_result(Err(format!(
+                "unknown provider-incarnation control {control}"
+            )));
+        }
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+    let report = match okv_eval::provider_incarnation::run_provider_incarnation_contract(
+        seeds[0],
+        mode,
+        &executable,
+    ) {
+        Ok(report) => report,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let trace_reproduced = report.trace_sha256 == receipt.authority_trace_sha256;
+    let poison_detected = mode
+        == okv_eval::provider_incarnation::ProviderIncarnationMode::AcceptStaleSourceIncarnation
+        && receipt.negative_control_detected()
+        && report.anomaly_count >= 3
+        && trace_reproduced;
+    let candidate_passed = mode == okv_eval::provider_incarnation::ProviderIncarnationMode::Correct
+        && receipt.positive_passed()
+        && report.anomaly_count == 0
+        && trace_reproduced;
+    let error = if mode
+        == okv_eval::provider_incarnation::ProviderIncarnationMode::AcceptStaleSourceIncarnation
+    {
+        Some(if poison_detected {
+            "real-provider stale-source poison was detected".to_owned()
+        } else {
+            "real-provider stale-source poison escaped detection".to_owned()
+        })
+    } else if candidate_passed {
+        None
+    } else {
+        Some("real-provider incarnation receipt failed one or more frozen gates".to_owned())
+    };
+    let mut hard_gates = receipt
+        .gates
+        .iter()
+        .map(|gate| HardGateResult {
+            id: gate.id.clone(),
+            status: gate_status(gate.passed),
+            detail: Some(gate.detail.clone()),
+        })
+        .collect::<Vec<_>>();
+    hard_gates.extend([
+        HardGateResult {
+            id: "external_authority_trace_reproduced".to_owned(),
+            status: gate_status(trace_reproduced),
+            detail: Some(format!("trace={}", report.trace_sha256)),
+        },
+        HardGateResult {
+            id: "provider_incarnation_receipt_admitted".to_owned(),
+            status: gate_status(candidate_passed || poison_detected),
+            detail: Some(format!("receipt={}", receipt_path.display())),
+        },
+        HardGateResult {
+            id: "stale_source_poison_is_detected".to_owned(),
+            status: gate_status(negative_control.is_none() || poison_detected),
+            detail: negative_control.map(|control| format!("control={control}")),
+        },
+    ]);
+    WorkloadExecution {
+        error,
+        measurements: vec![Measurement {
+            metric: "correctness.anomalies",
+            value: bounded_count(receipt.correctness_anomalies),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("oracle", "provider-incarnation-gcp-r0-v1"),
+                (
+                    "anomaly.class",
+                    negative_control.unwrap_or(if receipt.correctness_anomalies == 0 {
+                        "none"
+                    } else {
+                        "candidate"
+                    }),
+                ),
+            ]),
+        }],
+        hard_gates,
+        budget_units: bounded_count(
+            report
+                .executed_checks
+                .saturating_add(u64::try_from(receipt.gates.len()).unwrap_or(u64::MAX)),
+        ),
+        artifact_refs: vec![
+            format!(
+                "okv-provider-incarnation-gcp://{}/{}/{}",
+                mode.id(),
+                report.seed,
+                report.trace_sha256
+            ),
+            receipt_path.display().to_string(),
+        ],
+        secondary_metrics: BTreeMap::from([
+            (
+                "provider_incarnation.authority_process_starts".to_owned(),
+                bounded_count(report.authority_process_starts),
+            ),
+            (
+                "provider_incarnation.data_process_starts".to_owned(),
+                bounded_count(report.data_process_starts),
+            ),
+            (
+                "provider_incarnation.process_kills".to_owned(),
+                bounded_count(report.process_kills),
+            ),
+            (
+                "provider_incarnation.authority_failovers".to_owned(),
+                bounded_count(report.authority_failovers),
+            ),
+            (
+                "provider_incarnation.fenced_commit_rejections".to_owned(),
+                bounded_count(report.fenced_commit_rejections),
+            ),
+            (
+                "provider_incarnation.publication_writes".to_owned(),
+                bounded_count(report.publication_writes),
+            ),
+            (
+                "provider_incarnation.provider_records".to_owned(),
+                bounded_count(receipt.object_closure.record_count),
+            ),
+            (
+                "provider_incarnation.provider_object_bytes".to_owned(),
+                bounded_count(
+                    receipt
+                        .object_closure
+                        .closure_bytes
+                        .saturating_add(receipt.object_closure.manifest_bytes),
+                ),
             ),
         ]),
     }

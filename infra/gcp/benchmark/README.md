@@ -36,6 +36,53 @@ data VM active while an external controller can prove the exact source media is
 absent. These correctness phases set `enable_local_ssd=false`; local NVMe is an
 unrelated serving-path variable and is not provisioned for this gate.
 
+For GP2.5.4, `runner_phase=source`, `provider_pair=true`, and
+`enable_local_ssd=false` retain the source VM and provider disk while creating
+the restore provider at the same time. The controller installs the source
+generation fence, activates the ready destination through the external
+authority, stops and starts the source VM without replacing either disk, then
+probes the resurrected source. This is a bounded same-zone correctness topology,
+not an HA topology.
+
+```text
+controller + external authority roots
+  -> objectkv-bench-<run>-source  + source provider disk
+  -> objectkv-bench-<run>-restore + destination provider disk
+  -> objectkv-bench-<run>-collector
+```
+
+The pair is an explicit cost gate and defaults off:
+
+```bash
+terraform -chdir=infra/gcp/benchmark plan \
+  -var=create=true \
+  -var=run_label=gp254-r0 \
+  -var=runner_phase=source \
+  -var=provider_pair=true \
+  -var=enable_local_ssd=false \
+  -var=benchmark_revision=<clean-git-sha> \
+  -var=lease_expires_epoch=<utc-epoch> \
+  -out=/private/tmp/objectkv-gp254-r0.tfplan
+```
+
+After apply, run the phase controller from the clean candidate worktree. It
+requires the exact candidate `okv-eval` binary, a reachable OTLP endpoint, and
+fresh `gcloud` credentials:
+
+```bash
+export OKV_EVAL_BIN=/path/to/clean-candidate/okv-eval
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+
+infra/gcp/benchmark/run-provider-incarnation-r0.sh \
+  gp254-r0 \
+  gp254-r0-20260827 \
+  /private/tmp/objectkv-gp254-r0-receipts
+```
+
+The controller stops if any phase receipt, provider identity, authority trace,
+formal positive, or formal poison is wrong. Capture telemetry and copy the
+receipt directory before executing the exact `destroy_command` output.
+
 The verified `gp253-r0` execution wrote an exact 950-record closure on the
 source phase, replaced the source VM and provider disk, observed the source VM,
 boot disk, and data disk absent, then reconstructed the exact digest on a fresh

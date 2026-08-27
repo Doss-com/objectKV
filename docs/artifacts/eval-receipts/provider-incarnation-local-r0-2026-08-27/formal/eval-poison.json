@@ -1,0 +1,105 @@
+{
+  "artifact_refs": [
+    "okv-provider-incarnation://accept_stale_source_incarnation/2026082704/2094b57b1d5f00b71da1e4503b2b783b831cf0c32d9205b000d3bd4d9aeda010",
+    "/private/tmp/objectkv-gp254-final-poison.json"
+  ],
+  "backend": "external-cell-incarnation-authority",
+  "batch_id": "gp254-local-poison",
+  "budget": {
+    "kind": "operations",
+    "limit": 10000.0,
+    "observed": 6.0
+  },
+  "candidate_commit": "b415d502665eff9b6df4c095e33480b628348db2",
+  "created_at": "2026-08-27T14:28:18.609015+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "id": "destination_incarnation_routes_commits_and_publishes",
+      "status": "pass"
+    },
+    {
+      "id": "external_authority_is_separate_from_provider_identities",
+      "status": "pass"
+    },
+    {
+      "id": "newer_incarnation_fences_old_commit_authority",
+      "status": "fail"
+    },
+    {
+      "id": "newer_incarnation_fences_old_object_publication",
+      "status": "fail"
+    },
+    {
+      "id": "newer_incarnation_fences_old_routing",
+      "status": "fail"
+    },
+    {
+      "id": "source_provider_fence_precedes_destination_activation",
+      "status": "pass"
+    },
+    {
+      "id": "exact_fresh_process_replay",
+      "status": "pass"
+    },
+    {
+      "detail": "control=accept_stale_source_incarnation",
+      "id": "stale_source_poison_is_detected",
+      "status": "pass"
+    }
+  ],
+  "lane": "provider-incarnation-authority",
+  "parent_commit": "a1b3efed16c9e15cc5aaea9234c7f84e6cbfde7d",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0,
+    "median": 3.0,
+    "name": "okv.eval.correctness.anomalies",
+    "samples": [
+      3.0
+    ],
+    "statistic": "total",
+    "unit": "{anomaly}",
+    "value": 3.0
+  },
+  "profile": {
+    "hash": "34fd792e2dd8b17eb566287bdc528c69ed3b917decdccf4bc714b2b798268834",
+    "id": "local-process",
+    "lockfile_hash": "beb0417472798168cf49ad23473ec657fd94925f242b154b899ae6b6b30a8412",
+    "machine": "arm64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "provider incarnation stale-source poison was detected",
+  "run_id": "b05dd054-7544-4dca-8b96-080df73c6113",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 18.416839291,
+    "provider_incarnation.authority_failovers": 3.0,
+    "provider_incarnation.authority_process_starts": 12.0,
+    "provider_incarnation.data_process_starts": 6.0,
+    "provider_incarnation.fenced_commit_rejections": 2.0,
+    "provider_incarnation.process_kills": 7.0,
+    "provider_incarnation.publication_writes": 23.0
+  },
+  "seeds": [
+    2026082704
+  ],
+  "suite": "provider-incarnation-r0-v1",
+  "suite_hash": "e3c579056005b3af3d7078f6fa1e40643a9b61493c14e06ea8e76dd8067c4d26",
+  "verdict": "discard"
+}

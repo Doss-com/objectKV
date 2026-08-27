@@ -199,10 +199,16 @@ same-cluster hidden-media control received `discard`. Both run IDs occur in
 captured OTel logs, metrics, and traces. See
 `docs/artifacts/eval-receipts/provider-media-loss-r0-2026-08-27/README.md`.
 
-`[PROPOSED]` GP2.5.4 separately gates external provider-incarnation authority. Physical
-source deletion cannot prove that a later-resurrected old cluster is fenced.
-GP3.1 compares mandatory retained-write overhead against direct FoundationDB
-at matched durability after these correctness gates.
+`[VERIFIED]` GP2.5.4's local-process rung separately gates external
+provider-incarnation authority. Candidate `b415d502665eff9b6df4c095e33480b628348db2`
+kept the zero-anomaly positive and discarded a three-anomaly stale commit,
+route, and publication poison with complete OTel signals. `[CODE-COMPLETE]`
+the next real-infrastructure rung creates source and destination FoundationDB
+providers simultaneously, installs the source fence, activates the exact
+destination, restarts the source with unchanged disk identities, and formally
+checks the resurrected adapter. `[EVALUATING]` that leased run. GP3.1 compares
+mandatory retained-write overhead against direct FoundationDB only after this
+correctness gate passes.
 
 R0 is enough to answer:
 

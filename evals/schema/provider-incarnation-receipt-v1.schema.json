@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/provider-incarnation-receipt-v1.schema.json",
+  "title": "objectKV provider-incarnation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "provider",
+    "run_id",
+    "source",
+    "destination",
+    "object_closure",
+    "authority_trace_sha256",
+    "source_fence",
+    "activation",
+    "resurrection",
+    "restart",
+    "correctness_anomalies",
+    "incarnation_fencing_verified",
+    "negative_control",
+    "gates",
+    "scope"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "foundationdb_objectkv_provider_incarnation_r0" },
+    "provider": {
+      "const": "foundationdb-7.4.6@e77b64d4c5d01d240931c08c5384a834cae27337"
+    },
+    "run_id": { "type": "string", "minLength": 1 },
+    "source": { "$ref": "#/$defs/providerIdentity" },
+    "destination": { "$ref": "#/$defs/providerIdentity" },
+    "object_closure": { "$ref": "#/$defs/objectClosure" },
+    "authority_trace_sha256": { "$ref": "#/$defs/sha256" },
+    "source_fence": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/sourceFence" }
+      ]
+    },
+    "activation": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/activation" }
+      ]
+    },
+    "resurrection": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/resurrection" }
+      ]
+    },
+    "restart": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/restart" }
+      ]
+    },
+    "correctness_anomalies": { "type": "integer", "minimum": 0 },
+    "incarnation_fencing_verified": { "type": "boolean" },
+    "negative_control": {
+      "oneOf": [
+        { "type": "null" },
+        { "const": "accept_stale_source_incarnation" }
+      ]
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/gate" }
+    },
+    "scope": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "providerStamp": { "type": "string", "pattern": "^[0-9a-f]{20}$" },
+    "providerIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cluster_id",
+        "cluster_file_sha256",
+        "instance_name",
+        "instance_id",
+        "boot_disk_name",
+        "boot_disk_id",
+        "data_disk_name",
+        "data_disk_id"
+      ],
+      "properties": {
+        "cluster_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "cluster_file_sha256": { "$ref": "#/$defs/sha256" },
+        "instance_name": { "type": "string", "minLength": 1 },
+        "instance_id": { "type": "string", "minLength": 1 },
+        "boot_disk_name": { "type": "string", "minLength": 1 },
+        "boot_disk_id": { "type": "string", "minLength": 1 },
+        "data_disk_name": { "type": "string", "minLength": 1 },
+        "data_disk_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "objectClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_uri",
+        "manifest_generation",
+        "manifest_sha256",
+        "manifest_bytes",
+        "closure_uri",
+        "closure_generation",
+        "closure_sha256",
+        "closure_bytes",
+        "state_digest",
+        "through_provider_stamp",
+        "record_count"
+      ],
+      "properties": {
+        "manifest_uri": { "type": "string", "pattern": "^gs://" },
+        "manifest_generation": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "manifest_bytes": { "type": "integer", "minimum": 1 },
+        "closure_uri": { "type": "string", "pattern": "^gs://" },
+        "closure_generation": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+        "closure_sha256": { "$ref": "#/$defs/sha256" },
+        "closure_bytes": { "type": "integer", "minimum": 1 },
+        "state_digest": { "$ref": "#/$defs/sha256" },
+        "through_provider_stamp": { "$ref": "#/$defs/providerStamp" },
+        "record_count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "sourceFence": {
+      "type": "object",
+      "required": [
+        "started_at",
+        "finished_at",
+        "fence_value",
+        "fence_provider_stamp",
+        "concurrent_stale_commit_error_code",
+        "concurrent_stale_commit_rejected",
+        "post_fence_adapter_commit_rejected"
+      ],
+      "properties": {
+        "started_at": { "type": "string", "format": "date-time" },
+        "finished_at": { "type": "string", "format": "date-time" },
+        "fence_value": { "const": "fenced:2" },
+        "fence_provider_stamp": { "$ref": "#/$defs/providerStamp" },
+        "concurrent_stale_commit_error_code": { "const": 1020 },
+        "concurrent_stale_commit_rejected": { "type": "boolean" },
+        "post_fence_adapter_commit_rejected": { "type": "boolean" }
+      }
+    },
+    "activation": {
+      "type": "object",
+      "required": [
+        "started_at",
+        "finished_at",
+        "authority_trace_sha256",
+        "source_fence_provider_stamp",
+        "state_digest",
+        "fresh_commit_succeeded",
+        "fresh_commit_provider_stamp"
+      ],
+      "properties": {
+        "started_at": { "type": "string", "format": "date-time" },
+        "finished_at": { "type": "string", "format": "date-time" },
+        "authority_trace_sha256": { "$ref": "#/$defs/sha256" },
+        "source_fence_provider_stamp": { "$ref": "#/$defs/providerStamp" },
+        "state_digest": { "$ref": "#/$defs/sha256" },
+        "fresh_commit_succeeded": { "type": "boolean" },
+        "fresh_commit_provider_stamp": { "$ref": "#/$defs/providerStamp" }
+      }
+    },
+    "resurrection": {
+      "type": "object",
+      "required": [
+        "probed_at",
+        "fence_value",
+        "fence_provider_stamp",
+        "fence_persisted",
+        "stale_source_adapter_commit_rejected"
+      ],
+      "properties": {
+        "probed_at": { "type": "string", "format": "date-time" },
+        "fence_value": { "const": "fenced:2" },
+        "fence_provider_stamp": { "$ref": "#/$defs/providerStamp" },
+        "fence_persisted": { "type": "boolean" },
+        "stale_source_adapter_commit_rejected": { "type": "boolean" }
+      }
+    },
+    "restart": {
+      "type": "object",
+      "required": [
+        "stopped_at",
+        "started_at",
+        "stop_succeeded",
+        "start_succeeded",
+        "identities_retained"
+      ],
+      "properties": {
+        "stopped_at": { "type": "string", "format": "date-time" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "stop_succeeded": { "type": "boolean" },
+        "start_succeeded": { "type": "boolean" },
+        "identities_retained": { "type": "boolean" }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "passed", "detail"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "passed": { "type": "boolean" },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

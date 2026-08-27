@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
   echo "usage: $0 capture <run-label> <source|restore> <output.json>" >&2
   echo "       $0 observe-loss <source-identity.json> <output.json>" >&2
+  echo "       $0 restart-source <run-label> <output.json>" >&2
   exit 64
 }
 
@@ -165,12 +166,88 @@ observe_loss() {
   ' "${output}" >/dev/null
 }
 
+restart_source() {
+  [[ $# -eq 2 ]] || usage
+  local run_label="$1"
+  local output="$2"
+  local instance="objectkv-bench-${run_label}-source"
+  local before
+  local after
+  local stopped_at
+  local started_at
+  before="$(gcloud compute instances describe "${instance}" --project="${project}" --zone="${zone}" --format=json)"
+  stopped_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  gcloud compute instances stop "${instance}" \
+    --project="${project}" \
+    --zone="${zone}" \
+    --quiet
+  if [[ "$(gcloud compute instances describe "${instance}" --project="${project}" --zone="${zone}" --format='value(status)')" != "TERMINATED" ]]; then
+    echo "source provider did not reach TERMINATED" >&2
+    exit 1
+  fi
+  gcloud compute instances start "${instance}" \
+    --project="${project}" \
+    --zone="${zone}" \
+    --quiet
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [[ "$(gcloud compute instances describe "${instance}" --project="${project}" --zone="${zone}" --format='value(status)')" != "RUNNING" ]]; then
+    echo "source provider did not return to RUNNING" >&2
+    exit 1
+  fi
+  after="$(gcloud compute instances describe "${instance}" --project="${project}" --zone="${zone}" --format=json)"
+  local before_instance_id
+  local after_instance_id
+  local before_boot_disk
+  local after_boot_disk
+  local before_data_disk
+  local after_data_disk
+  before_instance_id="$(jq -r '.id' <<<"${before}")"
+  after_instance_id="$(jq -r '.id' <<<"${after}")"
+  before_boot_disk="$(jq -r '.disks[] | select(.boot == true) | .source' <<<"${before}")"
+  after_boot_disk="$(jq -r '.disks[] | select(.boot == true) | .source' <<<"${after}")"
+  before_data_disk="$(jq -r '.disks[] | select(.deviceName == "objectkv-data") | .source' <<<"${before}")"
+  after_data_disk="$(jq -r '.disks[] | select(.deviceName == "objectkv-data") | .source' <<<"${after}")"
+  local identities_retained=false
+  if [[ "${before_instance_id}" == "${after_instance_id}" && "${before_boot_disk}" == "${after_boot_disk}" && "${before_data_disk}" == "${after_data_disk}" ]]; then
+    identities_retained=true
+  fi
+  jq -n \
+    --arg stopped_at "${stopped_at}" \
+    --arg started_at "${started_at}" \
+    --arg project "${project}" \
+    --arg zone "${zone}" \
+    --arg instance_name "${instance}" \
+    --arg instance_id "${after_instance_id}" \
+    --arg boot_disk "${after_boot_disk##*/}" \
+    --arg data_disk "${after_data_disk##*/}" \
+    --argjson identities_retained "${identities_retained}" \
+    '{
+      schema_version: 1,
+      kind: "objectkv_provider_restart_observation_r0",
+      stopped_at: $stopped_at,
+      started_at: $started_at,
+      project: $project,
+      zone: $zone,
+      instance_name: $instance_name,
+      instance_id: $instance_id,
+      boot_disk_name: $boot_disk,
+      data_disk_name: $data_disk,
+      stop_succeeded: true,
+      start_succeeded: true,
+      identities_retained: $identities_retained
+    }' >"${output}"
+  jq -e '.stop_succeeded and .start_succeeded and .identities_retained' "${output}" >/dev/null
+}
+
 case "${command_name}" in
   capture)
     capture "$@"
     ;;
   observe-loss)
     observe_loss "$@"
+    ;;
+  restart-source)
+    restart_source "$@"
     ;;
   *)
     usage

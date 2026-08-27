@@ -98,7 +98,7 @@ fdbcli -C "${cluster_file}" --exec 'status minimal'
 python3 -m venv "${venv}"
 "${venv}/bin/pip" install --disable-pip-version-check --quiet \
   foundationdb==7.4.6 \
-  google-cloud-storage==3.13.1
+  google-cloud-storage==3.9.0
 "${venv}/bin/pip" freeze --all >"${provider_root}/python-packages.txt"
 
 cluster_file_sha256="$(sha256sum "${cluster_file}" | cut -d ' ' -f 1)"
