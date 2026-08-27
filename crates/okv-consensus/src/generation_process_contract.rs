@@ -116,6 +116,10 @@ pub struct GenerationProcessReport {
     pub fence_certificate_signers: u64,
     pub recovery_certificate_signers: u64,
     pub invalid_certificate_rejections: u64,
+    pub source_provider_fence_persisted: bool,
+    pub source_fence_precedes_activation: bool,
+    pub stale_generation_routing_rejected: bool,
+    pub active_generation_routing_authorized: bool,
     pub trace_sha256: String,
 }
 
@@ -943,6 +947,23 @@ fn build_report(
     mode: GenerationProcessMode,
     observations: &Observations,
 ) -> GenerationProcessReport {
+    let source_fence_precedes_activation = observations
+        .final_authority
+        .as_ref()
+        .and_then(|authority| {
+            authority
+                .fenced_log_position
+                .zip(authority.recovered_log_position)
+        })
+        .is_some_and(|(fenced, recovered)| fenced.index > 0 && recovered.index > fenced.index);
+    let stale_generation_routing_rejected = observations
+        .final_authority
+        .as_ref()
+        .is_some_and(|authority| !authority.authorizes(GENERATION_ONE, "tx-g1"));
+    let active_generation_routing_authorized = observations
+        .final_authority
+        .as_ref()
+        .is_some_and(|authority| authority.authorizes(GENERATION_TWO, "tx-g2"));
     let checks = [
         (
             "coordinator_bootstrapped",
@@ -1069,6 +1090,10 @@ fn build_report(
         fence_certificate_signers: observations.fence_certificate_signers,
         recovery_certificate_signers: observations.recovery_certificate_signers,
         invalid_certificate_rejections: observations.invalid_certificate_rejections,
+        source_provider_fence_persisted: observations.removed_generation_remained_fenced,
+        source_fence_precedes_activation,
+        stale_generation_routing_rejected,
+        active_generation_routing_authorized,
         trace_sha256: format!("{:x}", trace.finalize()),
     }
 }

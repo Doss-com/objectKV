@@ -1359,6 +1359,9 @@ fn execute_workload(
         "foundationdb_objectkv_media_loss_lifecycle" => {
             run_foundationdb_media_loss_lifecycle(workload, backend, dataset, profile)
         }
+        "provider_incarnation_authority_contract" => {
+            run_provider_incarnation_authority(workload, seeds, backend)
+        }
         "deterministic_generation_recovery" => {
             run_generation_recovery(workload, candidate_commit, seeds)
         }
@@ -13989,6 +13992,217 @@ fn run_foundationdb_media_loss_lifecycle(
             (
                 "provider_media_loss.restored_records".to_owned(),
                 bounded_count(receipt.restore.restored_record_count),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_provider_incarnation_authority(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    const EXPECTED_BACKEND: &str = "external-cell-incarnation-authority";
+    if backend != EXPECTED_BACKEND {
+        return execution_from_result(Err(format!(
+            "provider incarnation contract requires {EXPECTED_BACKEND}, got {backend}"
+        )));
+    }
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "provider incarnation contract requires at least one seed".to_owned(),
+        ));
+    }
+    if workload
+        .parameters
+        .get("subject")
+        .and_then(toml::Value::as_str)
+        != Some("external-cell-incarnation-authority")
+    {
+        return execution_from_result(Err(
+            "provider incarnation contract requires the external authority subject".to_owned(),
+        ));
+    }
+    let negative_control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match negative_control {
+        None => okv_eval::provider_incarnation::ProviderIncarnationMode::Correct,
+        Some("accept_stale_source_incarnation") => {
+            okv_eval::provider_incarnation::ProviderIncarnationMode::AcceptStaleSourceIncarnation
+        }
+        Some(control) => {
+            return execution_from_result(Err(format!(
+                "unknown provider incarnation negative control {control}"
+            )));
+        }
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+    let mut reports = Vec::new();
+    let mut exact_replay = true;
+    for seed in seeds {
+        let first = match okv_eval::provider_incarnation::run_provider_incarnation_contract(
+            *seed,
+            mode,
+            &executable,
+        ) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        let second = match okv_eval::provider_incarnation::run_provider_incarnation_contract(
+            *seed,
+            mode,
+            &executable,
+        ) {
+            Ok(report) => report,
+            Err(error) => return execution_from_result(Err(error)),
+        };
+        exact_replay &= first == second;
+        reports.push(first);
+    }
+    let poison_detected = mode
+        == okv_eval::provider_incarnation::ProviderIncarnationMode::AcceptStaleSourceIncarnation
+        && reports.iter().all(|report| {
+            !report.checks["newer_incarnation_fences_old_commit_authority"]
+                && !report.checks["newer_incarnation_fences_old_routing"]
+                && !report.checks["newer_incarnation_fences_old_object_publication"]
+                && report.anomaly_count >= 3
+        });
+    let candidate_passed = mode == okv_eval::provider_incarnation::ProviderIncarnationMode::Correct
+        && exact_replay
+        && reports.iter().all(|report| report.anomaly_count == 0);
+    let error = if mode
+        == okv_eval::provider_incarnation::ProviderIncarnationMode::AcceptStaleSourceIncarnation
+    {
+        Some(if poison_detected {
+            "provider incarnation stale-source poison was detected".to_owned()
+        } else {
+            "provider incarnation stale-source poison escaped detection".to_owned()
+        })
+    } else if candidate_passed {
+        None
+    } else {
+        Some("provider incarnation contract failed one or more frozen gates".to_owned())
+    };
+    let measurements = reports
+        .iter()
+        .map(|report| Measurement {
+            metric: "correctness.anomalies",
+            value: bounded_count(report.anomaly_count),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("oracle", "provider-incarnation-process-v1"),
+                (
+                    "anomaly.class",
+                    negative_control.unwrap_or(if report.anomaly_count == 0 {
+                        "none"
+                    } else {
+                        "candidate"
+                    }),
+                ),
+            ]),
+        })
+        .collect::<Vec<_>>();
+    let mut hard_gates = reports
+        .first()
+        .map(|report| {
+            report
+                .checks
+                .iter()
+                .map(|(id, passed)| HardGateResult {
+                    id: id.clone(),
+                    status: gate_status(*passed),
+                    detail: None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    hard_gates.extend([
+        HardGateResult {
+            id: "exact_fresh_process_replay".to_owned(),
+            status: gate_status(exact_replay),
+            detail: None,
+        },
+        HardGateResult {
+            id: "stale_source_poison_is_detected".to_owned(),
+            status: gate_status(negative_control.is_none() || poison_detected),
+            detail: negative_control.map(|control| format!("control={control}")),
+        },
+    ]);
+    let executed_checks = reports
+        .iter()
+        .map(|report| report.executed_checks)
+        .sum::<u64>();
+    let authority_process_starts = reports
+        .iter()
+        .map(|report| report.authority_process_starts)
+        .sum::<u64>();
+    let data_process_starts = reports
+        .iter()
+        .map(|report| report.data_process_starts)
+        .sum::<u64>();
+    let process_kills = reports
+        .iter()
+        .map(|report| report.process_kills)
+        .sum::<u64>();
+    let authority_failovers = reports
+        .iter()
+        .map(|report| report.authority_failovers)
+        .sum::<u64>();
+    let fenced_commit_rejections = reports
+        .iter()
+        .map(|report| report.fenced_commit_rejections)
+        .sum::<u64>();
+    let publication_writes = reports
+        .iter()
+        .map(|report| report.publication_writes)
+        .sum::<u64>();
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates,
+        budget_units: bounded_count(executed_checks),
+        artifact_refs: reports
+            .iter()
+            .map(|report| {
+                format!(
+                    "okv-provider-incarnation://{}/{}/{}",
+                    mode.id(),
+                    report.seed,
+                    report.trace_sha256
+                )
+            })
+            .collect(),
+        secondary_metrics: BTreeMap::from([
+            (
+                "provider_incarnation.authority_process_starts".to_owned(),
+                bounded_count(authority_process_starts),
+            ),
+            (
+                "provider_incarnation.data_process_starts".to_owned(),
+                bounded_count(data_process_starts),
+            ),
+            (
+                "provider_incarnation.process_kills".to_owned(),
+                bounded_count(process_kills),
+            ),
+            (
+                "provider_incarnation.authority_failovers".to_owned(),
+                bounded_count(authority_failovers),
+            ),
+            (
+                "provider_incarnation.fenced_commit_rejections".to_owned(),
+                bounded_count(fenced_commit_rejections),
+            ),
+            (
+                "provider_incarnation.publication_writes".to_owned(),
+                bounded_count(publication_writes),
             ),
         ]),
     }

@@ -204,6 +204,30 @@ formats, or provider backup manifests.
    active-generation pointer commit atomically.
 7. Change pages never split or reorder one provider transaction.
 
+## Provider-incarnation fencing
+
+Provider-local generation state cannot choose between two FoundationDB cluster
+identities. GP2.5.4 therefore composes two fences:
+
+1. The external cell authority owns the active incarnation, authoritative
+   routing, and reader-visible object frontier.
+2. The source provider receives a transactionally visible generation-fence
+   write before the destination can activate. Every objectKV commit in that
+   provider reads the same key, so a commit ordered after the fence conflicts or
+   observes that its generation is stale.
+
+`Prepare(G + 1)` first stops authoritative routing for `G`. Destination
+activation then requires a certified source fence, complete reconstruction, and
+an exact destination-ready digest. After activation, the old provider identity
+cannot receive a route or publish a root even if its source process restarts.
+The provider-local fence separately prevents a correctly implemented adapter
+from committing against the retained source media.
+
+This R0 contract assumes the resurrected source uses media containing the fence.
+A provider image rolled back before the fence is a different failure case. It
+requires a current route lease or per-commit external authorization; the latter
+must be included in the GP3.1 overhead pair before provider admission.
+
 ## Request outcome rule
 
 `commit_unknown` is not converted to conflict or success. Every request has a
@@ -321,6 +345,9 @@ The logical generation key inside FoundationDB cannot fence another
 FoundationDB cluster after the first cluster is lost. GP2.5.4 therefore
 requires external cell-incarnation authority consistent with RFC-0009. A
 deleted source process is not fencing evidence.
+
+The frozen GP2.5.4 contract and GCP topology are in
+`docs/research/provider-incarnation-gp2.5.4.md`.
 
 Measure:
 

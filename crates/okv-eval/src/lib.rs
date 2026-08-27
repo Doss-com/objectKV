@@ -11,6 +11,7 @@ pub mod frontiered_process_snapshot;
 pub mod object_frontier;
 pub mod process_snapshot_compaction;
 pub mod program;
+pub mod provider_incarnation;
 pub mod provider_lifecycle;
 pub mod provider_media_loss;
 pub mod provider_selection;
