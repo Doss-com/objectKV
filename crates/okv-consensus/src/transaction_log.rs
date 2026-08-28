@@ -606,6 +606,30 @@ impl TransactionLogClient {
         transaction_response(ack)
     }
 
+    /// Commit one transaction on the first endpoint and deliberately lose its
+    /// response after quorum application.
+    ///
+    /// This is reserved for exact-retry recovery probes. Production callers
+    /// must use [`Self::commit`].
+    ///
+    /// # Errors
+    ///
+    /// Returns success only when the response is lost, or an error when the
+    /// fault does not take effect.
+    #[doc(hidden)]
+    pub async fn commit_with_lost_response_once(
+        &self,
+        identity: RequestIdentity,
+        command: &TransactionCommand,
+    ) -> Result<(), String> {
+        let mut request = transaction_write_request(identity, None, command)?;
+        request.drop_reply_after_commit = true;
+        match control::<_, WriteAck>(self.endpoint(0), CLIENT_WRITE, &request).await {
+            Ok(_) => Err("lost-response transaction unexpectedly returned a reply".to_owned()),
+            Err(_) => Ok(()),
+        }
+    }
+
     /// Submit one generation-fenced transaction attempt to the first endpoint.
     ///
     /// This is reserved for semantic rejection probes where retrying an

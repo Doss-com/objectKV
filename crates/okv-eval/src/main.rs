@@ -31,6 +31,9 @@ use okv_eval::config::{
     contract_hash, load_suite, validate_workload_selection, BudgetKind, DatasetConfig, LoadedSuite,
     ProfileConfig, WorkloadConfig,
 };
+use okv_eval::fixture_anchor::{
+    run_fixture_anchor_contract, FixtureAnchorMode, FixtureAnchorReport,
+};
 use okv_eval::frontiered_process_snapshot::{
     run_frontiered_process_snapshot_contract, FrontieredProcessSnapshotMode,
     FrontieredProcessSnapshotProfile, FrontieredProcessSnapshotReport,
@@ -383,6 +386,15 @@ enum Commands {
         transaction_count: u64,
         #[arg(long, default_value_t = 32)]
         transactions_per_batch: usize,
+    },
+    /// Emit the RFC-0044 canonical empty-anchor determinism report.
+    FixtureAnchorTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "candidate")]
+        mode: String,
+        #[arg(long, default_value_t = 20)]
+        fresh_authorities: usize,
     },
     /// Emit one four-cycle frontiered process-snapshot report.
     FrontieredProcessSnapshotTrace {
@@ -803,6 +815,16 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 },
                 &executable,
             )?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::FixtureAnchorTrace {
+            seed,
+            mode,
+            fresh_authorities,
+        } => {
+            let mode = parse_fixture_anchor_mode(&mode).map_err(std::io::Error::other)?;
+            let executable = std::env::current_exe()?;
+            let report = run_fixture_anchor_contract(seed, mode, fresh_authorities, &executable)?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Commands::FrontieredProcessSnapshotTrace { seed, mode } => {
@@ -1477,6 +1499,9 @@ fn execute_workload(
         }
         "process_snapshot_compaction_contract" => {
             run_process_snapshot_compaction(workload, seeds, backend, dataset, profile)
+        }
+        "object_fixture_anchor_contract" => {
+            run_object_fixture_anchor(workload, seeds, backend, profile)
         }
         "frontiered_process_snapshot_contract" => {
             run_frontiered_process_snapshot(workload, seeds, backend, dataset, profile)
@@ -5636,6 +5661,14 @@ fn parse_object_frontier_mode(value: &str) -> Result<ObjectFrontierMode, String>
     }
 }
 
+fn parse_fixture_anchor_mode(value: &str) -> Result<FixtureAnchorMode, String> {
+    match value {
+        "candidate" => Ok(FixtureAnchorMode::Candidate),
+        "second_identity_bypass_poison" => Ok(FixtureAnchorMode::SecondIdentityBypassPoison),
+        other => Err(format!("unknown fixture-anchor mode {other}")),
+    }
+}
+
 fn parse_commit_proxy_object_frontier_mode(
     value: &str,
 ) -> Result<CommitProxyObjectFrontierMode, String> {
@@ -7565,6 +7598,250 @@ fn run_authenticated_object_frontier(
 }
 
 #[allow(clippy::too_many_lines)]
+fn run_object_fixture_anchor(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+    profile_config: &ProfileConfig,
+) -> WorkloadExecution {
+    const EXPECTED_BACKEND: &str = "data-openraft-local-process+fixture-anchor";
+    const REQUIRED_FRESH_AUTHORITIES: usize = 20;
+    if backend != EXPECTED_BACKEND {
+        return execution_from_result(Err(format!(
+            "object fixture anchor requires {EXPECTED_BACKEND}, got {backend}"
+        )));
+    }
+    if seeds.is_empty() {
+        return execution_from_result(Err("object fixture anchor requires fixed seeds".to_owned()));
+    }
+    let fresh_authorities = match profile_config
+        .parameters
+        .get("fresh_authorities")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| usize::try_from(value).ok())
+    {
+        Some(REQUIRED_FRESH_AUTHORITIES) => REQUIRED_FRESH_AUTHORITIES,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "object fixture anchor requires exactly {REQUIRED_FRESH_AUTHORITIES} fresh authorities, got {other}"
+            )));
+        }
+        None => {
+            return execution_from_result(Err(
+                "object fixture anchor profile requires integer fresh_authorities".to_owned(),
+            ));
+        }
+    };
+    let mode_name = workload
+        .parameters
+        .get("negative_control")
+        .or_else(|| workload.parameters.get("subject"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or("candidate");
+    let mode = match parse_fixture_anchor_mode(mode_name) {
+        Ok(mode) => mode,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+    let started = Instant::now();
+    let mut reports = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        match run_fixture_anchor_contract(*seed, mode, fresh_authorities, &executable) {
+            Ok(report) => reports.push(report),
+            Err(error) => return execution_from_result(Err(error)),
+        }
+    }
+    fixture_anchor_execution(
+        workload,
+        backend,
+        mode,
+        fresh_authorities,
+        &reports,
+        started.elapsed().as_secs_f64(),
+    )
+}
+
+fn fixture_anchor_execution(
+    workload: &WorkloadConfig,
+    backend: &str,
+    mode: FixtureAnchorMode,
+    fresh_authorities: usize,
+    reports: &[FixtureAnchorReport],
+    wall_seconds: f64,
+) -> WorkloadExecution {
+    let fresh_authorities_u64 = u64::try_from(fresh_authorities).unwrap_or(u64::MAX);
+    let release_build = reports.iter().all(|report| report.release_build);
+    let candidate_observations_exact = mode != FixtureAnchorMode::Candidate
+        || reports.iter().all(|report| {
+            report.requested_fresh_authorities == fresh_authorities_u64
+                && report.authority_processes_started == fresh_authorities_u64.saturating_mul(3)
+                && report.observations.len() == fresh_authorities
+                && report.anchor_version_stable
+                && report.correctness_anomalies == 0
+        });
+    let one_empty_anchor_record = mode != FixtureAnchorMode::Candidate
+        || reports.iter().all(|report| {
+            report
+                .observations
+                .iter()
+                .all(|observation| observation.anchor_records == 1)
+        });
+    let zero_anchor_mutations = mode != FixtureAnchorMode::Candidate
+        || reports.iter().all(|report| {
+            report
+                .observations
+                .iter()
+                .all(|observation| observation.anchor_mutations == 0)
+        });
+    let zero_live_keys = reports.iter().all(|report| {
+        report
+            .observations
+            .iter()
+            .all(|observation| observation.live_keys == 0)
+    });
+    let lost_response_retry_exact = reports.iter().all(|report| {
+        report.observations.iter().all(|observation| {
+            observation.lost_response_observed && observation.exact_retry_returned_original
+        })
+    });
+    let changed_identity_guard_rejected = reports.iter().all(|report| {
+        report
+            .observations
+            .iter()
+            .all(|observation| observation.second_identity_guard_rejected)
+    });
+    let poison_detected = mode != FixtureAnchorMode::SecondIdentityBypassPoison
+        || reports.iter().all(|report| {
+            report.second_identity_bypass_detected && report.correctness_anomalies == 0
+        });
+    let exact = candidate_observations_exact
+        && one_empty_anchor_record
+        && zero_anchor_mutations
+        && zero_live_keys
+        && lost_response_retry_exact
+        && changed_identity_guard_rejected
+        && poison_detected;
+    let error = if !exact {
+        Some("object fixture anchor correctness gate failed".to_owned())
+    } else if !release_build {
+        Some("object fixture anchor measured subject requires a release build".to_owned())
+    } else {
+        None
+    };
+    let anomaly_count = reports
+        .iter()
+        .map(|report| report.correctness_anomalies)
+        .sum::<u64>();
+
+    WorkloadExecution {
+        error,
+        measurements: vec![
+            Measurement {
+                metric: "operation.duration",
+                value: wall_seconds,
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "fixture-anchor-contract"),
+                    ("backend", backend),
+                    ("result", if exact { "pass" } else { "fail" }),
+                ]),
+            },
+            Measurement {
+                metric: "correctness.anomalies",
+                value: resident_count_as_f64(anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "object-fixture-anchor-v1"),
+                    (
+                        "anomaly.class",
+                        if anomaly_count == 0 {
+                            "none"
+                        } else {
+                            "fixture-anchor"
+                        },
+                    ),
+                ]),
+            },
+        ],
+        hard_gates: vec![
+            HardGateResult {
+                id: "twenty_fresh_authorities_share_anchor".to_owned(),
+                status: gate_status(candidate_observations_exact),
+                detail: Some(format!(
+                    "mode={},fresh_authorities={fresh_authorities}",
+                    mode.id()
+                )),
+            },
+            HardGateResult {
+                id: "one_empty_anchor_record_per_authority".to_owned(),
+                status: gate_status(one_empty_anchor_record),
+                detail: Some(format!("mode={}", mode.id())),
+            },
+            HardGateResult {
+                id: "anchor_mutations_zero".to_owned(),
+                status: gate_status(zero_anchor_mutations),
+                detail: Some(format!("mode={}", mode.id())),
+            },
+            HardGateResult {
+                id: "anchor_live_keys_zero".to_owned(),
+                status: gate_status(zero_live_keys),
+                detail: Some(format!("mode={}", mode.id())),
+            },
+            HardGateResult {
+                id: "exact_retry_after_lost_response".to_owned(),
+                status: gate_status(lost_response_retry_exact),
+                detail: Some(format!("mode={}", mode.id())),
+            },
+            HardGateResult {
+                id: "changed_identity_guard_rejected".to_owned(),
+                status: gate_status(changed_identity_guard_rejected),
+                detail: Some(format!("mode={}", mode.id())),
+            },
+            HardGateResult {
+                id: "second_identity_bypass_poison_detected".to_owned(),
+                status: gate_status(poison_detected),
+                detail: Some(format!("mode={}", mode.id())),
+            },
+            HardGateResult {
+                id: "release_build".to_owned(),
+                status: gate_status(release_build),
+                detail: Some("build_profile=release".to_owned()),
+            },
+        ],
+        budget_units: wall_seconds,
+        artifact_refs: reports
+            .iter()
+            .map(|report| {
+                format!(
+                    "okv-eval://object-fixture-anchor-v1/{}/{}/{}",
+                    mode.id(),
+                    report.seed,
+                    report.semantic_sha256
+                )
+            })
+            .collect(),
+        secondary_metrics: BTreeMap::from([
+            (
+                "fixture_anchor.fresh_authorities".to_owned(),
+                resident_count_as_f64(fresh_authorities_u64),
+            ),
+            (
+                "fixture_anchor.authority_processes_started".to_owned(),
+                reports
+                    .iter()
+                    .map(|report| resident_count_as_f64(report.authority_processes_started))
+                    .sum(),
+            ),
+            ("fixture_anchor.wall_seconds".to_owned(), wall_seconds),
+        ]),
+    }
+}
+
 fn run_process_snapshot_compaction(
     workload: &WorkloadConfig,
     seeds: &[u64],

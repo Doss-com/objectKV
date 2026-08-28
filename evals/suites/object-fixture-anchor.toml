@@ -1,0 +1,67 @@
+schema_version = 1
+id = "object-fixture-anchor-v1"
+status = "code_complete"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0044-content-addressed-object-frontier-fixtures.md",
+  "../../docs/research/reviews/fable-object-frontier-fixture-review-2026-08-28.md",
+]
+dataset_generator = "canonical-empty-anchor-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-process]
+logical_bytes = 1
+key_count = 1
+seeds = [1103]
+
+[profiles.local-process]
+budget_kind = "seconds"
+budget_limit = 300
+repeats = 1
+backend = "data-openraft-local-process+fixture-anchor"
+fresh_authorities = 20
+build_profile = "release"
+
+[[lanes]]
+id = "object-fixture-anchor"
+primary_metric = "operation.duration"
+statistic = "maximum"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "object-fixture-anchor-candidate"
+lane = "object-fixture-anchor"
+operation = "object_fixture_anchor_contract"
+subject = "candidate"
+
+[[workloads]]
+id = "object-fixture-anchor-second-identity-bypass"
+lane = "object-fixture-anchor"
+operation = "object_fixture_anchor_contract"
+negative_control = "second_identity_bypass_poison"
+
+[hard_gates]
+correctness_anomalies = 0
+twenty_fresh_authorities_share_anchor = true
+one_empty_anchor_record_per_authority = true
+anchor_mutations_zero = true
+anchor_live_keys_zero = true
+exact_retry_after_lost_response = true
+changed_identity_guard_rejected = true
+second_identity_bypass_poison_detected = true
+release_build = true
+schema_valid = true
+budget_must_hold = true

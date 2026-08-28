@@ -7,6 +7,7 @@ pub mod commit_proxy;
 pub mod commit_proxy_object_frontier;
 pub mod comparison;
 pub mod config;
+pub mod fixture_anchor;
 pub mod frontiered_process_snapshot;
 pub mod object_frontier;
 pub mod process_snapshot_compaction;
