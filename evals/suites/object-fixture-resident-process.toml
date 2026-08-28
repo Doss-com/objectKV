@@ -1,0 +1,71 @@
+schema_version = 1
+id = "object-fixture-resident-process-v1"
+status = "code_complete"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0044-content-addressed-object-frontier-fixtures.md",
+  "../../docs/research/reviews/fable-object-frontier-fixture-review-2026-08-28.md",
+]
+dataset_generator = "content-addressed-single-range-fixture-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-contract]
+logical_bytes = 4194304
+key_count = 4096
+seeds = [4244]
+
+[profiles.local-contract]
+budget_kind = "seconds"
+budget_limit = 300
+repeats = 1
+backend = "object-store-local-fs+data-openraft-local-process+rocksdb-resident"
+value_bytes = 1024
+target_object_bytes = 1048576
+target_block_bytes = 65536
+build_profile = "release"
+
+[[lanes]]
+id = "object-fixture-resident-process"
+primary_metric = "operation.duration"
+statistic = "maximum"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "resident-process-pair"
+lane = "object-fixture-resident-process"
+operation = "object_fixture_resident_process_contract"
+subject = "candidate"
+
+[[workloads]]
+id = "resident-process-regenerated-control"
+lane = "object-fixture-resident-process"
+operation = "object_fixture_resident_process_contract"
+negative_control = "regenerated_control_poison"
+
+[hard_gates]
+correctness_anomalies = 0
+object_fixture_worker_recovery_exact = true
+fresh_subject_processes = true
+same_fixture_identity = true
+same_tail_identity = true
+resident_images_distinct = true
+resident_logical_image_equal = true
+resident_images_nonzero = true
+post_activation_zero_object_requests = true
+regenerated_control_poison_detected = true
+release_build = true
+schema_valid = true
+budget_must_hold = true

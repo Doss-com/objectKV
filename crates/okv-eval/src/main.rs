@@ -60,12 +60,13 @@ use okv_eval::serving_recovery::{
     ServingRecoveryProcessConfig, ServingRecoveryProfile, ServingRecoveryReport,
 };
 use okv_eval::serving_recovery_openraft::{
-    run_openraft_serving_recovery_contract, run_openraft_serving_recovery_contract_with_hot_reads,
-    run_openraft_serving_recovery_node, OpenRaftHotReadAccessPattern,
-    OpenRaftHotReadNegativeControl, OpenRaftHotReadProfile, OpenRaftHotReadReport,
-    OpenRaftHotReadSampleReport, OpenRaftHotReadStorageReport, OpenRaftHotReadSubject,
-    OpenRaftServingObjectBackend, OpenRaftServingProcessConfig, OpenRaftServingRecoveryMode,
-    OpenRaftServingRecoveryReport,
+    run_openraft_serving_recovery_contract,
+    run_openraft_serving_recovery_contract_from_object_fixture,
+    run_openraft_serving_recovery_contract_with_hot_reads, run_openraft_serving_recovery_node,
+    OpenRaftHotReadAccessPattern, OpenRaftHotReadNegativeControl, OpenRaftHotReadProfile,
+    OpenRaftHotReadReport, OpenRaftHotReadSampleReport, OpenRaftHotReadStorageReport,
+    OpenRaftHotReadSubject, OpenRaftServingObjectBackend, OpenRaftServingProcessConfig,
+    OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport,
 };
 use okv_eval::storage_layout::{
     run_columnar_cache_admission_contract, run_columnar_cache_admission_contract_on_backend,
@@ -405,6 +406,23 @@ enum Commands {
         seed: u64,
         #[arg(long, default_value = "candidate")]
         mode: String,
+        #[arg(long, default_value_t = 4_096)]
+        key_count: u64,
+        #[arg(long, default_value_t = 1_024)]
+        value_bytes: usize,
+        #[arg(long, default_value_t = 1_048_576)]
+        target_object_bytes: usize,
+        #[arg(long, default_value_t = 65_536)]
+        target_block_bytes: usize,
+    },
+    /// Build one actual resident process from the RFC-0044 object fixture.
+    ObjectFixtureResidentTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "native_snapshot")]
+        subject: String,
+        #[arg(long, default_value_t = false)]
+        regenerate_control_poison: bool,
         #[arg(long, default_value_t = 4_096)]
         key_count: u64,
         #[arg(long, default_value_t = 1_024)]
@@ -865,6 +883,56 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                     target_block_bytes,
                 },
                 &executable,
+            )?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::ObjectFixtureResidentTrace {
+            seed,
+            subject,
+            regenerate_control_poison,
+            key_count,
+            value_bytes,
+            target_object_bytes,
+            target_block_bytes,
+        } => {
+            let subject = match subject.as_str() {
+                "native_snapshot" => OpenRaftHotReadSubject::NativeSnapshot,
+                "direct_owned_rocksdb" => OpenRaftHotReadSubject::DirectOwnedRocksdb,
+                other => {
+                    return Err(std::io::Error::other(format!(
+                        "unknown object-fixture resident subject {other}"
+                    ))
+                    .into());
+                }
+            };
+            let executable = std::env::current_exe()?;
+            let report = run_openraft_serving_recovery_contract_from_object_fixture(
+                seed,
+                &ServingRecoveryProfile {
+                    key_count,
+                    value_bytes,
+                    target_object_bytes,
+                    target_block_bytes,
+                },
+                2,
+                &executable,
+                OpenRaftServingObjectBackend::LocalFilesystem,
+                OpenRaftHotReadProfile {
+                    subject,
+                    seed,
+                    key_count,
+                    value_bytes,
+                    warmup_operations: 256,
+                    measured_operations: 1_024,
+                    concurrent_clients: 1,
+                    access_pattern: OpenRaftHotReadAccessPattern::Hotset80_20,
+                    max_local_bytes: 128 * 1_024 * 1_024,
+                    block_cache_bytes: 16 * 1_024 * 1_024,
+                    direct_reads: false,
+                    sample_count: 1,
+                    negative_control: None,
+                },
+                regenerate_control_poison,
             )?;
             println!("{}", serde_json::to_string(&report)?);
         }
@@ -1546,6 +1614,9 @@ fn execute_workload(
         }
         "object_fixture_contract" => {
             run_object_fixture_contract_workload(workload, seeds, backend, dataset, profile)
+        }
+        "object_fixture_resident_process_contract" => {
+            run_object_fixture_resident_process(workload, seeds, backend, dataset, profile)
         }
         "frontiered_process_snapshot_contract" => {
             run_frontiered_process_snapshot(workload, seeds, backend, dataset, profile)
@@ -8161,6 +8232,286 @@ fn object_fixture_execution(
                     .sum(),
             ),
             ("object_fixture.wall_seconds".to_owned(), wall_seconds),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_object_fixture_resident_process(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile_config: &ProfileConfig,
+) -> WorkloadExecution {
+    const EXPECTED_BACKEND: &str =
+        "object-store-local-fs+data-openraft-local-process+rocksdb-resident";
+    if backend != EXPECTED_BACKEND {
+        return execution_from_result(Err(format!(
+            "object fixture resident process requires {EXPECTED_BACKEND}, got {backend}"
+        )));
+    }
+    let Some(dataset) = dataset else {
+        return execution_from_result(Err(
+            "object fixture resident process requires a fixed dataset".to_owned(),
+        ));
+    };
+    if seeds.is_empty() || dataset.logical_bytes == 0 || dataset.key_count == 0 {
+        return execution_from_result(Err(
+            "object fixture resident process requires fixed seeds and data".to_owned(),
+        ));
+    }
+    let integer = |name: &str| {
+        profile_config
+            .parameters
+            .get(name)
+            .and_then(toml::Value::as_integer)
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| format!("object fixture resident profile requires integer {name}"))
+    };
+    let value_bytes = match integer("value_bytes")
+        .and_then(|value| usize::try_from(value).map_err(|error| error.to_string()))
+    {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let target_object_bytes = match integer("target_object_bytes")
+        .and_then(|value| usize::try_from(value).map_err(|error| error.to_string()))
+    {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let target_block_bytes = match integer("target_block_bytes")
+        .and_then(|value| usize::try_from(value).map_err(|error| error.to_string()))
+    {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    if dataset
+        .key_count
+        .saturating_mul(u64::try_from(value_bytes).unwrap_or(u64::MAX))
+        != dataset.logical_bytes
+    {
+        return execution_from_result(Err(
+            "object fixture resident profile disagrees with dataset bytes".to_owned(),
+        ));
+    }
+    let recovery_profile = ServingRecoveryProfile {
+        key_count: dataset.key_count,
+        value_bytes,
+        target_object_bytes,
+        target_block_bytes,
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+    let poison = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        == Some("regenerated_control_poison");
+    let hot_profile = |seed: u64, subject| OpenRaftHotReadProfile {
+        subject,
+        seed,
+        key_count: dataset.key_count,
+        value_bytes,
+        warmup_operations: 256,
+        measured_operations: 1_024,
+        concurrent_clients: 1,
+        access_pattern: OpenRaftHotReadAccessPattern::Hotset80_20,
+        max_local_bytes: 128 * 1_024 * 1_024,
+        block_cache_bytes: 16 * 1_024 * 1_024,
+        direct_reads: false,
+        sample_count: 1,
+        negative_control: None,
+    };
+    let started = Instant::now();
+    let mut pairs = Vec::new();
+    let mut poison_detected = !poison;
+    for seed in seeds {
+        if poison {
+            let outcome = run_openraft_serving_recovery_contract_from_object_fixture(
+                *seed,
+                &recovery_profile,
+                2,
+                &executable,
+                OpenRaftServingObjectBackend::LocalFilesystem,
+                hot_profile(*seed, OpenRaftHotReadSubject::DirectOwnedRocksdb),
+                true,
+            );
+            poison_detected &= outcome.is_err_and(|error| {
+                error.contains("regenerated control diverges from verified object fixture")
+            });
+        } else {
+            let native = match run_openraft_serving_recovery_contract_from_object_fixture(
+                *seed,
+                &recovery_profile,
+                2,
+                &executable,
+                OpenRaftServingObjectBackend::LocalFilesystem,
+                hot_profile(*seed, OpenRaftHotReadSubject::NativeSnapshot),
+                false,
+            ) {
+                Ok(report) => report,
+                Err(error) => return execution_from_result(Err(error)),
+            };
+            let control = match run_openraft_serving_recovery_contract_from_object_fixture(
+                *seed,
+                &recovery_profile,
+                2,
+                &executable,
+                OpenRaftServingObjectBackend::LocalFilesystem,
+                hot_profile(*seed, OpenRaftHotReadSubject::DirectOwnedRocksdb),
+                false,
+            ) {
+                Ok(report) => report,
+                Err(error) => return execution_from_result(Err(error)),
+            };
+            pairs.push((native, control));
+        }
+    }
+    let candidate_checks = pairs.iter().map(|(native, control)| {
+        let native_image = native.process.object_fixture_image.as_ref();
+        let control_image = control.process.object_fixture_image.as_ref();
+        let native_hot = native.process.hot_read.as_ref();
+        let control_hot = control.process.hot_read.as_ref();
+        (
+            native.exact_replay && control.exact_replay,
+            native_image.is_some_and(|image| image.scratch_was_empty)
+                && control_image.is_some_and(|image| image.scratch_was_empty),
+            native_image
+                .zip(control_image)
+                .is_some_and(|(native, control)| native.fixture_id == control.fixture_id),
+            native_image
+                .zip(control_image)
+                .is_some_and(|(native, control)| native.tail_sha256 == control.tail_sha256),
+            native_image
+                .zip(control_image)
+                .is_some_and(|(native, control)| {
+                    native.resident_image_id != control.resident_image_id
+                }),
+            native_image
+                .zip(control_image)
+                .is_some_and(|(native, control)| {
+                    native.resident_logical_sha256 == control.resident_logical_sha256
+                }),
+            native_image.is_some_and(|image| image.local_bytes > 0)
+                && control_image.is_some_and(|image| image.local_bytes > 0),
+            native_hot.is_some_and(|hot| hot.object_requests == 0)
+                && control_hot.is_some_and(|hot| hot.object_requests == 0),
+        )
+    });
+    let mut recovery_exact = true;
+    let mut fresh_processes = true;
+    let mut same_fixture = true;
+    let mut same_tail = true;
+    let mut images_distinct = true;
+    let mut logical_equal = true;
+    let mut images_nonzero = true;
+    let mut zero_object_reads = true;
+    for checks in candidate_checks {
+        recovery_exact &= checks.0;
+        fresh_processes &= checks.1;
+        same_fixture &= checks.2;
+        same_tail &= checks.3;
+        images_distinct &= checks.4;
+        logical_equal &= checks.5;
+        images_nonzero &= checks.6;
+        zero_object_reads &= checks.7;
+    }
+    let release_build = !cfg!(debug_assertions);
+    let exact = poison_detected
+        && (poison
+            || (recovery_exact
+                && fresh_processes
+                && same_fixture
+                && same_tail
+                && images_distinct
+                && logical_equal
+                && images_nonzero
+                && zero_object_reads))
+        && release_build;
+    let gate = |id: &str, passed: bool| HardGateResult {
+        id: id.to_owned(),
+        status: gate_status(passed),
+        detail: Some(format!("poison={poison}")),
+    };
+    WorkloadExecution {
+        error: (!exact).then(|| "object fixture resident process gate failed".to_owned()),
+        measurements: vec![
+            Measurement {
+                metric: "operation.duration",
+                value: started.elapsed().as_secs_f64(),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "object-fixture-resident-process-contract"),
+                    ("backend", backend),
+                    ("result", if exact { "pass" } else { "fail" }),
+                ]),
+            },
+            Measurement {
+                metric: "correctness.anomalies",
+                value: if exact { 0.0 } else { 1.0 },
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "object-fixture-resident-process-v1"),
+                ]),
+            },
+        ],
+        hard_gates: vec![
+            gate(
+                "object_fixture_worker_recovery_exact",
+                poison || recovery_exact,
+            ),
+            gate("fresh_subject_processes", poison || fresh_processes),
+            gate("same_fixture_identity", poison || same_fixture),
+            gate("same_tail_identity", poison || same_tail),
+            gate("resident_images_distinct", poison || images_distinct),
+            gate("resident_logical_image_equal", poison || logical_equal),
+            gate("resident_images_nonzero", poison || images_nonzero),
+            gate(
+                "post_activation_zero_object_requests",
+                poison || zero_object_reads,
+            ),
+            gate("regenerated_control_poison_detected", poison_detected),
+            gate("release_build", release_build),
+        ],
+        budget_units: started.elapsed().as_secs_f64(),
+        artifact_refs: pairs
+            .iter()
+            .flat_map(|(native, control)| {
+                [
+                    format!(
+                        "okv-eval://object-fixture-resident-process-v1/native/{}",
+                        native.semantic_sha256
+                    ),
+                    format!(
+                        "okv-eval://object-fixture-resident-process-v1/control/{}",
+                        control.semantic_sha256
+                    ),
+                ]
+            })
+            .collect(),
+        secondary_metrics: BTreeMap::from([
+            (
+                "object_fixture_resident.native_local_bytes".to_owned(),
+                pairs
+                    .iter()
+                    .filter_map(|(native, _)| native.process.object_fixture_image.as_ref())
+                    .map(|image| resident_count_as_f64(image.local_bytes))
+                    .sum(),
+            ),
+            (
+                "object_fixture_resident.control_local_bytes".to_owned(),
+                pairs
+                    .iter()
+                    .filter_map(|(_, control)| control.process.object_fixture_image.as_ref())
+                    .map(|image| resident_count_as_f64(image.local_bytes))
+                    .sum(),
+            ),
         ]),
     }
 }

@@ -1,6 +1,13 @@
 //! Replacement-worker recovery from immutable row objects and the logical
 //! retained transaction stream owned by real `OpenRaft` data processes.
 
+use crate::fixture_anchor::establish_fixture_anchor;
+use crate::object_fixture::{
+    base_records as object_fixture_base_records, build_fixture as build_object_fixture,
+    logical_image_sha256, tail_sha256 as object_fixture_tail_sha256,
+    validate_tail as validate_object_fixture_tail, verify_fixture_records, BuiltFixture,
+    LogicalOutcome, ObjectFixtureProfile, ResidentImageDescriptorV1,
+};
 use crate::serving_recovery::{ServingReadOutcome, ServingRecoveryProfile};
 use nix::sys::resource::{getrusage, UsageWho};
 use nix::sys::time::TimeValLike;
@@ -14,9 +21,9 @@ use okv_consensus::{
 };
 use okv_object::{
     content_sha256, encode_row_object_set, filesystem_backend, gcs_backend_from_env,
-    prefixed_backend, read_indexed_point, read_point_from_full_object, Backend, ObservedBackend,
-    PointReadOutcome, RowObjectManifestV1, RowObjectReference, RowRecord, RowSegmentIndex,
-    WriteCondition,
+    prefixed_backend, read_indexed_point, read_point_from_full_object, Backend, ObjectClient,
+    ObservedBackend, PointReadOutcome, RowObjectManifestV1, RowObjectReference, RowRecord,
+    RowSegmentIndex, WriteCondition,
 };
 use okv_transaction::{KeyRange, TransactionCommand, TransactionStatus};
 use serde::{Deserialize, Serialize};
@@ -112,6 +119,21 @@ pub struct OpenRaftServingProcessConfig {
     pub max_page_records: u32,
     #[serde(default)]
     pub hot_read: Option<OpenRaftHotReadProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_fixture: Option<OpenRaftObjectFixtureProcessConfig>,
+}
+
+/// Immutable object-fixture identity supplied to one fresh resident process.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OpenRaftObjectFixtureProcessConfig {
+    pub fixture_id: String,
+    pub descriptor_length: u64,
+    pub descriptor_sha256: String,
+    pub base_version: u64,
+    pub key_count: u64,
+    pub value_bytes: usize,
+    #[serde(default)]
+    pub regenerate_control_poison: bool,
 }
 
 /// Configurable steady-state read window executed only after the serving image
@@ -319,6 +341,23 @@ pub struct OpenRaftServingProcessReport {
     pub first_read_seconds: f64,
     pub reads: Vec<OpenRaftServingRead>,
     pub hot_read: Option<OpenRaftHotReadReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_fixture_image: Option<OpenRaftObjectFixtureImageReport>,
+}
+
+/// Actual resident-image evidence derived from one verified object fixture.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OpenRaftObjectFixtureImageReport {
+    pub fixture_id: String,
+    pub tail_sha256: String,
+    pub subject: OpenRaftHotReadSubject,
+    pub provider: String,
+    pub resident_image_id: String,
+    pub resident_logical_sha256: String,
+    pub applied_through: u64,
+    pub record_count: u64,
+    pub local_bytes: u64,
+    pub scratch_was_empty: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -358,6 +397,12 @@ struct History {
     concurrent_commands: Vec<TransactionCommand>,
     read_keys: Vec<Vec<u8>>,
     expected: Vec<ServingReadOutcome>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BaseBootstrap {
+    Transactional,
+    ObjectFixture,
 }
 
 #[derive(Clone, Debug)]
@@ -572,6 +617,45 @@ pub fn run_openraft_serving_recovery_contract_with_hot_reads(
         executable,
         object_backend,
         hot_read,
+        BaseBootstrap::Transactional,
+        false,
+    ))
+}
+
+/// Run native recovery from a content-addressed object fixture and its exact
+/// seven-record retained suffix.
+///
+/// # Errors
+///
+/// Returns an error when the fixture, published closure, retained suffix, or
+/// subject-local resident image cannot be verified exactly.
+pub fn run_openraft_serving_recovery_contract_from_object_fixture(
+    seed: u64,
+    profile: &ServingRecoveryProfile,
+    max_page_records: u32,
+    executable: &Path,
+    object_backend: OpenRaftServingObjectBackend,
+    hot_read: OpenRaftHotReadProfile,
+    regenerate_control_poison: bool,
+) -> Result<OpenRaftServingRecoveryReport, String> {
+    if max_page_records == 0 || max_page_records > 4_096 {
+        return Err("retained stream page bound must be in 1..=4096".to_owned());
+    }
+    validate_hot_read_profile(&hot_read, profile)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?;
+    runtime.block_on(run_contract(
+        seed,
+        OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate,
+        profile,
+        max_page_records,
+        executable,
+        object_backend,
+        Some(hot_read),
+        BaseBootstrap::ObjectFixture,
+        regenerate_control_poison,
     ))
 }
 
@@ -665,6 +749,7 @@ pub async fn run_openraft_serving_recovery_node(
         first_read_seconds,
         reads,
         hot_read: None,
+        object_fixture_image: None,
     })
 }
 
@@ -675,6 +760,20 @@ async fn run_integrated_kernel_node(
     scratch_was_empty: bool,
 ) -> Result<OpenRaftServingProcessReport, String> {
     let backend = config.object_backend.open(&config.object_store_root)?;
+    if let Some(fixture) = config.object_fixture.as_ref() {
+        let records = verify_fixture_records(
+            &backend,
+            &fixture.fixture_id,
+            usize::try_from(fixture.descriptor_length)
+                .map_err(|_| "object fixture descriptor length exceeds usize".to_owned())?,
+            &fixture.descriptor_sha256,
+            fixture.base_version,
+        )
+        .await?;
+        if u64::try_from(records.len()).unwrap_or(u64::MAX) != fixture.key_count {
+            return Err("worker verified the wrong object fixture record count".to_owned());
+        }
+    }
     let matched_control_root = config.scratch_root.join("matched-direct-rocksdb");
     let serving_image =
         if config.mode == OpenRaftServingRecoveryMode::IntegratedKernelRocksDbCandidate {
@@ -698,9 +797,9 @@ async fn run_integrated_kernel_node(
             None
         };
     let (mut range, opened) = SingleRange::open(SingleRangeConfig {
-        authority_endpoints: config.authority_endpoints,
-        transaction_endpoints: config.transaction_endpoints,
-        publication_root: config.publication_root,
+        authority_endpoints: config.authority_endpoints.clone(),
+        transaction_endpoints: config.transaction_endpoints.clone(),
+        publication_root: config.publication_root.clone(),
         object_backend: backend,
         max_page_records: config.max_page_records,
         serving_image,
@@ -732,26 +831,97 @@ async fn run_integrated_kernel_node(
         });
     }
     let first_read_seconds = started.elapsed().as_secs_f64();
-    let hot_read = if let Some(profile) = config.hot_read.as_ref() {
-        if config.mode == OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate {
-            Some(match profile.subject {
-                OpenRaftHotReadSubject::NativeSnapshot => run_native_hot_reads(
-                    &range,
-                    concurrent.target_version,
-                    profile,
-                    resident_engine
-                        .as_ref()
-                        .ok_or_else(|| "native resident metrics handle is absent".to_owned())?,
-                )?,
-                OpenRaftHotReadSubject::DirectOwnedRocksdb => {
-                    run_matched_direct_hot_reads(&matched_control_root, profile)?
-                }
-            })
-        } else {
-            Some(run_integrated_hot_reads(&mut range, concurrent.target_version, profile).await?)
-        }
+    let fixture_tail = if let Some(fixture) = config.object_fixture.as_ref() {
+        Some(
+            read_object_fixture_tail(
+                &config.transaction_endpoints,
+                fixture,
+                concurrent.target_version,
+            )
+            .await?,
+        )
     } else {
         None
+    };
+    let (hot_read, object_fixture_image) = if let Some(profile) = config.hot_read.as_ref() {
+        if config.mode == OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate {
+            let resident_engine = resident_engine
+                .as_ref()
+                .ok_or_else(|| "native resident metrics handle is absent".to_owned())?;
+            match profile.subject {
+                OpenRaftHotReadSubject::NativeSnapshot => {
+                    let report = run_native_hot_reads(
+                        &range,
+                        concurrent.target_version,
+                        profile,
+                        resident_engine,
+                    )?;
+                    let image = if let (Some(fixture), Some((tail_sha256, _))) =
+                        (config.object_fixture.as_ref(), fixture_tail.as_ref())
+                    {
+                        let snapshot = range
+                            .resident_snapshot(concurrent.target_version)
+                            .map_err(|error| error.to_string())?;
+                        Some(build_object_fixture_image_report(
+                            snapshot.as_ref(),
+                            fixture,
+                            tail_sha256,
+                            OpenRaftHotReadSubject::NativeSnapshot,
+                            "rocksdb-11.8.1-native-resident-v1",
+                            concurrent.target_version,
+                            range.stats().resident_engine_local_bytes,
+                            scratch_was_empty,
+                        )?)
+                    } else {
+                        None
+                    };
+                    (Some(report), image)
+                }
+                OpenRaftHotReadSubject::DirectOwnedRocksdb => {
+                    let snapshot = if config.object_fixture.is_some() {
+                        Some(
+                            range
+                                .resident_snapshot(concurrent.target_version)
+                                .map_err(|error| error.to_string())?,
+                        )
+                    } else {
+                        None
+                    };
+                    let fixture_context = match (
+                        snapshot.as_deref(),
+                        config.object_fixture.as_ref(),
+                        fixture_tail.as_ref(),
+                    ) {
+                        (Some(snapshot), Some(fixture), Some((tail_sha256, _))) => {
+                            Some(DirectFixtureContext {
+                                snapshot,
+                                fixture,
+                                tail_sha256,
+                                applied_through: concurrent.target_version,
+                                scratch_was_empty,
+                            })
+                        }
+                        _ => None,
+                    };
+                    let (report, image) = run_matched_direct_hot_reads(
+                        &matched_control_root,
+                        profile,
+                        fixture_context,
+                    )?;
+                    (Some(report), image)
+                }
+            }
+        } else {
+            (
+                Some(
+                    run_integrated_hot_reads(&mut range, concurrent.target_version, profile)
+                        .await?,
+                ),
+                None,
+            )
+        }
+    } else {
+        (None, None)
     };
     let stats = range.stats();
     let object_stats = range.object_stats();
@@ -814,6 +984,7 @@ async fn run_integrated_kernel_node(
         first_read_seconds,
         reads,
         hot_read,
+        object_fixture_image,
     })
 }
 
@@ -980,11 +1151,177 @@ fn run_native_hot_reads(
     )
 }
 
+async fn read_object_fixture_tail(
+    endpoints: &[String],
+    fixture: &OpenRaftObjectFixtureProcessConfig,
+    applied_through: u64,
+) -> Result<(String, Vec<RetainedTransactionRecord>), String> {
+    let client = TransactionLogClient::new(endpoints.to_vec())?;
+    let retained = client
+        .read(RetainedTransactionReadRequest {
+            after_version_exclusive: fixture.base_version,
+            after_batch_order_exclusive: None,
+            through_version_inclusive: Some(applied_through),
+            max_records: 16,
+        })
+        .await?;
+    if !retained.complete || retained.target_version != applied_through {
+        return Err("resident process did not observe a complete object-fixture tail".to_owned());
+    }
+    let tail_sha256 = object_fixture_tail_sha256(&retained.records)?;
+    validate_object_fixture_tail(&tail_sha256, &retained.records)?;
+    Ok((tail_sha256, retained.records))
+}
+
+fn object_fixture_image_keys(key_count: u64) -> Vec<Vec<u8>> {
+    let mut keys = (0..key_count).map(key_bytes).collect::<Vec<_>>();
+    keys.extend([
+        key_bytes(key_count.saturating_add(1)),
+        key_bytes(key_count.saturating_add(2)),
+        key_bytes(key_count.saturating_add(3)),
+    ]);
+    keys
+}
+
+fn logical_outcome(outcome: ReadOutcome) -> LogicalOutcome {
+    match outcome {
+        ReadOutcome::Value(value) => LogicalOutcome::Value(value),
+        ReadOutcome::Tombstone => LogicalOutcome::Tombstone,
+        ReadOutcome::Absent => LogicalOutcome::Absent,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_object_fixture_image_report(
+    snapshot: &dyn okv::ResidentSnapshot,
+    fixture: &OpenRaftObjectFixtureProcessConfig,
+    tail_sha256: &str,
+    subject: OpenRaftHotReadSubject,
+    provider: &str,
+    applied_through: u64,
+    local_bytes: u64,
+    scratch_was_empty: bool,
+) -> Result<OpenRaftObjectFixtureImageReport, String> {
+    let mut logical = BTreeMap::new();
+    for key in object_fixture_image_keys(fixture.key_count) {
+        logical.insert(
+            key.clone(),
+            logical_outcome(
+                snapshot
+                    .get(&key)
+                    .map_err(|error| format!("read resident image identity: {error}"))?,
+            ),
+        );
+    }
+    Ok(build_object_fixture_image_report_from_logical(
+        logical,
+        fixture,
+        tail_sha256,
+        subject,
+        provider,
+        applied_through,
+        local_bytes,
+        scratch_was_empty,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_object_fixture_image_report_from_logical(
+    logical: BTreeMap<Vec<u8>, LogicalOutcome>,
+    fixture: &OpenRaftObjectFixtureProcessConfig,
+    tail_sha256: &str,
+    subject: OpenRaftHotReadSubject,
+    provider: &str,
+    applied_through: u64,
+    local_bytes: u64,
+    scratch_was_empty: bool,
+) -> OpenRaftObjectFixtureImageReport {
+    let resident_logical_sha256 = logical_image_sha256(&logical);
+    let options_sha256 = match subject {
+        OpenRaftHotReadSubject::NativeSnapshot => content_sha256(b"okv-native-resident-options-v1"),
+        OpenRaftHotReadSubject::DirectOwnedRocksdb => {
+            content_sha256(b"okv-direct-owned-options-v1")
+        }
+    };
+    let descriptor = ResidentImageDescriptorV1 {
+        schema_version: 1,
+        fixture_id: fixture.fixture_id.clone(),
+        tail_sha256: tail_sha256.to_owned(),
+        subject: match subject {
+            OpenRaftHotReadSubject::NativeSnapshot => "native_snapshot",
+            OpenRaftHotReadSubject::DirectOwnedRocksdb => "direct_owned_rocksdb",
+        }
+        .to_owned(),
+        engine_provider: provider.to_owned(),
+        engine_format_version: 1,
+        options_sha256,
+        applied_through,
+        record_count: u64::try_from(logical.len()).unwrap_or(u64::MAX),
+        resident_logical_sha256: resident_logical_sha256.clone(),
+    };
+    OpenRaftObjectFixtureImageReport {
+        fixture_id: fixture.fixture_id.clone(),
+        tail_sha256: tail_sha256.to_owned(),
+        subject,
+        provider: provider.to_owned(),
+        resident_image_id: descriptor.resident_image_id(),
+        resident_logical_sha256,
+        applied_through,
+        record_count: descriptor.record_count,
+        local_bytes,
+        scratch_was_empty,
+    }
+}
+
+#[cfg(feature = "resident-rocksdb")]
+fn encode_direct_outcome(outcome: &ReadOutcome) -> Vec<u8> {
+    match outcome {
+        ReadOutcome::Value(value) => {
+            let mut encoded = Vec::with_capacity(value.len().saturating_add(1));
+            encoded.push(1);
+            encoded.extend_from_slice(value);
+            encoded
+        }
+        ReadOutcome::Tombstone => vec![2],
+        ReadOutcome::Absent => vec![3],
+    }
+}
+
+#[cfg(feature = "resident-rocksdb")]
+fn read_direct_outcome(database: &DB, key: &[u8]) -> Result<ReadOutcome, String> {
+    let encoded = database
+        .get(key)
+        .map_err(|error| format!("read matched direct RocksDB control: {error}"))?
+        .ok_or_else(|| "matched direct RocksDB image omitted an outcome".to_owned())?;
+    match encoded.split_first() {
+        Some((1, value)) => Ok(ReadOutcome::Value(value.to_vec())),
+        Some((2, [])) => Ok(ReadOutcome::Tombstone),
+        Some((3, [])) => Ok(ReadOutcome::Absent),
+        _ => Err("matched direct RocksDB image has an invalid outcome tag".to_owned()),
+    }
+}
+
+#[cfg_attr(not(feature = "resident-rocksdb"), allow(dead_code))]
+struct DirectFixtureContext<'a> {
+    snapshot: &'a dyn okv::ResidentSnapshot,
+    fixture: &'a OpenRaftObjectFixtureProcessConfig,
+    tail_sha256: &'a str,
+    applied_through: u64,
+    scratch_was_empty: bool,
+}
+
 #[cfg(feature = "resident-rocksdb")]
 fn run_matched_direct_hot_reads(
     root: &Path,
     profile: &OpenRaftHotReadProfile,
-) -> Result<OpenRaftHotReadReport, String> {
+    fixture_context: Option<DirectFixtureContext<'_>>,
+) -> Result<
+    (
+        OpenRaftHotReadReport,
+        Option<OpenRaftObjectFixtureImageReport>,
+    ),
+    String,
+> {
     let cache_capacity = usize::try_from(profile.block_cache_bytes)
         .map_err(|_| "matched direct RocksDB cache budget exceeds usize".to_owned())?;
     if cache_capacity == 0 {
@@ -1005,11 +1342,21 @@ fn run_matched_direct_hot_reads(
     let mut write_options = WriteOptions::default();
     write_options.disable_wal(true);
     let mut batch = WriteBatch::default();
-    for key_id in 16..profile.key_count {
-        batch.put(
-            key_bytes(key_id),
-            base_value(profile.seed, key_id, profile.value_bytes),
-        );
+    if let Some(context) = fixture_context.as_ref() {
+        for key in object_fixture_image_keys(context.fixture.key_count) {
+            let outcome = context
+                .snapshot
+                .get(&key)
+                .map_err(|error| format!("read native fixture source for control: {error}"))?;
+            batch.put(key, encode_direct_outcome(&outcome));
+        }
+    } else {
+        for key_id in 16..profile.key_count {
+            batch.put(
+                key_bytes(key_id),
+                base_value(profile.seed, key_id, profile.value_bytes),
+            );
+        }
     }
     database
         .write_opt(batch, &write_options)
@@ -1018,13 +1365,37 @@ fn run_matched_direct_hot_reads(
         .flush()
         .map_err(|error| format!("flush matched direct RocksDB control: {error}"))?;
 
+    if fixture_context
+        .as_ref()
+        .is_some_and(|context| context.fixture.regenerate_control_poison)
+    {
+        database
+            .put(key_bytes(0), encode_direct_outcome(&ReadOutcome::Absent))
+            .map_err(|error| format!("apply regenerated-control poison: {error}"))?;
+        database
+            .flush()
+            .map_err(|error| format!("flush regenerated-control poison: {error}"))?;
+    }
+
     let mut correctness_failures = 0_u64;
     for key_id in 16..profile.key_count {
-        let actual = database
-            .get(key_bytes(key_id))
-            .map_err(|error| format!("verify matched direct RocksDB control: {error}"))?;
-        let expected = base_value(profile.seed, key_id, profile.value_bytes);
-        if actual.as_deref() != Some(expected.as_slice()) {
+        let actual = if fixture_context.is_some() {
+            read_direct_outcome(&database, &key_bytes(key_id))?
+        } else {
+            database
+                .get(key_bytes(key_id))
+                .map_err(|error| format!("verify matched direct RocksDB control: {error}"))?
+                .map_or(ReadOutcome::Absent, ReadOutcome::Value)
+        };
+        let expected = if let Some(context) = fixture_context.as_ref() {
+            context
+                .snapshot
+                .get(&key_bytes(key_id))
+                .map_err(|error| format!("verify native fixture source for control: {error}"))?
+        } else {
+            ReadOutcome::Value(base_value(profile.seed, key_id, profile.value_bytes))
+        };
+        if actual != expected {
             correctness_failures = correctness_failures.saturating_add(1);
         }
     }
@@ -1047,10 +1418,14 @@ fn run_matched_direct_hot_reads(
             &keys,
             profile,
             &|key| {
-                database
-                    .get(key)
-                    .map(|value| value.map_or(ReadOutcome::Absent, ReadOutcome::Value))
-                    .map_err(|error| format!("read matched direct RocksDB control: {error}"))
+                if fixture_context.is_some() {
+                    read_direct_outcome(&database, key)
+                } else {
+                    database
+                        .get(key)
+                        .map(|value| value.map_or(ReadOutcome::Absent, ReadOutcome::Value))
+                        .map_err(|error| format!("read matched direct RocksDB control: {error}"))
+                }
             },
             &|| {
                 direct_rocksdb_metrics(
@@ -1063,13 +1438,49 @@ fn run_matched_direct_hot_reads(
         )?;
         samples.push(hot_read_sample(sample, profile, window, 0));
     }
-    build_hot_read_report(
+    let report = build_hot_read_report(
         OpenRaftHotReadSubject::DirectOwnedRocksdb,
         profile,
         trace_sha256,
         correctness_failures,
         samples,
-    )
+    )?;
+    let image = if let Some(context) = fixture_context {
+        let mut logical = BTreeMap::new();
+        for key in object_fixture_image_keys(context.fixture.key_count) {
+            logical.insert(
+                key.clone(),
+                logical_outcome(read_direct_outcome(&database, &key)?),
+            );
+        }
+        let image = build_object_fixture_image_report_from_logical(
+            logical,
+            context.fixture,
+            context.tail_sha256,
+            OpenRaftHotReadSubject::DirectOwnedRocksdb,
+            "rocksdb-11.8.1-direct-owned-v1",
+            context.applied_through,
+            directory_bytes(root)?,
+            context.scratch_was_empty,
+        );
+        let source = build_object_fixture_image_report(
+            context.snapshot,
+            context.fixture,
+            context.tail_sha256,
+            OpenRaftHotReadSubject::NativeSnapshot,
+            "rocksdb-11.8.1-native-resident-v1",
+            context.applied_through,
+            0,
+            context.scratch_was_empty,
+        )?;
+        if image.resident_logical_sha256 != source.resident_logical_sha256 {
+            return Err("regenerated control diverges from verified object fixture".to_owned());
+        }
+        Some(image)
+    } else {
+        None
+    };
+    Ok((report, image))
 }
 
 #[cfg(feature = "resident-rocksdb")]
@@ -1709,7 +2120,14 @@ fn partition_operations(total: usize, clients: usize, client: usize) -> (usize, 
 fn run_matched_direct_hot_reads(
     _root: &Path,
     _profile: &OpenRaftHotReadProfile,
-) -> Result<OpenRaftHotReadReport, String> {
+    _fixture_context: Option<DirectFixtureContext<'_>>,
+) -> Result<
+    (
+        OpenRaftHotReadReport,
+        Option<OpenRaftObjectFixtureImageReport>,
+    ),
+    String,
+> {
     Err("matched direct RocksDB control requires resident-rocksdb".to_owned())
 }
 
@@ -1890,6 +2308,8 @@ async fn run_contract(
     executable: &Path,
     object_backend: OpenRaftServingObjectBackend,
     hot_read: Option<OpenRaftHotReadProfile>,
+    bootstrap: BaseBootstrap,
+    regenerate_control_poison: bool,
 ) -> Result<OpenRaftServingRecoveryReport, String> {
     validate_profile(profile)?;
     let root = TempDir::new().map_err(|error| error.to_string())?;
@@ -1907,17 +2327,75 @@ async fn run_contract(
     let transaction = TransactionAuthorityProcessFixture::start(executable, seed).await?;
     let transaction_client = transaction.client()?;
     let mut next_request_id = 1_u64;
-    let (history, object_durable_version) =
-        commit_base(seed, profile, &transaction_client, &mut next_request_id).await?;
-    let published = publish_row_base(
-        seed,
-        object_durable_version,
-        &history.base_records,
-        profile,
-        &opened_backend,
-        &publication_client,
-    )
-    .await?;
+    let (history, object_durable_version, published, object_fixture) = match bootstrap {
+        BaseBootstrap::Transactional => {
+            let (history, object_durable_version) =
+                commit_base(seed, profile, &transaction_client, &mut next_request_id).await?;
+            let published = publish_row_base(
+                seed,
+                object_durable_version,
+                &history.base_records,
+                profile,
+                &opened_backend,
+                &publication_client,
+            )
+            .await?;
+            (history, object_durable_version, published, None)
+        }
+        BaseBootstrap::ObjectFixture => {
+            let anchor = establish_fixture_anchor(
+                &transaction_client,
+                RequestIdentity {
+                    client_id: seed.max(1),
+                    request_id: next_request_id,
+                },
+            )
+            .await?;
+            next_request_id = next_request_id.saturating_add(1);
+            let fixture_profile = ObjectFixtureProfile {
+                key_count: profile.key_count,
+                value_bytes: profile.value_bytes,
+                target_object_bytes: profile.target_object_bytes,
+                target_block_bytes: profile.target_block_bytes,
+            };
+            let base_records = object_fixture_base_records(seed, &fixture_profile, anchor.version)?;
+            let fixture = build_object_fixture(
+                seed,
+                &fixture_profile,
+                anchor.version,
+                &base_records,
+                &ObjectClient::new(opened_backend.clone()),
+            )
+            .await?;
+            let verified = verify_fixture_records(
+                &opened_backend,
+                &fixture.fixture_id,
+                fixture.descriptor_bytes.len(),
+                &fixture.descriptor_sha256,
+                anchor.version,
+            )
+            .await?;
+            if verified != base_records {
+                return Err("fresh-process object fixture differs from its closure".to_owned());
+            }
+            let published =
+                publish_existing_fixture_root(seed, &fixture, &opened_backend, &publication_client)
+                    .await?;
+            let mut history = history_after_base(seed, profile, anchor.version, base_records);
+            history.expected = evaluate_expected(&history, profile)?;
+            let process_fixture = OpenRaftObjectFixtureProcessConfig {
+                fixture_id: fixture.fixture_id,
+                descriptor_length: u64::try_from(fixture.descriptor_bytes.len())
+                    .unwrap_or(u64::MAX),
+                descriptor_sha256: fixture.descriptor_sha256,
+                base_version: anchor.version,
+                key_count: profile.key_count,
+                value_bytes: profile.value_bytes,
+                regenerate_control_poison,
+            };
+            (history, anchor.version, published, Some(process_fixture))
+        }
+    };
     let mut read_version = object_durable_version;
     if matches!(
         mode,
@@ -1974,6 +2452,7 @@ async fn run_contract(
         continue_barrier: first_continue,
         max_page_records,
         hot_read,
+        object_fixture,
     };
     let mut first = spawn_worker(executable, &first_config, false)?;
     wait_for_barrier(&mut first, &first_initial)?;
@@ -2023,6 +2502,31 @@ async fn run_contract(
         || process.logical_txlog_root != LOGICAL_TXLOG_ROOT
     {
         return Err("replacement report disagrees with authoritative history".to_owned());
+    }
+    if let Some(fixture) = replacement_config.object_fixture.as_ref() {
+        let retained = transaction_client
+            .read(RetainedTransactionReadRequest {
+                after_version_exclusive: fixture.base_version,
+                after_batch_order_exclusive: None,
+                through_version_inclusive: Some(read_version),
+                max_records: 16,
+            })
+            .await?;
+        let tail_sha256 = object_fixture_tail_sha256(&retained.records)?;
+        validate_object_fixture_tail(&tail_sha256, &retained.records)?;
+        let image = process
+            .object_fixture_image
+            .as_ref()
+            .ok_or_else(|| "replacement omitted object-fixture image evidence".to_owned())?;
+        if image.fixture_id != fixture.fixture_id
+            || image.tail_sha256 != tail_sha256
+            || image.applied_through != read_version
+            || image.record_count != fixture.key_count.saturating_add(3)
+            || image.local_bytes == 0
+            || !image.scratch_was_empty
+        {
+            return Err("replacement object-fixture image evidence is inconsistent".to_owned());
+        }
     }
     let correctness_anomalies = u64::try_from(
         process
@@ -2714,6 +3218,86 @@ async fn publish_row_base(
     })
 }
 
+async fn publish_existing_fixture_root(
+    seed: u64,
+    fixture: &BuiltFixture,
+    backend: &Arc<dyn Backend>,
+    client: &okv_consensus::PublicationClient,
+) -> Result<PublishedRowBase, String> {
+    let manifest_identity = &fixture.descriptor.manifest;
+    let manifest_read = backend
+        .get(&manifest_identity.key, None, None)
+        .await
+        .map_err(|error| error.to_string())?;
+    if u64::try_from(manifest_read.bytes.len()).unwrap_or(u64::MAX) != manifest_identity.length
+        || content_sha256(&manifest_read.bytes) != manifest_identity.sha256
+    {
+        return Err("object fixture manifest identity changed before publication".to_owned());
+    }
+    let manifest = RowObjectManifestV1::decode(&manifest_read.bytes)?;
+    let manifest_reference = PublicationObjectReference {
+        kind: PublicationObjectKind::Manifest,
+        key: manifest_identity.key.clone(),
+        length: manifest_identity.length,
+        sha256: manifest_identity.sha256.clone(),
+    };
+    let mut object_keys = BTreeSet::from([manifest_reference.key.clone()]);
+    for reference in &manifest.segments {
+        object_keys.insert(reference.data_key.clone());
+        object_keys.insert(reference.index_key.clone());
+    }
+    let publication_id = format!("object-fixture-serving-recovery-{seed}");
+    let prepared = client
+        .commit(&publication_command(
+            seed,
+            20_000,
+            PublicationAction::Prepare {
+                publication_id: publication_id.clone(),
+                intent: PublicationIntent {
+                    object_keys,
+                    manifest: manifest_reference.clone(),
+                    destination_root: publication_root(seed),
+                    expected_prior_root: None,
+                },
+            },
+        ))
+        .await?;
+    if prepared.status != PublicationCommandStatus::Accepted {
+        return Err("object fixture publication prepare was rejected".to_owned());
+    }
+    let published = client
+        .commit(&publication_command(
+            seed,
+            20_001,
+            PublicationAction::Publish {
+                publication_id,
+                destination_root: publication_root(seed),
+                expected_prior_root: None,
+                manifest: manifest_reference.clone(),
+            },
+        ))
+        .await?;
+    if published.status != PublicationCommandStatus::Accepted
+        || published.state.roots.get(&publication_root(seed)) != Some(&manifest_reference)
+    {
+        return Err("object fixture publication did not install the exact root".to_owned());
+    }
+    Ok(PublishedRowBase {
+        object_durable_version: manifest.covered_through,
+        segment_count: u64::try_from(manifest.segments.len()).unwrap_or(u64::MAX),
+        index_closure_bytes: manifest
+            .segments
+            .iter()
+            .map(|reference| reference.index_bytes)
+            .sum(),
+        data_closure_bytes: manifest
+            .segments
+            .iter()
+            .map(|reference| reference.data_bytes)
+            .sum(),
+    })
+}
+
 fn publication_command(
     seed: u64,
     request_id: u64,
@@ -2734,6 +3318,21 @@ fn publication_command(
 
 fn publication_root(seed: u64) -> String {
     format!("serving-recovery-openraft/root/{seed}")
+}
+
+#[cfg_attr(not(feature = "resident-rocksdb"), allow(dead_code))]
+fn directory_bytes(root: &Path) -> Result<u64, String> {
+    let mut bytes = 0_u64;
+    for entry in fs::read_dir(root).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let metadata = entry.metadata().map_err(|error| error.to_string())?;
+        if metadata.is_dir() {
+            bytes = bytes.saturating_add(directory_bytes(&entry.path())?);
+        } else if metadata.is_file() {
+            bytes = bytes.saturating_add(metadata.len());
+        }
+    }
+    Ok(bytes)
 }
 
 fn spawn_worker(
@@ -2984,7 +3583,7 @@ mod tests {
     #[test]
     fn matched_topology_control_returns_exact_owned_values() {
         let root = tempfile::TempDir::new().expect("create matched-control root");
-        let report = run_matched_direct_hot_reads(
+        let (report, image) = run_matched_direct_hot_reads(
             root.path(),
             &OpenRaftHotReadProfile {
                 subject: OpenRaftHotReadSubject::DirectOwnedRocksdb,
@@ -3001,9 +3600,11 @@ mod tests {
                 sample_count: 2,
                 negative_control: None,
             },
+            None,
         )
         .expect("run matched topology control");
 
+        assert!(image.is_none());
         assert_eq!(report.subject, OpenRaftHotReadSubject::DirectOwnedRocksdb);
         assert_eq!(report.correctness_failures, 0);
         assert_eq!(report.object_requests, 0);

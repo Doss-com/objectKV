@@ -193,12 +193,12 @@ struct ClosureObjectIdentity {
     sha256: String,
 }
 
-struct BuiltFixture {
-    descriptor: ObjectFixtureDescriptorV1,
-    fixture_id: String,
-    descriptor_sha256: String,
-    descriptor_bytes: Vec<u8>,
-    reused: bool,
+pub(crate) struct BuiltFixture {
+    pub descriptor: ObjectFixtureDescriptorV1,
+    pub fixture_id: String,
+    pub descriptor_sha256: String,
+    pub descriptor_bytes: Vec<u8>,
+    pub reused: bool,
 }
 
 struct VerifiedFixture {
@@ -209,7 +209,7 @@ struct VerifiedFixture {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum LogicalOutcome {
+pub(crate) enum LogicalOutcome {
     Value(Vec<u8>),
     Tombstone,
     Absent,
@@ -490,7 +490,7 @@ struct BuiltResidentImage {
     resident_image_id: String,
 }
 
-async fn build_fixture(
+pub(crate) async fn build_fixture(
     seed: u64,
     profile: &ObjectFixtureProfile,
     base_version: u64,
@@ -616,6 +616,24 @@ async fn verify_fixture(
         segment_versions_at_anchor,
         verification_seconds: started.elapsed().as_secs_f64(),
     })
+}
+
+pub(crate) async fn verify_fixture_records(
+    backend: &Arc<dyn Backend>,
+    fixture_id: &str,
+    descriptor_length: usize,
+    descriptor_sha256: &str,
+    anchor_version: u64,
+) -> Result<Vec<RowRecord>, String> {
+    Ok(verify_fixture(
+        backend,
+        fixture_id,
+        descriptor_length,
+        descriptor_sha256,
+        anchor_version,
+    )
+    .await?
+    .records)
 }
 
 async fn verify_closure(
@@ -882,7 +900,7 @@ fn point_command(
     }
 }
 
-fn base_records(
+pub(crate) fn base_records(
     seed: u64,
     profile: &ObjectFixtureProfile,
     version: u64,
@@ -1012,7 +1030,7 @@ fn logical_image(
     Ok(image)
 }
 
-fn logical_image_sha256(image: &BTreeMap<Vec<u8>, LogicalOutcome>) -> String {
+pub(crate) fn logical_image_sha256(image: &BTreeMap<Vec<u8>, LogicalOutcome>) -> String {
     let mut bytes = LOGICAL_IMAGE_MAGIC.to_vec();
     push_u64(&mut bytes, u64::try_from(image.len()).unwrap_or(u64::MAX));
     for (key, outcome) in image {
@@ -1056,11 +1074,11 @@ fn closure_sha256(objects: &[ClosureObjectIdentity]) -> String {
     content_sha256(&bytes)
 }
 
-fn tail_sha256(records: &[RetainedTransactionRecord]) -> Result<String, String> {
+pub(crate) fn tail_sha256(records: &[RetainedTransactionRecord]) -> Result<String, String> {
     Ok(content_sha256(&encode_tail(records)?))
 }
 
-fn validate_tail(
+pub(crate) fn validate_tail(
     expected_sha256: &str,
     records: &[RetainedTransactionRecord],
 ) -> Result<(), String> {
