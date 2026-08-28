@@ -403,16 +403,16 @@ control = { id = "datafusion-base-only", suite = "../suites/product-thesis.toml"
 
 [[phases]]
 id = "GP7"
-name = "Make the product decision"
-objective = "Compare the complete path with simpler systems under one reviewed topology, operation mix, and price snapshot."
+name = "Publish the comparative production envelope"
+objective = "Compare the complete path with simpler systems under one reviewed topology, operation mix, and price snapshot, then select the strongest implementation profile for each layer."
 depends_on = ["GP6"]
 
 [[phases.gates]]
 id = "GP7.1"
 status = "proposed"
 kind = "economics"
-claim = "At least one target workload gains a material latency, footprint, recovery, branch, HTAP, or total-cost advantage."
-falsifier = "objectKV costs more or owns more failure surface without a material product advantage over TiKV or PostgreSQL plus object tiering."
+claim = "The complete path publishes matched latency, throughput, footprint, recovery, branch, HTAP, failure-surface, and total-cost results, including every measured loss, and selects the strongest implementation profile per layer."
+falsifier = "The comparison hides a losing metric, mixes durability or hardware scopes, omits an appropriate specialist control, or treats a mechanism loss as a stop decision for objectKV."
 requirement_ids = ["PRD-003", "PRD-004", "SRV-005", "LIFE-001", "HTAP-007", "EVAL-007", "EVAL-008", "EVAL-010", "EVAL-013"]
 suite = "../suites/product-thesis.toml"
 profile = "economics-dev"

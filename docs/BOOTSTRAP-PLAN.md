@@ -2,9 +2,9 @@
 
 ## Program goal
 
-Prove or falsify objectKV as an open-source, open-format storage substrate for
-distributed applications and, if admitted by evidence, build its first
-production-credible cell.
+Build and verify objectKV as an open-source, open-format storage substrate for
+distributed applications, then admit its first production-credible cell one
+bounded mechanism at a time.
 
 The target is a cell-scoped, strict-serializable ordered KV composed from
 reusable `okv-log` and `okv-wal` primitives, a quorum-durable txLog hot path,
@@ -19,6 +19,11 @@ gates. Run those gates with OTel telemetry and immutable receipts on real
 infrastructure against same-durability RocksDB, TiKV, FoundationDB, or other
 appropriate controls.
 
+Evaluations select, reject, or reshape mechanisms. They do not decide whether
+the objectKV program continues. A failed curve changes the implementation or
+provider profile while preserving the program goal and the evidence that led
+to the change.
+
 If native transaction authority cannot establish material object-native
 leverage over an incumbent, pivot transaction authority to TiKV or FoundationDB
 while retaining `okv-log`, `okv-wal`, object publication, branching, and the
@@ -27,11 +32,10 @@ measured advantage in at least one load-bearing property such as independent
 storage and compute scaling, branch and recovery cost, open-format access, or
 total economics without an unacceptable correctness or latency regression.
 
-The program succeeds with a documented go or pivot decision backed by the full
-eval record. A go decision additionally requires contributor-ready
-specifications, runnable examples, code, operational bounds, and immutable eval
-receipts for the first production-credible cell. Until those receipts exist,
-objectKV remains a research program rather than an admitted database product.
+The current program milestone is reached when one production-credible cell has
+contributor-ready specifications, runnable examples, code, operational bounds,
+and immutable eval receipts. Until those receipts exist, objectKV remains a
+research program rather than an admitted database product.
 
 ### Current golden-path frontier
 
@@ -57,6 +61,50 @@ concurrency evidence is under
 `docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/`.
 Cache pressure follows as a separate gate with an explicit cache budget and
 reusable larger-than-cache fixture.
+
+### Performance activation matrix
+
+This is the canonical order for lighting up workload metrics. Each row owns a
+separate comparison lane and receipt. Later rows may reuse artifacts from
+earlier rows, but they cannot substitute an upper-layer result for a missing
+kernel result.
+
+| Order | Workload curve | Status | Control | Admission signal | Opens |
+|---:|---|---|---|---|---|
+| 0 | Resident NVMe point reads at 1, 8, and 32 clients | `[VERIFIED]` | Direct owned-value RocksDB in the same recovered topology | Throughput at least 0.80x control, p99 at most 1.20x, exact values, bounded bytes, zero measured object operations | Cache-pressure evaluation |
+| 1 | Cache coverage, skew, and eviction | `[PROPOSED]` | Same-durability all-fast-tier RocksDB | Sweep 5 to 50 percent coverage and Zipf 0.8 to 2.0; retain the resident envelope where the declared working set fits; report CPU, cache hits, physical bytes, amplification, and object attribution | Honest RAM and SSD sizing |
+| 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Direct object range GET and full hydration | One bounded metadata path plus one to three data requests; bytes and decode bounded by requested blocks rather than database size; no LIST authority | Disposable-worker and cold-read claims |
+| 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Indexed row objects and direct DataFusion base scan | Preserve row-class point cost, improve projected scans materially, bound resident index and compaction amplification, and recover one authenticated closure | Durable physical-layout choice |
+| 4 | Native three-node replicated commit | `[EVALUATING]` | Same-durability TiKV-like or FoundationDB commit path | One-range p99 within 1.25x control, exact retries and conflicts, zero object operations in the normal commit trace, and quorum acknowledgement on independent media | Single-range transactional cell |
+| 5 | Objectification, brownout, host loss, and local-media bounds | `[EVALUATING]` | Unfrontiered journal and full-replica recovery controls | Stable `C - O` lag at admitted ingest, bounded retained txLog, at most 8x local physical state, exact recovery after one host loss, and explicit backpressure during object-store failure | Production-credible durability and recovery |
+| 6 | Metadata-scale branch and lazy empty-worker reopen | `[EVALUATING]` | Physical-copy branch and full local restore | Branch time and initial bytes independent of parent size; first exact read depends on metadata and requested blocks, not complete database hydration | Branching and elastic-compute claims |
+| 7 | Multi-range cell throughput and transactions | `[PROPOSED]` | One range group under the same cell resources | Additional range groups increase throughput until a named resource saturates; cross-range transactions remain strict-serializable and never expose a partial outcome | Distributed application surfaces |
+| 8 | RAM serving profile and SSD/RAM handoff | `[PROPOSED]` | Admitted SSD profile with the same history and durability | At least 20 percent improvement in one predeclared end-to-end metric; bounded memory, exact handoff, and no false durability claim | Lowest-latency serving option |
+| 9 | `okv-fabric` log, Redis, search, and virtual-filesystem workloads | `[PROPOSED]` | Redpanda or Kafka, Redis, a dedicated search engine, and Tigris or S3 metadata as lane-specific controls | Semantic oracle first, then a separate latency, throughput, retention, or branch curve for each surface; no blended adapter score | Credible application API fabric |
+| 10 | PostgreSQL page-storage OLTP | `[PROPOSED]` | The same upstream PostgreSQL revision on local storage and a Neon-like storage separation control | First prototype within 2x control; resident steady-state target within 1.25x; exact crash recovery with no double WAL or unbounded page amplification | ZebraDB relational surface |
+| 11 | DataFusion base-plus-tail HTAP | `[EVALUATING]` | Base-only DataFusion over the same columnar objects | Exact snapshot; tail at or below 1 percent adds at most 20 percent; materialization intervenes before 10 percent; mixed OLTP load has an explicit interference budget | ZebraDB HTAP claim |
+| 12 | Complete-stack economics and operational envelope | `[PROPOSED]` | TiKV or PostgreSQL plus object tier, and the relevant specialist for each workload | Publish every measured loss and at least one material branch, recovery, footprint, elasticity, HTAP, or cost advantage; select the best implementation profile per layer | Public positioning and production profiles |
+
+The critical path is rows 1 through 7. Row 8 is optional and cannot delay the
+SSD-backed cell. Rows 9 through 11 begin only after the cell contract is stable
+enough that adapter work cannot conceal kernel defects. Row 12 selects profiles
+and documents tradeoffs; it is not a stop decision for the project.
+
+The first executable sequence is:
+
+```text
+T27 cache-pressure curve
+  -> GCS cold point and physical-layout curves
+  -> independent-media replicated commit
+  -> objectification debt, host loss, and media bounds
+  -> branch and lazy reopen
+  -> multi-range cell
+  -> RAM profile
+  -> okv-fabric surfaces
+  -> PostgreSQL OLTP
+  -> exact DataFusion HTAP
+  -> comparative economics
+```
 
 ### What the goal optimizes for
 
@@ -347,9 +395,10 @@ preserve every acknowledged commit within the published RPO contract.
 
 ### S4. Make serving disposable
 
-Status: `[EVALUATING]` for publication and disposable read serving. Complete
-single-range materialization recovery is `[VERIFIED]` on the R0 mechanism; its
-steady-state p99 is not admitted.
+Status: `[EVALUATING]` for the complete publication and disposable-serving
+lifecycle. Single-range materialization recovery and resident point reads
+through 32 clients are `[VERIFIED]` on R0. Cache pressure and the real-GCS lazy
+reopen curve remain open.
 
 Separate read/materialization workers from permanent bytes. Start with an empty
 cache and demonstrate bounded logical readiness independent of dataset size.
@@ -363,8 +412,9 @@ response is lost, then replays and verifies every named child before root
 visibility. The fourth recovers the exact retained `Publish` outcome after its
 reply, publisher, and accepting authority leader are lost, then proves exact
 retry causes no second authority or object effect. Multipart residue, repeated
-unknowns, abandoned work, sweeper recovery, empty-disk read serving, and bounded
-readiness remain open.
+unknowns, abandoned work, sweeper recovery, independent-media empty-disk read
+serving, and bounded readiness remain open. The public range now has bounded
+local and GCS recovery diagnostics, but not a clean cold-read admission receipt.
 
 Gate 3: complete worker loss does not require durable dataset copy.
 
@@ -394,7 +444,9 @@ and passes a declared regression subset with objectKV as its durable backing.
 
 ### S7. Build the ZebraDB HTAP path
 
-Status: `[FUTURE]`.
+Status: `[EVALUATING]` for the exact model, streaming overlay, and direct
+columnar range source; the complete PostgreSQL-derived path remains
+`[PROPOSED]`.
 
 Map records and indexes to atomic objectKV transactions. Materialize Parquet from
 the authoritative commit history with explicit per-partition coverage versions.
@@ -411,5 +463,7 @@ the current dual-system path enough to justify owning the substrate.
 
 The core intent still holds, but the north star is sharper than the source memo:
 full PostgreSQL compute is now an explicit consumer program. It does not change
-the first gate. If Gate 1 fails, stop rather than compensating with distribution
-or PostgreSQL work.
+the first gate. If a mechanism misses its gate, stop advancing that mechanism,
+record the result, and redesign or select another provider profile rather than
+compensating with distribution or PostgreSQL work. The objectKV program
+continues.

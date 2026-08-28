@@ -1340,3 +1340,40 @@ pressure.
 
 Evidence: RFC-0042 and
 `docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md`.
+
+## D58. Sequence performance admission from storage geometry upward
+
+Status: `[PROPOSED]`, 2026-08-27.
+
+Decision: light workload metrics in dependency order. After the verified
+resident read curve, run cache pressure, GCS cold-point and physical-layout
+geometry, independent-media replicated commit, objectification and recovery
+bounds, metadata branching and lazy reopen, multi-range scale, the optional RAM
+profile, `okv-fabric` workloads, PostgreSQL OLTP, exact DataFusion HTAP, and
+complete-stack economics. Every workload keeps its own primary metric,
+specialist control, correctness gates, and receipt.
+
+```text
+resident read
+  -> cache and object geometry
+  -> replicated commit and bounded recovery
+  -> branch and multi-range cell
+  -> optional RAM
+  -> application surfaces
+  -> PostgreSQL and HTAP
+  -> comparative production envelope
+```
+
+Optimizes for: exposing storage and transaction bottlenecks before consumer
+work hides them, preserving lane-specific comparisons, and generating the most
+architectural learning before expensive distributed or compatibility work.
+
+Gives up: building the most visible application surface next. Redis,
+PostgreSQL, and HTAP performance work waits for the kernel boundary it is meant
+to measure. RAM remains an optional optimization and does not delay the
+SSD-backed cell.
+
+A missed curve causes a mechanism or provider-profile redesign and a new
+receipt. It does not stop the objectKV program. The canonical matrix and task
+sequence are `docs/BOOTSTRAP-PLAN.md` and T27 through T37 in
+`docs/CONTRIBUTOR-BOARD.md`.

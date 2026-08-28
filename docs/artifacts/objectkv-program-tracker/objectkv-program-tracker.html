@@ -189,7 +189,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
       <span>objectKV</span>
       <span>Technical program tracker</span>
       <span>Branch research/native-matched-topology-r0</span>
-      <span>Base e478806</span>
+      <span>Base 1f33ea0</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
     <p class="lede">The native resident boundary is verified through 32 concurrent clients on GCP R0. Across both orders and concurrency points, it retained 87.34% through 89.06% of direct RocksDB throughput and kept p99 between 1.107x and 1.184x control. Cache pressure, multi-range behavior, and replicated commit remain evaluating.</p>
@@ -226,7 +226,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
 <a href="#decisions"><span>10</span>Active decisions</a>
 <a href="#work-log"><span>11</span>Work in progress log</a>
 <a href="#next-review"><span>12</span>Next architecture review</a></nav>
-      <p class="side-note">Generated 2026-08-27 20:26 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
+      <p class="side-note">Generated 2026-08-28 03:43 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
     </aside>
 
     <article class="content">
@@ -358,8 +358,31 @@ Arrow batches at T</pre></article>
           <article class="curve"><div class="curve-head"><h3>Durable commit plus objectification</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Same-durability one-entry path at 37.369 outcomes/s and 2,169.209 ms maximum p99</dd><dt>Current</dt><dd>G4.10b at 1,075.343 outcomes/s, 104.274 ms maximum p99, 28.776x paired gain, exact ObjectState(O) plus txLog(O,C] recovery</dd><dt>Open</dt><dd>Fairness, clean source, OTel, independent media, remote objects, repeated-frontier convergence, and physical journal bytes</dd></dl></article>
           <article class="curve"><div class="curve-head"><h3>Empty-worker reopen</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Full range hydration under the same authority and tail</dd><dt>Current</dt><dd>G4.4 uses the actual retained OpenRaft stream, two catch-up rounds, 120.183 ms p99, and zero anomalies</dd><dt>Open</dt><dd>Independent hosts, admitted write-rate convergence, and cloud</dd></dl></article>
           <article class="curve"><div class="curve-head"><h3>Exact HTAP overlay</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Base-only DataFusion query</dd><dt>Target</dt><dd>Tail ≤1% adds ≤20%; materialize before 10%</dd><dt>Current</dt><dd>Exact local fixture, four buffered rows, 5,518 bytes, zero spill</dd></dl></article>
-          <article class="curve"><div class="curve-head"><h3>Product economics</h3><span class="status proposed">PROPOSED</span></div><dl><dt>Control</dt><dd>TiKV or PostgreSQL plus object tier</dd><dt>Target</dt><dd>Material branch, restore, footprint, HTAP, or cost win in one workload</dd><dt>Pivot</dt><dd>Select an incumbent transaction profile when native ownership adds cost without leverage.</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Projected columnar scan</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Indexed row objects and base-only DataFusion</dd><dt>Current</dt><dd>2.544M source rows/s locally; 4.718x indexed-row projected scan; zero opaque-payload reads</dd><dt>Open</dt><dd>Clean GCS, OTel, exact live-tail composition, and complete-query memory</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>PostgreSQL resident OLTP</h3><span class="status proposed">PROPOSED</span></div><dl><dt>Control</dt><dd>The same upstream PostgreSQL revision on local storage</dd><dt>Target</dt><dd>First page-adapter prototype within 2x; resident steady-state within 1.25x</dd><dt>Open</dt><dd>Page bridge, crash recovery, synchronization accounting, and double-WAL elimination</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Product economics</h3><span class="status proposed">PROPOSED</span></div><dl><dt>Control</dt><dd>TiKV or PostgreSQL plus object tier, plus the specialist for each application lane</dd><dt>Target</dt><dd>Publish every loss and any material branch, restore, footprint, HTAP, elasticity, or cost advantage</dd><dt>Decision</dt><dd>Select the strongest implementation profile per layer. A mechanism loss does not stop objectKV.</dd></dl></article>
         </div>
+
+        <h3>Metric activation order</h3>
+        <p>The order follows dependency and architectural risk. Upper-layer throughput cannot verify a missing kernel property.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Order</th><th>Metric surface</th><th>Status</th><th>Admission signal</th><th>Unlocks</th></tr></thead>
+          <tbody>
+            <tr><td>0</td><td>Resident NVMe reads</td><td><span class="status verified">VERIFIED</span></td><td>At least 0.80x RocksDB throughput and at most 1.20x p99 through 32 clients</td><td>Cache pressure</td></tr>
+            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status proposed">PROPOSED</span></td><td>5% to 50% coverage; Zipf 0.8 to 2.0; CPU, cache, physical-byte, amplification, and object attribution</td><td>Honest RAM and SSD sizing</td></tr>
+            <tr><td>2</td><td>GCS cold point and refill</td><td><span class="status evaluating">EVALUATING</span></td><td>One bounded metadata path plus one to three named data requests, independent of database size</td><td>Disposable-worker claims</td></tr>
+            <tr><td>3</td><td>Point and projected-scan object geometry</td><td><span class="status evaluating">EVALUATING</span></td><td>Row-class point cost, material scan gain, bounded index and compaction amplification, exact closure recovery</td><td>Physical-layout selection</td></tr>
+            <tr><td>4</td><td>Independent-media replicated commit</td><td><span class="status evaluating">EVALUATING</span></td><td>One-range p99 within 1.25x same-durability control; exact retries; no normal object operation</td><td>Single-range transaction cell</td></tr>
+            <tr><td>5</td><td>Objectification debt, host loss, and local media</td><td><span class="status evaluating">EVALUATING</span></td><td>Stable lag, bounded txLog, at most 8x local state, exact host-loss recovery, declared backpressure</td><td>Production-credible recovery</td></tr>
+            <tr><td>6</td><td>Branch and lazy empty-worker reopen</td><td><span class="status evaluating">EVALUATING</span></td><td>Metadata-scale branch; first exact read without complete hydration</td><td>Branching and elastic compute</td></tr>
+            <tr><td>7</td><td>Multi-range cell</td><td><span class="status proposed">PROPOSED</span></td><td>Throughput grows by range group until a named bottleneck; strict-serializable cross-range outcomes</td><td>Distributed application surfaces</td></tr>
+            <tr><td>8</td><td>RAM serving and profile handoff</td><td><span class="status proposed">PROPOSED</span></td><td>At least 20% end-to-end improvement; bounded memory; exact bidirectional handoff</td><td>Optional lowest-latency profile</td></tr>
+            <tr><td>9</td><td>okv-fabric log, Redis, search, and filesystem</td><td><span class="status proposed">PROPOSED</span></td><td>One semantic oracle and one specialist performance control per surface</td><td>Application API fabric</td></tr>
+            <tr><td>10</td><td>PostgreSQL page OLTP</td><td><span class="status proposed">PROPOSED</span></td><td>Within 2x initially and 1.25x resident; exact crash recovery and bounded amplification</td><td>ZebraDB relational surface</td></tr>
+            <tr><td>11</td><td>DataFusion exact HTAP</td><td><span class="status evaluating">EVALUATING</span></td><td>Exact snapshot; tail ≤1% adds ≤20%; materialize before 10%; bounded OLTP interference</td><td>ZebraDB HTAP claim</td></tr>
+            <tr><td>12</td><td>Comparative production envelope</td><td><span class="status proposed">PROPOSED</span></td><td>Matched workload, topology, durability, price, and failure-surface results, including losses</td><td>Public positioning and production profiles</td></tr>
+          </tbody>
+        </table></div>
       </section>
 
       <section>
@@ -432,6 +455,7 @@ Arrow batches at T</pre></article>
       <section>
         <h2 id="work-log"><span class="section-id">[11]</span>Work in progress log</h2>
         <div class="log">
+          <article class="log-entry"><time>2026-08-27</time><h3>Performance activation order recorded</h3><p>The project plan now sequences evidence from resident cache pressure through GCS cold reads, object layout, replicated commit, objectification and recovery, branching, multi-range behavior, optional RAM, okv-fabric workloads, PostgreSQL OLTP, exact HTAP, and the comparative production envelope. T27 through T37 own those gates. A failed mechanism redirects that layer; it does not stop the objectKV program.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1.1 concurrent native reads pass on GCP R0</h3><p>At 8 clients, native throughput was 0.8798x and 0.8734x control; p99 was 1.1842x and 1.1220x. At 32 clients, throughput was 0.8803x and 0.8906x; p99 was 1.1072x and 1.1478x. All four comparisons passed, all eight run IDs appeared in OTel logs, metrics, and traces, 550.9 MB of scratch objects were removed, and all nine leased resources were destroyed.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>Matched-topology native GP3.1 passes its envelope</h3><p>Across 15 samples per subject and order, native retained 90.89% and 91.97% of direct RocksDB throughput. Native p99 was 8.66% and 8.68% lower. All 64 hard-gate evaluations passed, every run appeared in traces, metrics, and logs, and the private GCP environment was fully torn down.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>First unmatched GP3.1 control rejected as a program decision</h3><p>The earlier candidate retained 84.11% and 82.68% of a bare direct RocksDB control and missed p99 at 1.210x and 1.272x. D56 supersedes the D52 pivot because the control did not pay for the recovered topology, authority processes, and owned-value boundary carried by the native subject.</p></article>
@@ -455,12 +479,12 @@ Arrow batches at T</pre></article>
 
       <section>
         <h2 id="next-review"><span class="section-id">[12]</span>Next architecture review</h2>
-        <p>The next review starts with one measured question: can coverage checks, overlay lookup, range location, dynamic dispatch, and value copying be reduced enough for the public read path to stay within 20% of direct RocksDB? The comparator must also enforce the p99 ratio directly, and the rerun needs reversed order for drift. If that focused cycle still misses, keep object publication, branching, log, and HTAP leverage above RocksDB or TiKV instead of owning the serving wrapper. RAM, independent-host commit, PostgreSQL, and full Cell v0 integration remain downstream of that decision.</p>
+        <p>The next review starts with T27: where does the verified resident read curve bend as cache coverage falls and skew changes? The receipt must name the block-cache budget, reusable larger-than-cache fixture, CPU per read, hit ratio, physical bytes, read amplification, object requests, throughput, and p99. That result freezes the GCS cold-point and object-layout run. Independent-media replicated commit follows. RAM is optional and cannot delay the SSD-backed cell; PostgreSQL and HTAP remain downstream of the single-range and multi-range cell contracts.</p>
       </section>
     </article>
   </div>
 
-  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-27 20:26 UTC</span></footer>
+  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-28 03:43 UTC</span></footer>
 </main>
 
 </body>

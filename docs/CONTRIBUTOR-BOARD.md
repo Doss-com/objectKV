@@ -593,6 +593,103 @@ become one GitHub issue.
 - Dependency: T26 clean receipt. Do not combine this with the first concurrency
   gate.
 
+### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
+
+- Scope: reuse one content-addressed larger-than-cache fixture for indexed cold
+  points, cache refill, row control, typed projection, and direct DataFusion
+  scan lanes on the R0 runner.
+- Done when: cold reads use bounded named requests and bytes independent of
+  database size; point and projected-scan lanes each receive a clean paired
+  GCS receipt with required OTel; complete split-closure recovery passes.
+- Dependency: T27 freezes the cache budget and fixture identity. The two
+  performance lanes remain separate even when they share provisioning.
+
+### T29. Verify native replicated commit on independent media `[EVALUATING]`
+
+- Scope: move the retained 32-item commit-proxy mechanism onto three machines
+  with independent stable media and compare it with a same-durability control.
+- Done when: one-range commit p99 is at most 1.25x control, acknowledged retries
+  and conflicts recover exactly after leader and host loss, normal commits issue
+  zero object operations, and all workload identities appear in OTel.
+- Dependency: T28 fixes the permanent object representation used by recovery.
+
+### T30. Bound objectification debt and local recovery media `[EVALUATING]`
+
+- Scope: overlap sustained commit load with object publication, object-store
+  slowdown and outage, state snapshots, txLog reclamation, and one-host loss.
+- Done when: `C - O` converges after recovery, backpressure activates at the
+  declared bound, acknowledged state remains exact, and complete local physical
+  state stays at or below 8x logical live bytes.
+- Dependency: T29 independent-media commit receipt.
+
+### T31. Verify metadata branching and lazy empty-worker reopen `[EVALUATING]`
+
+- Scope: compose authenticated object roots, txLog suffixes, copy-on-write
+  branches, and empty serving workers under the admitted durability topology.
+- Done when: branch time and initial durable bytes do not scale with parent
+  database size; the first exact read fetches bounded metadata and requested
+  blocks instead of hydrating the complete range.
+- Dependency: T30 establishes safe frontier advancement and media reclamation.
+
+### T32. Verify one multi-range cell `[PROPOSED]`
+
+- Scope: add range routing and independent range groups, then execute bounded
+  tenant transactions across multiple groups through the strict-serializable
+  oracle.
+- Done when: throughput rises with additional groups until a named resource
+  saturates; failover never exposes a partial transaction; routing and
+  generation changes fence stale owners.
+- Dependency: T31 closes the single-range lifecycle and recovery contract.
+
+### T33. Admit or reshape the RAM serving profile `[PROPOSED]`
+
+- Scope: implement DRAM serving behind the same `ServingImage` contract and
+  compare it with the admitted SSD profile under identical history, durability,
+  RPC, concurrency, and recovery conditions.
+- Done when: RAM improves one predeclared end-to-end metric by at least 20
+  percent, respects its byte budget, survives bidirectional handoff, and never
+  reports volatile replication as durable commit.
+- Dependency: T32 produces the stable cell boundary. RAM is optional and does
+  not block the SSD-backed cell.
+
+### T34. Verify `okv-fabric` workload lanes `[PROPOSED]`
+
+- Scope: expose application logs, the declared Redis subset, version-aligned
+  inverted search, and object-catalog or virtual-filesystem metadata through one
+  version and transaction fabric.
+- Done when: each surface passes its independent semantic oracle and one frozen
+  performance lane against its appropriate specialist control. No blended
+  adapter score is allowed.
+- Dependency: T32. T33 is required only for a lane that explicitly selects RAM.
+
+### T35. Verify PostgreSQL page-storage OLTP `[PROPOSED]`
+
+- Scope: run the pinned upstream PostgreSQL behavior and crash suites through a
+  page-storage adapter over `okv-fabric`.
+- Done when: the first prototype is within 2x local PostgreSQL, the resident
+  target is within 1.25x, page and synchronization amplification are bounded,
+  and restart does not double-apply WAL or page state.
+- Dependency: T34 proves that the fabric boundary supports real consumers.
+
+### T36. Verify exact DataFusion HTAP `[EVALUATING]`
+
+- Scope: execute one PostgreSQL-derived columnar base plus its complete durable
+  analytical tail at one target version, including mixed OLTP load.
+- Done when: results are exact; a tail at or below 1 percent adds at most 20
+  percent over base-only DataFusion; materialization intervenes before 10
+  percent; OLTP and OLAP interference remains inside declared budgets.
+- Dependency: T35 supplies the relational history and schema boundary.
+
+### T37. Publish the comparative production envelope `[PROPOSED]`
+
+- Scope: compare the complete path with TiKV or PostgreSQL plus object tier and
+  with the relevant specialist for every `okv-fabric` workload.
+- Done when: the report includes latency, throughput, tail behavior, local and
+  object bytes, recovery, branch, operational failure surface, and cost for
+  every lane, including losses. It selects implementation profiles rather than
+  deciding whether objectKV continues.
+- Dependency: T36 and the complete immutable receipt chain.
+
 ## Opens after Gate 1
 
 - Promote the externally versioned SlateDB spike into the stable engine contract.

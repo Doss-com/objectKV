@@ -92,6 +92,35 @@ control in both process orders. The eight results contain 120 samples and
 object operations, every run ID occurs in all three OTel signals, 550,912,512
 scratch bytes were removed, and all nine leased resources were destroyed.
 
+## Performance activation order
+
+The canonical workload matrix, target bands, controls, dependencies, and
+unlock conditions now live in
+[`docs/BOOTSTRAP-PLAN.md`](BOOTSTRAP-PLAN.md#performance-activation-matrix).
+The tracker and contributor board mirror that sequence rather than maintaining
+a second independent plan.
+
+The current critical path is:
+
+```text
+cache pressure
+  -> GCS cold point and object-layout geometry
+  -> independent-media replicated commit
+  -> objectification debt, host loss, and bounded local media
+  -> metadata branch and lazy reopen
+  -> multi-range cell
+  -> RAM profile
+  -> okv-fabric workloads
+  -> PostgreSQL OLTP
+  -> DataFusion HTAP
+  -> comparative economics
+```
+
+Every step keeps one primary metric and its own correctness and resource hard
+gates. A missed curve causes a mechanism or provider-profile redesign, not a
+stop decision for objectKV. The immediate owned task is T27, the cache-pressure
+curve.
+
 ## Current checkpoint
 
 `[VERIFIED]` The program has exact model, local stable-file, pinned local MinIO,
