@@ -8458,6 +8458,14 @@ fn run_object_fixture_resident_process(
                     ("lane", &workload.lane),
                     ("workload", &workload.id),
                     ("oracle", "object-fixture-resident-process-v1"),
+                    (
+                        "anomaly.class",
+                        if exact {
+                            "none"
+                        } else {
+                            "object-fixture-resident-process"
+                        },
+                    ),
                 ]),
             },
         ],
