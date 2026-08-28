@@ -1,0 +1,142 @@
+{
+  "artifact_refs": [
+    "okv-eval://object-fixture-contract-v1/shared_mutable_image_poison/1103/4eb01bc8faf4d61d7f9006decc8de7e16e8edf8eb54523651c83a2cf1e03014d",
+    "/tmp/okv-receipts/object-fixture-shared-mutable-image.json"
+  ],
+  "backend": "object-store-local-fs+data-openraft-local-process+fixture-contract",
+  "batch_id": "3e54eb48-b9cb-4677-a901-14c2edddac54",
+  "budget": {
+    "kind": "seconds",
+    "limit": 300.0,
+    "observed": 0.19425459
+  },
+  "candidate_commit": "fc8189e30c2e46d79cc99f3c2068b3cecd8e93e3",
+  "created_at": "2026-08-28T22:31:54.051746094+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "one_empty_anchor_record",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "zero_base_values_in_txlog",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "closure_exact_at_anchor",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "descriptor_deterministic",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "immutable_put_reuse_verified",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "canonical_tail_exact",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "resident_images_distinct",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "resident_logical_image_equal",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "fresh_subject_roots",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "corrupt_descriptor_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "mutated_anchor_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "tail_mismatch_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=shared_mutable_image_poison",
+      "id": "shared_mutable_image_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    }
+  ],
+  "lane": "object-fixture-contract",
+  "parent_commit": "87ec7f3179f369a82fdd773cae5b501b429aab27",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.00002173399999999548,
+    "median": 0.194232856,
+    "name": "okv.eval.operation.duration",
+    "samples": [
+      0.194211122,
+      0.19425459
+    ],
+    "statistic": "maximum",
+    "unit": "s",
+    "value": 0.19425459
+  },
+  "profile": {
+    "evidence_class": "contract",
+    "hash": "944d23aa7262ee431faf568eef62813cdec155607c272400b924e25768d32abf",
+    "id": "local-contract",
+    "lockfile_hash": "85fd5d79ab99965dd3eac6fbba955d57045de2b48e4d2a4bc3ab1d30e2698201",
+    "machine": "x86_64",
+    "rustc": "unknown"
+  },
+  "reason": "all configured hard gates passed",
+  "run_id": "3e54eb48-b9cb-4677-a901-14c2edddac54",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "object_fixture.logical_bytes": 4194304.0,
+    "object_fixture.object_bytes": 4306945.0,
+    "object_fixture.verification_seconds": 0.014559266,
+    "object_fixture.wall_seconds": 0.194211122,
+    "operation.duration.median": 0.19425459
+  },
+  "seeds": [
+    1103
+  ],
+  "suite": "object-fixture-contract-v1",
+  "suite_hash": "7061fc99c12b2e063639639a72c3850e85dabac432d767775070924c385bea60",
+  "verdict": "keep"
+}

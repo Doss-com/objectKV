@@ -607,8 +607,9 @@ become one GitHub issue.
   `[VERIFIED]` matched direct-read option parity and non-zero Linux physical
   attribution on one GCP R0 smoke sample; `[VERIFIED]` RFC-0044 phase-0 empty
   anchor across 20 fresh authorities plus the changed-identity bypass poison;
-  `[CODE-COMPLETE]` zero-base-txLog, exact-tail, closure-verification, and fresh
-  subject-image contracts; `[EVALUATING]` descriptor implementation and one
+  `[VERIFIED]` local 4 MiB zero-base-txLog, exact-tail, complete-closure,
+  semantic subject-image identity, and four-poison contracts;
+  `[EVALUATING]` actual fresh-process native/control image construction and one
   persisted fixture reused across candidate, control, and both process orders;
   `[PROPOSED]` 64 MiB setup preflight and frozen 1 GiB paired GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
@@ -620,7 +621,9 @@ become one GitHub issue.
   T27 remains `[EVALUATING]` because that result is one smoke sample. The 1 GiB
   coverage and skew curve still requires one shared fixture and AB/BA workload
   receipts. The phase-0 bootstrap receipt is under
-  `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`.
+  `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the
+  phase-1 identity and closure receipt is under
+  `docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/`.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 

@@ -1,6 +1,6 @@
 # RFC-0044: Content-addressed object-frontier fixtures
 
-- Status: `[PROPOSED]`
+- Status: `[EVALUATING]`, with phases 0 and 1 `[VERIFIED]`
 - Authors: DOSS
 - Created: 2026-08-28
 - Scope: T27 fixture construction, reuse, and transaction-plane isolation

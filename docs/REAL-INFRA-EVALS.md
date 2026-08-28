@@ -256,6 +256,19 @@ The 2.66 MiB evidence set and complete source bundle are durable under
 `gs://doss-objectkv-dev-okv-evals/runs/rfc0044-anchor-r0-20260828/`. See
 `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/README.md`.
 
+`[VERIFIED]` A tenth bounded R0 execution verified RFC-0044 phase 1 from clean
+source `fc8189e30c2e46d79cc99f3c2068b3cecd8e93e3`. One 4 MiB logical base
+reconstructed 4,096 exact records from 11 immutable objects totaling 4,306,945
+bytes at anchor `O=2`. The fresh authority retained one empty anchor, zero
+anchor mutations, zero anchor live keys, zero base-value records, and one
+exact seven-record tail. Native and control received different semantic image
+IDs and the same complete tagged logical image digest. The candidate plus
+corrupt-descriptor, mutated-anchor, tail-mismatch, and shared-root poisons all
+returned `keep`; every formal hard gate passed. This local-filesystem contract
+did not require OTel and does not admit a performance point or persisted GCS
+reuse. See
+`docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7
@@ -388,7 +401,8 @@ zero matching instances, disks, firewall rules, subnetworks, or routers remain.
 
 The next receipt sequence remains incremental:
 
-1. freeze the cache budget and reusable larger-than-cache fixture;
+1. build actual fresh-process native and control images from the verified 4
+   MiB fixture, then persist the same fixture contract in GCS;
 2. add CPU time, physical bytes, block-cache hits, read amplification, and
    object-fetch attribution;
 3. run warm, mixed, and eviction-heavy points in both process orders;

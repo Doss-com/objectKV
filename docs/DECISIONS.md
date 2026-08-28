@@ -1480,7 +1480,7 @@ Evidence:
 
 ## D62. Bootstrap evaluation authorities at the object frontier
 
-Status: `[EVALUATING]`, with `[VERIFIED]` phase-0 anchor, 2026-08-28.
+Status: `[EVALUATING]`, with phases 0 and 1 `[VERIFIED]`, 2026-08-28.
 
 Decision: build one content-addressed logical object fixture, establish its
 covered-through version with one canonical empty transaction on each fresh
@@ -1516,3 +1516,10 @@ the 64 MiB setup measurements in
 The phase-0 candidate established `O=2` across 20 fresh authorities and the
 changed-identity bypass poison was detected. Its clean GCP receipt is in
 `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/README.md`.
+Phase 1 reconstructed a 4 MiB logical base from 11 content-addressed objects,
+kept all base values out of txLog, bound one exact seven-record suffix, and
+proved distinct semantic native/control image identities over one equal
+complete logical image. The candidate and four poisons passed from clean
+source. This does not yet verify physical resident image construction or
+persisted reuse. Its receipt is in
+`docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/README.md`.

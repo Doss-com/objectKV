@@ -151,6 +151,19 @@ returned `keep`. This verifies the bootstrap boundary only; T27 remains
 persisted-fixture preflight. Evidence is in
 [`docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/README.md).
 
+`[VERIFIED]` RFC-0044 phase 1 ran from clean source
+`fc8189e30c2e46d79cc99f3c2068b3cecd8e93e3` on one disposable GCP builder.
+The local 4 MiB base reconstructed 4,096 exact records from 11 immutable
+objects at `O=2`; the authority retained one empty anchor, zero anchor
+mutations, zero anchor live keys, and zero base-value records. One exact
+seven-record tail produced distinct native and control semantic image IDs and
+one equal complete logical image digest. The candidate and four descriptor,
+anchor, tail, and shared-root poisons all returned `keep` with no failing hard
+gate. Local temporary storage reports no persisted cross-subject reuse. This
+is semantic setup evidence, not a performance point. The next slice builds the
+actual fresh-process resident images before GCS persistence. Evidence is in
+[`docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
