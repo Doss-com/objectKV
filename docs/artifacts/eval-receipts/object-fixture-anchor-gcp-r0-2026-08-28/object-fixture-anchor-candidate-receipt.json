@@ -1,0 +1,111 @@
+{
+  "artifact_refs": [
+    "okv-eval://object-fixture-anchor-v1/candidate/1103/97e56fd23766a9e28cd47fd48fb90a043fe3fce39861502c10f74aa194ffa643",
+    "/tmp/object-fixture-anchor-candidate-receipt.json"
+  ],
+  "backend": "data-openraft-local-process+fixture-anchor",
+  "batch_id": "ab97d0be-e755-491f-bae5-010e91463cfd",
+  "budget": {
+    "kind": "seconds",
+    "limit": 300.0,
+    "observed": 0.774595766
+  },
+  "candidate_commit": "30f65b566547cbbe151a07fa51eba21df7866ee3",
+  "created_at": "2026-08-28T21:59:48.625708520+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate,fresh_authorities=20",
+      "id": "twenty_fresh_authorities_share_anchor",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "one_empty_anchor_record_per_authority",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "anchor_mutations_zero",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "anchor_live_keys_zero",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "exact_retry_after_lost_response",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "changed_identity_guard_rejected",
+      "status": "pass"
+    },
+    {
+      "detail": "mode=candidate",
+      "id": "second_identity_bypass_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "build_profile=release",
+      "id": "release_build",
+      "status": "pass"
+    }
+  ],
+  "lane": "object-fixture-anchor",
+  "parent_commit": "8a68adc9af67910b2470fd8d50031d42a56bc7a7",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.000014018000000004527,
+    "median": 0.774581748,
+    "name": "okv.eval.operation.duration",
+    "samples": [
+      0.77456773,
+      0.774595766
+    ],
+    "statistic": "maximum",
+    "unit": "s",
+    "value": 0.774595766
+  },
+  "profile": {
+    "evidence_class": "contract",
+    "hash": "4e39d634d273d51f8cbd81b924fba7bffae0edcb45199aec6a48d4ae3eda2834",
+    "id": "local-process",
+    "lockfile_hash": "85fd5d79ab99965dd3eac6fbba955d57045de2b48e4d2a4bc3ab1d30e2698201",
+    "machine": "x86_64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "all configured hard gates passed",
+  "run_id": "ab97d0be-e755-491f-bae5-010e91463cfd",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "fixture_anchor.authority_processes_started": 60.0,
+    "fixture_anchor.fresh_authorities": 20.0,
+    "fixture_anchor.wall_seconds": 0.77456773,
+    "operation.duration.median": 0.774595766
+  },
+  "seeds": [
+    1103
+  ],
+  "suite": "object-fixture-anchor-v1",
+  "suite_hash": "3069e1ccc7930723c8ca908ebd2f955f4dfa1223cdabdabeed8620941dd94f6a",
+  "verdict": "keep"
+}

@@ -243,6 +243,19 @@ order, and no required OTel correlation. Eight evidence objects totaling
 MiB provider cache were removed. See
 `docs/artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md`.
 
+`[VERIFIED]` A ninth bounded R0 execution verified the RFC-0044 empty-anchor
+precondition before fixture descriptor work. A clean release binary started
+20 independent fresh transaction-authority clusters, 60 real OpenRaft
+processes total. All assigned `O=2`; each retained one empty record, zero
+mutations, and zero live keys. The evaluator observed every commit after its
+reply was dropped and before retrying, then recovered the exact original
+result. A changed-identity bypass created a second record and the poison oracle
+detected it. Both schema-validated receipts returned `keep`. This semantic
+contract profile did not require OTel and does not admit a performance point.
+The 2.66 MiB evidence set and complete source bundle are durable under
+`gs://doss-objectkv-dev-okv-evals/runs/rfc0044-anchor-r0-20260828/`. See
+`docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7

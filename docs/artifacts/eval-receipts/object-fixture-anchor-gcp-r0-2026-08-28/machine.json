@@ -1,0 +1,28 @@
+{
+  "name": "objectkv-anchor-rfc0044-r0",
+  "id": "2138811068376399707",
+  "zone": "https://www.googleapis.com/compute/v1/projects/doss-objectkv-dev/zones/us-central1-a",
+  "machineType": "https://www.googleapis.com/compute/v1/projects/doss-objectkv-dev/zones/us-central1-a/machineTypes/c3-highcpu-22",
+  "status": "RUNNING",
+  "creationTimestamp": "2026-08-28T14:46:28.270-07:00",
+  "lastStartTimestamp": "2026-08-28T14:46:37.898-07:00",
+  "labels": {
+    "project": "objectkv",
+    "purpose": "rfc0044-anchor"
+  },
+  "disks": [
+    {
+      "boot": true,
+      "type": "PERSISTENT",
+      "diskSizeGb": "60",
+      "source": "https://www.googleapis.com/compute/v1/projects/doss-objectkv-dev/zones/us-central1-a/disks/objectkv-anchor-rfc0044-r0"
+    }
+  ],
+  "networkInterfaces": [
+    {
+      "network": "https://www.googleapis.com/compute/v1/projects/doss-objectkv-dev/global/networks/objectkv-eval",
+      "subnetwork": "https://www.googleapis.com/compute/v1/projects/doss-objectkv-dev/regions/us-central1/subnetworks/objectkv-eval-us-central1",
+      "networkIP": "10.41.0.7"
+    }
+  ]
+}

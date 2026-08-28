@@ -1480,7 +1480,7 @@ Evidence:
 
 ## D62. Bootstrap evaluation authorities at the object frontier
 
-Status: `[PROPOSED]`, 2026-08-28.
+Status: `[EVALUATING]`, with `[VERIFIED]` phase-0 anchor, 2026-08-28.
 
 Decision: build one content-addressed logical object fixture, establish its
 covered-through version with one canonical empty transaction on each fresh
@@ -1513,3 +1513,6 @@ Evidence: RFC-0044,
 `docs/research/reviews/fable-object-frontier-fixture-review-2026-08-28.md`, and
 the 64 MiB setup measurements in
 `docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md`.
+The phase-0 candidate established `O=2` across 20 fresh authorities and the
+changed-identity bypass poison was detected. Its clean GCP receipt is in
+`docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/README.md`.

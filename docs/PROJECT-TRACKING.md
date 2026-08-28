@@ -139,6 +139,18 @@ and machine identity are durable in GCS; all nine leased resources and the 116
 MiB provider cache were removed. Evidence is in
 [`docs/artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md).
 
+`[VERIFIED]` The RFC-0044 fixture-bootstrap falsifier ran from clean source
+`30f65b566547cbbe151a07fa51eba21df7866ee3` on one disposable GCP host. Twenty
+fresh transaction-authority clusters started 60 real OpenRaft processes and
+all assigned `O=2`. Every cluster retained one empty record, zero mutations,
+and zero live keys; the evaluator observed the commit after dropping its reply
+and recovered the exact result on retry. The changed-identity bypass poison
+created the forbidden second record and was detected. Both formal receipts
+returned `keep`. This verifies the bootstrap boundary only; T27 remains
+`[EVALUATING]` pending the descriptor, closure, fresh subject images, and
+persisted-fixture preflight. Evidence is in
+[`docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process

@@ -605,12 +605,12 @@ become one GitHub issue.
   execution and negative result for the initial 64 MiB R0 calibration;
   `[VERIFIED]` one-probe correction and corrected 64 MiB A/B plus B/A rerun;
   `[VERIFIED]` matched direct-read option parity and non-zero Linux physical
-  attribution on one GCP R0 smoke sample; `[EVALUATING]` one persisted fixture
-  reused across candidate, control, and both process orders;
-  `[PROPOSED]` RFC-0044 local empty-anchor, zero-base-txLog, exact-tail,
-  closure-verification, and subject-image contracts; persisted
-  content-addressed object fixture; 64 MiB setup preflight; frozen 1 GiB paired
-  GCP admission.
+  attribution on one GCP R0 smoke sample; `[VERIFIED]` RFC-0044 phase-0 empty
+  anchor across 20 fresh authorities plus the changed-identity bypass poison;
+  `[CODE-COMPLETE]` zero-base-txLog, exact-tail, closure-verification, and fresh
+  subject-image contracts; `[EVALUATING]` descriptor implementation and one
+  persisted fixture reused across candidate, control, and both process orders;
+  `[PROPOSED]` 64 MiB setup preflight and frozen 1 GiB paired GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
@@ -619,7 +619,8 @@ become one GitHub issue.
   reads per logical read for both subjects, with a 0.9982x physical-byte ratio.
   T27 remains `[EVALUATING]` because that result is one smoke sample. The 1 GiB
   coverage and skew curve still requires one shared fixture and AB/BA workload
-  receipts.
+  receipts. The phase-0 bootstrap receipt is under
+  `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 
