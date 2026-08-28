@@ -28,8 +28,8 @@ use okv_eval::commit_proxy_object_frontier::{
 };
 use okv_eval::comparison::{compare_results, validate_comparison_receipt};
 use okv_eval::config::{
-    contract_hash, load_suite, BudgetKind, DatasetConfig, LoadedSuite, ProfileConfig,
-    WorkloadConfig,
+    contract_hash, load_suite, validate_workload_selection, BudgetKind, DatasetConfig, LoadedSuite,
+    ProfileConfig, WorkloadConfig,
 };
 use okv_eval::frontiered_process_snapshot::{
     run_frontiered_process_snapshot_contract, FrontieredProcessSnapshotMode,
@@ -55,9 +55,9 @@ use okv_eval::serving_recovery::{
 };
 use okv_eval::serving_recovery_openraft::{
     run_openraft_serving_recovery_contract, run_openraft_serving_recovery_contract_with_hot_reads,
-    run_openraft_serving_recovery_node, OpenRaftHotReadProfile, OpenRaftHotReadSubject,
-    OpenRaftServingObjectBackend, OpenRaftServingProcessConfig, OpenRaftServingRecoveryMode,
-    OpenRaftServingRecoveryReport,
+    run_openraft_serving_recovery_node, OpenRaftHotReadAccessPattern, OpenRaftHotReadProfile,
+    OpenRaftHotReadStorageReport, OpenRaftHotReadSubject, OpenRaftServingObjectBackend,
+    OpenRaftServingProcessConfig, OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport,
 };
 use okv_eval::storage_layout::{
     run_columnar_cache_admission_contract, run_columnar_cache_admission_contract_on_backend,
@@ -1007,6 +1007,7 @@ fn run_suite(
         .iter()
         .find(|candidate| candidate.id == workload_id)
         .ok_or_else(|| format!("unknown workload {workload_id}"))?;
+    validate_workload_selection(profile, workload)?;
     let lane = loaded
         .suite
         .lanes
@@ -1034,6 +1035,12 @@ fn run_suite(
         .unwrap_or_else(|| "0000000000000000000000000000000000000000".to_owned());
     let suite_hash = contract_hash(&loaded)?;
     let profile_hash = sha256(toml::to_string(profile)?.as_bytes());
+    let workload_profile_hash = profile
+        .workload_profile
+        .as_ref()
+        .map(toml::to_string)
+        .transpose()?
+        .map(|value| sha256(value.as_bytes()));
     let lockfile_hash = sha256(&fs::read("Cargo.lock")?);
     let resource = RunResource {
         service_version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -1179,6 +1186,8 @@ fn run_suite(
         profile: ProfileIdentity {
             id: profile_id.to_owned(),
             hash: profile_hash,
+            evidence_class: profile.evidence_class,
+            workload_profile_hash,
             machine: machine_identity,
             rustc: command_output("rustc", &["--version"]).unwrap_or_else(|| "unknown".to_owned()),
             lockfile_hash,
@@ -2656,6 +2665,50 @@ fn run_openraft_serving_worker_recovery(
             return execution_from_result(Err(format!("unknown OpenRaft hot-read subject {other}")))
         }
     };
+    let hot_read_access_pattern = match workload
+        .parameters
+        .get("distribution")
+        .and_then(toml::Value::as_str)
+    {
+        None | Some("hotset-80-20") => OpenRaftHotReadAccessPattern::Hotset80_20,
+        Some("zipf-0.8") => OpenRaftHotReadAccessPattern::Zipf0_8,
+        Some("zipf-1.4") => OpenRaftHotReadAccessPattern::Zipf1_4,
+        Some("zipf-2.0") => OpenRaftHotReadAccessPattern::Zipf2_0,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown OpenRaft hot-read access pattern {other}"
+            )))
+        }
+    };
+    let hot_read_resource_limit = |name: &str, default: u64| -> Result<u64, String> {
+        let declared = profile
+            .workload_profile
+            .as_ref()
+            .and_then(|workload_profile| workload_profile.resource_limits.get(name).copied())
+            .or_else(|| {
+                profile
+                    .parameters
+                    .get(name)
+                    .and_then(toml::Value::as_integer)
+                    .and_then(|value| u64::try_from(value).ok())
+            })
+            .unwrap_or(default);
+        if declared == 0 {
+            Err(format!("hot-read resource limit {name} must be positive"))
+        } else {
+            Ok(declared)
+        }
+    };
+    let hot_read_max_local_bytes = match hot_read_resource_limit("local_bytes", 128 * 1_024 * 1_024)
+    {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let hot_read_block_cache_bytes =
+        match hot_read_resource_limit("block_cache_bytes", 128 * 1_024 * 1_024) {
+            Ok(value) => value,
+            Err(error) => return execution_from_result(Err(error)),
+        };
     let mut reports = Vec::with_capacity(
         seeds
             .len()
@@ -2677,6 +2730,9 @@ fn run_openraft_serving_worker_recovery(
                     warmup_operations,
                     measured_operations,
                     concurrent_clients: hot_read_concurrent_clients,
+                    access_pattern: hot_read_access_pattern,
+                    max_local_bytes: hot_read_max_local_bytes,
+                    block_cache_bytes: hot_read_block_cache_bytes,
                 }
             });
             match run_openraft_serving_recovery_contract_with_hot_reads(
@@ -2702,6 +2758,9 @@ fn run_openraft_serving_worker_recovery(
             warmup_operations,
             measured_operations,
             concurrent_clients: hot_read_concurrent_clients,
+            access_pattern: hot_read_access_pattern,
+            max_local_bytes: hot_read_max_local_bytes,
+            block_cache_bytes: hot_read_block_cache_bytes,
         }
     });
     let replay = match run_openraft_serving_recovery_contract_with_hot_reads(
@@ -2738,6 +2797,23 @@ fn first_hot_read_clients(reports: &[OpenRaftServingRecoveryReport]) -> Option<u
         .first()
         .and_then(|report| report.process.hot_read.as_ref())
         .map(|hot_read| hot_read.concurrent_clients)
+}
+
+fn hot_storage_values(
+    reports: &[OpenRaftServingRecoveryReport],
+    value: impl Fn(&OpenRaftHotReadStorageReport) -> f64,
+) -> Vec<f64> {
+    reports
+        .iter()
+        .filter_map(|report| {
+            report
+                .process
+                .hot_read
+                .as_ref()
+                .and_then(|hot_read| hot_read.storage.as_ref())
+                .map(&value)
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2839,7 +2915,9 @@ fn openraft_serving_recovery_execution(
                 == Some("rocksdb-11.8.1-native-resident-v1")
                 && report.process.resident_engine_records > 0
                 && report.process.resident_engine_local_bytes > 0
-                && report.process.resident_engine_local_bytes <= 128 * 1_024 * 1_024
+                && report.process.hot_read.as_ref().is_some_and(|hot_read| {
+                    report.process.resident_engine_local_bytes <= hot_read.max_local_bytes
+                })
                 && report.process.resident_engine_applied_version
                     == report.process.activation_target_version
         });
@@ -2854,11 +2932,31 @@ fn openraft_serving_recovery_execution(
                 hot_read.measured_operations > 0
                     && hot_read.concurrent_clients > 0
                     && hot_read.concurrent_clients <= 256
+                    && hot_read.trace_sha256.len() == 64
                     && hot_read.correctness_failures == 0
                     && hot_read.object_requests == 0
                     && hot_read.operations_per_second.is_finite()
                     && hot_read.operations_per_second > 0.0
             })
+        });
+    let hot_read_storage_exact = mode
+        != OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate
+        || reports.iter().all(|report| {
+            report
+                .process
+                .hot_read
+                .as_ref()
+                .and_then(|hot_read| hot_read.storage.as_ref())
+                .is_some_and(|storage| {
+                    storage.block_cache_capacity_bytes > 0
+                        && storage.block_cache_usage_bytes
+                            <= storage
+                                .block_cache_capacity_bytes
+                                .saturating_mul(105)
+                                .saturating_div(100)
+                        && storage.block_cache_hit_ratio.is_finite()
+                        && storage.read_amplification_ratio.is_finite()
+                })
         });
     let hot_read_clients_exact = first_hot_read_clients(reports).is_some_and(|clients| {
         clients > 0
@@ -2888,6 +2986,7 @@ fn openraft_serving_recovery_execution(
         || !serving_image_exact
         || !resident_engine_exact
         || !hot_read_exact
+        || !hot_read_storage_exact
         || (resident_hot_mode && !hot_read_clients_exact)
     {
         Some("OpenRaft replacement exceeded its authoritative object-read path".to_owned())
@@ -2965,6 +3064,102 @@ fn openraft_serving_recovery_execution(
                         ]),
                     },
                 ]);
+                if let Some(storage) = hot_read.storage.as_ref() {
+                    measurements.extend([
+                        Measurement {
+                            metric: "cache.hit_ratio",
+                            value: storage.block_cache_hit_ratio,
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("cache.tier", "rocksdb-block-cache"),
+                                ("backend", backend),
+                            ]),
+                        },
+                        Measurement {
+                            metric: "serving.local_bytes",
+                            value: resident_count_as_f64(storage.block_cache_usage_bytes),
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("backend", backend),
+                                ("cache.tier", "rocksdb-block-cache"),
+                                ("range.class", "single-range"),
+                            ]),
+                        },
+                        Measurement {
+                            metric: "rocksdb.cache_requests",
+                            value: resident_count_as_f64(storage.block_cache_hits),
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("backend", backend),
+                                ("block.class", "all"),
+                                ("result", "hit"),
+                            ]),
+                        },
+                        Measurement {
+                            metric: "rocksdb.cache_requests",
+                            value: resident_count_as_f64(storage.block_cache_misses),
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("backend", backend),
+                                ("block.class", "all"),
+                                ("result", "miss"),
+                            ]),
+                        },
+                        Measurement {
+                            metric: "rocksdb.read_bytes",
+                            value: resident_count_as_f64(storage.bytes_read),
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("backend", backend),
+                                ("counter.class", "bytes-read"),
+                            ]),
+                        },
+                        Measurement {
+                            metric: "rocksdb.read_bytes",
+                            value: resident_count_as_f64(storage.block_cache_bytes_read),
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("backend", backend),
+                                ("counter.class", "block-cache-bytes-read"),
+                            ]),
+                        },
+                        Measurement {
+                            metric: "rocksdb.read_bytes",
+                            value: resident_count_as_f64(storage.read_amp_useful_bytes),
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("backend", backend),
+                                ("counter.class", "read-amp-useful"),
+                            ]),
+                        },
+                        Measurement {
+                            metric: "rocksdb.read_bytes",
+                            value: resident_count_as_f64(storage.read_amp_total_bytes),
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("backend", backend),
+                                ("counter.class", "read-amp-total"),
+                            ]),
+                        },
+                        Measurement {
+                            metric: "rocksdb.read_amplification",
+                            value: storage.read_amplification_ratio,
+                            attributes: attributes(&[
+                                ("lane", &workload.lane),
+                                ("workload", &workload.id),
+                                ("backend", backend),
+                            ]),
+                        },
+                    ]);
+                }
             }
             measurements
         })
@@ -3071,8 +3266,10 @@ fn openraft_serving_recovery_execution(
             detail: first.and_then(|report| {
                 report.process.hot_read.as_ref().map(|hot_read| {
                     format!(
-                        "operations={},failures={},p99_ns={}",
+                        "operations={},trace={},pattern={},failures={},p99_ns={}",
                         hot_read.measured_operations,
+                        hot_read.trace_sha256,
+                        hot_read.access_pattern.id(),
                         hot_read.correctness_failures,
                         hot_read.latency_ns_p99
                     )
@@ -3162,6 +3359,28 @@ fn openraft_serving_recovery_execution(
             status: gate_status(hot_read_clients_exact),
             detail: first_hot_read_clients(reports).map(|clients| clients.to_string()),
         });
+        hard_gates.push(HardGateResult {
+            id: "measured_window_rocksdb_cache_counters".to_owned(),
+            status: gate_status(hot_read_storage_exact),
+            detail: first.and_then(|report| {
+                report
+                    .process
+                    .hot_read
+                    .as_ref()
+                    .and_then(|hot_read| hot_read.storage.as_ref())
+                    .map(|storage| {
+                        format!(
+                            "capacity={},usage={},hits={},misses={},bytes_read={},amp={}",
+                            storage.block_cache_capacity_bytes,
+                            storage.block_cache_usage_bytes,
+                            storage.block_cache_hits,
+                            storage.block_cache_misses,
+                            storage.bytes_read,
+                            storage.read_amplification_ratio
+                        )
+                    })
+            }),
+        });
     }
     let durations = reports
         .iter()
@@ -3235,6 +3454,17 @@ fn openraft_serving_recovery_execution(
                 .map(|hot_read| resident_count_as_f64(hot_read.concurrent_clients))
         })
         .collect::<Vec<_>>();
+    let hot_cache_capacity_bytes = hot_storage_values(reports, |storage| {
+        resident_count_as_f64(storage.block_cache_capacity_bytes)
+    });
+    let hot_cache_usage_bytes = hot_storage_values(reports, |storage| {
+        resident_count_as_f64(storage.block_cache_usage_bytes)
+    });
+    let hot_cache_hit_ratio = hot_storage_values(reports, |storage| storage.block_cache_hit_ratio);
+    let hot_bytes_read =
+        hot_storage_values(reports, |storage| resident_count_as_f64(storage.bytes_read));
+    let hot_read_amplification =
+        hot_storage_values(reports, |storage| storage.read_amplification_ratio);
     let mut secondary_metrics = BTreeMap::from([
         (
             "serving_recovery_openraft.first_read_seconds.median".to_owned(),
@@ -3282,6 +3512,28 @@ fn openraft_serving_recovery_execution(
             "single_range.hot_read_concurrent_clients.median".to_owned(),
             median(&hot_concurrent_clients),
         );
+        if !hot_cache_capacity_bytes.is_empty() {
+            secondary_metrics.insert(
+                "single_range.block_cache_capacity_bytes.median".to_owned(),
+                median(&hot_cache_capacity_bytes),
+            );
+            secondary_metrics.insert(
+                "single_range.block_cache_usage_bytes.median".to_owned(),
+                median(&hot_cache_usage_bytes),
+            );
+            secondary_metrics.insert(
+                "single_range.block_cache_hit_ratio.median".to_owned(),
+                median(&hot_cache_hit_ratio),
+            );
+            secondary_metrics.insert(
+                "single_range.rocksdb_bytes_read.median".to_owned(),
+                median(&hot_bytes_read),
+            );
+            secondary_metrics.insert(
+                "single_range.rocksdb_read_amplification.median".to_owned(),
+                median(&hot_read_amplification),
+            );
+        }
     }
     WorkloadExecution {
         error,
@@ -3299,11 +3551,17 @@ fn openraft_serving_recovery_execution(
         artifact_refs: reports
             .iter()
             .map(|report| {
+                let trace_sha256 = report
+                    .process
+                    .hot_read
+                    .as_ref()
+                    .map_or("no-hot-read", |hot_read| hot_read.trace_sha256.as_str());
                 format!(
-                    "okv-eval://serving-recovery-openraft-v1/{}/{}/{}",
+                    "okv-eval://serving-recovery-openraft-v1/{}/{}/{}/{}",
                     mode.id(),
                     report.seed,
-                    report.semantic_sha256
+                    report.semantic_sha256,
+                    trace_sha256
                 )
             })
             .collect(),

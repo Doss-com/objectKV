@@ -390,6 +390,17 @@ operations, and every run ID occurs in OTel logs, metrics, and traces. Cache
 pressure remains isolated into a later gate with explicit cache sizing and a
 reusable larger-than-cache fixture.
 
+The first cache-pressure calibration is now code-complete but not verified.
+It freezes 64 MiB of logical values over a 32 MiB shared RocksDB block cache,
+a deterministic Zipf 1.4 trace, eight clients, one million measured reads per
+sample, three seeds, five repeats, replacement-worker recovery before warmup,
+and direct owned-value RocksDB as control. Native and control paths snapshot
+cache and read-amplification counters after warmup and after measurement;
+counter resets invalidate the sample. Local 50,000-read smoke receipts emit the
+new counters with exact values and zero object operations. Fixture reuse,
+process CPU and operating-system I/O, poison workloads, and clean GCP evidence
+remain evaluating.
+
 \subsection{Objectification and publication}
 
 Objectification packs many committed mutations into immutable indexed row
@@ -964,6 +975,16 @@ The evaluation program has one primary metric per lane, frozen correctness
 oracles, immutable seeds, negative controls, machine and backend profiles, and
 OTel receipts. It does not optimize one blended score. A candidate is eligible
 for performance comparison only after correctness gates pass.
+
+The evaluator now assigns every profile one evidence class. A contract profile
+can verify semantics; a smoke profile can verify deployment and telemetry
+wiring; only a workload profile can enter performance or economics comparison.
+The workload profile hashes dataset identity, operation mix, access pattern,
+concurrency, warmup and measurement windows, cache state, failure schedule,
+resource limits, required metrics, matched control, and at least five repeats.
+At execution time, the selected distribution and concurrency must fit that
+envelope. Older receipts remain readable but cannot silently satisfy the newer
+comparison rule.
 
 The comparison authority is lane-specific. A direct RocksDB run is a serving
 mechanism control, not a durability-equivalent system control; a matched

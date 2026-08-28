@@ -54,6 +54,8 @@ program state is owned here rather than copied into that retired queue.
 - `docs/STATUS-TAXONOMY.md` owns proof-status meaning.
 - `docs/REAL-INFRA-EVALS.md` owns paired benchmark claims, GCP rungs, and the
   failure-mode matrix.
+- `docs/EVAL-WORKLOAD-CONTRACT.md` owns evidence classes and the minimum
+  workload envelope required for performance and economics admission.
 - `papers/objectkv-vldb/` owns the working technical paper.
 - `experiments/ledger.jsonl` and OTel own empirical receipts.
 - Git owns source and exact revision identity.
@@ -65,6 +67,26 @@ Candidate/control receipts fail comparison when metric, statistic, direction,
 machine, toolchain, lockfile, revision, seed, sample count, or hard gates do not
 match. A directional percentage must clear both the lane threshold and observed
 MAD-based noise.
+
+`[CODE-COMPLETE]` Performance and economics comparisons now also require
+workload-class receipts with a validated workload-profile hash. The profile
+fails closed unless it declares dataset, operation mix, access pattern,
+concurrency, warmup, measurement, cache state, failure schedule, resource
+limits, required metrics, matched control, and at least five repeats. Smoke
+profiles remain useful infrastructure evidence but cannot admit a curve.
+
+`[CODE-COMPLETE]` The native and matched direct RocksDB read paths now use the
+same explicit block-cache budget, deterministic Hotset or Zipf trace, and
+measured-window cache counters. Counter resets fail closed. Cache hit ratio,
+cache requests, cache bytes, RocksDB read counters, and read amplification are
+registered OTel metrics. The local smoke path emitted exact 50,000-read native
+and control receipts with zero object operations.
+
+`[EVALUATING]` GP3.1.2 is the first cache-pressure workload profile: 64 MiB
+logical data over a 32 MiB block cache, Zipf 1.4, eight clients, one million
+measured reads, three seeds, five repeats, and matched direct RocksDB control.
+The suite and 22-gate program validate. Fixture reuse, CPU and operating-system
+I/O attribution, poison workloads, and its clean GCP receipt remain open.
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The

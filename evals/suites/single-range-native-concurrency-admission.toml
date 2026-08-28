@@ -32,6 +32,7 @@ seeds = [1103, 2207, 3301]
 budget_kind = "operations"
 budget_limit = 1800000
 repeats = 1
+evidence_class = "smoke"
 cache_state = "complete-range-native-rocksdb-on-local-filesystem"
 serving_profile = "ssd_resident"
 durability_profile = "openraft-local-process-mechanism-diagnostic"
@@ -49,6 +50,7 @@ warmup_operations = 25000
 budget_kind = "operations"
 budget_limit = 9000000
 repeats = 5
+evidence_class = "workload"
 cache_state = "complete-range-native-rocksdb-on-local-nvme"
 serving_profile = "ssd_resident"
 durability_profile = "openraft-local-process-mechanism-diagnostic"
@@ -65,6 +67,49 @@ machine_receipt_env = "OKV_EVAL_MACHINE_RECEIPT"
 machine_receipt_schema = "../schema/benchmark-machine-receipt-v1.schema.json"
 required_hot_scratch_interface = "nvme"
 serving_scratch_env = "OKV_EVAL_SERVING_SCRATCH_ROOT"
+
+[profiles.gcp-r0-nvme.workload_profile]
+schema_version = 1
+name = "single-range-resident-concurrency-v1"
+dataset = "gcp-r0-nvme"
+access_pattern = "hotset-80-20"
+cache_state = "resident"
+matched_control = "direct-owned-rocksdb-on-the-same-recovered-topology"
+concurrency = [8, 32]
+failure_schedule = [
+  "kill-first-worker-before-measurement",
+  "activate-empty-replacement-before-warmup",
+  "no-failure-during-measurement",
+]
+required_metrics = [
+  "operation.throughput",
+  "operation.duration",
+  "correctness.anomalies",
+  "object_store.requests",
+  "cache.hit_ratio",
+  "serving.local_bytes",
+  "rocksdb.cache_requests",
+  "rocksdb.read_bytes",
+  "rocksdb.read_amplification",
+]
+
+[profiles.gcp-r0-nvme.workload_profile.operation_mix]
+point_read = 1.0
+
+[profiles.gcp-r0-nvme.workload_profile.warmup]
+kind = "operations"
+amount = 100000
+
+[profiles.gcp-r0-nvme.workload_profile.measurement]
+kind = "operations"
+amount = 200000
+
+[profiles.gcp-r0-nvme.workload_profile.resource_limits]
+logical_dataset_bytes = 4194304
+block_cache_bytes = 134217728
+local_bytes = 134217728
+authority_processes = 6
+serving_workers = 1
 
 [[lanes]]
 id = "hot-ssd-native-concurrency"

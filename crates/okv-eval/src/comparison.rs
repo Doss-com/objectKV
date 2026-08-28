@@ -1,4 +1,4 @@
-use crate::config::{ComparisonConstraintConfig, Direction};
+use crate::config::{ComparisonConstraintConfig, Direction, EvidenceClass};
 use crate::program::{plan_program, LoadedProgram, ProgramGateKind, ProgramGateStatus};
 use crate::result::validate_result;
 use chrono::{SecondsFormat, Utc};
@@ -117,6 +117,10 @@ struct ResultDocument {
 struct ResultProfile {
     id: String,
     hash: String,
+    #[serde(default)]
+    evidence_class: Option<EvidenceClass>,
+    #[serde(default)]
+    workload_profile_hash: Option<String>,
     machine: String,
     rustc: String,
     lockfile_hash: String,
@@ -146,6 +150,7 @@ struct ResultMetric {
 ///
 /// Returns an error when inputs are unreadable, schema-invalid, or the named
 /// program gate is not a performance or economics gate with a paired control.
+#[allow(clippy::too_many_lines)]
 pub fn compare_results(
     loaded_program: &LoadedProgram,
     gate_id: &str,
@@ -187,6 +192,22 @@ pub fn compare_results(
         control_plan.configured_repeats.max(1)
     } as usize;
     let mut checks = vec![
+        boolean_check(
+            "evidence.candidate_workload_profile",
+            has_workload_evidence(&candidate.profile),
+            format!(
+                "class={:?},profile_hash={:?}",
+                candidate.profile.evidence_class, candidate.profile.workload_profile_hash
+            ),
+        ),
+        boolean_check(
+            "evidence.control_workload_profile",
+            has_workload_evidence(&control.profile),
+            format!(
+                "class={:?},profile_hash={:?}",
+                control.profile.evidence_class, control.profile.workload_profile_hash
+            ),
+        ),
         check(
             "candidate.suite",
             candidate.suite == gate.suite,
@@ -527,6 +548,14 @@ pub fn compare_results(
     })
 }
 
+fn has_workload_evidence(profile: &ResultProfile) -> bool {
+    profile.evidence_class == Some(EvidenceClass::Workload)
+        && profile
+            .workload_profile_hash
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty())
+}
+
 fn evaluate_comparison_constraint(
     constraint: &ComparisonConstraintConfig,
     candidate_metrics: &std::collections::BTreeMap<String, f64>,
@@ -664,8 +693,11 @@ fn relative_noise(metric: &ResultMetric) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{evaluate_comparison_constraint, relative_noise, ResultMetric};
-    use crate::config::{ComparisonConstraintConfig, Direction};
+    use super::{
+        evaluate_comparison_constraint, has_workload_evidence, relative_noise, ResultMetric,
+        ResultProfile,
+    };
+    use crate::config::{ComparisonConstraintConfig, Direction, EvidenceClass};
     use std::collections::BTreeMap;
 
     #[test]
@@ -718,5 +750,27 @@ mod tests {
         )
         .expect_err("missing candidate metric must invalidate comparison");
         assert!(error.contains("candidate metric candidate.p99 is absent"));
+    }
+
+    #[test]
+    fn smoke_and_legacy_receipts_cannot_enter_performance_comparison() {
+        let profile = |evidence_class, workload_profile_hash| ResultProfile {
+            id: "gcp-r0".to_owned(),
+            hash: "profile".to_owned(),
+            evidence_class,
+            workload_profile_hash,
+            machine: "machine".to_owned(),
+            rustc: "rustc".to_owned(),
+            lockfile_hash: "lockfile".to_owned(),
+        };
+        assert!(!has_workload_evidence(&profile(
+            Some(EvidenceClass::Smoke),
+            Some("declared".to_owned())
+        )));
+        assert!(!has_workload_evidence(&profile(None, None)));
+        assert!(has_workload_evidence(&profile(
+            Some(EvidenceClass::Workload),
+            Some("declared".to_owned())
+        )));
     }
 }

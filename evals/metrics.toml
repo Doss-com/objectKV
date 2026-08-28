@@ -605,3 +605,30 @@ description = "Time for publication prepare, full object validation, physical tx
 attributes = ["lane", "workload", "backend", "mode", "result"]
 required_attributes = ["lane", "workload", "backend", "mode", "result"]
 boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+[[metrics]]
+id = "rocksdb.cache_requests"
+otel_name = "okv.eval.rocksdb.cache_requests"
+kind = "counter"
+unit = "{request}"
+description = "RocksDB block-cache lookups during the synchronized measured window"
+attributes = ["lane", "workload", "backend", "block.class", "result"]
+required_attributes = ["lane", "workload", "backend", "block.class", "result"]
+
+[[metrics]]
+id = "rocksdb.read_bytes"
+otel_name = "okv.eval.rocksdb.read_bytes"
+kind = "counter"
+unit = "By"
+description = "Bytes reported by one named RocksDB read counter during the synchronized measured window"
+attributes = ["lane", "workload", "backend", "counter.class"]
+required_attributes = ["lane", "workload", "backend", "counter.class"]
+
+[[metrics]]
+id = "rocksdb.read_amplification"
+otel_name = "okv.eval.rocksdb.read_amplification"
+kind = "gauge"
+unit = "1"
+description = "RocksDB total read-amplification bytes divided by useful bytes during the measured window"
+attributes = ["lane", "workload", "backend"]
+required_attributes = ["lane", "workload", "backend"]

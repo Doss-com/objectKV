@@ -19,6 +19,12 @@ gates. Run those gates with OTel telemetry and immutable receipts on real
 infrastructure against same-durability RocksDB, TiKV, FoundationDB, or other
 appropriate controls.
 
+The evaluator enforces the distinction in
+[`docs/EVAL-WORKLOAD-CONTRACT.md`](EVAL-WORKLOAD-CONTRACT.md). Contract tests
+prove semantics, smoke profiles prove wiring, and workload profiles prove one
+bounded performance or economics claim. Only the third class can enter a
+paired admission comparison.
+
 Evaluations select, reject, or reshape mechanisms. They do not decide whether
 the objectKV program continues. A failed curve changes the implementation or
 provider profile while preserving the program goal and the evidence that led

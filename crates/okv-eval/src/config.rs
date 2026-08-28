@@ -52,12 +52,61 @@ pub struct ProfileConfig {
     pub budget_limit: f64,
     pub repeats: u32,
     #[serde(default)]
+    pub evidence_class: EvidenceClass,
+    #[serde(default)]
+    pub workload_profile: Option<WorkloadProfileConfig>,
+    #[serde(default)]
     pub docker_image: Option<String>,
     #[serde(default, flatten)]
     pub parameters: BTreeMap<String, toml::Value>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+/// The strongest claim one eval profile is allowed to support.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceClass {
+    /// Component and semantic contract evidence. This is the legacy default.
+    #[default]
+    Contract,
+    /// Wiring, deployment, and bounded preflight evidence only.
+    Smoke,
+    /// A calibrated performance or economics workload against a named control.
+    Workload,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct WorkloadProfileConfig {
+    pub schema_version: u32,
+    pub name: String,
+    pub dataset: String,
+    pub access_pattern: String,
+    pub cache_state: CacheState,
+    pub matched_control: String,
+    pub operation_mix: BTreeMap<String, f64>,
+    pub concurrency: Vec<u32>,
+    pub warmup: WorkloadWindowConfig,
+    pub measurement: WorkloadWindowConfig,
+    pub failure_schedule: Vec<String>,
+    pub resource_limits: BTreeMap<String, u64>,
+    pub required_metrics: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheState {
+    Resident,
+    WarmElastic,
+    ColdElastic,
+    EmptyWorker,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct WorkloadWindowConfig {
+    pub kind: BudgetKind,
+    pub amount: f64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BudgetKind {
     Events,
@@ -277,6 +326,55 @@ pub fn contract_hash(loaded: &LoadedSuite) -> Result<String, Box<dyn Error>> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Bind a selected workload to the hashed workload envelope before execution.
+///
+/// # Errors
+///
+/// Returns an error when a workload-class profile would execute an undeclared
+/// access pattern or concurrency point.
+pub fn validate_workload_selection(
+    profile: &ProfileConfig,
+    workload: &WorkloadConfig,
+) -> Result<(), String> {
+    let Some(envelope) = profile.workload_profile.as_ref() else {
+        return Ok(());
+    };
+    let access_pattern = workload
+        .parameters
+        .get("distribution")
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| {
+            format!(
+                "workload {} must declare distribution for workload evidence",
+                workload.id
+            )
+        })?;
+    if access_pattern != envelope.access_pattern {
+        return Err(format!(
+            "workload {} distribution {access_pattern} does not match workload profile {}",
+            workload.id, envelope.access_pattern
+        ));
+    }
+    let concurrency = workload
+        .parameters
+        .get("concurrent_clients")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| {
+            format!(
+                "workload {} must declare positive concurrent_clients for workload evidence",
+                workload.id
+            )
+        })?;
+    if concurrency == 0 || !envelope.concurrency.contains(&concurrency) {
+        return Err(format!(
+            "workload {} concurrency {concurrency} is outside declared points {:?}",
+            workload.id, envelope.concurrency
+        ));
+    }
+    Ok(())
+}
+
 fn read(path: &Path) -> Result<Vec<u8>, ConfigError> {
     fs::read(path).map_err(|error| ConfigError::Io {
         path: path.to_path_buf(),
@@ -363,6 +461,7 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
         if profile.repeats == 0 {
             errors.push(format!("profile {profile_id} repeats must be positive"));
         }
+        validate_workload_profile(profile_id, profile, suite, &metric_ids, &mut errors);
     }
     for required_profile in &suite.telemetry.required_for_profiles {
         if !suite.profiles.contains_key(required_profile) {
@@ -471,6 +570,150 @@ fn validate(loaded: &LoadedSuite) -> Vec<String> {
     }
 
     errors
+}
+
+#[allow(clippy::too_many_lines)]
+fn validate_workload_profile(
+    profile_id: &str,
+    profile: &ProfileConfig,
+    suite: &Suite,
+    metric_ids: &BTreeSet<&str>,
+    errors: &mut Vec<String>,
+) {
+    let Some(workload) = profile.workload_profile.as_ref() else {
+        if profile.evidence_class == EvidenceClass::Workload {
+            errors.push(format!(
+                "profile {profile_id} declares workload evidence without a workload_profile"
+            ));
+        }
+        return;
+    };
+    if profile.evidence_class != EvidenceClass::Workload {
+        errors.push(format!(
+            "profile {profile_id} has a workload_profile but evidence_class is not workload"
+        ));
+    }
+    if workload.schema_version != 1 {
+        errors.push(format!(
+            "profile {profile_id} has unsupported workload_profile schema version {}",
+            workload.schema_version
+        ));
+    }
+    for (field, value) in [
+        ("name", workload.name.as_str()),
+        ("dataset", workload.dataset.as_str()),
+        ("access_pattern", workload.access_pattern.as_str()),
+        ("matched_control", workload.matched_control.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            errors.push(format!(
+                "profile {profile_id} workload_profile {field} must not be empty"
+            ));
+        }
+    }
+    if !suite.dataset.contains_key(&workload.dataset) {
+        errors.push(format!(
+            "profile {profile_id} workload_profile references unknown dataset {}",
+            workload.dataset
+        ));
+    }
+    if workload.dataset != profile_id {
+        errors.push(format!(
+            "profile {profile_id} workload_profile dataset {} must match the runner profile id",
+            workload.dataset
+        ));
+    }
+    if profile.repeats < 5 {
+        errors.push(format!(
+            "profile {profile_id} workload evidence requires at least 5 repeats"
+        ));
+    }
+    if workload.operation_mix.is_empty() {
+        errors.push(format!(
+            "profile {profile_id} workload_profile operation_mix must not be empty"
+        ));
+    } else {
+        let mut total = 0.0;
+        for (operation, fraction) in &workload.operation_mix {
+            if operation.trim().is_empty()
+                || !fraction.is_finite()
+                || *fraction <= 0.0
+                || *fraction > 1.0
+            {
+                errors.push(format!(
+                    "profile {profile_id} workload_profile operation_mix entries require a non-empty operation and a fraction in (0, 1]"
+                ));
+            } else {
+                total += fraction;
+            }
+        }
+        if (total - 1.0).abs() > 1e-9 {
+            errors.push(format!(
+                "profile {profile_id} workload_profile operation_mix must sum to 1.0, observed {total}"
+            ));
+        }
+    }
+    if workload.concurrency.is_empty()
+        || workload.concurrency.contains(&0)
+        || workload.concurrency.iter().collect::<BTreeSet<_>>().len() != workload.concurrency.len()
+    {
+        errors.push(format!(
+            "profile {profile_id} workload_profile concurrency must contain unique positive values"
+        ));
+    }
+    for (name, window) in [
+        ("warmup", &workload.warmup),
+        ("measurement", &workload.measurement),
+    ] {
+        if !window.amount.is_finite() || window.amount <= 0.0 {
+            errors.push(format!(
+                "profile {profile_id} workload_profile {name} amount must be finite and positive"
+            ));
+        }
+    }
+    if workload.failure_schedule.is_empty()
+        || workload
+            .failure_schedule
+            .iter()
+            .any(|value| value.trim().is_empty())
+    {
+        errors.push(format!(
+            "profile {profile_id} workload_profile failure_schedule must be explicit and non-empty"
+        ));
+    }
+    if workload.resource_limits.is_empty()
+        || workload
+            .resource_limits
+            .iter()
+            .any(|(name, value)| name.trim().is_empty() || *value == 0)
+    {
+        errors.push(format!(
+            "profile {profile_id} workload_profile resource_limits must contain positive named limits"
+        ));
+    }
+    if workload.required_metrics.is_empty()
+        || workload
+            .required_metrics
+            .iter()
+            .any(|value| value.trim().is_empty())
+        || workload
+            .required_metrics
+            .iter()
+            .collect::<BTreeSet<_>>()
+            .len()
+            != workload.required_metrics.len()
+    {
+        errors.push(format!(
+            "profile {profile_id} workload_profile required_metrics must contain unique non-empty metrics"
+        ));
+    }
+    for metric in &workload.required_metrics {
+        if !metric_ids.contains(metric.as_str()) {
+            errors.push(format!(
+                "profile {profile_id} workload_profile references unknown required metric {metric}"
+            ));
+        }
+    }
 }
 
 fn supported_statistic(statistic: &str) -> bool {
@@ -650,7 +893,11 @@ fn unique_ids<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::load_suite;
+    use super::{
+        load_suite, validate, validate_workload_selection, BudgetKind, CacheState, EvidenceClass,
+        WorkloadProfileConfig, WorkloadWindowConfig,
+    };
+    use std::collections::BTreeMap;
     use std::path::Path;
 
     #[test]
@@ -659,5 +906,89 @@ mod tests {
         let suite = load_suite(&root.join("evals/suites/smoke.toml")).expect("valid suite");
         assert_eq!(suite.suite.id, "objectkv-smoke-v1");
         assert!(suite.registry.metrics.len() >= 10);
+    }
+
+    #[test]
+    fn workload_evidence_fails_closed_without_a_declared_profile() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut loaded = load_suite(&root.join("evals/suites/smoke.toml")).expect("valid suite");
+        loaded
+            .suite
+            .profiles
+            .get_mut("dev")
+            .expect("dev profile")
+            .evidence_class = EvidenceClass::Workload;
+
+        let errors = validate(&loaded);
+        assert!(errors.iter().any(|error| error
+            .contains("profile dev declares workload evidence without a workload_profile")));
+    }
+
+    #[test]
+    fn complete_workload_profile_is_accepted() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut loaded = load_suite(&root.join("evals/suites/smoke.toml")).expect("valid suite");
+        let profile = loaded.suite.profiles.get_mut("dev").expect("dev profile");
+        profile.evidence_class = EvidenceClass::Workload;
+        profile.repeats = 5;
+        profile.workload_profile = Some(WorkloadProfileConfig {
+            schema_version: 1,
+            name: "point-read-pressure-v1".to_owned(),
+            dataset: "dev".to_owned(),
+            access_pattern: "zipf-0.99".to_owned(),
+            cache_state: CacheState::Resident,
+            matched_control: "direct-rocksdb".to_owned(),
+            operation_mix: BTreeMap::from([("point_read".to_owned(), 1.0)]),
+            concurrency: vec![1, 8, 32],
+            warmup: WorkloadWindowConfig {
+                kind: BudgetKind::Operations,
+                amount: 100.0,
+            },
+            measurement: WorkloadWindowConfig {
+                kind: BudgetKind::Operations,
+                amount: 1_000.0,
+            },
+            failure_schedule: vec!["none-during-measurement".to_owned()],
+            resource_limits: BTreeMap::from([
+                ("block_cache_bytes".to_owned(), 64 * 1_024 * 1_024),
+                ("local_bytes".to_owned(), 1024 * 1_024 * 1_024),
+            ]),
+            required_metrics: vec![
+                "operation.throughput".to_owned(),
+                "operation.duration".to_owned(),
+            ],
+        });
+
+        assert!(validate(&loaded).is_empty());
+    }
+
+    #[test]
+    fn selected_workload_must_fit_hashed_distribution_and_concurrency() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let loaded =
+            load_suite(&root.join("evals/suites/single-range-native-concurrency-admission.toml"))
+                .expect("valid workload suite");
+        let profile = loaded
+            .suite
+            .profiles
+            .get("gcp-r0-nvme")
+            .expect("GCP workload profile");
+        let declared = loaded
+            .suite
+            .workloads
+            .iter()
+            .find(|workload| workload.id == "native-snapshot-concurrency-32")
+            .expect("declared concurrency workload");
+        let undeclared = loaded
+            .suite
+            .workloads
+            .iter()
+            .find(|workload| workload.id == "native-snapshot-concurrency-1")
+            .expect("undeclared concurrency workload");
+
+        validate_workload_selection(profile, declared).expect("declared workload must run");
+        let error = validate_workload_selection(profile, undeclared)
+            .expect_err("undeclared concurrency must fail");
+        assert!(error.contains("concurrency 1 is outside declared points"));
     }
 }

@@ -1,0 +1,155 @@
+schema_version = 1
+id = "native-resident-cache-pressure-calibration-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/EVAL-WORKLOAD-CONTRACT.md",
+  "../../rfcs/0040-native-resident-engine-data-plane.md",
+  "../../rfcs/0042-native-resident-concurrent-read-curve.md",
+  "../../rfcs/0043-native-resident-cache-pressure-curve.md",
+  "../schema/benchmark-machine-receipt-v1.schema.json",
+]
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = ["gcp-r0-calibration-2x-zipf14"]
+
+[dataset.gcp-r0-calibration-2x-zipf14]
+logical_bytes = 67108864
+key_count = 65536
+seeds = [1103, 2207, 3301]
+
+[profiles.gcp-r0-calibration-2x-zipf14]
+budget_kind = "operations"
+budget_limit = 15000000
+repeats = 5
+evidence_class = "workload"
+cache_state = "resident-range-on-local-nvme-with-explicit-rocksdb-cache"
+serving_profile = "ssd_resident"
+durability_profile = "openraft-local-process-mechanism-diagnostic"
+max_local_bytes = 536870912
+local_byte_budget = 536870912
+row_object_target_bytes = 8388608
+row_object_block_bytes = 65536
+retained_stream_page_records = 256
+hot_read_warmup_operations = 200000
+hot_read_operations = 1000000
+measurement_operations = 1000000
+warmup_operations = 200000
+machine_receipt_env = "OKV_EVAL_MACHINE_RECEIPT"
+machine_receipt_schema = "../schema/benchmark-machine-receipt-v1.schema.json"
+required_hot_scratch_interface = "nvme"
+serving_scratch_env = "OKV_EVAL_SERVING_SCRATCH_ROOT"
+
+[profiles.gcp-r0-calibration-2x-zipf14.workload_profile]
+schema_version = 1
+name = "native-resident-cache-pressure-2x-zipf14-v1"
+dataset = "gcp-r0-calibration-2x-zipf14"
+access_pattern = "zipf-1.4"
+cache_state = "resident"
+matched_control = "direct-owned-rocksdb-with-identical-cache-options-and-recovered-topology"
+concurrency = [8]
+failure_schedule = [
+  "kill-first-worker-before-measurement",
+  "activate-empty-replacement-before-warmup",
+  "no-failure-during-measurement",
+]
+required_metrics = [
+  "operation.throughput",
+  "operation.duration",
+  "correctness.anomalies",
+  "object_store.requests",
+  "cache.hit_ratio",
+  "serving.local_bytes",
+  "rocksdb.cache_requests",
+  "rocksdb.read_bytes",
+  "rocksdb.read_amplification",
+]
+
+[profiles.gcp-r0-calibration-2x-zipf14.workload_profile.operation_mix]
+point_read = 1.0
+
+[profiles.gcp-r0-calibration-2x-zipf14.workload_profile.warmup]
+kind = "operations"
+amount = 200000
+
+[profiles.gcp-r0-calibration-2x-zipf14.workload_profile.measurement]
+kind = "operations"
+amount = 1000000
+
+[profiles.gcp-r0-calibration-2x-zipf14.workload_profile.resource_limits]
+logical_dataset_bytes = 67108864
+block_cache_bytes = 33554432
+local_bytes = 536870912
+authority_processes = 6
+serving_workers = 1
+
+[[lanes]]
+id = "native-resident-cache-pressure"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.20
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[lanes.comparison_constraints]]
+id = "cache_pressure_throughput"
+candidate_metric = "single_range.hot_read_throughput.median"
+control_metric = "single_range.hot_read_throughput.median"
+unit = "{operation}/s"
+direction = "higher"
+max_regression_fraction = 0.20
+
+[[lanes.comparison_constraints]]
+id = "cache_pressure_p99"
+candidate_metric = "single_range.hot_read_p99_ns.median"
+control_metric = "single_range.hot_read_p99_ns.median"
+unit = "ns"
+direction = "lower"
+max_regression_fraction = 0.20
+
+[[workloads]]
+id = "native-cache-pressure-2x-zipf14"
+lane = "native-resident-cache-pressure"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "integrated_kernel_native_rocksdb"
+hot_read_subject = "native_snapshot"
+distribution = "zipf-1.4"
+value_bytes = 1024
+concurrent_clients = 8
+
+[[workloads]]
+id = "direct-rocksdb-cache-pressure-2x-zipf14-control"
+lane = "native-resident-cache-pressure"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "integrated_kernel_native_rocksdb"
+hot_read_subject = "direct_owned_rocksdb"
+distribution = "zipf-1.4"
+value_bytes = 1024
+concurrent_clients = 8
+
+[hard_gates]
+correctness_anomalies = 0
+candidate_and_control_share_workload_profile = true
+candidate_and_control_share_machine_receipt = true
+candidate_and_control_share_source_and_lockfile = true
+candidate_and_control_share_trace_generator_and_seed = true
+candidate_and_control_use_33554432_byte_block_cache = true
+dataset_is_twice_the_declared_block_cache = true
+measured_window_counters_are_deltas = true
+counter_reset_invalidates_sample = true
+cache_usage_within_105_percent_of_budget = true
+measured_reads_issue_zero_object_operations = true
+minimum_samples_per_subject = 15
+gcp_machine_receipt_names_local_nvme = true
+gcp_runs_emit_otel_logs_metrics_traces = true
+schema_valid = true
+budget_must_hold = true

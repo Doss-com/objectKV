@@ -33,8 +33,11 @@ revision optimized RocksDB for point lookup but did not report a block-cache
 capacity. The operating-system page cache may also have satisfied reads. The
 receipt therefore verifies software composition around a resident working set,
 not the RAM-to-NVMe curve. The first T27 source slice now exposes one explicit
-shared cache and cumulative RocksDB counters, but it has no paired runner or
-cloud receipt yet.
+shared cache and cumulative RocksDB counters. The paired runner now applies the
+same cache to the direct control, captures measured-window counter deltas,
+generates deterministic Zipf traces with a trace digest, and exports the cache
+and RocksDB counters through OTel. Reusable fixture construction, process CPU
+and I/O counters, poison workloads, and the cloud receipt remain open.
 
 The invariant is:
 
@@ -196,14 +199,17 @@ must receive `discard` before the clean GCP run.
 
 1. `[CODE-COMPLETE]` Expose the resident engine's explicit shared cache budget
    and cumulative RocksDB cache and amplification counters.
-2. `[EVALUATING]` Wire the same cache into the direct control, report counter
-   deltas and process I/O, reuse fixtures, and add poison subjects.
-3. `[PROPOSED]` Run the 64 MiB calibration fixture once on the R0 machine shape.
-4. `[PROPOSED]` Inspect attribution and adjust operation counts so each sample
+2. `[CODE-COMPLETE]` Wire the same cache into the direct control, report counter
+   deltas, bind deterministic Zipf traces to a digest, and reject counter
+   resets.
+3. `[EVALUATING]` Report process CPU and I/O, reuse fixtures, and add poison
+   subjects.
+4. `[PROPOSED]` Run the 64 MiB calibration fixture once on the R0 machine shape.
+5. `[PROPOSED]` Inspect attribution and adjust operation counts so each sample
    reaches steady behavior without exceeding the lease budget.
-5. `[PROPOSED]` Freeze the suite hash, source revision, and 1 GiB fixture.
-6. `[PROPOSED]` Execute both process orders on clean GCP R0 with required OTel.
-7. `[PROPOSED]` Preserve receipts, remove scratch state, and destroy compute.
+6. `[PROPOSED]` Freeze the suite hash, source revision, and 1 GiB fixture.
+7. `[PROPOSED]` Execute both process orders on clean GCP R0 with required OTel.
+8. `[PROPOSED]` Preserve receipts, remove scratch state, and destroy compute.
 
 No three-machine topology is needed for T27. T27 isolates one local serving
 engine and its cache hierarchy. Independent media first becomes load-bearing
@@ -221,6 +227,12 @@ for T29 replicated commit.
 
 Each failure must either occur before measurement and produce no comparison, or
 invalidate the sample. Partial samples never enter percentile aggregation.
+
+A local diagnostic observed one activation-time `ENOENT` while accounting for
+the RocksDB directory. Two immediate reruns completed, including one on the
+default temporary root, so this is not yet a reproducible defect. The GCP
+calibration must record any recurrence and distinguish disappearing log files
+from scratch-root lifecycle failure before admission.
 
 ## Alternatives
 

@@ -32,6 +32,12 @@ frozen history + matched environment
 `invalid` is a useful result. It means the harness prevented an unsupported
 performance claim.
 
+The fail-closed evidence-class and workload-envelope rules are defined in
+[`docs/EVAL-WORKLOAD-CONTRACT.md`](EVAL-WORKLOAD-CONTRACT.md). New performance
+and economics comparisons require both receipts to identify as `workload` and
+carry a validated workload-profile hash. A `smoke` result can prove the runner
+and infrastructure path, but cannot admit a curve.
+
 ## Comparison lanes
 
 | Lane | objectKV subject | Required control | Claim scope | Primary curve |
@@ -75,6 +81,7 @@ receipts require at least five samples per subject.
 
 Before calculating the percentage, `okv-eval compare-results` requires:
 
+- workload-class candidate and control receipts with workload-profile hashes;
 - the exact program gate and declared control;
 - matching primary metric, statistic, direction, and unit;
 - matching machine, Rust toolchain, lockfile, source revision, and seeds;

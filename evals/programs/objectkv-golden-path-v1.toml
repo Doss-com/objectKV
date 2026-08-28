@@ -201,6 +201,23 @@ evidence = ["../../docs/artifacts/eval-receipts/single-range-native-concurrency-
 control = { id = "direct-rocksdb-concurrency-32", suite = "../suites/single-range-native-concurrency-admission.toml", profile = "gcp-r0-nvme", workload = "direct-rocksdb-concurrency-32-control", backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme", lane = "hot-ssd-native-concurrency" }
 
 [[phases.gates]]
+id = "GP3.1.2"
+status = "evaluating"
+kind = "performance"
+claim = "With a 64 MiB dataset, 32 MiB RocksDB block cache, Zipf 1.4 trace, and eight clients, the native version-bound snapshot preserves at least eighty percent of matched direct RocksDB throughput and keeps p99 within twenty percent while reporting measured-window cache and read counters."
+falsifier = "Native throughput falls below eighty percent, p99 exceeds one hundred twenty percent, any value or trace diverges, cache usage exceeds its allowance, a counter resets, or a measured read reaches object storage."
+requirement_ids = ["MVCC-001", "MVCC-002", "SRV-001", "SRV-002", "SRV-009", "EVAL-007", "EVAL-008"]
+suite = "../suites/native-resident-cache-pressure-calibration.toml"
+profile = "gcp-r0-calibration-2x-zipf14"
+workload = "native-cache-pressure-2x-zipf14"
+backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme"
+lane = "native-resident-cache-pressure"
+checkpoint = "ssd-resident"
+negative_controls = []
+evidence = []
+control = { id = "direct-rocksdb-cache-pressure-2x-zipf14", suite = "../suites/native-resident-cache-pressure-calibration.toml", profile = "gcp-r0-calibration-2x-zipf14", workload = "direct-rocksdb-cache-pressure-2x-zipf14-control", backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme", lane = "native-resident-cache-pressure" }
+
+[[phases.gates]]
 id = "GP3.2"
 status = "proposed"
 kind = "performance"

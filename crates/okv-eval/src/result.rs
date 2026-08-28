@@ -1,4 +1,4 @@
-use crate::config::{BudgetKind, Direction};
+use crate::config::{BudgetKind, Direction, EvidenceClass};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -33,6 +33,9 @@ pub struct EvalResult {
 pub struct ProfileIdentity {
     pub id: String,
     pub hash: String,
+    pub evidence_class: EvidenceClass,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workload_profile_hash: Option<String>,
     pub machine: String,
     pub rustc: String,
     pub lockfile_hash: String,
