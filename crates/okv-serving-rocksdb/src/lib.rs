@@ -207,6 +207,7 @@ pub struct RocksDbResidentRangeEngine {
     root: PathBuf,
     max_local_bytes: u64,
     block_cache_bytes: u64,
+    direct_reads: bool,
     block_cache: Cache,
     statistics: Options,
     state: Mutex<NativeEngineState>,
@@ -222,6 +223,7 @@ pub struct RocksDbResidentMetrics {
     pub block_cache_capacity_bytes: u64,
     pub block_cache_usage_bytes: u64,
     pub block_cache_pinned_usage_bytes: u64,
+    pub direct_reads: bool,
     pub block_cache_hits: u64,
     pub block_cache_misses: u64,
     pub block_cache_data_hits: u64,
@@ -239,6 +241,7 @@ impl Debug for RocksDbResidentRangeEngine {
             .field("root", &self.root)
             .field("max_local_bytes", &self.max_local_bytes)
             .field("block_cache_bytes", &self.block_cache_bytes)
+            .field("direct_reads", &self.direct_reads)
             .field(
                 "transition_epoch",
                 &self.transition_epoch.load(Ordering::Relaxed),
@@ -274,6 +277,29 @@ impl RocksDbResidentRangeEngine {
         max_local_bytes: u64,
         block_cache_bytes: u64,
     ) -> Result<Self, String> {
+        Self::open_with_block_cache_and_direct_reads(
+            root,
+            max_local_bytes,
+            block_cache_bytes,
+            false,
+        )
+    }
+
+    /// Open one empty native resident engine with an explicit shared block
+    /// cache and an explicit operating-system page-cache treatment.
+    ///
+    /// `direct_reads` applies RocksDB direct I/O to table-file reads only.
+    /// Flushes and compactions retain the portable buffered-I/O default.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::open_with_block_cache`].
+    pub fn open_with_block_cache_and_direct_reads(
+        root: &Path,
+        max_local_bytes: u64,
+        block_cache_bytes: u64,
+        direct_reads: bool,
+    ) -> Result<Self, String> {
         if max_local_bytes == 0 {
             return Err("native resident engine requires a positive local-byte budget".to_owned());
         }
@@ -284,7 +310,7 @@ impl RocksDbResidentRangeEngine {
             .map_err(|_| "native resident block-cache budget exceeds usize".to_owned())?;
         require_empty_root(root)?;
         let block_cache = Cache::new_lru_cache(cache_capacity);
-        let point_options = measured_point_options(&block_cache);
+        let point_options = measured_point_options(&block_cache, direct_reads);
         let mut database_options = point_options.clone();
         database_options.create_missing_column_families(true);
         let database = DB::open_cf_descriptors(
@@ -302,6 +328,7 @@ impl RocksDbResidentRangeEngine {
             root: root.to_path_buf(),
             max_local_bytes,
             block_cache_bytes,
+            direct_reads,
             block_cache,
             statistics: point_options,
             state: Mutex::new(NativeEngineState::default()),
@@ -316,6 +343,7 @@ impl RocksDbResidentRangeEngine {
             block_cache_capacity_bytes: self.block_cache_bytes,
             block_cache_usage_bytes: usize_as_u64(self.block_cache.get_usage()),
             block_cache_pinned_usage_bytes: usize_as_u64(self.block_cache.get_pinned_usage()),
+            direct_reads: self.direct_reads,
             block_cache_hits: self.statistics.get_ticker_count(Ticker::BlockCacheHit),
             block_cache_misses: self.statistics.get_ticker_count(Ticker::BlockCacheMiss),
             block_cache_data_hits: self.statistics.get_ticker_count(Ticker::BlockCacheDataHit),
@@ -839,8 +867,9 @@ fn point_options() -> Options {
     options
 }
 
-fn measured_point_options(block_cache: &Cache) -> Options {
+fn measured_point_options(block_cache: &Cache, direct_reads: bool) -> Options {
     let mut options = point_options();
+    options.set_use_direct_reads(direct_reads);
     options.enable_statistics();
     let mut table = BlockBasedOptions::default();
     table.set_block_cache(block_cache);
@@ -1185,6 +1214,7 @@ mod tests {
         }
         let after = engine.metrics();
         assert_eq!(after.block_cache_capacity_bytes, 2 * 1_024 * 1_024);
+        assert!(!after.direct_reads);
         assert!(after.block_cache_usage_bytes <= after.block_cache_capacity_bytes);
         assert!(after.block_cache_hits >= before.block_cache_hits);
         assert!(after.block_cache_misses >= before.block_cache_misses);
@@ -1194,6 +1224,20 @@ mod tests {
             .expect("evict measured block cache");
         let reset = engine.metrics();
         assert!(reset.block_cache_usage_bytes <= reset.block_cache_pinned_usage_bytes);
+    }
+
+    #[test]
+    fn native_engine_exposes_direct_read_page_cache_treatment() {
+        let root = TempDir::new().expect("temporary native resident root");
+        let engine = RocksDbResidentRangeEngine::open_with_block_cache_and_direct_reads(
+            root.path(),
+            64 * 1_024 * 1_024,
+            2 * 1_024 * 1_024,
+            true,
+        )
+        .expect("open native resident engine with direct reads");
+
+        assert!(engine.metrics().direct_reads);
     }
 
     #[test]

@@ -2738,6 +2738,11 @@ fn run_openraft_serving_worker_recovery(
         .get("reuse_fixture_across_repeats")
         .and_then(toml::Value::as_bool)
         .unwrap_or(false);
+    let hot_read_direct_reads = profile
+        .parameters
+        .get("direct_reads")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false);
     let fixture_runs = if reuse_fixture_across_repeats {
         1
     } else {
@@ -2777,6 +2782,7 @@ fn run_openraft_serving_worker_recovery(
                     access_pattern: hot_read_access_pattern,
                     max_local_bytes: hot_read_max_local_bytes,
                     block_cache_bytes: hot_read_block_cache_bytes,
+                    direct_reads: hot_read_direct_reads,
                     sample_count: samples_per_fixture,
                     negative_control: hot_read_negative_control,
                 }
@@ -2806,6 +2812,7 @@ fn run_openraft_serving_worker_recovery(
         access_pattern: hot_read_access_pattern,
         max_local_bytes: hot_read_max_local_bytes,
         block_cache_bytes: declared_hot_read_block_cache_bytes,
+        direct_reads: hot_read_direct_reads,
         sample_count: 1,
         negative_control: None,
     });
@@ -2829,6 +2836,7 @@ fn run_openraft_serving_worker_recovery(
         &replay,
         OpenRaftHotReadEvaluationContract {
             declared_block_cache_bytes: declared_hot_read_block_cache_bytes,
+            declared_direct_reads: hot_read_direct_reads,
             samples_per_fixture,
             reuse_fixture_across_repeats,
             require_linux_process_metrics,
@@ -3106,6 +3114,7 @@ fn hot_read_sample_measurements(
 #[derive(Clone, Copy)]
 struct OpenRaftHotReadEvaluationContract {
     declared_block_cache_bytes: u64,
+    declared_direct_reads: bool,
     samples_per_fixture: usize,
     reuse_fixture_across_repeats: bool,
     require_linux_process_metrics: bool,
@@ -3123,6 +3132,7 @@ fn openraft_serving_recovery_execution(
 ) -> WorkloadExecution {
     let OpenRaftHotReadEvaluationContract {
         declared_block_cache_bytes,
+        declared_direct_reads,
         samples_per_fixture,
         reuse_fixture_across_repeats,
         require_linux_process_metrics,
@@ -3268,6 +3278,7 @@ fn openraft_serving_recovery_execution(
         || (!hot_samples.is_empty()
             && hot_samples.iter().all(|sample| {
                 sample.storage.block_cache_capacity_bytes == declared_block_cache_bytes
+                    && sample.storage.direct_reads == declared_direct_reads
                     && sample.storage.block_cache_usage_bytes
                         <= declared_block_cache_bytes
                             .saturating_mul(105)
@@ -3593,6 +3604,11 @@ fn openraft_serving_recovery_execution(
                         )
                     })
             }),
+        });
+        hard_gates.push(HardGateResult {
+            id: "rocksdb_direct_read_mode_matches_profile".to_owned(),
+            status: gate_status(hot_read_storage_exact),
+            detail: Some(format!("direct_reads={declared_direct_reads}")),
         });
         hard_gates.push(HardGateResult {
             id: "fixture_reused_across_independent_samples".to_owned(),

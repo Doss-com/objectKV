@@ -1,0 +1,129 @@
+schema_version = 1
+id = "native-resident-direct-read-preflight-v1"
+status = "evaluating"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../docs/EVAL-WORKLOAD-CONTRACT.md",
+  "../../rfcs/0040-native-resident-engine-data-plane.md",
+  "../../rfcs/0043-native-resident-cache-pressure-curve.md",
+]
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.linux-direct-io-preflight]
+logical_bytes = 16777216
+key_count = 16384
+seeds = [1103]
+
+[profiles.linux-direct-io-preflight]
+budget_kind = "operations"
+budget_limit = 300000
+repeats = 1
+evidence_class = "smoke"
+cache_state = "resident-range-on-local-nvme-with-direct-table-reads"
+serving_profile = "ssd_resident"
+durability_profile = "openraft-local-process-mechanism-diagnostic"
+max_local_bytes = 268435456
+local_byte_budget = 268435456
+block_cache_bytes = 4194304
+row_object_target_bytes = 8388608
+row_object_block_bytes = 65536
+retained_stream_page_records = 2
+hot_read_warmup_operations = 25000
+hot_read_operations = 100000
+measurement_operations = 100000
+warmup_operations = 25000
+reuse_fixture_across_repeats = true
+require_linux_process_metrics = true
+direct_reads = true
+
+[profiles.linux-direct-io-preflight.workload_profile]
+schema_version = 1
+name = "native-resident-direct-read-preflight-v1"
+dataset = "linux-direct-io-preflight"
+access_pattern = "zipf-0.8"
+cache_state = "resident"
+matched_control = "direct-owned-rocksdb-with-matched-direct-table-reads"
+concurrency = [8]
+failure_schedule = [
+  "kill-first-worker-before-measurement",
+  "activate-empty-replacement-before-warmup",
+  "no-failure-during-measurement",
+]
+required_metrics = [
+  "operation.throughput",
+  "operation.duration",
+  "correctness.anomalies",
+  "object_store.requests",
+  "cache.hit_ratio",
+  "rocksdb.cache_requests",
+  "rocksdb.read_bytes",
+  "process.io_bytes",
+]
+
+[profiles.linux-direct-io-preflight.workload_profile.operation_mix]
+point_read = 1.0
+
+[profiles.linux-direct-io-preflight.workload_profile.warmup]
+kind = "operations"
+amount = 25000
+
+[profiles.linux-direct-io-preflight.workload_profile.measurement]
+kind = "operations"
+amount = 100000
+
+[profiles.linux-direct-io-preflight.workload_profile.resource_limits]
+logical_dataset_bytes = 16777216
+block_cache_bytes = 4194304
+local_bytes = 268435456
+authority_processes = 6
+serving_workers = 1
+
+[[lanes]]
+id = "native-resident-direct-read-preflight"
+primary_metric = "operation.throughput"
+statistic = "median"
+direction = "higher"
+practical_improvement_fraction = 0.20
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "native-direct-read-preflight"
+lane = "native-resident-direct-read-preflight"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "integrated_kernel_native_rocksdb"
+hot_read_subject = "native_snapshot"
+distribution = "zipf-0.8"
+value_bytes = 1024
+concurrent_clients = 8
+
+[[workloads]]
+id = "direct-rocksdb-direct-read-preflight-control"
+lane = "native-resident-direct-read-preflight"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "integrated_kernel_native_rocksdb"
+hot_read_subject = "direct_owned_rocksdb"
+distribution = "zipf-0.8"
+value_bytes = 1024
+concurrent_clients = 8
+
+[hard_gates]
+correctness_anomalies = 0
+candidate_and_control_enable_direct_table_reads = true
+candidate_and_control_share_cache_budget = true
+candidate_and_control_share_trace_generator_and_seed = true
+direct_read_mode_is_recorded_in_every_sample = true
+linux_process_cpu_and_io_are_attributed_per_sample = true
+measured_reads_issue_zero_object_operations = true
+schema_valid = true
+budget_must_hold = true

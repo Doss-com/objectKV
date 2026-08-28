@@ -133,6 +133,8 @@ pub struct OpenRaftHotReadProfile {
     pub max_local_bytes: u64,
     #[serde(default = "default_hot_read_block_cache_bytes")]
     pub block_cache_bytes: u64,
+    #[serde(default)]
+    pub direct_reads: bool,
     #[serde(default = "single_hot_read_sample")]
     pub sample_count: usize,
     #[serde(default)]
@@ -264,6 +266,8 @@ pub struct OpenRaftHotReadStorageReport {
     pub block_cache_capacity_bytes: u64,
     pub block_cache_usage_bytes: u64,
     pub block_cache_pinned_usage_bytes: u64,
+    #[serde(default)]
+    pub direct_reads: bool,
     pub block_cache_hits: u64,
     pub block_cache_misses: u64,
     pub block_cache_data_hits: u64,
@@ -688,6 +692,7 @@ async fn run_integrated_kernel_node(
                 &config.scratch_root,
                 profile.max_local_bytes,
                 profile.block_cache_bytes,
+                profile.direct_reads,
             )?)
         } else {
             None
@@ -990,6 +995,7 @@ fn run_matched_direct_hot_reads(
     options.create_if_missing(true);
     options.optimize_for_point_lookup(128);
     options.set_max_open_files(256);
+    options.set_use_direct_reads(profile.direct_reads);
     options.enable_statistics();
     let mut table = BlockBasedOptions::default();
     table.set_block_cache(&block_cache);
@@ -1046,7 +1052,14 @@ fn run_matched_direct_hot_reads(
                     .map(|value| value.map_or(ReadOutcome::Absent, ReadOutcome::Value))
                     .map_err(|error| format!("read matched direct RocksDB control: {error}"))
             },
-            &|| direct_rocksdb_metrics(&options, &block_cache, profile.block_cache_bytes),
+            &|| {
+                direct_rocksdb_metrics(
+                    &options,
+                    &block_cache,
+                    profile.block_cache_bytes,
+                    profile.direct_reads,
+                )
+            },
         )?;
         samples.push(hot_read_sample(sample, profile, window, 0));
     }
@@ -1213,6 +1226,7 @@ struct HotReadStorageSnapshot {
     block_cache_capacity_bytes: u64,
     block_cache_usage_bytes: u64,
     block_cache_pinned_usage_bytes: u64,
+    direct_reads: bool,
     block_cache_hits: u64,
     block_cache_misses: u64,
     block_cache_data_hits: u64,
@@ -1423,6 +1437,7 @@ impl From<okv_serving_rocksdb::RocksDbResidentMetrics> for HotReadStorageSnapsho
             block_cache_capacity_bytes: metrics.block_cache_capacity_bytes,
             block_cache_usage_bytes: metrics.block_cache_usage_bytes,
             block_cache_pinned_usage_bytes: metrics.block_cache_pinned_usage_bytes,
+            direct_reads: metrics.direct_reads,
             block_cache_hits: metrics.block_cache_hits,
             block_cache_misses: metrics.block_cache_misses,
             block_cache_data_hits: metrics.block_cache_data_hits,
@@ -1440,12 +1455,14 @@ fn direct_rocksdb_metrics(
     options: &Options,
     block_cache: &Cache,
     block_cache_bytes: u64,
+    direct_reads: bool,
 ) -> HotReadStorageSnapshot {
     HotReadStorageSnapshot {
         block_cache_capacity_bytes: block_cache_bytes,
         block_cache_usage_bytes: u64::try_from(block_cache.get_usage()).unwrap_or(u64::MAX),
         block_cache_pinned_usage_bytes: u64::try_from(block_cache.get_pinned_usage())
             .unwrap_or(u64::MAX),
+        direct_reads,
         block_cache_hits: options.get_ticker_count(Ticker::BlockCacheHit),
         block_cache_misses: options.get_ticker_count(Ticker::BlockCacheMiss),
         block_cache_data_hits: options.get_ticker_count(Ticker::BlockCacheDataHit),
@@ -1461,6 +1478,11 @@ fn storage_delta(
     before: HotReadStorageSnapshot,
     after: HotReadStorageSnapshot,
 ) -> Result<OpenRaftHotReadStorageReport, String> {
+    if before.direct_reads != after.direct_reads {
+        return Err(
+            "RocksDB direct-read configuration changed inside the measured window".to_owned(),
+        );
+    }
     let block_cache_hits = counter_delta(
         "block_cache_hits",
         before.block_cache_hits,
@@ -1486,6 +1508,7 @@ fn storage_delta(
         block_cache_capacity_bytes: after.block_cache_capacity_bytes,
         block_cache_usage_bytes: after.block_cache_usage_bytes,
         block_cache_pinned_usage_bytes: after.block_cache_pinned_usage_bytes,
+        direct_reads: after.direct_reads,
         block_cache_hits,
         block_cache_misses,
         block_cache_data_hits: counter_delta(
@@ -1799,12 +1822,14 @@ fn open_rocksdb_resident_engine(
     scratch_root: &Path,
     max_local_bytes: u64,
     block_cache_bytes: u64,
+    direct_reads: bool,
 ) -> Result<OpenedResidentEngine, String> {
     let measured = Arc::new(
-        okv_serving_rocksdb::RocksDbResidentRangeEngine::open_with_block_cache(
+        okv_serving_rocksdb::RocksDbResidentRangeEngine::open_with_block_cache_and_direct_reads(
             &scratch_root.join("rocksdb-native-resident-engine"),
             max_local_bytes,
             block_cache_bytes,
+            direct_reads,
         )?,
     );
     let kernel: Arc<dyn okv::ResidentRangeEngine> = measured.clone();
@@ -1821,6 +1846,7 @@ fn open_rocksdb_resident_engine(
     _scratch_root: &Path,
     _max_local_bytes: u64,
     _block_cache_bytes: u64,
+    _direct_reads: bool,
 ) -> Result<OpenedResidentEngine, String> {
     Err("RocksDB resident engine requires okv-eval feature resident-rocksdb".to_owned())
 }
@@ -2971,6 +2997,7 @@ mod tests {
                 access_pattern: OpenRaftHotReadAccessPattern::Zipf1_4,
                 max_local_bytes: 128 * 1_024 * 1_024,
                 block_cache_bytes: 4 * 1_024 * 1_024,
+                direct_reads: false,
                 sample_count: 2,
                 negative_control: None,
             },
@@ -2988,6 +3015,7 @@ mod tests {
         assert!(report.operations_per_second.is_finite());
         let storage = report.storage.expect("measured storage counters");
         assert_eq!(storage.block_cache_capacity_bytes, 4 * 1_024 * 1_024);
+        assert!(!storage.direct_reads);
         assert!(storage.block_cache_usage_bytes <= storage.block_cache_capacity_bytes);
         assert!(
             storage

@@ -40,14 +40,15 @@ and RocksDB counters through OTel. Reusable fixture execution now builds one
 recovered calibration fixture and runs 15 independently warmed samples after
 explicit block-cache eviction. Each sample reports process user/system CPU,
 RSS, Linux logical and physical I/O, and host network-namespace deltas.
-Mismatched-cache and counter-reset poison workloads both discard. The cloud
-calibration completed on GCP R0 in both process orders. All 84 workload hard
-gates passed, every run ID appeared in OTel logs, metrics, and traces, and
-cleanup completed. The native subject missed both executable comparison gates
-in both orders: throughput was 0.5968x and 0.5659x control, while p99 was
-1.3312x and 1.5567x control. CPU time was also 1.6685x and 1.7460x control,
-above the 1.25x admission limit, but that cross-result constraint is not yet
-executable in the comparator. T27 remains `[EVALUATING]`.
+Mismatched-cache and counter-reset poison workloads both discard. The first
+cloud calibration completed on GCP R0 in both process orders and exposed a
+forced tail SST. After keeping the disposable tail mutable, the corrected
+60-million-read rerun retained 0.9432x and 0.9735x control throughput; p99 was
+1.0441x and 0.9949x; CPU/read was 1.0586x and 1.0298x. All 84 workload gates
+and eight explicit comparison constraints passed, every run ID appeared in
+OTel logs, metrics, and traces, and cleanup completed. The 64 MiB calibration
+is `[VERIFIED]`. T27 remains `[EVALUATING]` because the 1 GiB coverage and skew
+curve has not run and Linux page cache kept physical read bytes at zero.
 
 The invariant is:
 
@@ -221,16 +222,16 @@ must receive `discard` before the clean GCP run.
    missed throughput, p99, and the diagnostic CPU bound in both orders.
 5. `[VERIFIED]` Preserve receipts and all three OTel signals, remove 152 current
    scratch objects, and destroy all nine leased resources.
-6. `[EVALUATING]` Profile the exact native read path, make CPU and physical-byte
-   cross-result constraints executable, and persist one fixture across all
-   four subjects. Each current receipt still rebuilds and replays its own
-   fixture outside measurement.
-7. `[PROPOSED]` Rerun the unchanged 64 MiB AB and BA gate after one bounded
-   optimization slice.
-8. `[PROPOSED]` Freeze the suite hash, source revision, and 1 GiB fixture only
-   after the calibration envelope passes.
-9. `[PROPOSED]` Execute both process orders for the 1 GiB admission on clean
-   GCP R0 with required OTel.
+6. `[VERIFIED]` Remove the forced tail SST, make CPU and physical-byte
+   cross-result constraints executable, and rerun the unchanged 64 MiB A/B and
+   B/A gate. All explicit constraints passed.
+7. `[EVALUATING]` Apply a matched RocksDB direct-table-read mode to candidate
+   and control, report the mode in every measured sample, and verify on Linux
+   that the receipt distinguishes OS page-cache behavior from NVMe reads.
+8. `[PROPOSED]` Persist one content-addressed fixture across all four subjects,
+   then freeze the suite hash, source revision, and 1 GiB fixture.
+9. `[PROPOSED]` Execute both process orders for the 1 GiB coverage and skew
+   admission on clean GCP R0 with required OTel.
 
 No three-machine topology is needed for T27. T27 isolates one local serving
 engine and its cache hierarchy. Independent media first becomes load-bearing
