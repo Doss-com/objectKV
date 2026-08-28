@@ -1414,3 +1414,40 @@ boundary.
 
 Evidence: RFC-0043 and
 `docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md`.
+
+## D60. Admit the corrected calibration and retain the broader T27 gate
+
+Status: `[VERIFIED]` decision, 2026-08-28.
+
+Decision: mark GP3.1.2 `[VERIFIED]` after the corrected 64 MiB calibration
+cleared its throughput, p99, CPU/read, semantic, telemetry, and zero
+physical-read constraints in both process orders. Keep T27 and master-matrix
+row 1 `[EVALUATING]` until the frozen cache-coverage and skew sweep executes
+with an explicit operating-system page-cache treatment.
+
+The owning defect was a forced flush after every disposable tail advance.
+Activation created a base SST, the advance created a second SST, and untouched
+latest reads probed both. Keeping recent tail state mutable reduced the worst
+CPU/read ratio from 1.7460x to 1.0586x control and raised the minimum throughput
+ratio from 0.5659x to 0.9432x. The corrected A/B and B/A run executed 60 million
+reads; all 84 workload gates and eight explicit comparison constraints passed.
+Every run ID occurred in OTel logs, metrics, and traces.
+
+The top-level comparator verdict is `inconclusive` because its primary verdict
+asks whether either subject is at least 20 percent faster. That does not fail
+this non-inferiority gate. The gate's four explicit constraints define
+admission and passed in both orders. A later evaluator change should represent
+improvement and non-inferiority objectives separately instead of requiring a
+manual interpretation.
+
+Optimizes for: retaining the native version-bound point-read path only after it
+stays close to the owned-value RocksDB control and preserving a strict status
+boundary between one passing calibration and a complete cache-pressure curve.
+
+Gives up: claiming a RocksDB speedup or an isolated NVMe result. Linux reported
+zero physical read bytes for every subject, so the next T27 slice must control
+the operating-system page cache and reuse one fixture across all subjects
+before the 1 GiB sweep.
+
+Evidence:
+`docs/artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md`.

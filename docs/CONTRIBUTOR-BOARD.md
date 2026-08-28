@@ -600,18 +600,20 @@ become one GitHub issue.
   three-machine topology because it isolates the local serving hierarchy.
 - Execution slices: `[CODE-COMPLETE]` resident shared-cache configuration and
   cumulative RocksDB counters, matched-control configuration, counter deltas,
-  process I/O, 15-window fixture reuse, and poison subjects; `[VERIFIED]`
-  execution and negative result for the 64 MiB R0 calibration; `[EVALUATING]`
-  native CPU attribution, executable CPU and physical-byte comparisons, and
-  one persisted fixture reused across candidate, control, and both process
-  orders; `[PROPOSED]` unchanged 64 MiB rerun; `[PROPOSED]` frozen 1 GiB paired
-  GCP admission.
-- Current result: native retained 0.5968x and 0.5659x direct RocksDB throughput,
-  p99 was 1.3312x and 1.5567x control, and CPU time was 1.6685x and 1.7460x
-  control. All 84 workload gates passed with zero measured object operations,
-  but both comparisons returned `worse`. Linux reported zero physical read
-  bytes, so the calibration localized overhead above physical media without
-  isolating the NVMe curve.
+  process I/O, 15-window fixture reuse, poison subjects, CPU attribution, and
+  executable CPU and zero-baseline physical-byte comparisons; `[VERIFIED]`
+  execution and negative result for the initial 64 MiB R0 calibration;
+  `[VERIFIED]` one-probe correction and corrected 64 MiB A/B plus B/A rerun;
+  `[EVALUATING]` one persisted fixture reused across candidate, control, and
+  both process orders plus reviewed operating-system page-cache treatment;
+  `[PROPOSED]` frozen 1 GiB paired GCP admission.
+- Current result: after removing a forced tail SST, native retained 0.9432x and
+  0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
+  CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
+  constraints passed. Every run ID occurred in OTel logs, metrics, and traces.
+  Linux still reported zero physical read bytes, so T27 remains
+  `[EVALUATING]` until the 1 GiB coverage and skew curve controls the page cache
+  and reuses one fixture across all subjects.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 
@@ -621,7 +623,8 @@ become one GitHub issue.
 - Done when: cold reads use bounded named requests and bytes independent of
   database size; point and projected-scan lanes each receive a clean paired
   GCS receipt with required OTel; complete split-closure recovery passes.
-- Dependency: T27 freezes the cache budget and fixture identity. The two
+- Dependency: T27 freezes the cache budget, fixture identity, and physical-read
+  treatment. The two
   performance lanes remain separate even when they share provisioning.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`

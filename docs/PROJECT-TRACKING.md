@@ -115,8 +115,17 @@ in the mutable RocksDB layer while txLog remains the durability authority. On
 the real R0 host, the focused regression produced exactly 256 cache probes for
 256 latest reads; all eight RangeEngine package tests passed. The v2 comparator
 now executes throughput, p99, CPU/read, and exact-zero physical-read bounds.
-`[EVALUATING]` The full 60-million-read A/B plus B/A rerun is active at source
-`a4cf9a8a8d86a1dfa84d5af01eb514149dce1ed8`.
+
+`[VERIFIED]` The corrected 60-million-read A/B plus B/A calibration at source
+`a4cf9a8a8d86a1dfa84d5af01eb514149dce1ed8` cleared all eight explicit
+comparison constraints. Native retained 0.9432x and 0.9735x control throughput;
+p99 was 1.0441x and 0.9949x; CPU/read was 1.0586x and 1.0298x. All 84 workload
+gates passed and every run ID occurred in OTel logs, metrics, and traces. The
+31-object, 4.68 MiB evidence set is durable in versioned GCS; all nine leased
+resources and the 116 MiB local provider cache were removed. T27 and row 1 stay
+`[EVALUATING]` because the operating-system page cache kept physical reads at
+zero and the broader cache-coverage and skew sweep has not run. Evidence is in
+[`docs/artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md).
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
@@ -185,9 +194,10 @@ cache pressure
 
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
-stop decision for objectKV. The immediate owned task is T27, the cache-pressure
-curve. Its next slice profiles the native point-read CPU path and reuses one
-persisted fixture across AB and BA before repeating the unchanged calibration.
+stop decision for objectKV. The immediate owned task remains T27. Its next
+slice reuses one persisted fixture across AB and BA, introduces a reviewed
+direct-read or page-cache-control mode, and executes the 1 GiB cache-coverage
+and skew sweep without weakening the now-verified calibration.
 
 ## Current checkpoint
 

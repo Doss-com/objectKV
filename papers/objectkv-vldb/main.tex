@@ -60,8 +60,13 @@ throughput and missed p99. A topology-matched rerun then retained 90.89\% and
 orders. At 8 and 32 synchronized clients, the native boundary retained 87.34\%
 through 89.06\% of control throughput and kept p99 between 1.107x and 1.184x
 control. All eight concurrent results passed their explicit constraints, issued
-zero measured object operations, and emitted correlated OTel signals. These
-results admit a single-range resident-read mechanism, not a complete cell. A
+zero measured object operations, and emitted correlated OTel signals. A first
+64 MiB cache-pressure calibration exposed a forced tail SST and two cache
+probes per latest read. After removing that flush, a 60-million-read rerun
+retained 94.32\% and 97.35\% of control throughput; p99 was 1.044x and 0.995x,
+and CPU/read was 1.059x and 1.030x. All 84 workload gates and eight explicit
+comparison constraints passed. These results admit one 64 MiB cache-pressure
+point, not the full cache curve or a complete cell. A
 live semantic eliminator rejected TiKV as the strict-serializability control
 because both transactions in the frozen write-skew history committed.
 FoundationDB rejected the same write skew and remains the semantic oracle and
@@ -390,8 +395,8 @@ operations, and every run ID occurs in OTel logs, metrics, and traces. Cache
 pressure remains isolated into a later gate with explicit cache sizing and a
 reusable larger-than-cache fixture.
 
-The first cache-pressure calibration is implemented and has a clean negative
-result. It freezes 64 MiB of logical values over a 32 MiB shared RocksDB block
+The first cache-pressure calibration freezes 64 MiB of logical values over a
+32 MiB shared RocksDB block
 cache, a deterministic Zipf 1.4 trace, eight clients, one million measured
 reads per sample, one seed, fifteen independently warmed samples, both process
 orders, replacement-worker recovery before warmup, and direct owned-value
@@ -403,9 +408,20 @@ was 1.3312x and 1.5567x control. Both comparisons returned
 equal peak RSS and slightly higher native block-cache hit ratios. Linux
 reported zero physical read bytes for every subject, so this is a combined
 RocksDB and operating-system-cache curve rather than an isolated NVMe curve.
-The result blocks the 1 GiB admission while we profile the native snapshot and
-value-return path, make CPU and physical-byte comparisons executable, and
-persist one fixture across all four subjects.
+
+The attribution found that activation created a base SST and every small tail
+advance forced another SST. An untouched latest read then searched both files.
+Keeping the disposable recent tail mutable preserves \txlog{} durability while
+removing that second probe. A focused R0 regression observed exactly 256 cache
+probes for 256 reads. The repeated 60-million-read A/B and B/A calibration then
+retained 0.9432x and 0.9735x control throughput; p99 was 1.0441x and 0.9949x;
+CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight explicit
+comparison constraints passed, and every run ID occurred in OTel logs,
+metrics, and traces. Linux still reported zero physical read bytes. The
+64 MiB calibration is therefore \verified{}, while the full cache-coverage and
+skew curve remains \evaluating{}. Before the 1 GiB admission, the harness must
+reuse one fixture across all four subjects and explicitly control the
+operating-system page cache.
 
 \subsection{Objectification and publication}
 
@@ -593,7 +609,7 @@ routing, and publication decisions. A dual-provider GCP harness is code
 complete but has not executed.
 
 \begin{table*}[t]
-  \caption{Selected implementation evidence as of 2026-08-27. A zero-anomaly
+  \caption{Selected implementation evidence as of 2026-08-28. A zero-anomaly
   result is scoped to the listed backend and topology.}
   \label{tab:evidence}
   \small
@@ -615,7 +631,7 @@ complete but has not executed.
     Independent-request commit proxy & \evaluating{} & Three OpenRaft data processes, release build, local stable journals, dirty source & G4.10a.1 runs \texttt{be37cc6b}, \texttt{cbe29754}, and five policy controls & 1,157.369 tx/s, 76.101 ms maximum p99, 6.356x one-entry control, 32 transactions per leader append \\
     Durable snapshot and frontiered compaction & \evaluating{} & Six local processes, release build, synchronized files, dirty source & G4.11a and G4.11a.1 runs & Journals fell to 879 bytes; exact restart; frontiered growth 1.091759x; 19.692719x media failed 8x \\
     GCP single-range mechanism & \verified{} & Private n2-standard-8 runner, regional GCS, 200 GiB persistent SSD, 375 GiB local NVMe, OTel & Runs \texttt{662481a8} and \texttt{c571ff45} & Exact recovery, zero hot object operations, zero anomalies, full lease teardown \\
-    SSD public read admission & \evaluating{} & Same frozen GCP runner and 4 MiB warm working set, 15 samples per subject and order & Batches \texttt{gp31nvme2-ab-r1} and \texttt{gp31nvme2-ba-r1} & Throughput 19.32\% and 19.98\% worse; p99 35.25\% and 29.99\% worse; executable p99 constraint failed twice \\
+    Native cache calibration & \verified{} & Private GCP R0 runner, 64 MiB values, 32 MiB cache, Zipf 1.4, eight clients, 15 samples per subject and order & Batches \texttt{gp312opt-r0-ab} and \texttt{gp312opt-r0-ba} & Throughput 0.9432x and 0.9735x control; p99 1.0441x and 0.9949x; CPU/read 1.0586x and 1.0298x; 84 workload and eight comparison gates passed \\
     Provider media loss & \verified{} & Sequential private source and restore VMs, distinct 100 GiB provider SSDs, regional GCS, OTel & Runs \texttt{3093a364} and \texttt{865c06d8} & Exact 950-record reconstruction after source VM and disk deletion; 16 positive gates passed; hidden-media control discarded \\
     Provider incarnation authority & \evaluating{} & Three-process generation and publication authorities on one host; dual-provider GCP resurrection harness pending & Runs \texttt{15260d66} and \texttt{b05dd054} & Local positive kept with zero anomalies; stale commit, route, and publication poison discarded with three anomalies \\
     Independent hosts and zones & \evaluating{} & Not yet executed & No admitted receipt & Single-runner evidence does not establish distributed durability \\
@@ -1265,11 +1281,11 @@ The dependency order is evidence driven:
   \item The topology-matched native SSD-resident experiment passed exact-read,
   object-request, local-byte, throughput, and p99 gates in both process orders.
   The 8-client and 32-client curves also passed. The first 64 MiB
-  cache-pressure calibration then failed throughput, p99, and the diagnostic
-  CPU bound in both process orders. Profile and optimize that exact native read
-  boundary, persist one fixture across subjects, and rerun the unchanged
-  calibration before expanding to the 1 GiB admission. FoundationDB remains
-  the semantic oracle.
+  cache-pressure calibration failed throughput, p99, and the diagnostic CPU
+  bound in both process orders. Removing a forced tail SST then brought the
+  repeated calibration inside every explicit bound. Persist one fixture across
+  subjects and control the operating-system page cache before expanding to the
+  1 GiB coverage and skew admission. FoundationDB remains the semantic oracle.
   \item The GCS closure passed empty logical-generation reconstruction and
   fresh-provider reconstruction after source VM and disk deletion. The local
   external incarnation authority is verified and the real-provider harness is
@@ -1339,20 +1355,24 @@ durable encoding. Its next rung must append each delta transactionally, recover
 through \texttt{okv-wal}, bind checkpoints to exact positions and reducer
 identities, and reject corrupt or unsupported histories before serving state.
 
-The native resident boundary has supplied two decisions. First, comparisons
+The native resident boundary has supplied three decisions. First, comparisons
 must match recovery topology and value ownership. Second, once matched, the
 native version-bound read boundary stays inside the frozen direct RocksDB
-envelope through 32 clients. The native plane therefore continues to cache
-pressure and replicated-commit gates. TiKV failed the strict-serializable
+envelope through 32 clients. Third, disposable recent tail state must not be
+forced into a second SST when \txlog{} already owns durability. The corrected
+64 MiB cache-pressure calibration passed in both process orders. The native
+plane therefore continues to the full coverage, skew, and replicated-commit
+gates. TiKV failed the strict-serializable
 write-skew control; FoundationDB passed and remains the semantic oracle and
 fallback profile. Its logical-generation and media-loss probes verify exact
 object reconstruction in their bounded scopes, while the local compound-fence
 process detects stale commit, route, and publication attempts. No receipt yet
 proves a complete native transaction cell, independent-zone quorum durability,
-cache-pressure behavior, PostgreSQL execution, or end-to-end HTAP economics.
-The golden scenario is code complete as a plan. The next decisive results are
-the bounded cache curve, same-durability native replicated commit, and exact
-object-plus-tail recovery under those admitted rates.
+the full cache-coverage curve, PostgreSQL execution, or end-to-end HTAP
+economics. The golden scenario is code complete as a plan. The next decisive
+results are the 1 GiB coverage and skew curve, same-durability native
+replicated commit, and exact object-plus-tail recovery under those admitted
+rates.
 
 \balance
 \bibliographystyle{ACM-Reference-Format}

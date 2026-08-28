@@ -202,7 +202,7 @@ control = { id = "direct-rocksdb-concurrency-32", suite = "../suites/single-rang
 
 [[phases.gates]]
 id = "GP3.1.2"
-status = "evaluating"
+status = "verified"
 kind = "performance"
 claim = "With a 64 MiB dataset, 32 MiB RocksDB block cache, Zipf 1.4 trace, and eight clients, the native version-bound snapshot preserves at least eighty percent of matched direct RocksDB throughput, keeps p99 within twenty percent, keeps CPU per read within twenty-five percent, and matches a zero physical-read control while reporting measured-window cache and read counters."
 falsifier = "Native throughput falls below eighty percent, p99 exceeds one hundred twenty percent, CPU per read exceeds one hundred twenty-five percent, physical reads differ from a zero control, any value or trace diverges, cache usage exceeds its allowance, a counter resets, or a measured read reaches object storage."
@@ -217,7 +217,10 @@ negative_controls = [
   "native-cache-mismatch-poison",
   "native-counter-reset-poison",
 ]
-evidence = ["../../docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md"]
+evidence = [
+  "../../docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md",
+  "../../docs/artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md",
+]
 control = { id = "direct-rocksdb-cache-pressure-2x-zipf14", suite = "../suites/native-resident-cache-pressure-rerun.toml", profile = "gcp-r0-calibration-2x-zipf14", workload = "direct-rocksdb-cache-pressure-2x-zipf14-control", backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme", lane = "native-resident-cache-pressure" }
 
 [[phases.gates]]

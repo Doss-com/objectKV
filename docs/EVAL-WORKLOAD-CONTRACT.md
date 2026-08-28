@@ -111,8 +111,8 @@ reads across the admitted receipt set, explicit worker replacement before
 warmup, a resident 128 MiB cache and local-byte ceiling, and direct owned-value
 RocksDB as control.
 
-T27 remains `[EVALUATING]`. Its next workload profile expands this baseline to
-larger-than-cache fixtures, deterministic Zipf traces, measured-window cache
+T27 remains `[EVALUATING]`. Its current workload profile expands this baseline
+to larger-than-cache fixtures, deterministic Zipf traces, measured-window cache
 and I/O deltas, and the 64 MiB calibration then 1 GiB admission sequence frozen
 in RFC-0043.
 
@@ -122,8 +122,12 @@ clients, one million measured reads per sample, one seed, 15 independently
 warmed samples, both process orders, and direct owned-value RocksDB control.
 Fixture reuse within a receipt, process CPU and I/O attribution, and
 mismatched-cache plus counter-reset negative controls are `[CODE-COMPLETE]`.
-The paired clean GCP calibration is `[VERIFIED]` as a negative result. Native
-missed throughput, p99, and the diagnostic CPU bound in both orders. T27
-remains `[EVALUATING]`; the three-seed, five-repeat contract applies to the
-later 1 GiB admission, after one persisted fixture is reused across subjects
-and CPU plus physical-byte constraints execute in the comparator.
+The initial paired GCP calibration is `[VERIFIED]` as a negative result. Native
+missed throughput, p99, and the diagnostic CPU bound in both orders. The
+corrected `native-resident-cache-pressure-rerun-v2` calibration is also
+`[VERIFIED]`: native retained 0.9432x and 0.9735x control throughput, p99 was
+1.0441x and 0.9949x, CPU/read was 1.0586x and 1.0298x, and all eight executable
+comparison constraints passed. T27 remains `[EVALUATING]`; the three-seed,
+five-repeat contract applies to the later 1 GiB admission after one persisted
+fixture is reused across subjects and the operating-system page cache is
+explicitly controlled.

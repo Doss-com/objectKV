@@ -4,10 +4,12 @@ Status: `[VERIFIED]` for the private runner, named local NVMe, regional GCS,
 required OTel, machine receipt, schema-valid paired-comparison mechanism, and
 GP2.5.3 physical provider-media-loss reconstruction. `[VERIFIED]` GP3.1 and
 GP3.1.1 admit the topology-matched native resident read boundary through 32
-clients. `[VERIFIED]` GP3.1.2 executed a clean negative 64 MiB cache-pressure
-calibration. `[EVALUATING]` the native read-path correction, full T27
-admission, same-durability replicated commit, and the complete transaction
-plane. No full-cell or cross-stack performance claim is `[VERIFIED]`.
+clients. `[VERIFIED]` GP3.1.2 executed both a clean negative 64 MiB
+cache-pressure calibration and a corrected rerun that clears the throughput,
+p99, CPU/read, and zero physical-read bounds. `[EVALUATING]` the complete T27
+coverage and skew curve, same-durability replicated commit, and the complete
+transaction plane. No full-cell or cross-stack performance claim is
+`[VERIFIED]`.
 
 ## The answer we are trying to earn
 
@@ -209,9 +211,22 @@ fixture construction could not fit the bounded command. The completed
 calibration reuses its fixture across 15 measured windows, but each of the four
 subjects still reconstructs and semantically replays a separate fixture.
 Replicated authority scratch reached about 1.2 GiB per 64 MiB logical fixture.
-Before the next cloud run, the harness must persist one content-addressed
-fixture across candidate, control, and both process orders. The native read
-path must clear the unchanged calibration before the 1 GiB admission begins.
+Before the next larger cloud run, the harness must persist one
+content-addressed fixture across candidate, control, and both process orders.
+The corrected native read path cleared the unchanged calibration; the 1 GiB
+admission now waits on fixture reuse and explicit page-cache treatment.
+
+`[VERIFIED]` The seventh R0 execution removed the forced tail SST that caused
+two cache probes per untouched latest read, then repeated the same 64 MiB
+calibration for 60 million measured reads. Native retained 0.9432x and 0.9735x
+control throughput; p99 was 1.0441x and 0.9949x; CPU/read was 1.0586x and
+1.0298x. All 84 workload gates and eight explicit comparison constraints
+passed. Every run ID occurred in OTel logs, metrics, and traces. The 31 durable
+objects total 4,911,598 bytes; all nine leased resources and the 116 MiB local
+provider cache were removed. Linux still reported zero physical bytes per read,
+so T27 remains `[EVALUATING]` pending the 1 GiB coverage and skew sweep with
+explicit page-cache treatment. See
+`docs/artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md`.
 
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen

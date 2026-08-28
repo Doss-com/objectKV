@@ -1,0 +1,12 @@
+sha256	object
+235e7e6b78065f37de7d2ac7682a1afe3842b01ae0c557734a3e868ec2447065	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/authority/objectkv-a4cf9a8.bundle
+55d354ff986485412298905c64cac8acfc112246a1cdb47a71c5af64cc77ae0a	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/authority/machine.json
+fb75a193a15c8ec8f672984a0afbfe48c7c994e0936d8c90ad7d13dd0aef751d	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/otel/gp312opt-logs.jsonl
+ce55b26ae20a0ee337ede2752c855fbefa8fe5b4792bbf36c3a7e02cfc5e40fa	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/otel/gp312opt-metrics.jsonl
+1d3139817d74de9c6a97ac28a1cdf3fc714107ebb4a4bf50e07d6314d232a604	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/otel/gp312opt-traces.jsonl
+74f12c6865ed260c559548954a9ea7e1a8439b91fce30bdfb2ac33921e364581	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/receipts/gp312opt-r0-a4cf9a8/ab-native.json
+c6c82745a6957829ad92598f1cdbc8f4f48bb7b3e7e3057f1c8d68760da6ca08	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/receipts/gp312opt-r0-a4cf9a8/ab-control.json
+57b23c86eb697dd0531c8f8dd8256a7fb6a0e563fcb0e45905977773e25efd2e	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/receipts/gp312opt-r0-a4cf9a8/ab-comparison.json
+fa096ba3ac40698412f4348d0b86b0999266f6186e290d72067f7ef5597eb84b	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/receipts/gp312opt-r0-a4cf9a8/ba-control.json
+21c11d7b29598c5a402a74a89c83de8ca08de4a0c4f43a0ea8430033a6470365	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/receipts/gp312opt-r0-a4cf9a8/ba-native.json
+6b6676cbcd8937ba356c3afc94d7ce076b70481ee7bb79bbc28a9f374a34afba	gs://doss-objectkv-dev-okv-evals/runs/gp312opt-r0-20260828/receipts/gp312opt-r0-a4cf9a8/ba-comparison.json
