@@ -38,6 +38,9 @@ use okv_eval::frontiered_process_snapshot::{
     run_frontiered_process_snapshot_contract, FrontieredProcessSnapshotMode,
     FrontieredProcessSnapshotProfile, FrontieredProcessSnapshotReport,
 };
+use okv_eval::object_fixture::{
+    run_object_fixture_contract, ObjectFixtureMode, ObjectFixtureProfile, ObjectFixtureReport,
+};
 use okv_eval::object_frontier::{
     run_object_frontier_contract, ObjectFrontierMode, ObjectFrontierReport,
 };
@@ -395,6 +398,21 @@ enum Commands {
         mode: String,
         #[arg(long, default_value_t = 20)]
         fresh_authorities: usize,
+    },
+    /// Emit the RFC-0044 content-addressed fixture and resident identity report.
+    ObjectFixtureTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "candidate")]
+        mode: String,
+        #[arg(long, default_value_t = 4_096)]
+        key_count: u64,
+        #[arg(long, default_value_t = 1_024)]
+        value_bytes: usize,
+        #[arg(long, default_value_t = 1_048_576)]
+        target_object_bytes: usize,
+        #[arg(long, default_value_t = 65_536)]
+        target_block_bytes: usize,
     },
     /// Emit one four-cycle frontiered process-snapshot report.
     FrontieredProcessSnapshotTrace {
@@ -825,6 +843,29 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let mode = parse_fixture_anchor_mode(&mode).map_err(std::io::Error::other)?;
             let executable = std::env::current_exe()?;
             let report = run_fixture_anchor_contract(seed, mode, fresh_authorities, &executable)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::ObjectFixtureTrace {
+            seed,
+            mode,
+            key_count,
+            value_bytes,
+            target_object_bytes,
+            target_block_bytes,
+        } => {
+            let mode = parse_object_fixture_mode(&mode).map_err(std::io::Error::other)?;
+            let executable = std::env::current_exe()?;
+            let report = run_object_fixture_contract(
+                seed,
+                mode,
+                &ObjectFixtureProfile {
+                    key_count,
+                    value_bytes,
+                    target_object_bytes,
+                    target_block_bytes,
+                },
+                &executable,
+            )?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Commands::FrontieredProcessSnapshotTrace { seed, mode } => {
@@ -1502,6 +1543,9 @@ fn execute_workload(
         }
         "object_fixture_anchor_contract" => {
             run_object_fixture_anchor(workload, seeds, backend, profile)
+        }
+        "object_fixture_contract" => {
+            run_object_fixture_contract_workload(workload, seeds, backend, dataset, profile)
         }
         "frontiered_process_snapshot_contract" => {
             run_frontiered_process_snapshot(workload, seeds, backend, dataset, profile)
@@ -5669,6 +5713,17 @@ fn parse_fixture_anchor_mode(value: &str) -> Result<FixtureAnchorMode, String> {
     }
 }
 
+fn parse_object_fixture_mode(value: &str) -> Result<ObjectFixtureMode, String> {
+    match value {
+        "candidate" => Ok(ObjectFixtureMode::Candidate),
+        "corrupt_descriptor_poison" => Ok(ObjectFixtureMode::CorruptDescriptorPoison),
+        "mutated_anchor_poison" => Ok(ObjectFixtureMode::MutatedAnchorPoison),
+        "tail_mismatch_poison" => Ok(ObjectFixtureMode::TailMismatchPoison),
+        "shared_mutable_image_poison" => Ok(ObjectFixtureMode::SharedMutableImagePoison),
+        other => Err(format!("unknown object-fixture mode {other}")),
+    }
+}
+
 fn parse_commit_proxy_object_frontier_mode(
     value: &str,
 ) -> Result<CommitProxyObjectFrontierMode, String> {
@@ -7838,6 +7893,274 @@ fn fixture_anchor_execution(
                     .sum(),
             ),
             ("fixture_anchor.wall_seconds".to_owned(), wall_seconds),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_object_fixture_contract_workload(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile_config: &ProfileConfig,
+) -> WorkloadExecution {
+    const EXPECTED_BACKEND: &str =
+        "object-store-local-fs+data-openraft-local-process+fixture-contract";
+    if backend != EXPECTED_BACKEND {
+        return execution_from_result(Err(format!(
+            "object fixture contract requires {EXPECTED_BACKEND}, got {backend}"
+        )));
+    }
+    let Some(dataset) = dataset else {
+        return execution_from_result(Err(
+            "object fixture contract requires a fixed dataset".to_owned()
+        ));
+    };
+    if seeds.is_empty() || dataset.logical_bytes == 0 || dataset.key_count == 0 {
+        return execution_from_result(Err(
+            "object fixture contract requires fixed seeds and a non-empty dataset".to_owned(),
+        ));
+    }
+    let integer = |name: &str| {
+        profile_config
+            .parameters
+            .get(name)
+            .and_then(toml::Value::as_integer)
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| format!("object fixture profile requires integer {name}"))
+    };
+    let profile = match (|| {
+        Ok::<_, String>(ObjectFixtureProfile {
+            key_count: dataset.key_count,
+            value_bytes: usize::try_from(integer("value_bytes")?)
+                .map_err(|error| error.to_string())?,
+            target_object_bytes: usize::try_from(integer("target_object_bytes")?)
+                .map_err(|error| error.to_string())?,
+            target_block_bytes: usize::try_from(integer("target_block_bytes")?)
+                .map_err(|error| error.to_string())?,
+        })
+    })() {
+        Ok(profile) => profile,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let generated_logical_bytes = profile
+        .key_count
+        .saturating_mul(u64::try_from(profile.value_bytes).unwrap_or(u64::MAX));
+    if generated_logical_bytes != dataset.logical_bytes {
+        return execution_from_result(Err(format!(
+            "object fixture profile generates {generated_logical_bytes} bytes, dataset declares {}",
+            dataset.logical_bytes
+        )));
+    }
+    let mode_name = workload
+        .parameters
+        .get("negative_control")
+        .or_else(|| workload.parameters.get("subject"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or("candidate");
+    let mode = match parse_object_fixture_mode(mode_name) {
+        Ok(mode) => mode,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+    let started = Instant::now();
+    let mut reports = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        match run_object_fixture_contract(*seed, mode, &profile, &executable) {
+            Ok(report) => reports.push(report),
+            Err(error) => return execution_from_result(Err(error)),
+        }
+    }
+    object_fixture_execution(
+        workload,
+        backend,
+        mode,
+        &profile,
+        &reports,
+        started.elapsed().as_secs_f64(),
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+fn object_fixture_execution(
+    workload: &WorkloadConfig,
+    backend: &str,
+    mode: ObjectFixtureMode,
+    profile: &ObjectFixtureProfile,
+    reports: &[ObjectFixtureReport],
+    wall_seconds: f64,
+) -> WorkloadExecution {
+    let release_build = reports.iter().all(|report| report.release_build);
+    let one_empty_anchor_record = reports.iter().all(|report| {
+        report.base_anchor_version == 2
+            && report.anchor_txlog_records == 1
+            && report.anchor_txlog_mutations == 0
+            && report.anchor_live_keys == 0
+    });
+    let zero_base_values_in_txlog = reports.iter().all(|report| {
+        report.base_value_txlog_records == 0 && report.base_value_txlog_mutation_bytes == 0
+    });
+    let closure_exact_at_anchor = reports.iter().all(|report| {
+        report.decoded_base_records == profile.key_count
+            && report.all_base_records_at_anchor
+            && report.all_segment_versions_at_anchor
+            && report.object_count >= 3
+            && report.object_bytes > 0
+    });
+    let descriptor_deterministic = reports.iter().all(|report| report.descriptor_deterministic);
+    let immutable_put_reuse_verified = reports
+        .iter()
+        .all(|report| !report.fixture_reused && report.immutable_put_reuse_verified);
+    let canonical_tail_exact = reports
+        .iter()
+        .all(|report| report.tail_records == 7 && report.tail_exact);
+    let resident_images_distinct = reports.iter().all(|report| report.resident_images_distinct);
+    let resident_logical_image_equal = reports
+        .iter()
+        .all(|report| report.resident_logical_images_equal);
+    let fresh_subject_roots = reports.iter().all(|report| report.subject_roots_distinct);
+    let corrupt_descriptor_poison_detected = mode != ObjectFixtureMode::CorruptDescriptorPoison
+        || reports.iter().all(|report| report.poison_detected);
+    let mutated_anchor_poison_detected = mode != ObjectFixtureMode::MutatedAnchorPoison
+        || reports.iter().all(|report| report.poison_detected);
+    let tail_mismatch_poison_detected = mode != ObjectFixtureMode::TailMismatchPoison
+        || reports.iter().all(|report| report.poison_detected);
+    let shared_mutable_image_poison_detected = mode != ObjectFixtureMode::SharedMutableImagePoison
+        || reports.iter().all(|report| report.poison_detected);
+    let anomaly_count = reports
+        .iter()
+        .map(|report| report.correctness_anomalies)
+        .sum::<u64>();
+    let exact = one_empty_anchor_record
+        && zero_base_values_in_txlog
+        && closure_exact_at_anchor
+        && descriptor_deterministic
+        && immutable_put_reuse_verified
+        && canonical_tail_exact
+        && resident_images_distinct
+        && resident_logical_image_equal
+        && fresh_subject_roots
+        && corrupt_descriptor_poison_detected
+        && mutated_anchor_poison_detected
+        && tail_mismatch_poison_detected
+        && shared_mutable_image_poison_detected
+        && anomaly_count == 0;
+    let error = if !exact {
+        Some("object fixture content-addressing or resident identity gate failed".to_owned())
+    } else if !release_build {
+        Some("object fixture measured subject requires a release build".to_owned())
+    } else {
+        None
+    };
+    let gate = |id: &str, passed: bool| HardGateResult {
+        id: id.to_owned(),
+        status: gate_status(passed),
+        detail: Some(format!("mode={}", mode.id())),
+    };
+    WorkloadExecution {
+        error,
+        measurements: vec![
+            Measurement {
+                metric: "operation.duration",
+                value: wall_seconds,
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "object-fixture-contract"),
+                    ("backend", backend),
+                    ("result", if exact { "pass" } else { "fail" }),
+                ]),
+            },
+            Measurement {
+                metric: "correctness.anomalies",
+                value: resident_count_as_f64(anomaly_count),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("oracle", "object-fixture-contract-v1"),
+                    (
+                        "anomaly.class",
+                        if anomaly_count == 0 {
+                            "none"
+                        } else {
+                            "object-fixture"
+                        },
+                    ),
+                ]),
+            },
+        ],
+        hard_gates: vec![
+            gate("one_empty_anchor_record", one_empty_anchor_record),
+            gate("zero_base_values_in_txlog", zero_base_values_in_txlog),
+            gate("closure_exact_at_anchor", closure_exact_at_anchor),
+            gate("descriptor_deterministic", descriptor_deterministic),
+            gate("immutable_put_reuse_verified", immutable_put_reuse_verified),
+            gate("canonical_tail_exact", canonical_tail_exact),
+            gate("resident_images_distinct", resident_images_distinct),
+            gate("resident_logical_image_equal", resident_logical_image_equal),
+            gate("fresh_subject_roots", fresh_subject_roots),
+            gate(
+                "corrupt_descriptor_poison_detected",
+                corrupt_descriptor_poison_detected,
+            ),
+            gate(
+                "mutated_anchor_poison_detected",
+                mutated_anchor_poison_detected,
+            ),
+            gate(
+                "tail_mismatch_poison_detected",
+                tail_mismatch_poison_detected,
+            ),
+            gate(
+                "shared_mutable_image_poison_detected",
+                shared_mutable_image_poison_detected,
+            ),
+            HardGateResult {
+                id: "release_build".to_owned(),
+                status: gate_status(release_build),
+                detail: Some("build_profile=release".to_owned()),
+            },
+        ],
+        budget_units: wall_seconds,
+        artifact_refs: reports
+            .iter()
+            .map(|report| {
+                format!(
+                    "okv-eval://object-fixture-contract-v1/{}/{}/{}",
+                    mode.id(),
+                    report.seed,
+                    report.semantic_sha256
+                )
+            })
+            .collect(),
+        secondary_metrics: BTreeMap::from([
+            (
+                "object_fixture.logical_bytes".to_owned(),
+                resident_count_as_f64(
+                    profile
+                        .key_count
+                        .saturating_mul(u64::try_from(profile.value_bytes).unwrap_or(u64::MAX)),
+                ),
+            ),
+            (
+                "object_fixture.object_bytes".to_owned(),
+                reports
+                    .iter()
+                    .map(|report| resident_count_as_f64(report.object_bytes))
+                    .sum(),
+            ),
+            (
+                "object_fixture.verification_seconds".to_owned(),
+                reports
+                    .iter()
+                    .map(|report| report.fixture_verification_seconds)
+                    .sum(),
+            ),
+            ("object_fixture.wall_seconds".to_owned(), wall_seconds),
         ]),
     }
 }

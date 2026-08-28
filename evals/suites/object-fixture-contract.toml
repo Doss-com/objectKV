@@ -1,0 +1,93 @@
+schema_version = 1
+id = "object-fixture-contract-v1"
+status = "code_complete"
+metric_registry = "../metrics.toml"
+result_schema = "../schema/result.schema.json"
+contract_files = [
+  "../../rfcs/0044-content-addressed-object-frontier-fixtures.md",
+  "../../docs/research/reviews/fable-object-frontier-fixture-review-2026-08-28.md",
+]
+dataset_generator = "content-addressed-single-range-fixture-v1"
+
+[telemetry]
+protocol = "otlp-http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
+required_signals = ["metrics", "traces", "logs"]
+required_for_profiles = []
+
+[dataset.local-contract]
+logical_bytes = 4194304
+key_count = 4096
+seeds = [1103]
+
+[profiles.local-contract]
+budget_kind = "seconds"
+budget_limit = 300
+repeats = 1
+backend = "object-store-local-fs+data-openraft-local-process+fixture-contract"
+value_bytes = 1024
+target_object_bytes = 1048576
+target_block_bytes = 65536
+build_profile = "release"
+
+[[lanes]]
+id = "object-fixture-contract"
+primary_metric = "operation.duration"
+statistic = "maximum"
+direction = "lower"
+practical_improvement_fraction = 0.0
+
+[[lanes.constraints]]
+metric = "correctness.anomalies"
+statistic = "total"
+op = "eq"
+value = 0.0
+
+[[workloads]]
+id = "object-fixture-candidate"
+lane = "object-fixture-contract"
+operation = "object_fixture_contract"
+subject = "candidate"
+
+[[workloads]]
+id = "object-fixture-corrupt-descriptor"
+lane = "object-fixture-contract"
+operation = "object_fixture_contract"
+negative_control = "corrupt_descriptor_poison"
+
+[[workloads]]
+id = "object-fixture-mutated-anchor"
+lane = "object-fixture-contract"
+operation = "object_fixture_contract"
+negative_control = "mutated_anchor_poison"
+
+[[workloads]]
+id = "object-fixture-tail-mismatch"
+lane = "object-fixture-contract"
+operation = "object_fixture_contract"
+negative_control = "tail_mismatch_poison"
+
+[[workloads]]
+id = "object-fixture-shared-mutable-image"
+lane = "object-fixture-contract"
+operation = "object_fixture_contract"
+negative_control = "shared_mutable_image_poison"
+
+[hard_gates]
+correctness_anomalies = 0
+one_empty_anchor_record = true
+zero_base_values_in_txlog = true
+closure_exact_at_anchor = true
+descriptor_deterministic = true
+immutable_put_reuse_verified = true
+canonical_tail_exact = true
+resident_images_distinct = true
+resident_logical_image_equal = true
+fresh_subject_roots = true
+corrupt_descriptor_poison_detected = true
+mutated_anchor_poison_detected = true
+tail_mismatch_poison_detected = true
+shared_mutable_image_poison_detected = true
+release_build = true
+schema_valid = true
+budget_must_hold = true
