@@ -189,7 +189,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
       <span>objectKV</span>
       <span>Technical program tracker</span>
       <span>Branch research/native-matched-topology-r0</span>
-      <span>Base 76d2cae</span>
+      <span>Base 7d98fe9</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
     <p class="lede">The native resident boundary remains verified through 32 concurrent clients, but the first larger-than-cache calibration failed in both process orders. With 64 MiB of values over a 32 MiB block cache, native retained only 56.59% through 59.68% of direct RocksDB throughput and used 1.67x through 1.75x CPU per read. T27 now blocks expansion until that native software cost is removed.</p>
@@ -227,7 +227,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
 <a href="#decisions"><span>10</span>Active decisions</a>
 <a href="#work-log"><span>11</span>Work in progress log</a>
 <a href="#next-review"><span>12</span>Next architecture review</a></nav>
-      <p class="side-note">Generated 2026-08-28 09:24 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
+      <p class="side-note">Generated 2026-08-28 16:11 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
     </aside>
 
     <article class="content">
@@ -365,26 +365,27 @@ Arrow batches at T</pre></article>
           <article class="curve"><div class="curve-head"><h3>Product economics</h3><span class="status proposed">PROPOSED</span></div><dl><dt>Control</dt><dd>TiKV or PostgreSQL plus object tier, plus the specialist for each application lane</dd><dt>Target</dt><dd>Publish every loss and any material branch, restore, footprint, HTAP, elasticity, or cost advantage</dd><dt>Decision</dt><dd>Select the strongest implementation profile per layer. A mechanism loss does not stop objectKV.</dd></dl></article>
         </div>
 
-        <h3>Metric activation order</h3>
-        <p>The order follows dependency and architectural risk. Upper-layer throughput cannot verify a missing kernel property.</p>
+        <h3>Master performance matrix</h3>
+        <p>This is the program scoreboard. Every substantive implementation turn closes by updating the current measurement, target gap, evidence receipt, and exact next experiment. The order follows dependency and architectural risk, so upper-layer throughput cannot verify a missing kernel property.</p>
         <div class="table-wrap"><table>
-          <thead><tr><th>Order</th><th>Metric surface</th><th>Status</th><th>Admission signal</th><th>Unlocks</th></tr></thead>
+          <thead><tr><th>Order</th><th>Metric surface</th><th>Status</th><th>Current measured position</th><th>Admission target</th><th>Next experiment</th></tr></thead>
           <tbody>
-            <tr><td>0</td><td>Resident NVMe reads</td><td><span class="status verified">VERIFIED</span></td><td>At least 0.80x RocksDB throughput and at most 1.20x p99 through 32 clients</td><td>Cache pressure</td></tr>
-            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status evaluating">EVALUATING</span></td><td>GP3.1.2 executed on GCP and failed throughput, p99, and the diagnostic CPU bound in both orders; profile native reads and reuse one persisted fixture before repeating it</td><td>Honest RAM and SSD sizing</td></tr>
-            <tr><td>2</td><td>GCS cold point and refill</td><td><span class="status evaluating">EVALUATING</span></td><td>One bounded metadata path plus one to three named data requests, independent of database size</td><td>Disposable-worker claims</td></tr>
-            <tr><td>3</td><td>Point and projected-scan object geometry</td><td><span class="status evaluating">EVALUATING</span></td><td>Row-class point cost, material scan gain, bounded index and compaction amplification, exact closure recovery</td><td>Physical-layout selection</td></tr>
-            <tr><td>4</td><td>Independent-media replicated commit</td><td><span class="status evaluating">EVALUATING</span></td><td>One-range p99 within 1.25x same-durability control; exact retries; no normal object operation</td><td>Single-range transaction cell</td></tr>
-            <tr><td>5</td><td>Objectification debt, host loss, and local media</td><td><span class="status evaluating">EVALUATING</span></td><td>Stable lag, bounded txLog, at most 8x local state, exact host-loss recovery, declared backpressure</td><td>Production-credible recovery</td></tr>
-            <tr><td>6</td><td>Branch and lazy empty-worker reopen</td><td><span class="status evaluating">EVALUATING</span></td><td>Metadata-scale branch; first exact read without complete hydration</td><td>Branching and elastic compute</td></tr>
-            <tr><td>7</td><td>Multi-range cell</td><td><span class="status proposed">PROPOSED</span></td><td>Throughput grows by range group until a named bottleneck; strict-serializable cross-range outcomes</td><td>Distributed application surfaces</td></tr>
-            <tr><td>8</td><td>RAM serving and profile handoff</td><td><span class="status proposed">PROPOSED</span></td><td>At least 20% end-to-end improvement; bounded memory; exact bidirectional handoff</td><td>Optional lowest-latency profile</td></tr>
-            <tr><td>9</td><td>okv-fabric log, Redis, search, and filesystem</td><td><span class="status proposed">PROPOSED</span></td><td>One semantic oracle and one specialist performance control per surface</td><td>Application API fabric</td></tr>
-            <tr><td>10</td><td>PostgreSQL page OLTP</td><td><span class="status proposed">PROPOSED</span></td><td>Within 2x initially and 1.25x resident; exact crash recovery and bounded amplification</td><td>ZebraDB relational surface</td></tr>
-            <tr><td>11</td><td>DataFusion exact HTAP</td><td><span class="status evaluating">EVALUATING</span></td><td>Exact snapshot; tail ≤1% adds ≤20%; materialize before 10%; bounded OLTP interference</td><td>ZebraDB HTAP claim</td></tr>
-            <tr><td>12</td><td>Comparative production envelope</td><td><span class="status proposed">PROPOSED</span></td><td>Matched workload, topology, durability, price, and failure-surface results, including losses</td><td>Public positioning and production profiles</td></tr>
+            <tr><td>0</td><td>Resident NVMe reads</td><td><span class="status verified">VERIFIED</span></td><td>0.873x to 0.920x RocksDB throughput; 0.913x to 1.184x p99; zero measured object operations</td><td>At least 0.80x throughput; at most 1.20x p99</td><td>Remain the regression control for row 1</td></tr>
+            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status evaluating">EVALUATING</span></td><td>0.566x to 0.597x throughput; 1.331x to 1.557x p99; 1.668x to 1.746x CPU/read; 84 gates pass</td><td>At least 0.80x throughput; at most 1.20x p99 and 1.25x CPU/read</td><td>Isolate lookup and allocation cost, execute CPU/physical-byte constraints, rerun GP3.1.2 unchanged</td></tr>
+            <tr><td>2</td><td>GCS cold point and refill</td><td><span class="status evaluating">EVALUATING</span></td><td>Local mechanism reaches one 64 KiB-class block through 64 MiB; no admitted cloud curve</td><td>One bounded metadata path plus one to three named data requests, independent of database size</td><td>Clean GCS dataset-size sweep after row 1</td></tr>
+            <tr><td>3</td><td>Point and projected-scan object geometry</td><td><span class="status evaluating">EVALUATING</span></td><td>2.544M source rows/s and 4.718x indexed-row projected scan locally</td><td>Row-class point cost, material scan gain, bounded index and compaction amplification</td><td>Matched row versus column layout on one GCS closure</td></tr>
+            <tr><td>4</td><td>Independent-media replicated commit</td><td><span class="status evaluating">EVALUATING</span></td><td>One-host G4.10b: 1,075.343 outcomes/s, 104.274 ms max p99, 28.776x one-entry control</td><td>One-range p99 within 1.25x matched durability control; exact quorum acknowledgement</td><td>Three independent GCP machines after rows 1 through 3</td></tr>
+            <tr><td>5</td><td>Objectification debt, host loss, and local media</td><td><span class="status evaluating">EVALUATING</span></td><td>Exact object-base plus txLog-suffix recovery exists on one host; sustained bounds unmeasured</td><td>Stable lag, bounded txLog, at most 8x local state, exact host-loss recovery</td><td>Sustained publication with object-store fault schedule</td></tr>
+            <tr><td>6</td><td>Branch and lazy empty-worker reopen</td><td><span class="status evaluating">EVALUATING</span></td><td>Local branch/replay is exact; G4.4 empty-worker p99 is 120.183 ms</td><td>Metadata-scale branch; first exact read without complete hydration</td><td>Parent-size and GCS request sweep</td></tr>
+            <tr><td>7</td><td>Multi-range cell</td><td><span class="status proposed">PROPOSED</span></td><td>No admitted multi-range receipt</td><td>Throughput grows by range group; strict-serializable cross-range outcome</td><td>Cell v0, then 1, 2, 4, and 8 groups</td></tr>
+            <tr><td>8</td><td>RAM serving and profile handoff</td><td><span class="status proposed">PROPOSED</span></td><td>Disposable RAM replay works locally; no matched performance receipt</td><td>At least 20% gain; bounded memory; exact handoff</td><td>Matched RAM versus admitted SSD after row 7</td></tr>
+            <tr><td>9</td><td>okv-fabric log, Redis, search, and filesystem</td><td><span class="status proposed">PROPOSED</span></td><td>okv-log, Tetris, and Chess verify bounded local semantics</td><td>One semantic oracle and one specialist performance control per surface</td><td>Freeze four separate workload contracts</td></tr>
+            <tr><td>10</td><td>PostgreSQL page OLTP</td><td><span class="status proposed">PROPOSED</span></td><td>Architecture specified; no storage prototype receipt</td><td>Within 2x initially and 1.25x resident; exact recovery and bounded amplification</td><td>Page adapter after the cell contract</td></tr>
+            <tr><td>11</td><td>DataFusion exact HTAP</td><td><span class="status evaluating">EVALUATING</span></td><td>Exact four-row overlay uses 5,518 bytes; source scan reaches 2.544M rows/s</td><td>Tail ≤1% adds ≤20%; materialize before 10%; bounded OLTP interference</td><td>Scale 0%, 0.1%, 1%, and 10% tails</td></tr>
+            <tr><td>12</td><td>Comparative production envelope</td><td><span class="status proposed">PROPOSED</span></td><td>Component measurements only; no complete-stack envelope</td><td>Matched workload, topology, durability, price, and failures, including losses</td><td>Run after selected profiles are admitted</td></tr>
           </tbody>
         </table></div>
+        <p><strong>Active row:</strong> 1, cache coverage, skew, and eviction. The current bounded slice diagnoses the native point-read CPU gap without weakening the frozen GP3.1.2 workload. Rows 2 through 7 have useful mechanism evidence, but remain Evaluating until their own admission receipts exist.</p>
       </section>
 
       <section>
@@ -489,7 +490,7 @@ Arrow batches at T</pre></article>
     </article>
   </div>
 
-  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-28 09:24 UTC</span></footer>
+  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-28 16:11 UTC</span></footer>
 </main>
 
 </body>

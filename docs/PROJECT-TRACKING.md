@@ -147,13 +147,15 @@ control in both process orders. The eight results contain 120 samples and
 object operations, every run ID occurs in all three OTel signals, 550,912,512
 scratch bytes were removed, and all nine leased resources were destroyed.
 
-## Performance activation order
+## Master performance matrix
 
-The canonical workload matrix, target bands, controls, dependencies, and
-unlock conditions now live in
-[`docs/BOOTSTRAP-PLAN.md`](BOOTSTRAP-PLAN.md#performance-activation-matrix).
-The tracker and contributor board mirror that sequence rather than maintaining
-a second independent plan.
+The canonical workload matrix, current measurements, target bands, controls,
+next experiments, and unlock conditions live in
+[`docs/BOOTSTRAP-PLAN.md`](BOOTSTRAP-PLAN.md#master-performance-matrix).
+It is the program scoreboard. Every substantive implementation turn closes by
+updating the active row with its latest immutable receipt or by recording that
+no new measurement was produced. The HTML tracker and contributor board mirror
+that sequence rather than maintaining a second independent plan.
 
 The current critical path is:
 

@@ -75,28 +75,47 @@ concurrency evidence is under
 The negative cache-pressure evidence is under
 `docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/`.
 
-### Performance activation matrix
+### Master performance matrix
 
-This is the canonical order for lighting up workload metrics. Each row owns a
-separate comparison lane and receipt. Later rows may reuse artifacts from
-earlier rows, but they cannot substitute an upper-layer result for a missing
-kernel result.
+This is the canonical program scoreboard and the order for lighting up workload
+metrics. Every substantive implementation turn starts from the first unverified
+row on the critical path and ends by updating its observed result, gap, next
+experiment, and evidence. A turn that produces no new measurement records that
+fact rather than changing status. Each row owns a separate comparison lane and
+receipt. Later rows may reuse artifacts from earlier rows, but they cannot
+substitute an upper-layer result for a missing kernel result.
 
-| Order | Workload curve | Status | Control | Admission signal | Opens |
+| # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
-| 0 | Resident NVMe point reads at 1, 8, and 32 clients | `[VERIFIED]` | Direct owned-value RocksDB in the same recovered topology | Throughput at least 0.80x control, p99 at most 1.20x, exact values, bounded bytes, zero measured object operations | Cache-pressure evaluation |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | Same-durability all-fast-tier RocksDB | The 2x, Zipf 1.4 calibration failed throughput, p99, and CPU in both orders; profile and optimize the native read boundary, persist one fixture across subjects, then repeat before sweeping 5 to 50 percent coverage and Zipf 0.8 to 2.0 | Honest RAM and SSD sizing |
-| 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Direct object range GET and full hydration | One bounded metadata path plus one to three data requests; bytes and decode bounded by requested blocks rather than database size; no LIST authority | Disposable-worker and cold-read claims |
-| 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Indexed row objects and direct DataFusion base scan | Preserve row-class point cost, improve projected scans materially, bound resident index and compaction amplification, and recover one authenticated closure | Durable physical-layout choice |
-| 4 | Native three-node replicated commit | `[EVALUATING]` | Same-durability TiKV-like or FoundationDB commit path | One-range p99 within 1.25x control, exact retries and conflicts, zero object operations in the normal commit trace, and quorum acknowledgement on independent media | Single-range transactional cell |
-| 5 | Objectification, brownout, host loss, and local-media bounds | `[EVALUATING]` | Unfrontiered journal and full-replica recovery controls | Stable `C - O` lag at admitted ingest, bounded retained txLog, at most 8x local physical state, exact recovery after one host loss, and explicit backpressure during object-store failure | Production-credible durability and recovery |
-| 6 | Metadata-scale branch and lazy empty-worker reopen | `[EVALUATING]` | Physical-copy branch and full local restore | Branch time and initial bytes independent of parent size; first exact read depends on metadata and requested blocks, not complete database hydration | Branching and elastic-compute claims |
-| 7 | Multi-range cell throughput and transactions | `[PROPOSED]` | One range group under the same cell resources | Additional range groups increase throughput until a named resource saturates; cross-range transactions remain strict-serializable and never expose a partial outcome | Distributed application surfaces |
-| 8 | RAM serving profile and SSD/RAM handoff | `[PROPOSED]` | Admitted SSD profile with the same history and durability | At least 20 percent improvement in one predeclared end-to-end metric; bounded memory, exact handoff, and no false durability claim | Lowest-latency serving option |
-| 9 | `okv-fabric` log, Redis, search, and virtual-filesystem workloads | `[PROPOSED]` | Redpanda or Kafka, Redis, a dedicated search engine, and Tigris or S3 metadata as lane-specific controls | Semantic oracle first, then a separate latency, throughput, retention, or branch curve for each surface; no blended adapter score | Credible application API fabric |
-| 10 | PostgreSQL page-storage OLTP | `[PROPOSED]` | The same upstream PostgreSQL revision on local storage and a Neon-like storage separation control | First prototype within 2x control; resident steady-state target within 1.25x; exact crash recovery with no double WAL or unbounded page amplification | ZebraDB relational surface |
-| 11 | DataFusion base-plus-tail HTAP | `[EVALUATING]` | Base-only DataFusion over the same columnar objects | Exact snapshot; tail at or below 1 percent adds at most 20 percent; materialization intervenes before 10 percent; mixed OLTP load has an explicit interference budget | ZebraDB HTAP claim |
-| 12 | Complete-stack economics and operational envelope | `[PROPOSED]` | TiKV or PostgreSQL plus object tier, and the relevant specialist for each workload | Publish every measured loss and at least one material branch, recovery, footprint, elasticity, HTAP, or cost advantage; select the best implementation profile per layer | Public positioning and production profiles |
+| 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | GP3.1.2: 0.566x to 0.597x throughput, 1.331x to 1.557x p99, and 1.668x to 1.746x CPU/read; all 84 semantic and telemetry gates pass; physical reads are zero | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read under matched cache pressure | Isolate native head/history lookup and allocation cost, make CPU and physical-byte constraints executable, then rerun unchanged GP3.1.2 |
+| 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Clean GCS dataset-size sweep after row 1 passes |
+| 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Local projected scan reaches 2.544M source rows/s and 4.718x indexed-row scan; clean cloud composition is unmeasured | Preserve row-class point cost, materially improve projected scans, bound resident index and compaction amplification, recover one authenticated closure | Matched row versus column object layout on the same GCS closure |
+| 4 | Native three-node replicated commit | `[EVALUATING]` | One-host G4.10b reaches 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x its one-entry control; independent-media latency is unmeasured | One-range p99 within 1.25x matched-durability control, exact retries and conflicts, zero normal-path object operations, quorum acknowledgement on independent media | Three independent GCP machines and media after rows 1 through 3 |
+| 5 | Objectification, brownout, host loss, and local-media bounds | `[EVALUATING]` | Exact object-base plus txLog-suffix recovery and local failover exist on one host; sustained debt and physical bounds are unmeasured | Stable `C - O` lag, bounded txLog, at most 8x local state, exact host-loss recovery, declared brownout backpressure | Sustained write plus publication run with object-store fault schedule |
+| 6 | Metadata branch and lazy empty-worker reopen | `[EVALUATING]` | Local branch/replay and empty replacement worker are exact; G4.4 p99 is 120.183 ms; parent-size independence on GCS is unmeasured | Branch time and initial bytes independent of parent size; first exact read avoids full hydration | Dataset-size sweep with branch, empty worker, and GCS request accounting |
+| 7 | Multi-range cell throughput and transactions | `[PROPOSED]` | No admitted multi-range throughput or cross-range transaction receipt | Throughput rises with added range groups until a named resource saturates; strict-serializable cross-range outcome | Cell v0 first, then 1, 2, 4, and 8 range groups |
+| 8 | RAM serving profile and SSD/RAM handoff | `[PROPOSED]` | Disposable RAM replay works in the playground; no matched end-to-end performance receipt | At least 20 percent gain on one predeclared metric, bounded memory, exact bidirectional handoff | Matched RAM versus admitted SSD profile after row 7 |
+| 9 | `okv-fabric` log, Redis, search, and virtual filesystem | `[PROPOSED]` | `okv-log`, Tetris, and Chess verify bounded local semantics; no specialist workload admission | One semantic oracle and one latency, throughput, retention, or branch curve per surface | Freeze separate log, Redis, search, and filesystem workload contracts |
+| 10 | PostgreSQL page-storage OLTP | `[PROPOSED]` | Architecture and page boundary are specified; no PostgreSQL storage prototype receipt | First prototype within 2x local PostgreSQL, resident steady state within 1.25x, exact crash recovery, bounded amplification | Page read/write adapter after cell contract stabilizes |
+| 11 | DataFusion base-plus-tail HTAP | `[EVALUATING]` | Exact local four-row overlay uses 5,518 bytes with zero spill; source scan reaches 2.544M rows/s; scaled tail and interference curves are unmeasured | Exact snapshot; tail at most 1 percent adds at most 20 percent; materialize before 10 percent; explicit OLTP interference budget | Scale exact base-plus-tail at 0, 0.1, 1, and 10 percent tail |
+| 12 | Complete-stack economics and operations | `[PROPOSED]` | Component measurements exist; no matched complete-stack cost or failure envelope | Publish every loss and at least one material branch, restore, footprint, elasticity, HTAP, or cost advantage | Run only after the chosen profiles in rows 1 through 11 are admitted |
+
+The matrix is updated under this closeout rule:
+
+```text
+implementation or experiment
+  -> immutable receipt and OTel correlation
+  -> observed value versus named control
+  -> status and gap update in this matrix
+  -> one next experiment, owned by the first unverified critical-path row
+```
+
+The active row is 1. Its control is direct owned-value RocksDB under the same
+recovered topology. Its evidence is
+`docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/`.
+Rows 2 through 7 contain useful mechanism evidence, but none may advance past
+`[EVALUATING]` while its own admission receipt is missing.
 
 The critical path is rows 1 through 7. Row 8 is optional and cannot delay the
 SSD-backed cell. Rows 9 through 11 begin only after the cell contract is stable
