@@ -38,7 +38,7 @@ hot_read_warmup_operations = 25000
 hot_read_operations = 100000
 measurement_operations = 100000
 warmup_operations = 25000
-reuse_fixture_across_repeats = true
+reuse_fixture_across_repeats = false
 require_linux_process_metrics = true
 direct_reads = true
 
