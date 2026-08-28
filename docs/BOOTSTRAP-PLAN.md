@@ -65,10 +65,15 @@ of direct RocksDB throughput, p99 was 1.331x through 1.557x control, and CPU
 time was 1.668x through 1.746x control. All semantic gates and OTel correlation
 passed, and measured physical reads were zero.
 
-`[EVALUATING]` T27 now profiles and optimizes the native point-read software
-path before repeating the unchanged 64 MiB calibration. The 1 GiB admission,
-three-node replicated commit, RAM, multi-range, PostgreSQL, and HTAP remain
-blocked on that gate.
+`[VERIFIED]` The corrected 64 MiB rerun retained 94.32 and 97.35 percent of
+control throughput while passing p99 and CPU/read bounds. A later matched
+direct-read smoke produced 2,960.75 and 2,966.00 Linux physical bytes per read
+for native and control, a 0.9982x ratio, while both paths passed 22 of 22 hard
+gates. The direct-read result verifies the measurement treatment only.
+
+`[EVALUATING]` T27 now persists one fixture across all subjects before the 1
+GiB admission. Three-node replicated commit, RAM, multi-range, PostgreSQL, and
+HTAP remain blocked on that gate.
 FoundationDB remains the semantic oracle and fallback profile. The immutable
 concurrency evidence is under
 `docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/`.
@@ -88,7 +93,7 @@ substitute an upper-layer result for a missing kernel result.
 | # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` 64 MiB calibration: 0.943x and 0.973x throughput, 1.044x and 0.995x p99, 1.059x and 1.030x CPU/read; 84 workload gates and 8 comparison constraints pass; all four run IDs occur in OTel. Linux physical reads remain zero. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the declared coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Reuse one fixture across all subjects, add reviewed page-cache or direct-read control, then run the 1 GiB coverage and skew sweep |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` buffered 64 MiB calibration: 0.943x and 0.973x throughput, 1.044x and 0.995x p99, 1.059x and 1.030x CPU/read. `[VERIFIED]` direct-read mechanism: 2,960.75 versus 2,966.00 physical B/read, 0.9982x, with 44 hard gates passing. The latter is one smoke sample, not performance admission. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Persist and reuse one content-addressed fixture across native, control, A/B, and B/A; then run the 1 GiB sweep with matched direct reads |
 | 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Clean GCS dataset-size sweep after row 1 passes |
 | 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Local projected scan reaches 2.544M source rows/s and 4.718x indexed-row scan; clean cloud composition is unmeasured | Preserve row-class point cost, materially improve projected scans, bound resident index and compaction amplification, recover one authenticated closure | Matched row versus column object layout on the same GCS closure |
 | 4 | Native three-node replicated commit | `[EVALUATING]` | One-host G4.10b reaches 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x its one-entry control; independent-media latency is unmeasured | One-range p99 within 1.25x matched-durability control, exact retries and conflicts, zero normal-path object operations, quorum acknowledgement on independent media | Three independent GCP machines and media after rows 1 through 3 |
@@ -123,6 +128,11 @@ negative and corrected calibration evidence is under
 `docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/`
 and
 `docs/artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/`.
+The matched direct-read mechanism is also `[VERIFIED]`: one native and one
+control smoke sample exposed 2.96 KiB of physical reads per logical read with
+nearly identical physical cost. Its evidence is under
+`docs/artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/`.
+The next change is fixture persistence, not another media-control experiment.
 Rows 2 through 7 contain useful mechanism evidence, but none may advance past
 `[EVALUATING]` while its own admission receipt is missing.
 

@@ -1451,3 +1451,29 @@ before the 1 GiB sweep.
 
 Evidence:
 `docs/artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md`.
+
+## D61. Use direct table reads as an evaluator treatment, not the portable default
+
+Status: `[VERIFIED]` mechanism decision, 2026-08-28.
+
+Decision: retain buffered RocksDB reads as the portable product default. Use
+matched direct table reads when an experiment must isolate physical NVMe work
+from the operating-system page cache. Candidate and control must receive and
+report the same setting, and a profile mismatch invalidates the result.
+
+One clean GCP R0 smoke used 16 MiB of values, a 4 MiB block cache, Zipf 0.8,
+eight clients, and 100,000 reads per subject. Native and control both passed 22
+of 22 hard gates. Linux reported 2,960.75 and 2,966.00 physical bytes per read,
+a 0.9982x ratio, where the earlier buffered calibration reported zero. This
+verifies that the mechanism exposes physical media and preserves matched
+configuration. One sample does not admit throughput, latency, or amplification.
+
+Optimizes for: attributable device work and a direct answer to whether native
+serving performs extra physical I/O relative to owned-value RocksDB.
+
+Gives up: use of the operating-system page cache, identical behavior across all
+provider filesystems, and the right to treat this smoke result as the product's
+default read profile.
+
+Evidence:
+`docs/artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md`.

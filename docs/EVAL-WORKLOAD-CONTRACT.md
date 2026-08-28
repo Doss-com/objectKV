@@ -130,4 +130,7 @@ corrected `native-resident-cache-pressure-rerun-v2` calibration is also
 comparison constraints passed. T27 remains `[EVALUATING]`; the three-seed,
 five-repeat contract applies to the later 1 GiB admission after one persisted
 fixture is reused across subjects and the operating-system page cache is
-explicitly controlled.
+explicitly controlled. The matched `direct_reads=true` smoke is `[VERIFIED]`
+for that control mechanism: native and control reported 2,960.75 and 2,966.00
+Linux physical bytes per read and passed 22 hard gates each. One repeat cannot
+enter a performance comparison.

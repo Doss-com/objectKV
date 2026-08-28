@@ -48,7 +48,10 @@ forced tail SST. After keeping the disposable tail mutable, the corrected
 and eight explicit comparison constraints passed, every run ID appeared in
 OTel logs, metrics, and traces, and cleanup completed. The 64 MiB calibration
 is `[VERIFIED]`. T27 remains `[EVALUATING]` because the 1 GiB coverage and skew
-curve has not run and Linux page cache kept physical read bytes at zero.
+curve has not run. A subsequent matched direct-read preflight produced about
+2.96 KiB of Linux physical reads per logical read for both native and control,
+verifying that the evaluator can isolate the NVMe path. That one-sample smoke
+is not a performance admission.
 
 The invariant is:
 
@@ -107,8 +110,11 @@ coverage points:
 
 If direct I/O is disabled, the receipt must report process physical read bytes
 and identify the run as a combined RocksDB plus operating-system-cache curve.
-It must not call every block-cache miss an NVMe read. A later direct-I/O lane
-may isolate the device curve after the portable default is admitted.
+It must not call every block-cache miss an NVMe read. Direct table reads are an
+explicit measurement treatment, not the portable product default. They bypass
+the operating-system page cache for RocksDB table files while preserving the
+declared RocksDB block cache. Candidate and control must both report the mode,
+and any profile mismatch invalidates the result.
 
 ### Access traces
 
@@ -225,9 +231,11 @@ must receive `discard` before the clean GCP run.
 6. `[VERIFIED]` Remove the forced tail SST, make CPU and physical-byte
    cross-result constraints executable, and rerun the unchanged 64 MiB A/B and
    B/A gate. All explicit constraints passed.
-7. `[EVALUATING]` Apply a matched RocksDB direct-table-read mode to candidate
-   and control, report the mode in every measured sample, and verify on Linux
-   that the receipt distinguishes OS page-cache behavior from NVMe reads.
+7. `[VERIFIED]` Apply a matched RocksDB direct-table-read mode to candidate and
+   control, report the mode in every measured sample, and verify on Linux that
+   the receipt distinguishes OS page-cache behavior from NVMe reads. Both
+   subjects passed 22 of 22 hard gates and reported about 2.96 KiB of physical
+   reads per logical read. This is mechanism evidence from one smoke sample.
 8. `[PROPOSED]` Persist one content-addressed fixture across all four subjects,
    then freeze the suite hash, source revision, and 1 GiB fixture.
 9. `[PROPOSED]` Execute both process orders for the 1 GiB coverage and skew

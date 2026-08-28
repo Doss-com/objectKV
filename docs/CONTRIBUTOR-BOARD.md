@@ -604,16 +604,19 @@ become one GitHub issue.
   executable CPU and zero-baseline physical-byte comparisons; `[VERIFIED]`
   execution and negative result for the initial 64 MiB R0 calibration;
   `[VERIFIED]` one-probe correction and corrected 64 MiB A/B plus B/A rerun;
-  `[EVALUATING]` one persisted fixture reused across candidate, control, and
-  both process orders plus reviewed operating-system page-cache treatment;
+  `[VERIFIED]` matched direct-read option parity and non-zero Linux physical
+  attribution on one GCP R0 smoke sample; `[EVALUATING]` one persisted fixture
+  reused across candidate, control, and both process orders;
   `[PROPOSED]` frozen 1 GiB paired GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
   constraints passed. Every run ID occurred in OTel logs, metrics, and traces.
-  Linux still reported zero physical read bytes, so T27 remains
-  `[EVALUATING]` until the 1 GiB coverage and skew curve controls the page cache
-  and reuses one fixture across all subjects.
+  The later direct-read preflight reported about 2.96 KiB of physical device
+  reads per logical read for both subjects, with a 0.9982x physical-byte ratio.
+  T27 remains `[EVALUATING]` because that result is one smoke sample. The 1 GiB
+  coverage and skew curve still requires one shared fixture and AB/BA workload
+  receipts.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 

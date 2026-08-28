@@ -303,6 +303,7 @@ into one system claim.
 | Native resident engine versus topology-matched owned-value direct RocksDB, GCP R0 AB and BA | 656,662 versus 722,443 and 660,783 versus 718,492 reads/s; p99 ratios 0.913x and 0.913x; 15 samples per subject and order | `[VERIFIED]` GP3.1 single-range mechanism admission; all throughput, p99, correctness, object-operation, identity, and OTel constraints passed twice |
 | Native resident engine versus topology-matched direct RocksDB, GCP R0 at 8 clients | Throughput ratios 0.8798x and 0.8734x; p99 ratios 1.1842x and 1.1220x; 15 samples per subject and order | `[VERIFIED]` GP3.1.1 8-client admission; all constraints passed twice |
 | Native resident engine versus topology-matched direct RocksDB, GCP R0 at 32 clients | Throughput ratios 0.8803x and 0.8906x; p99 ratios 1.1072x and 1.1478x; 15 samples per subject and order | `[VERIFIED]` GP3.1.1 32-client admission; all constraints passed twice |
+| Native resident direct-read preflight versus matched direct RocksDB, GCP R0 | 122,702 versus 117,440 reads/s; p99 ratio 0.9651x; CPU/read ratio 1.0337x; physical bytes/read ratio 0.9982x | `[VERIFIED]` direct-read mechanism and Linux physical attribution only; one smoke sample per subject, not a performance admission |
 | Commit-proxy batch32 | 1,157.369 median tx/s and 76.101 ms maximum p99, 6.356x one-entry control | `[EVALUATING]`, dirty single-host isolated contract |
 | DataFusion columnar range source | 2.544M rows/s, 54 projection requests versus 1,761 one-stripe requests | `[EVALUATING]`, dirty release-local isolated contract |
 | Prior R0 GCS infrastructure smoke | 6.925 s wall time, 24 gates, all three OTel signals | `[VERIFIED]` infrastructure plumbing, not performance |
@@ -367,9 +368,10 @@ read result.
 
 Next sequence:
 
-1. Freeze and run the cache-pressure curve with an explicit block-cache budget,
-   a reusable larger-than-cache fixture, CPU time, physical bytes, read
-   amplification, and object-fetch attribution.
+1. Persist one content-addressed resident fixture across native, control, A/B,
+   and B/A, then run the 1 GiB cache-pressure curve with the verified matched
+   direct-read treatment, CPU time, physical bytes, amplification, and object
+   attribution.
 2. Split the resident-kernel eval binary from the full DataFusion build and
    record the Rust toolchain rather than `unknown` in real-infrastructure
    receipts.
@@ -377,8 +379,8 @@ Next sequence:
    control, including leader loss and recovery.
 4. Keep FoundationDB current as the strict-serializability and lifecycle
    control while the native transaction plane is admitted one gate at a time.
-5. Add explicit cache sizing, CPU time, read amplification, and reusable
-   content-addressed fixtures for the 64 MiB and 10 GiB cache-pressure points
-   without replaying fixture commits for every sample.
+5. Retain explicit cache sizing, CPU time, read amplification, and reusable
+   content-addressed fixtures as required identities for later 10 GiB and 100
+   GiB capacity points.
 6. Admit RAM, multi-range, PostgreSQL, and HTAP only after the native commit
    path is stable.

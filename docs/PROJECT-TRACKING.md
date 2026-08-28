@@ -127,15 +127,17 @@ resources and the 116 MiB local provider cache were removed. T27 and row 1 stay
 zero and the broader cache-coverage and skew sweep has not run. Evidence is in
 [`docs/artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md).
 
-`[EVALUATING]` The next T27 slice exposes a matched RocksDB `direct_reads`
-mode on both the native RangeEngine and direct RocksDB control. Every sample
-reports the configured page-cache treatment and the evaluator fails closed
-when it differs from the profile. A bounded 16 MiB, 4 MiB-cache, Zipf 0.8
-Linux preflight is defined in
-`evals/suites/native-resident-direct-read-preflight.toml`. Local compilation
-is not evidence because this Mac's C++ toolchain cannot find `cstdint`; the
-partial 1.7 GiB Cargo target was removed. The exact next receipt is a clean
-Linux compile plus this preflight on one leased R0 runner.
+`[VERIFIED]` The matched RocksDB `direct_reads` mechanism executed on one clean
+Linux GCP R0 runner. Both the native RangeEngine and direct RocksDB control
+reported `direct_reads=true`, passed 22 of 22 hard gates, returned exact values,
+and issued zero measured object operations. The native and control paths read
+2,960.75 and 2,966.00 physical bytes per logical read. Their single-sample
+throughput, p99, CPU/read, and physical-byte ratios were 1.0448x, 0.9651x,
+1.0337x, and 0.9982x. This verifies option parity and physical-device
+attribution, not performance. The source bundle, receipts, Linux unit tests,
+and machine identity are durable in GCS; all nine leased resources and the 116
+MiB provider cache were removed. Evidence is in
+[`docs/artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md).
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
@@ -205,9 +207,10 @@ cache pressure
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
 stop decision for objectKV. The immediate owned task remains T27. Its next
-slice verifies the matched direct-read mode on Linux, reuses one persisted
-fixture across A/B and B/A, and executes the 1 GiB cache-coverage
-and skew sweep without weakening the now-verified calibration.
+slice persists one content-addressed fixture, proves reuse across native,
+control, A/B, and B/A, then executes the 1 GiB cache-coverage and skew sweep
+with the verified direct-read treatment. The corrected 64 MiB calibration
+remains the buffered regression anchor.
 
 ## Current checkpoint
 

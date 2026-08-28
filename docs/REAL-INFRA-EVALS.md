@@ -228,6 +228,21 @@ so T27 remains `[EVALUATING]` pending the 1 GiB coverage and skew sweep with
 explicit page-cache treatment. See
 `docs/artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md`.
 
+`[VERIFIED]` An eighth bounded R0 execution verified the explicit direct-table
+read treatment on Linux. Native and matched direct RocksDB both reported
+`direct_reads=true`, passed 22 of 22 hard gates, returned exact values, and
+issued zero measured object operations. With 16 MiB of values, a 4 MiB block
+cache, Zipf 0.8, eight clients, and 100,000 reads per subject, Linux attributed
+2,960.75 physical bytes per read to native and 2,966.00 to control. The
+single-sample native/control ratios were 1.0448x throughput, 0.9651x p99,
+1.0337x CPU/read, and 0.9982x physical bytes/read. This verifies the mechanism
+that separates page-cache and physical-device curves. It does not admit a
+performance point because the smoke profile has one seed, one repeat, no AB/BA
+order, and no required OTel correlation. Eight evidence objects totaling
+2,681,699 bytes are durable in versioned GCS. All nine resources and the 116
+MiB provider cache were removed. See
+`docs/artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7

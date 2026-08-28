@@ -66,7 +66,10 @@ probes per latest read. After removing that flush, a 60-million-read rerun
 retained 94.32\% and 97.35\% of control throughput; p99 was 1.044x and 0.995x,
 and CPU/read was 1.059x and 1.030x. All 84 workload gates and eight explicit
 comparison constraints passed. These results admit one 64 MiB cache-pressure
-point, not the full cache curve or a complete cell. A
+point, not the full cache curve or a complete cell. A matched direct-table-read
+smoke then exposed 2.96 KiB of Linux physical reads per logical read for both
+native and control, verifying the media-attribution mechanism but not a
+performance point. A
 live semantic eliminator rejected TiKV as the strict-serializability control
 because both transactions in the frozen write-skew history committed.
 FoundationDB rejected the same write skew and remains the semantic oracle and
@@ -423,6 +426,15 @@ skew curve remains \evaluating{}. Before the 1 GiB admission, the harness must
 reuse one fixture across all four subjects and explicitly control the
 operating-system page cache.
 
+A subsequent one-sample GCP R0 smoke applied RocksDB direct table reads to both
+subjects. Native and control passed 22 of 22 hard gates and reported 2,960.75
+and 2,966.00 Linux physical bytes per logical read. The physical-byte ratio was
+0.9982x; throughput, p99, and CPU/read ratios were 1.0448x, 0.9651x, and
+1.0337x. This verifies option parity and physical-device attribution. It does
+not admit a performance point because it has one seed, one repeat, no AB/BA
+order, and no required OTel correlation. Buffered reads remain the portable
+default; direct reads are an explicit evaluation treatment.
+
 \subsection{Objectification and publication}
 
 Objectification packs many committed mutations into immutable indexed row
@@ -632,6 +644,7 @@ complete but has not executed.
     Durable snapshot and frontiered compaction & \evaluating{} & Six local processes, release build, synchronized files, dirty source & G4.11a and G4.11a.1 runs & Journals fell to 879 bytes; exact restart; frontiered growth 1.091759x; 19.692719x media failed 8x \\
     GCP single-range mechanism & \verified{} & Private n2-standard-8 runner, regional GCS, 200 GiB persistent SSD, 375 GiB local NVMe, OTel & Runs \texttt{662481a8} and \texttt{c571ff45} & Exact recovery, zero hot object operations, zero anomalies, full lease teardown \\
     Native cache calibration & \verified{} & Private GCP R0 runner, 64 MiB values, 32 MiB cache, Zipf 1.4, eight clients, 15 samples per subject and order & Batches \texttt{gp312opt-r0-ab} and \texttt{gp312opt-r0-ba} & Throughput 0.9432x and 0.9735x control; p99 1.0441x and 0.9949x; CPU/read 1.0586x and 1.0298x; 84 workload and eight comparison gates passed \\
+    Direct-read attribution & \verified{} & Private GCP R0 runner, 16 MiB values, 4 MiB cache, Zipf 0.8, one smoke sample per subject & Runs \texttt{df97815c} and \texttt{e9f8e82b} & 2,960.75 versus 2,966.00 physical B/read; 0.9982x ratio; 44 hard gates passed; no performance admission \\
     Provider media loss & \verified{} & Sequential private source and restore VMs, distinct 100 GiB provider SSDs, regional GCS, OTel & Runs \texttt{3093a364} and \texttt{865c06d8} & Exact 950-record reconstruction after source VM and disk deletion; 16 positive gates passed; hidden-media control discarded \\
     Provider incarnation authority & \evaluating{} & Three-process generation and publication authorities on one host; dual-provider GCP resurrection harness pending & Runs \texttt{15260d66} and \texttt{b05dd054} & Local positive kept with zero anomalies; stale commit, route, and publication poison discarded with three anomalies \\
     Independent hosts and zones & \evaluating{} & Not yet executed & No admitted receipt & Single-runner evidence does not establish distributed durability \\
@@ -1360,9 +1373,11 @@ must match recovery topology and value ownership. Second, once matched, the
 native version-bound read boundary stays inside the frozen direct RocksDB
 envelope through 32 clients. Third, disposable recent tail state must not be
 forced into a second SST when \txlog{} already owns durability. The corrected
-64 MiB cache-pressure calibration passed in both process orders. The native
-plane therefore continues to the full coverage, skew, and replicated-commit
-gates. TiKV failed the strict-serializable
+64 MiB cache-pressure calibration passed in both process orders. Matched direct
+table reads then made physical NVMe work observable and matched native to
+control within 0.2 percent on bytes per read in one smoke sample. The native
+plane therefore continues to fixture reuse, the full coverage and skew curve,
+and replicated-commit gates. TiKV failed the strict-serializable
 write-skew control; FoundationDB passed and remains the semantic oracle and
 fallback profile. Its logical-generation and media-loss probes verify exact
 object reconstruction in their bounded scopes, while the local compound-fence

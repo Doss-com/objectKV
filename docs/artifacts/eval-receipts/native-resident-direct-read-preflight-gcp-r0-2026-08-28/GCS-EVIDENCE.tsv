@@ -1,0 +1,9 @@
+sha256	object
+d6be2259eb1cdfff4110539ef2102b21319b6e1ab8a22576c2fe0de3971689e6	gs://doss-objectkv-dev-okv-evals/runs/gp312dio-r0-20260828/source/objectkv-v3.bundle
+89f074e36dc925d88315c2f996169601b266a590726b350c6ef2e1c819f46e06	gs://doss-objectkv-dev-okv-evals/runs/gp312dio-r0-20260828/evidence/gp312dio-machine-receipt.json
+27a19a81a98d4dedf8e94974db7de86eec1807a61574ec950bcc807b28d3d14f	gs://doss-objectkv-dev-okv-evals/runs/gp312dio-r0-20260828/evidence/gp312dio-build-tests.log
+44544759ca5d3536786936cf539b25b3c11eebbb07685024a1c91de54b562b1a	gs://doss-objectkv-dev-okv-evals/runs/gp312dio-r0-20260828/evidence/gp312dio-SHA256SUMS
+934c15dec0025facbf27b639df908ec9514d09783e29e0cee5685115265a7c23	gs://doss-objectkv-dev-okv-evals/runs/gp312dio-r0-20260828/results/gp312dio-v3-native.json
+d85bb3a73c085a84f5ad3336b6e6507d2b44f89f609fdbc041b318a9d32ed81e	gs://doss-objectkv-dev-okv-evals/runs/gp312dio-r0-20260828/results/gp312dio-v3-control.json
+934c15dec0025facbf27b639df908ec9514d09783e29e0cee5685115265a7c23	gs://doss-objectkv-dev-okv-evals/runs/gp312dio-r0-20260828/logs/gp312dio-v3-native.stdout
+d85bb3a73c085a84f5ad3336b6e6507d2b44f89f609fdbc041b318a9d32ed81e	gs://doss-objectkv-dev-okv-evals/runs/gp312dio-r0-20260828/logs/gp312dio-v3-control.stdout
