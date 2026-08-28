@@ -96,8 +96,8 @@
           "max_regression_fraction": { "type": "number", "minimum": 0 },
           "candidate_value": { "type": "number" },
           "control_value": { "type": "number" },
-          "candidate_to_control_ratio": { "type": "number" },
-          "directional_delta_fraction": { "type": "number" },
+          "candidate_to_control_ratio": { "type": ["number", "null"] },
+          "directional_delta_fraction": { "type": ["number", "null"] },
           "passed": { "type": "boolean" }
         }
       }

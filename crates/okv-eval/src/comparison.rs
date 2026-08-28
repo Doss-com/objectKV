@@ -74,8 +74,8 @@ pub struct ComparisonConstraintObservation {
     pub max_regression_fraction: f64,
     pub candidate_value: f64,
     pub control_value: f64,
-    pub candidate_to_control_ratio: f64,
-    pub directional_delta_fraction: f64,
+    pub candidate_to_control_ratio: Option<f64>,
+    pub directional_delta_fraction: Option<f64>,
     pub passed: bool,
 }
 
@@ -575,11 +575,27 @@ fn evaluate_comparison_constraint(
             constraint.candidate_metric
         ));
     }
-    if !control_value.is_finite() || control_value.abs() <= f64::EPSILON {
+    if !control_value.is_finite() {
         return Err(format!(
-            "control metric {} is not a finite non-zero denominator",
+            "control metric {} is not finite",
             constraint.control_metric
         ));
+    }
+    if control_value.abs() <= f64::EPSILON {
+        let candidate_is_zero = candidate_value.abs() <= f64::EPSILON;
+        return Ok(ComparisonConstraintObservation {
+            id: constraint.id.clone(),
+            candidate_metric: constraint.candidate_metric.clone(),
+            control_metric: constraint.control_metric.clone(),
+            unit: constraint.unit.clone(),
+            direction: constraint.direction,
+            max_regression_fraction: constraint.max_regression_fraction,
+            candidate_value,
+            control_value,
+            candidate_to_control_ratio: candidate_is_zero.then_some(1.0),
+            directional_delta_fraction: candidate_is_zero.then_some(0.0),
+            passed: candidate_is_zero,
+        });
     }
     let directional_delta_fraction = match constraint.direction {
         Direction::Higher => (candidate_value - control_value) / control_value.abs(),
@@ -594,8 +610,8 @@ fn evaluate_comparison_constraint(
         max_regression_fraction: constraint.max_regression_fraction,
         candidate_value,
         control_value,
-        candidate_to_control_ratio: candidate_value / control_value,
-        directional_delta_fraction,
+        candidate_to_control_ratio: Some(candidate_value / control_value),
+        directional_delta_fraction: Some(directional_delta_fraction),
         passed: directional_delta_fraction >= -constraint.max_regression_fraction,
     })
 }
@@ -730,7 +746,41 @@ mod tests {
         let observed = evaluate_comparison_constraint(&constraint, &candidate, &control)
             .expect("comparable p99 metrics");
         assert!(!observed.passed);
-        assert!((observed.candidate_to_control_ratio - 1.419_096_626_64).abs() < 1e-9);
+        assert!(
+            (observed
+                .candidate_to_control_ratio
+                .expect("non-zero control has a ratio")
+                - 1.419_096_626_64)
+                .abs()
+                < 1e-9
+        );
+    }
+
+    #[test]
+    fn zero_baseline_constraint_requires_an_exact_zero_candidate() {
+        let constraint = ComparisonConstraintConfig {
+            id: "physical_read_bytes".to_owned(),
+            candidate_metric: "candidate.physical_bytes".to_owned(),
+            control_metric: "control.physical_bytes".to_owned(),
+            unit: "By/{read}".to_owned(),
+            direction: Direction::Lower,
+            max_regression_fraction: 0.0,
+        };
+        let control = BTreeMap::from([("control.physical_bytes".to_owned(), 0.0)]);
+        let zero_candidate = BTreeMap::from([("candidate.physical_bytes".to_owned(), 0.0)]);
+        let zero_observed = evaluate_comparison_constraint(&constraint, &zero_candidate, &control)
+            .expect("two exact zero values are comparable");
+        assert!(zero_observed.passed);
+        assert_eq!(zero_observed.candidate_to_control_ratio, Some(1.0));
+        assert_eq!(zero_observed.directional_delta_fraction, Some(0.0));
+
+        let non_zero_candidate = BTreeMap::from([("candidate.physical_bytes".to_owned(), 4096.0)]);
+        let non_zero_observed =
+            evaluate_comparison_constraint(&constraint, &non_zero_candidate, &control)
+                .expect("a zero baseline produces an explicit failed observation");
+        assert!(!non_zero_observed.passed);
+        assert_eq!(non_zero_observed.candidate_to_control_ratio, None);
+        assert_eq!(non_zero_observed.directional_delta_fraction, None);
     }
 
     #[test]
