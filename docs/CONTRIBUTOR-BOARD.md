@@ -607,7 +607,10 @@ become one GitHub issue.
   `[VERIFIED]` matched direct-read option parity and non-zero Linux physical
   attribution on one GCP R0 smoke sample; `[EVALUATING]` one persisted fixture
   reused across candidate, control, and both process orders;
-  `[PROPOSED]` frozen 1 GiB paired GCP admission.
+  `[PROPOSED]` RFC-0044 local empty-anchor, zero-base-txLog, exact-tail,
+  closure-verification, and subject-image contracts; persisted
+  content-addressed object fixture; 64 MiB setup preflight; frozen 1 GiB paired
+  GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison

@@ -53,13 +53,17 @@ curve has not run. A subsequent matched direct-read preflight produced about
 verifying that the evaluator can isolate the NVMe path. That one-sample smoke
 is not a performance admission.
 
-The invariant is:
+The comparison invariant is:
 
 ```text
-same keys + same values + same NVMe image + same block-cache bytes
-+ same trace + same process topology
+same logical fixture ID + same tail ID + matched resident options
++ same block-cache bytes + same trace + same process topology
 = one attributable native-versus-control comparison
 ```
+
+Native and control do not share a mutable RocksDB directory. Their physical key
+codecs differ, so RFC-0044 binds each subject-local image to the same logical
+fixture and verifies exact outcomes independently.
 
 The measured window must issue zero object operations. Object reads belong to
 T28. A native miss in T27 must terminate at the same local NVMe boundary as the
@@ -76,13 +80,15 @@ One fixture descriptor names:
 - ordered key and value seed;
 - object manifest identity and complete closure digest;
 - RocksDB options fingerprint and engine format version;
-- local image digest after activation.
+- subject-local semantic resident-image identity after activation.
 
 The first calibration fixture is 64 MiB logical. It exists to prove that the
 runner can build once, clone or reopen without reseeding through the transaction
-authority, and produce identical image digests. The first admission fixture is
-1 GiB logical. Larger 10 GiB and 100 GiB points remain later capacity curves,
-not requirements for freezing T27.
+authority, and bind native and control images to one logical fixture and one
+exact tail. RFC-0044 first proves one empty anchor record, zero base-value txLog
+records, complete closure verification, and separate subject-image identities.
+The first admission fixture is 1 GiB logical. Larger 10 GiB and 100 GiB points
+remain later capacity curves, not requirements for freezing T27.
 
 Fixture construction is outside every warmup and measurement window. The
 runner must not rebuild the base through 32-key replicated transactions for
@@ -236,8 +242,10 @@ must receive `discard` before the clean GCP run.
    the receipt distinguishes OS page-cache behavior from NVMe reads. Both
    subjects passed 22 of 22 hard gates and reported about 2.96 KiB of physical
    reads per logical read. This is mechanism evidence from one smoke sample.
-8. `[PROPOSED]` Persist one content-addressed fixture across all four subjects,
-   then freeze the suite hash, source revision, and 1 GiB fixture.
+8. `[PROPOSED]` Implement RFC-0044: establish one empty transaction anchor,
+   persist one content-addressed object closure across all four subjects, bind
+   separate native and control resident images to it, then freeze the suite
+   hash, source revision, and 1 GiB fixture.
 9. `[PROPOSED]` Execute both process orders for the 1 GiB coverage and skew
    admission on clean GCP R0 with required OTel.
 

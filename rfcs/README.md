@@ -51,5 +51,6 @@ not harden until their RFC is accepted.
 | 0041 | Incumbent transaction-plane adapter | `[CODE-COMPLETE]` contract and source-pinned preflight, `[EVALUATING]` fallback lifecycle | semantic oracle, object continuity control, and fallback profile |
 | 0042 | Native resident concurrent-read curve | `[VERIFIED]` GCP R0 at 8 and 32 clients | paired resident concurrency admission before cache pressure |
 | 0043 | Native resident cache-pressure curve | `[EVALUATING]` experiment contract frozen | explicit cache, reusable fixture, and physical-work attribution |
+| 0044 | Content-addressed object-frontier fixtures | `[PROPOSED]` | shared logical object fixture, slim transaction bootstrap, and subject-local image identity |
 
 Use `0000-template.md` for new proposals.

@@ -1477,3 +1477,39 @@ default read profile.
 
 Evidence:
 `docs/artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md`.
+
+## D62. Bootstrap evaluation authorities at the object frontier
+
+Status: `[PROPOSED]`, 2026-08-28.
+
+Decision: build one content-addressed logical object fixture, establish its
+covered-through version with one canonical empty transaction on each fresh
+evaluation authority, and put only the suffix `(O, C]` through the transaction
+plane. Native and control derive separate resident-image identities from the
+same fixture because their physical codecs differ. They do not share a mutable
+RocksDB directory.
+
+The authority truthfully retains one empty anchor record until a separately
+authenticated object-frontier pop. It must retain zero base-value records and
+zero base mutation bytes. Candidate and control must also consume one exact
+retained-tail digest; a logically similar suffix at different commit versions
+is not a matched fixture.
+
+The first 64 MiB T27 run replicated every base value before publishing the
+same values to objects. Authority scratch reached about 1.2 GiB, roughly 19
+times logical value bytes, and setup took 35 to 40 minutes per subject. That is
+an ingest workload, not a resident read fixture. Ingest and objectification
+economics remain load-bearing in T30.
+
+Optimizes for: an honest object-base plus txLog-suffix boundary, practical
+1 GiB cache experiments, and one logical identity across candidate, control,
+and both process orders.
+
+Gives up: treating T27 fixture load as write-path evidence. The empty anchor is
+evaluator-only and does not authorize production import or restore from an
+arbitrary object closure.
+
+Evidence: RFC-0044,
+`docs/research/reviews/fable-object-frontier-fixture-review-2026-08-28.md`, and
+the 64 MiB setup measurements in
+`docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md`.
