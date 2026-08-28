@@ -20,7 +20,7 @@ required_for_profiles = ["gcp-r0-calibration-2x-zipf14"]
 [dataset.gcp-r0-calibration-2x-zipf14]
 logical_bytes = 67108864
 key_count = 65536
-seeds = [1103, 2207, 3301]
+seeds = [1103]
 
 [dataset.local-reuse-dev]
 logical_bytes = 4194304
@@ -35,7 +35,7 @@ seeds = [1103]
 [profiles.gcp-r0-calibration-2x-zipf14]
 budget_kind = "operations"
 budget_limit = 15000000
-repeats = 5
+repeats = 15
 evidence_class = "workload"
 cache_state = "resident-range-on-local-nvme-with-explicit-rocksdb-cache"
 serving_profile = "ssd_resident"
@@ -218,7 +218,7 @@ candidate_and_control_use_33554432_byte_block_cache = true
 dataset_is_twice_the_declared_block_cache = true
 measured_window_counters_are_deltas = true
 counter_reset_invalidates_sample = true
-fixture_is_reused_across_five_measured_samples = true
+fixture_is_reused_across_fifteen_measured_samples = true
 linux_process_cpu_and_io_are_attributed_per_sample = true
 cache_usage_within_105_percent_of_budget = true
 measured_reads_issue_zero_object_operations = true

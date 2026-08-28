@@ -87,10 +87,13 @@ operations. Mismatched-cache and counter-reset poisons both discarded.
 
 `[EVALUATING]` GP3.1.2 is the first cache-pressure workload profile: 64 MiB
 logical data over a 32 MiB block cache, Zipf 1.4, eight clients, one million
-measured reads, three seeds, five repeats, and matched direct RocksDB control.
-The suite and 22-gate program validate. The reusable-fixture runner, resource
-attribution, and two required poison workloads are `[CODE-COMPLETE]`; its clean
-GCP receipt remains open.
+measured reads per window, one fixture seed, 15 independently warmed windows,
+both process orders, and matched direct RocksDB control. The single-seed
+calibration produces 30 samples per subject across two independent fixture
+reconstructions. The later 1 GiB admission retains three seeds. The suite and
+22-gate program validate. The reusable-fixture runner, resource attribution,
+and two required poison workloads are `[CODE-COMPLETE]`; its clean GCP receipt
+remains open.
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The

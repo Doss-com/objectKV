@@ -37,7 +37,7 @@ shared cache and cumulative RocksDB counters. The paired runner now applies the
 same cache to the direct control, captures measured-window counter deltas,
 generates deterministic Zipf traces with a trace digest, and exports the cache
 and RocksDB counters through OTel. Reusable fixture execution now builds one
-recovered fixture per seed and runs five independently warmed samples after
+recovered calibration fixture and runs 15 independently warmed samples after
 explicit block-cache eviction. Each sample reports process user/system CPU,
 RSS, Linux logical and physical I/O, and host network-namespace deltas.
 Mismatched-cache and counter-reset poison workloads both discard. The cloud
@@ -156,7 +156,9 @@ Delta values, not process-lifetime totals, enter the comparison.
 
 ## Admission gates
 
-The first GCP R0 admission uses five repeats for each seed, both process orders,
+The 64 MiB calibration uses one seed, 15 independently warmed samples, both
+process orders, and two independent fixture reconstructions per subject. The
+first GCP R0 admission uses five repeats for each seed, both process orders,
 three seeds, eight clients, and the 1 GiB fixture. A cache and skew point is
 admitted only when:
 
@@ -208,7 +210,12 @@ must receive `discard` before the clean GCP run.
    resets.
 3. `[CODE-COMPLETE]` Report process CPU and I/O, reuse fixtures, and add poison
    subjects.
-4. `[PROPOSED]` Run the 64 MiB calibration fixture once on the R0 machine shape.
+4. `[EVALUATING]` Run the 64 MiB calibration fixture once per subject and
+   process order on the R0 machine shape. An initial discarded run showed that
+   rebuilding four 64 MiB Raft histories per receipt could not finish inside
+   the bounded command budget, so calibration now reuses one fixture across 15
+   measurement windows. Multi-seed reconstruction remains in the 1 GiB
+   admission rather than the calibration.
 5. `[PROPOSED]` Inspect attribution and adjust operation counts so each sample
    reaches steady behavior without exceeding the lease budget.
 6. `[PROPOSED]` Freeze the suite hash, source revision, and 1 GiB fixture.
