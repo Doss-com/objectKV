@@ -438,7 +438,7 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
                 local_bytes: 0,
             };
             batch.put_cf(metadata, b"active", encode_metadata(&active)?);
-            write_and_flush(&self.database, batch)?;
+            install_and_flush_base(&self.database, batch)?;
             active.local_bytes = database_directory_bytes(&self.database, &self.root)?;
             if active.local_bytes > self.max_local_bytes {
                 return Err(format!(
@@ -500,7 +500,7 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
                 ..active
             };
             batch.put_cf(metadata, b"active", encode_metadata(&advanced)?);
-            write_and_flush(&self.database, batch)?;
+            apply_disposable_advance(&self.database, batch)?;
             advanced.local_bytes = database_directory_bytes(&self.database, &self.root)?;
             if advanced.local_bytes > self.max_local_bytes {
                 return Err(format!(
@@ -870,12 +870,16 @@ fn require_empty_root(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn write_and_flush(database: &DB, batch: WriteBatch) -> Result<(), String> {
+fn write_without_wal(database: &DB, batch: WriteBatch) -> Result<(), String> {
     let mut options = WriteOptions::default();
     options.disable_wal(true);
     database
         .write_opt(batch, &options)
-        .map_err(|error| format!("write native resident batch: {error}"))?;
+        .map_err(|error| format!("write native resident batch: {error}"))
+}
+
+fn install_and_flush_base(database: &DB, batch: WriteBatch) -> Result<(), String> {
+    write_without_wal(database, batch)?;
     database
         .flush()
         .map_err(|error| format!("flush native resident head: {error}"))?;
@@ -891,6 +895,15 @@ fn write_and_flush(database: &DB, batch: WriteBatch) -> Result<(), String> {
     database
         .flush_cf(metadata)
         .map_err(|error| format!("flush native resident metadata: {error}"))
+}
+
+fn apply_disposable_advance(database: &DB, batch: WriteBatch) -> Result<(), String> {
+    // The replicated txLog, not this disposable RocksDB image, owns durability.
+    // Keep the recent tail in RocksDB's mutable path and let its normal
+    // memtable/compaction policy decide when to create another SST. Forcing a
+    // flush after every catch-up page creates one extra L0 probe for nearly
+    // every untouched point read.
+    write_without_wal(database, batch)
 }
 
 fn begin_transition(epoch: &AtomicU64) -> Result<u64, String> {
@@ -1249,6 +1262,80 @@ mod tests {
             old.get(b"zz").expect("read old tail absence"),
             ReadOutcome::Absent
         );
+    }
+
+    #[test]
+    fn latest_snapshot_avoids_one_sst_probe_per_read_after_small_tail() {
+        let root = TempDir::new().expect("temporary native resident root");
+        let engine = Arc::new(
+            RocksDbResidentRangeEngine::open_with_block_cache(
+                root.path(),
+                64 * 1_024 * 1_024,
+                2 * 1_024 * 1_024,
+            )
+            .expect("open native resident engine"),
+        );
+        let records = (0..1_024)
+            .map(|index| ServingImageRecord {
+                key: format!("k/{index:04}").into_bytes(),
+                value: Some(vec![42; 1_024]),
+            })
+            .collect::<Vec<_>>();
+        engine
+            .activate(ResidentActivationRequest {
+                generation: 7,
+                object_root: "manifest/sha256/read-amplification".to_owned(),
+                object_durable_version: 11,
+                owned_range: ResidentRangeBounds::default(),
+                object_first_key: b"k/0000".to_vec(),
+                object_last_key: b"k/1023".to_vec(),
+                records,
+            })
+            .expect("activate native resident engine");
+        engine
+            .advance(ResidentAdvanceRequest {
+                generation: 7,
+                start: StreamCursor::after_complete_version(11),
+                end: StreamCursor::after_complete_version(12),
+                target_version: 12,
+                records: vec![ResidentTransactionRecord {
+                    commit_version: 12,
+                    batch_order: 0,
+                    mutations: vec![ResidentMutation::Set {
+                        key: b"k/0000".to_vec(),
+                        value: vec![43; 1_024],
+                    }],
+                }],
+            })
+            .expect("advance native resident engine");
+        let snapshot = engine
+            .clone()
+            .snapshot(7, 12)
+            .expect("bind current snapshot");
+        for _ in 0..128 {
+            assert_eq!(
+                snapshot.get(b"k/0512").expect("warm resident read"),
+                ReadOutcome::Value(vec![42; 1_024])
+            );
+        }
+        let before = engine.metrics();
+        const READS: u64 = 256;
+        for _ in 0..READS {
+            assert_eq!(
+                snapshot.get(b"k/0512").expect("measured resident read"),
+                ReadOutcome::Value(vec![42; 1_024])
+            );
+        }
+        let after = engine.metrics();
+        let cache_lookups = after
+            .block_cache_hits
+            .saturating_sub(before.block_cache_hits)
+            .saturating_add(
+                after
+                    .block_cache_misses
+                    .saturating_sub(before.block_cache_misses),
+            );
+        assert_eq!(cache_lookups, READS);
     }
 
     #[test]
