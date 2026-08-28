@@ -59,14 +59,21 @@ measured object operations, and all three OTel signals passed.
 clients. Native retained 87.34 through 89.06 percent of matched direct RocksDB
 throughput and kept p99 between 1.107x and 1.184x control in both orders.
 
-`[EVALUATING]` The next native rungs are cache-pressure reads and three-node
-replicated commit against a same-durability control. RAM, multi-range,
-PostgreSQL, and HTAP remain blocked on those gates.
+`[VERIFIED]` The first 64 MiB cache-pressure calibration executed on clean GCP
+R0 and produced a negative result. Native retained 56.59 through 59.68 percent
+of direct RocksDB throughput, p99 was 1.331x through 1.557x control, and CPU
+time was 1.668x through 1.746x control. All semantic gates and OTel correlation
+passed, and measured physical reads were zero.
+
+`[EVALUATING]` T27 now profiles and optimizes the native point-read software
+path before repeating the unchanged 64 MiB calibration. The 1 GiB admission,
+three-node replicated commit, RAM, multi-range, PostgreSQL, and HTAP remain
+blocked on that gate.
 FoundationDB remains the semantic oracle and fallback profile. The immutable
 concurrency evidence is under
 `docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/`.
-Cache pressure follows as a separate gate with an explicit cache budget and
-reusable larger-than-cache fixture.
+The negative cache-pressure evidence is under
+`docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/`.
 
 ### Performance activation matrix
 
@@ -78,7 +85,7 @@ kernel result.
 | Order | Workload curve | Status | Control | Admission signal | Opens |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads at 1, 8, and 32 clients | `[VERIFIED]` | Direct owned-value RocksDB in the same recovered topology | Throughput at least 0.80x control, p99 at most 1.20x, exact values, bounded bytes, zero measured object operations | Cache-pressure evaluation |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | Same-durability all-fast-tier RocksDB | Sweep 5 to 50 percent coverage and Zipf 0.8 to 2.0; retain the resident envelope where the declared working set fits; report CPU, cache hits, physical bytes, amplification, and object attribution | Honest RAM and SSD sizing |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | Same-durability all-fast-tier RocksDB | The 2x, Zipf 1.4 calibration failed throughput, p99, and CPU in both orders; profile and optimize the native read boundary, persist one fixture across subjects, then repeat before sweeping 5 to 50 percent coverage and Zipf 0.8 to 2.0 | Honest RAM and SSD sizing |
 | 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Direct object range GET and full hydration | One bounded metadata path plus one to three data requests; bytes and decode bounded by requested blocks rather than database size; no LIST authority | Disposable-worker and cold-read claims |
 | 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Indexed row objects and direct DataFusion base scan | Preserve row-class point cost, improve projected scans materially, bound resident index and compaction amplification, and recover one authenticated closure | Durable physical-layout choice |
 | 4 | Native three-node replicated commit | `[EVALUATING]` | Same-durability TiKV-like or FoundationDB commit path | One-range p99 within 1.25x control, exact retries and conflicts, zero object operations in the normal commit trace, and quorum acknowledgement on independent media | Single-range transactional cell |

@@ -7,7 +7,7 @@
       <span>Base {{REVISION}}</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
-    <p class="lede">The native resident boundary is verified through 32 concurrent clients on GCP R0. Across both orders and concurrency points, it retained 87.34% through 89.06% of direct RocksDB throughput and kept p99 between 1.107x and 1.184x control. Cache pressure, multi-range behavior, and replicated commit remain evaluating.</p>
+    <p class="lede">The native resident boundary remains verified through 32 concurrent clients, but the first larger-than-cache calibration failed in both process orders. With 64 MiB of values over a 32 MiB block cache, native retained only 56.59% through 59.68% of direct RocksDB throughput and used 1.67x through 1.75x CPU per read. T27 now blocks expansion until that native software cost is removed.</p>
     <div class="hero-actions">
       <a class="button primary" href="../../../papers/objectkv-vldb/objectkv-vldb.pdf">Open PVLDB paper</a>
       <a class="button" href="../../../papers/objectkv-vldb/main.tex">Paper source</a>
@@ -21,9 +21,9 @@
 
   <div class="summary-grid" aria-label="Program summary">
     <article class="summary-card"><span class="label">Highest verified rung</span><span class="value">R0 mechanism</span><p>Private GCP runner, local NVMe, regional GCS, OTel, killed-worker recovery, and paired receipts.</p></article>
-    <article class="summary-card"><span class="label">Concurrent comparison pairs</span><span class="value">4</span><p>8 and 32 clients in AB and BA order on one private GCP runner, regional GCS, local NVMe, required OTel, and complete teardown.</p></article>
+    <article class="summary-card"><span class="label">Cache-pressure reads</span><span class="value">60M</span><p>Four clean workload receipts, both process orders, required OTel, exact semantics, zero measured object operations, and complete teardown.</p></article>
     <article class="summary-card"><span class="label">Working paper</span><span class="value">15 pp.</span><p>PVLDB Vol. 20 format, architecture, evidence, curves, and limitations.</p></article>
-    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">GP3.1.2</span><p>64 MiB over a 32 MiB cache, Zipf 1.4, eight clients, three seeds, five repeats, and matched direct RocksDB.</p></article>
+    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">T27 profile</span><p>Attribute the 1.67x to 1.75x CPU cost, persist one fixture across subjects, then repeat the unchanged 64 MiB AB and BA calibration.</p></article>
     <article class="summary-card"><span class="label">Golden-path checkpoints</span><span class="value">{{GOLDEN_PATH_SUMMARY}}</span><p>One frozen artifact DAG across kernel, storage, distribution, consumers, PostgreSQL, HTAP, and economics.</p></article>
   </div>
 
@@ -38,11 +38,11 @@
       <section>
         <h2 id="program-call" data-toc>Program call</h2>
         <div class="callout">
-          <div><span class="label">Current decision</span><h3>Keep objectKV native-first while the measured envelope holds</h3></div>
-          <p>The matched-topology candidate passed exact reads, zero-object serving, bounded bytes, telemetry, throughput, and p99 constraints in both process orders. D56 keeps the native resident read path active and retains FoundationDB as a correctness oracle and fallback. It does not admit a distributed transaction cell.</p>
+          <div><span class="label">Current decision</span><h3>Hold the native-first program at T27 and remove the measured CPU tax</h3></div>
+          <p>The resident concurrency envelope passed, but the cache-pressure calibration failed throughput and p99 in both orders. D59 blocks larger fixtures and upper-stack performance work until the exact native read boundary clears the unchanged 64 MiB gate. FoundationDB remains the correctness oracle and fallback.</p>
         </div>
         <h3>What has changed</h3>
-        <p>The project separates execution, transaction durability, and permanent object state. The R0 mechanism reconstructs a complete resident image from regional GCS plus retained history, survives worker replacement, and performs zero object operations in the measured read window. The matched control pays for the same recovered topology, authority processes, and owned-value boundary. New performance comparisons now require workload-class receipts with a hashed dataset, mix, distribution, concurrency, measurement, failure, resource, metric, and control envelope. The next questions are cache pressure and same-durability replicated commit.</p>
+        <p>The project separates execution, transaction durability, and permanent object state. The R0 mechanism still reconstructs a complete resident image from regional GCS plus retained history, survives worker replacement, and performs zero object operations in measured reads. Under the first explicit cache budget, however, native used 1.67x to 1.75x control CPU while cache hit ratio, RSS, and physical bytes did not explain the gap. The next question is which native snapshot, head, history, metadata, or owned-value layer owns that cost.</p>
       </section>
 
       <section>
@@ -143,7 +143,7 @@ Arrow batches at T</pre></article>
         <h2 id="performance" data-toc>Performance curves and stop conditions</h2>
         <div class="curve-grid">
           <article class="curve"><div class="curve-head"><h3>SSD resident read</h3><span class="status verified">VERIFIED</span></div><dl><dt>Observed</dt><dd>At 8 and 32 clients in both orders, native retained 0.873x through 0.891x control throughput; p99 was 1.107x through 1.184x control.</dd><dt>Result</dt><dd>All four concurrency comparisons passed; 24 million measured reads and zero measured object operations.</dd><dt>Next</dt><dd>Freeze cache pressure, CPU per read, physical bytes, and read amplification.</dd></dl></article>
-          <article class="curve"><div class="curve-head"><h3>Resident cache pressure</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Frozen calibration</dt><dd>64 MiB data, 32 MiB block cache, Zipf 1.4, eight clients, one million measured reads, three seeds, five repeats.</dd><dt>Code complete</dt><dd>Matched cache options, deterministic trace digest, measured-window cache deltas, reset rejection, and OTel metrics.</dd><dt>Open</dt><dd>Reusable fixture, CPU and OS I/O, poison workloads, clean GCP receipt, then 1 GiB admission.</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Resident cache pressure</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Verified negative calibration</dt><dd>60 million reads, 84 workload gates passed, both comparison orders returned worse.</dd><dt>Observed</dt><dd>Native throughput 0.5968x and 0.5659x control; p99 1.3312x and 1.5567x; CPU/read 1.6685x and 1.7460x.</dd><dt>Next</dt><dd>Profile the native read boundary, persist one fixture across subjects, execute CPU and physical-byte constraints, then rerun the unchanged gate.</dd></dl></article>
           <article class="curve"><div class="curve-head"><h3>RAM resident read</h3><span class="status proposed">PROPOSED</span></div><dl><dt>Control</dt><dd>Admitted SSD, with RAM-backed RocksDB as mechanism control</dd><dt>Target</dt><dd>At least 20% better on one predeclared end-to-end metric without breaking resource gates</dd><dt>Stop</dt><dd class="stop">The advantage disappears after RPC, concurrency, memory cost, or rebuild risk</dd></dl></article>
           <article class="curve"><div class="curve-head"><h3>Cold point read</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Indexed local block and direct object range GET</dd><dt>Target</dt><dd>Bounded GETs, bytes, metadata, and decode independent of total bytes</dd><dt>Current</dt><dd>One 64 KiB-class block GET through a 64 MiB assigned range</dd></dl></article>
           <article class="curve"><div class="curve-head"><h3>Durable commit plus objectification</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Same-durability one-entry path at 37.369 outcomes/s and 2,169.209 ms maximum p99</dd><dt>Current</dt><dd>G4.10b at 1,075.343 outcomes/s, 104.274 ms maximum p99, 28.776x paired gain, exact ObjectState(O) plus txLog(O,C] recovery</dd><dt>Open</dt><dd>Fairness, clean source, OTel, independent media, remote objects, repeated-frontier convergence, and physical journal bytes</dd></dl></article>
@@ -160,7 +160,7 @@ Arrow batches at T</pre></article>
           <thead><tr><th>Order</th><th>Metric surface</th><th>Status</th><th>Admission signal</th><th>Unlocks</th></tr></thead>
           <tbody>
             <tr><td>0</td><td>Resident NVMe reads</td><td><span class="status verified">VERIFIED</span></td><td>At least 0.80x RocksDB throughput and at most 1.20x p99 through 32 clients</td><td>Cache pressure</td></tr>
-            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status evaluating">EVALUATING</span></td><td>GP3.1.2 freezes the 2x, Zipf 1.4 calibration point; CPU, OS I/O, fixture reuse, poisons, GCP, and the remaining sweep stay open</td><td>Honest RAM and SSD sizing</td></tr>
+            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status evaluating">EVALUATING</span></td><td>GP3.1.2 executed on GCP and failed throughput, p99, and the diagnostic CPU bound in both orders; profile native reads and reuse one persisted fixture before repeating it</td><td>Honest RAM and SSD sizing</td></tr>
             <tr><td>2</td><td>GCS cold point and refill</td><td><span class="status evaluating">EVALUATING</span></td><td>One bounded metadata path plus one to three named data requests, independent of database size</td><td>Disposable-worker claims</td></tr>
             <tr><td>3</td><td>Point and projected-scan object geometry</td><td><span class="status evaluating">EVALUATING</span></td><td>Row-class point cost, material scan gain, bounded index and compaction amplification, exact closure recovery</td><td>Physical-layout selection</td></tr>
             <tr><td>4</td><td>Independent-media replicated commit</td><td><span class="status evaluating">EVALUATING</span></td><td>One-range p99 within 1.25x same-durability control; exact retries; no normal object operation</td><td>Single-range transaction cell</td></tr>
@@ -237,6 +237,7 @@ Arrow batches at T</pre></article>
       <section>
         <h2 id="work-log" data-toc>Work in progress log</h2>
         <div class="log">
+          <article class="log-entry"><time>2026-08-28</time><h3>GP3.1.2 localizes a native CPU regression above physical media</h3><p>The four clean GCP receipts contain 60 million reads. Native retained 0.5968x and 0.5659x control throughput; p99 was 1.3312x and 1.5567x; CPU per read was 1.6685x and 1.7460x. Exact semantics and all three OTel signals passed, physical reads were zero, 550.9 MB of scratch was removed, and all nine leased resources were destroyed. T27 remains Evaluating.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>Performance evidence now fails closed on workload shape</h3><p>Profiles declare contract, smoke, or workload. Performance and economics comparison accepts only workload receipts with a validated profile hash. The runner binds the selected access distribution and concurrency to that envelope; older receipts remain readable but cannot silently enter a new comparison.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1.2 cache-pressure calibration is code complete</h3><p>The native and direct RocksDB paths share an explicit block cache, deterministic Zipf trace, and measured-window counter snapshots. The first frozen workload uses 64 MiB data over a 32 MiB cache and one million measured reads per sample. Local native and control smoke receipts passed; the GCP workload remains evaluating.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>Performance activation order recorded</h3><p>The project plan now sequences evidence from resident cache pressure through GCS cold reads, object layout, replicated commit, objectification and recovery, branching, multi-range behavior, optional RAM, okv-fabric workloads, PostgreSQL OLTP, exact HTAP, and the comparative production envelope. T27 through T37 own those gates. A failed mechanism redirects that layer; it does not stop the objectKV program.</p></article>
@@ -263,7 +264,7 @@ Arrow batches at T</pre></article>
 
       <section>
         <h2 id="next-review" data-toc>Next architecture review</h2>
-        <p>The next review starts with GP3.1.2 on GCP R0. Before spending the full workload budget, finish reusable fixture construction, process CPU and operating-system I/O snapshots, and the mismatched-cache and counter-reset poison workloads. Then run the 64 MiB calibration in both subject orders, inspect variance and attribution, and freeze the 1 GiB admission sweep. Independent-media replicated commit follows. RAM remains optional; PostgreSQL and HTAP stay downstream of the cell contracts.</p>
+        <p>The next review starts from the failed GP3.1.2 calibration. Profile native and direct point reads on the exact 64 MiB fixture, identify the layer responsible for 1.67x to 1.75x CPU per read, and apply one bounded optimization without weakening snapshot or recovery semantics. Persist one content-addressed fixture across candidate, control, AB, and BA; make CPU and physical-byte comparisons executable; then repeat the unchanged calibration. Do not start the 1 GiB admission, replicated commit performance, PostgreSQL, or HTAP performance until this local serving boundary passes.</p>
       </section>
     </article>
   </div>

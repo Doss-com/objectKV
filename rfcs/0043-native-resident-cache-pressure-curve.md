@@ -41,7 +41,13 @@ recovered calibration fixture and runs 15 independently warmed samples after
 explicit block-cache eviction. Each sample reports process user/system CPU,
 RSS, Linux logical and physical I/O, and host network-namespace deltas.
 Mismatched-cache and counter-reset poison workloads both discard. The cloud
-receipt remains open.
+calibration completed on GCP R0 in both process orders. All 84 workload hard
+gates passed, every run ID appeared in OTel logs, metrics, and traces, and
+cleanup completed. The native subject missed both executable comparison gates
+in both orders: throughput was 0.5968x and 0.5659x control, while p99 was
+1.3312x and 1.5567x control. CPU time was also 1.6685x and 1.7460x control,
+above the 1.25x admission limit, but that cross-result constraint is not yet
+executable in the comparator. T27 remains `[EVALUATING]`.
 
 The invariant is:
 
@@ -210,17 +216,21 @@ must receive `discard` before the clean GCP run.
    resets.
 3. `[CODE-COMPLETE]` Report process CPU and I/O, reuse fixtures, and add poison
    subjects.
-4. `[EVALUATING]` Run the 64 MiB calibration fixture once per subject and
-   process order on the R0 machine shape. An initial discarded run showed that
-   rebuilding four 64 MiB Raft histories per receipt could not finish inside
-   the bounded command budget, so calibration now reuses one fixture across 15
-   measurement windows. Multi-seed reconstruction remains in the 1 GiB
-   admission rather than the calibration.
-5. `[PROPOSED]` Inspect attribution and adjust operation counts so each sample
-   reaches steady behavior without exceeding the lease budget.
-6. `[PROPOSED]` Freeze the suite hash, source revision, and 1 GiB fixture.
-7. `[PROPOSED]` Execute both process orders on clean GCP R0 with required OTel.
-8. `[PROPOSED]` Preserve receipts, remove scratch state, and destroy compute.
+4. `[VERIFIED]` Execute the 64 MiB calibration once per subject and process
+   order on R0. The four receipts contain 60 million measured reads. Native
+   missed throughput, p99, and the diagnostic CPU bound in both orders.
+5. `[VERIFIED]` Preserve receipts and all three OTel signals, remove 152 current
+   scratch objects, and destroy all nine leased resources.
+6. `[EVALUATING]` Profile the exact native read path, make CPU and physical-byte
+   cross-result constraints executable, and persist one fixture across all
+   four subjects. Each current receipt still rebuilds and replays its own
+   fixture outside measurement.
+7. `[PROPOSED]` Rerun the unchanged 64 MiB AB and BA gate after one bounded
+   optimization slice.
+8. `[PROPOSED]` Freeze the suite hash, source revision, and 1 GiB fixture only
+   after the calibration envelope passes.
+9. `[PROPOSED]` Execute both process orders for the 1 GiB admission on clean
+   GCP R0 with required OTel.
 
 No three-machine topology is needed for T27. T27 isolates one local serving
 engine and its cache hierarchy. Independent media first becomes load-bearing
@@ -290,3 +300,9 @@ fixture and options digest.
   the current local NVMe and available RAM.
 - Whether index and filter blocks should share the declared cache budget or get
   a separately declared metadata budget.
+- Which native point-read layer owns the observed 1.67x to 1.75x CPU cost when
+  cache hit ratio, peak RSS, and physical bytes do not explain the gap.
+- Whether Zipf 0.8, direct I/O, explicit operating-system page-cache treatment,
+  or a larger fixture should own the separate physical NVMe curve. Zipf 1.4 at
+  2x cache produced more than 99.4 percent block-cache hits and zero reported
+  physical read bytes.

@@ -92,8 +92,21 @@ both process orders, and matched direct RocksDB control. The single-seed
 calibration produces 30 samples per subject across two independent fixture
 reconstructions. The later 1 GiB admission retains three seeds. The suite and
 22-gate program validate. The reusable-fixture runner, resource attribution,
-and two required poison workloads are `[CODE-COMPLETE]`; its clean GCP receipt
-remains open.
+and two required poison workloads are `[CODE-COMPLETE]`.
+
+`[VERIFIED]` The clean GP3.1.2 GCP R0 calibration executed 60 million measured
+reads across four receipts and both process orders. All 84 workload hard gates
+passed, every run ID occurs in OTel logs, metrics, and traces, 550,853,784
+current scratch bytes were removed, and all nine leased resources were
+destroyed. The performance claim failed decisively. Native retained 0.5968x
+and 0.5659x direct RocksDB throughput; p99 was 1.3312x and 1.5567x control.
+CPU time was 1.6685x and 1.7460x control. Both subjects reported zero physical
+read bytes, so this is a combined RocksDB plus operating-system-cache curve,
+not an isolated NVMe curve. T27 remains `[EVALUATING]`; the 1 GiB admission is
+blocked on a native CPU profile, one bounded read-path optimization, executable
+CPU and physical-byte comparisons, and actual cross-subject fixture reuse.
+Evidence is in
+[`docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md).
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
@@ -161,7 +174,8 @@ cache pressure
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
 stop decision for objectKV. The immediate owned task is T27, the cache-pressure
-curve.
+curve. Its next slice profiles the native point-read CPU path and reuses one
+persisted fixture across AB and BA before repeating the unchanged calibration.
 
 ## Current checkpoint
 

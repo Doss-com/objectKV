@@ -1377,3 +1377,40 @@ A missed curve causes a mechanism or provider-profile redesign and a new
 receipt. It does not stop the objectKV program. The canonical matrix and task
 sequence are `docs/BOOTSTRAP-PLAN.md` and T27 through T37 in
 `docs/CONTRIBUTOR-BOARD.md`.
+
+## D59. Hold T27 at the native CPU boundary before expanding the curve
+
+Status: `[VERIFIED]` calibration execution and negative result, 2026-08-28.
+
+Decision: do not start the 1 GiB cache-pressure admission or move the serving
+claim upward after the first 64 MiB calibration. Profile and optimize the
+current native version-bound point-read path, persist one content-addressed
+fixture across all four subjects, make CPU and physical-byte comparisons
+executable, and rerun the unchanged AB and BA calibration first.
+
+The clean GCP R0 run executed 60 million measured reads. All 84 workload hard
+gates passed, each of the four run IDs appeared in OTel logs, metrics, and
+traces, and cleanup completed. Native retained 0.5968x and 0.5659x direct
+RocksDB throughput; p99 was 1.3312x and 1.5567x control. Both formal
+comparisons returned `worse`. Native CPU time was 1.6685x and 1.7460x control,
+while peak RSS was effectively equal, native cache hit ratio was slightly
+higher, and Linux reported zero physical read bytes for every subject.
+
+This rejects the current read composition at the calibration point. It does
+not reject object-backed serving or reverse D56, because no measured read
+reached an object API or physical NVMe. The evidence localizes the immediate
+cost above physical media. It also shows that a 2x fixture with Zipf 1.4 is not
+an isolated NVMe curve on this host, because block-cache hits exceeded 99.4
+percent and the operating-system page cache satisfied the remaining physical
+path.
+
+Optimizes for: removing a measured CPU tax before larger fixtures make each
+iteration expensive, preserving the frozen comparison, and separating native
+software overhead from local-media behavior.
+
+Gives up: immediate progress into GCS refill, replicated commit, and the 1 GiB
+admission. Those layers remain sequenced behind a passing local serving
+boundary.
+
+Evidence: RFC-0043 and
+`docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md`.

@@ -599,10 +599,19 @@ become one GitHub issue.
   object attribution, and identity digests. T27 does not require a
   three-machine topology because it isolates the local serving hierarchy.
 - Execution slices: `[CODE-COMPLETE]` resident shared-cache configuration and
-  cumulative RocksDB counters; `[EVALUATING]` matched-control configuration,
-  counter deltas, process I/O, reusable fixtures, and poison subjects;
-  `[PROPOSED]` 64 MiB R0 calibration; `[PROPOSED]` frozen 1 GiB paired GCP
-  admission.
+  cumulative RocksDB counters, matched-control configuration, counter deltas,
+  process I/O, 15-window fixture reuse, and poison subjects; `[VERIFIED]`
+  execution and negative result for the 64 MiB R0 calibration; `[EVALUATING]`
+  native CPU attribution, executable CPU and physical-byte comparisons, and
+  one persisted fixture reused across candidate, control, and both process
+  orders; `[PROPOSED]` unchanged 64 MiB rerun; `[PROPOSED]` frozen 1 GiB paired
+  GCP admission.
+- Current result: native retained 0.5968x and 0.5659x direct RocksDB throughput,
+  p99 was 1.3312x and 1.5567x control, and CPU time was 1.6685x and 1.7460x
+  control. All 84 workload gates passed with zero measured object operations,
+  but both comparisons returned `worse`. Linux reported zero physical read
+  bytes, so the calibration localized overhead above physical media without
+  isolating the NVMe curve.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 

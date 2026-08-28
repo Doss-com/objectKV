@@ -118,8 +118,12 @@ in RFC-0043.
 
 `native-resident-cache-pressure-calibration-v1` now freezes the first of those
 points as GP3.1.2: 64 MiB logical data, 32 MiB block cache, Zipf 1.4, eight
-clients, one million measured reads per sample, three seeds, five repeats, and
-direct owned-value RocksDB control. Fixture reuse, process CPU and I/O
-attribution, and mismatched-cache plus counter-reset negative controls are
-`[CODE-COMPLETE]`. It remains `[EVALUATING]` until the paired clean GCP run
-exports required OTel signals and preserves its bounded evidence.
+clients, one million measured reads per sample, one seed, 15 independently
+warmed samples, both process orders, and direct owned-value RocksDB control.
+Fixture reuse within a receipt, process CPU and I/O attribution, and
+mismatched-cache plus counter-reset negative controls are `[CODE-COMPLETE]`.
+The paired clean GCP calibration is `[VERIFIED]` as a negative result. Native
+missed throughput, p99, and the diagnostic CPU bound in both orders. T27
+remains `[EVALUATING]`; the three-seed, five-repeat contract applies to the
+later 1 GiB admission, after one persisted fixture is reused across subjects
+and CPU plus physical-byte constraints execute in the comparator.

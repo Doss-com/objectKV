@@ -155,11 +155,11 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
     <div class="kicker">
       <span>objectKV architecture</span>
       <span>branch research/native-matched-topology-r0</span>
-      <span>revision 9030c91</span>
-      <span>generated 2026-08-28 04:44 UTC</span>
+      <span>revision 76d2cae</span>
+      <span>generated 2026-08-28 09:24 UTC</span>
     </div>
     <h1>The implementation architecture and its evidence boundary</h1>
-    <p class="lede">objectKV today is a real single-range laboratory kernel composed from process-replicated authorities, a regional GCS object base, a retained txLog, and a disposable RocksDB read engine. Its resident read mechanism is cloud-admitted. The continuously objectifying, multi-machine transactional cell and a stable workload-facing API are not yet admitted.</p>
+    <p class="lede">objectKV today is a real single-range laboratory kernel composed from process-replicated authorities, a regional GCS object base, a retained txLog, and a disposable RocksDB read engine. Resident concurrency is cloud-admitted, but the first 64 MiB cache-pressure calibration exposed a 1.67x to 1.75x native CPU tax. The continuously objectifying, multi-machine transactional cell and a stable workload-facing API are not yet admitted.</p>
     <div class="hero-actions">
       <a class="button primary" href="../objectkv-program-tracker/objectkv-program-tracker.html">Program tracker</a>
       <a class="button" href="../../BOOTSTRAP-PLAN.md">Bootstrap plan</a>
@@ -170,10 +170,10 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
   </header>
 
   <div class="summary-grid">
-    <article class="summary-card"><span class="label">Strongest performance evidence</span><span class="value">24M reads</span><p>Clean GCP R0, 8 and 32 clients, both process orders, matched direct RocksDB control.</p></article>
+    <article class="summary-card"><span class="label">Latest performance evidence</span><span class="value">60M reads</span><p>Clean GCP R0 cache-pressure calibration, both process orders, matched direct RocksDB control, negative result.</p></article>
     <article class="summary-card"><span class="label">Current architecture unit</span><span class="value">1 range</span><p>One generation, publication root, transaction authority, object closure, retained suffix, and resident engine.</p></article>
-    <article class="summary-card"><span class="label">Real workload admitted</span><span class="value">No</span><p>No stable network read API, range scan, multi-machine commit, cache-pressure receipt, or continuous objectifier.</p></article>
-    <article class="summary-card"><span class="label">Immediate gate</span><span class="value">T27</span><p>GP3.1.2 now freezes 64 MiB over a 32 MiB cache with Zipf 1.4. Fixture reuse, CPU, OS I/O, poison runs, and GCP evidence remain.</p></article>
+    <article class="summary-card"><span class="label">Real workload admitted</span><span class="value">No</span><p>No stable network read API, range scan, multi-machine commit, passing cache-pressure curve, or continuous objectifier.</p></article>
+    <article class="summary-card"><span class="label">Immediate gate</span><span class="value">T27 profile</span><p>Find and remove the native point-read CPU cost, persist one fixture across subjects, then repeat the unchanged AB and BA calibration.</p></article>
   </div>
 
   <div class="layout">
@@ -504,7 +504,7 @@ not called by every SingleRange commit</pre>
 
         <h3>Current to target gaps</h3>
         <div class="cards">
-          <article class="card"><div class="card-head"><h3>Serving gap <small>T27-T28</small></h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Current</dt><dd>The native and direct RocksDB paths now share an explicit cache, deterministic trace, and measured-window counters. GP3.1.2 freezes the first larger-than-cache workload. Reusable fixture construction, OS attribution, poison workloads, and GCP evidence remain open.</dd><dt>Target</dt><dd>One bounded RangeEngine that moves among RAM, NVMe, and object blocks with explicit cache state.</dd></dl></article>
+          <article class="card"><div class="card-head"><h3>Serving gap <small>T27-T28</small></h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Current</dt><dd>GP3.1.2 executed 60 million reads and failed both process orders. Native retained 0.5659x to 0.5968x control throughput and used 1.6685x to 1.7460x CPU per read. Zero physical reads localize the immediate gap above media.</dd><dt>Target</dt><dd>One bounded RangeEngine that moves among RAM, NVMe, and object blocks with explicit cache state.</dd></dl></article>
           <article class="card"><div class="card-head"><h3>Commit gap <small>T29</small></h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Current</dt><dd>Correct local OpenRaft process topology.</dd><dt>Target</dt><dd>Independent-media quorum commit competitive with a same-durability control.</dd></dl></article>
           <article class="card"><div class="card-head"><h3>Lifecycle gap <small>T30-T31</small></h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Current</dt><dd>Separate commit, publication, recovery, and branch contracts.</dd><dt>Target</dt><dd>Continuously bounded objectification, recovery, branching, and garbage collection.</dd></dl></article>
           <article class="card"><div class="card-head"><h3>Distribution gap <small>T32</small></h3><span class="status proposed">PROPOSED</span></div><dl><dt>Current</dt><dd>One range and one transaction authority group.</dd><dt>Target</dt><dd>Range routing, splitting, placement, and strict-serializable transactions across range groups.</dd></dl></article>
@@ -530,7 +530,7 @@ not called by every SingleRange commit</pre>
       ↓
 [PROPOSED] workload-facing okv-fabric, PostgreSQL, and HTAP</pre>
         </div>
-        <p>T27 is first because the current resident result is the strongest admitted mechanism and its largest unknown is hidden cache residency. RFC-0043 freezes that experiment. The paired runner now uses the same explicit cache for native and direct RocksDB, creates deterministic Hotset or Zipf traces, hashes the trace, captures counter deltas around the measured window, and exports the metrics through OTel. Reusable fixture construction, CPU and operating-system I/O attribution, poison workloads, and the clean GCP receipt remain. T28 then decides how the same RangeEngine crosses into object-backed misses.</p>
+        <p>T27 remains first because the 64 MiB calibration falsified the current native performance claim before any measured read reached physical NVMe or object storage. The paired runner matched cache, trace, topology, source, and values; native still used 1.67x to 1.75x CPU per read. The next slice profiles the native snapshot, head, history, metadata, and owned-value path, persists one fixture across all subjects, and repeats the unchanged gate. T28 waits until this local serving boundary passes, then decides how the same RangeEngine crosses into object-backed misses.</p>
       </section>
 
       <section>
@@ -539,6 +539,7 @@ not called by every SingleRange commit</pre>
           <table>
             <thead><tr><th>Date</th><th>Change</th><th>Consequence</th></tr></thead>
             <tbody>
+              <tr><td>2026-08-28</td><td>Executed GP3.1.2 on clean GCP R0 in both process orders.</td><td>The native read path failed throughput, p99, and the diagnostic CPU bound. D59 blocks larger fixtures until profiling and one bounded optimization complete.</td></tr>
               <tr><td>2026-08-27</td><td>Added fail-closed workload evidence classes and GP3.1.2 cache-pressure calibration.</td><td>Smoke and legacy receipts can no longer enter performance comparison; T27 has a hashed 64 MiB workload envelope and matched control.</td></tr>
               <tr><td>2026-08-27</td><td>Wired explicit cache budgets, deterministic Zipf traces, and measured-window RocksDB counters into native and direct paths.</td><td>The next GCP run can measure cache pressure instead of repeating the all-resident smoke shape.</td></tr>
               <tr><td>2026-08-27</td><td>Created the canonical implementation architecture and infrastructure evidence boundary.</td><td>“Verified mechanism” and “workload admitted” are now separate review states.</td></tr>

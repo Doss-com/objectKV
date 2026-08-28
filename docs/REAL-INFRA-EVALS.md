@@ -4,9 +4,10 @@ Status: `[VERIFIED]` for the private runner, named local NVMe, regional GCS,
 required OTel, machine receipt, schema-valid paired-comparison mechanism, and
 GP2.5.3 physical provider-media-loss reconstruction. `[VERIFIED]` GP3.1 and
 GP3.1.1 admit the topology-matched native resident read boundary through 32
-clients. `[EVALUATING]` cache pressure, same-durability replicated commit, and
-the complete transaction plane. No full-cell or cross-stack performance claim
-is `[VERIFIED]`.
+clients. `[VERIFIED]` GP3.1.2 executed a clean negative 64 MiB cache-pressure
+calibration. `[EVALUATING]` the native read-path correction, full T27
+admission, same-durability replicated commit, and the complete transaction
+plane. No full-cell or cross-stack performance claim is `[VERIFIED]`.
 
 ## The answer we are trying to earn
 
@@ -190,11 +191,27 @@ and complete OTel correlation. All 384 current scratch objects and all nine
 leased resources were removed after evidence capture. See
 `docs/artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md`.
 
-The r0 profile uses a 4 MiB working set to isolate public-path software cost.
-It does not measure cache pressure. A 64 MiB attempt was stopped after more
-than five minutes because fixture construction serialized 65,536 records
-through the local authority before object publication. Reusable frozen fixtures
-are required before the 64 MiB and 10 GiB scale points return.
+`[VERIFIED]` A sixth R0 execution completed the 64 MiB cache-pressure
+calibration with a 32 MiB explicit RocksDB block cache, Zipf 1.4, eight clients,
+15 independently warmed samples per subject and order, and 60 million measured
+reads. All 84 workload hard gates passed. Native retained 0.5968x and 0.5659x
+direct RocksDB throughput; p99 was 1.3312x and 1.5567x control. Both comparison
+receipts returned `worse`. Native CPU time was 1.6685x and 1.7460x control.
+Peak RSS was effectively equal, native cache hit ratio was slightly higher,
+and Linux reported zero physical read bytes for every subject. This localizes
+the immediate regression above physical media but does not isolate an NVMe
+curve. Every run ID appeared in OTel logs, metrics, and traces. The run removed
+152 current scratch objects and all nine leased resources. See
+`docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md`.
+
+The initial three-seed 64 MiB attempt was discarded before a receipt because
+fixture construction could not fit the bounded command. The completed
+calibration reuses its fixture across 15 measured windows, but each of the four
+subjects still reconstructs and semantically replays a separate fixture.
+Replicated authority scratch reached about 1.2 GiB per 64 MiB logical fixture.
+Before the next cloud run, the harness must persist one content-addressed
+fixture across candidate, control, and both process orders. The native read
+path must clear the unchanged calibration before the 1 GiB admission begins.
 
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen

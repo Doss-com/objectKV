@@ -390,16 +390,22 @@ operations, and every run ID occurs in OTel logs, metrics, and traces. Cache
 pressure remains isolated into a later gate with explicit cache sizing and a
 reusable larger-than-cache fixture.
 
-The first cache-pressure calibration is now code-complete but not verified.
-It freezes 64 MiB of logical values over a 32 MiB shared RocksDB block cache,
-a deterministic Zipf 1.4 trace, eight clients, one million measured reads per
-sample, three seeds, five repeats, replacement-worker recovery before warmup,
-and direct owned-value RocksDB as control. Native and control paths snapshot
-cache and read-amplification counters after warmup and after measurement;
-counter resets invalidate the sample. Local 50,000-read smoke receipts emit the
-new counters with exact values and zero object operations. Fixture reuse,
-process CPU and operating-system I/O, poison workloads, and clean GCP evidence
-remain evaluating.
+The first cache-pressure calibration is implemented and has a clean negative
+result. It freezes 64 MiB of logical values over a 32 MiB shared RocksDB block
+cache, a deterministic Zipf 1.4 trace, eight clients, one million measured
+reads per sample, one seed, fifteen independently warmed samples, both process
+orders, replacement-worker recovery before warmup, and direct owned-value
+RocksDB as control. The four receipts contain 60 million measured reads and 84
+passing workload gates. Every run ID occurs in OTel logs, metrics, and traces.
+Native retained 0.5968x and 0.5659x control throughput in AB and BA order; p99
+was 1.3312x and 1.5567x control. Both comparisons returned
+\texttt{worse}. Native CPU time was 1.6685x and 1.7460x control, despite nearly
+equal peak RSS and slightly higher native block-cache hit ratios. Linux
+reported zero physical read bytes for every subject, so this is a combined
+RocksDB and operating-system-cache curve rather than an isolated NVMe curve.
+The result blocks the 1 GiB admission while we profile the native snapshot and
+value-return path, make CPU and physical-byte comparisons executable, and
+persist one fixture across all four subjects.
 
 \subsection{Objectification and publication}
 
@@ -1258,8 +1264,12 @@ The dependency order is evidence driven:
   the throughput curve clears its frozen gate.
   \item The topology-matched native SSD-resident experiment passed exact-read,
   object-request, local-byte, throughput, and p99 gates in both process orders.
-  The 8-client and 32-client curves also passed. Next freeze cache pressure and
-  native replicated commit while FoundationDB remains the semantic oracle.
+  The 8-client and 32-client curves also passed. The first 64 MiB
+  cache-pressure calibration then failed throughput, p99, and the diagnostic
+  CPU bound in both process orders. Profile and optimize that exact native read
+  boundary, persist one fixture across subjects, and rerun the unchanged
+  calibration before expanding to the 1 GiB admission. FoundationDB remains
+  the semantic oracle.
   \item The GCS closure passed empty logical-generation reconstruction and
   fresh-provider reconstruction after source VM and disk deletion. The local
   external incarnation authority is verified and the real-provider harness is
