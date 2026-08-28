@@ -41,7 +41,7 @@ otel_name = "okv.eval.operation.duration"
 kind = "histogram"
 unit = "s"
 description = "End-to-end latency of a logical evaluation operation"
-attributes = ["lane", "workload", "operation", "backend", "cache.state", "result"]
+attributes = ["lane", "workload", "operation", "backend", "cache.state", "result", "sample"]
 required_attributes = ["lane", "workload", "operation", "backend", "result"]
 boundaries = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
 
@@ -51,7 +51,7 @@ otel_name = "okv.eval.operation.throughput"
 kind = "gauge"
 unit = "{operation}/s"
 description = "Completed logical operations per second"
-attributes = ["lane", "workload", "operation", "backend"]
+attributes = ["lane", "workload", "operation", "backend", "sample"]
 required_attributes = ["lane", "workload", "operation", "backend"]
 
 [[metrics]]
@@ -60,7 +60,7 @@ otel_name = "okv.eval.object_store.requests"
 kind = "counter"
 unit = "{request}"
 description = "Object-store API requests made by a workload"
-attributes = ["lane", "workload", "backend", "store", "api", "result"]
+attributes = ["lane", "workload", "backend", "store", "api", "result", "sample"]
 required_attributes = ["lane", "workload", "backend", "store", "api", "result"]
 
 [[metrics]]
@@ -78,7 +78,7 @@ otel_name = "okv.eval.cache.hit_ratio"
 kind = "gauge"
 unit = "1"
 description = "Fraction of logical reads satisfied by the selected cache"
-attributes = ["lane", "workload", "cache.tier", "backend"]
+attributes = ["lane", "workload", "cache.tier", "backend", "sample"]
 required_attributes = ["lane", "workload", "cache.tier", "backend"]
 
 [[metrics]]
@@ -407,7 +407,7 @@ otel_name = "okv.eval.compute.cpu_duration"
 kind = "counter"
 unit = "s"
 description = "CPU time consumed by the declared workload component"
-attributes = ["lane", "workload", "component", "backend"]
+attributes = ["lane", "workload", "component", "backend", "cpu.class", "sample"]
 required_attributes = ["lane", "workload", "component", "backend"]
 
 [[metrics]]
@@ -416,7 +416,7 @@ otel_name = "okv.eval.memory.resident_bytes"
 kind = "gauge"
 unit = "By"
 description = "Resident memory attributed to the declared workload component"
-attributes = ["lane", "workload", "component", "backend"]
+attributes = ["lane", "workload", "component", "backend", "phase", "sample"]
 required_attributes = ["lane", "workload", "component", "backend"]
 
 [[metrics]]
@@ -434,7 +434,7 @@ otel_name = "okv.eval.network.bytes"
 kind = "counter"
 unit = "By"
 description = "Network bytes transferred by peer class and direction"
-attributes = ["lane", "workload", "backend", "peer.class", "direction"]
+attributes = ["lane", "workload", "backend", "peer.class", "direction", "sample"]
 required_attributes = ["lane", "workload", "backend", "peer.class", "direction"]
 
 [[metrics]]
@@ -443,7 +443,7 @@ otel_name = "okv.eval.serving.local_bytes"
 kind = "gauge"
 unit = "By"
 description = "Local bytes retained by a ServingWorker tier"
-attributes = ["lane", "workload", "backend", "cache.tier", "range.class"]
+attributes = ["lane", "workload", "backend", "cache.tier", "range.class", "sample"]
 required_attributes = ["lane", "workload", "backend", "cache.tier", "range.class"]
 
 [[metrics]]
@@ -612,7 +612,7 @@ otel_name = "okv.eval.rocksdb.cache_requests"
 kind = "counter"
 unit = "{request}"
 description = "RocksDB block-cache lookups during the synchronized measured window"
-attributes = ["lane", "workload", "backend", "block.class", "result"]
+attributes = ["lane", "workload", "backend", "block.class", "result", "sample"]
 required_attributes = ["lane", "workload", "backend", "block.class", "result"]
 
 [[metrics]]
@@ -621,7 +621,7 @@ otel_name = "okv.eval.rocksdb.read_bytes"
 kind = "counter"
 unit = "By"
 description = "Bytes reported by one named RocksDB read counter during the synchronized measured window"
-attributes = ["lane", "workload", "backend", "counter.class"]
+attributes = ["lane", "workload", "backend", "counter.class", "sample"]
 required_attributes = ["lane", "workload", "backend", "counter.class"]
 
 [[metrics]]
@@ -630,5 +630,23 @@ otel_name = "okv.eval.rocksdb.read_amplification"
 kind = "gauge"
 unit = "1"
 description = "RocksDB total read-amplification bytes divided by useful bytes during the measured window"
-attributes = ["lane", "workload", "backend"]
+attributes = ["lane", "workload", "backend", "sample"]
 required_attributes = ["lane", "workload", "backend"]
+
+[[metrics]]
+id = "process.cpu_per_operation"
+otel_name = "okv.eval.process.cpu_per_operation"
+kind = "gauge"
+unit = "ns/{operation}"
+description = "Process user plus system CPU nanoseconds consumed per completed measured operation"
+attributes = ["lane", "workload", "backend", "operation", "sample"]
+required_attributes = ["lane", "workload", "backend", "operation", "sample"]
+
+[[metrics]]
+id = "process.io_bytes"
+otel_name = "okv.eval.process.io_bytes"
+kind = "counter"
+unit = "By"
+description = "Linux process logical or storage-layer I/O bytes during the measured window"
+attributes = ["lane", "workload", "backend", "io.class", "sample"]
+required_attributes = ["lane", "workload", "backend", "io.class", "sample"]

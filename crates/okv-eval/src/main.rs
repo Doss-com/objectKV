@@ -55,9 +55,11 @@ use okv_eval::serving_recovery::{
 };
 use okv_eval::serving_recovery_openraft::{
     run_openraft_serving_recovery_contract, run_openraft_serving_recovery_contract_with_hot_reads,
-    run_openraft_serving_recovery_node, OpenRaftHotReadAccessPattern, OpenRaftHotReadProfile,
-    OpenRaftHotReadStorageReport, OpenRaftHotReadSubject, OpenRaftServingObjectBackend,
-    OpenRaftServingProcessConfig, OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport,
+    run_openraft_serving_recovery_node, OpenRaftHotReadAccessPattern,
+    OpenRaftHotReadNegativeControl, OpenRaftHotReadProfile, OpenRaftHotReadReport,
+    OpenRaftHotReadSampleReport, OpenRaftHotReadStorageReport, OpenRaftHotReadSubject,
+    OpenRaftServingObjectBackend, OpenRaftServingProcessConfig, OpenRaftServingRecoveryMode,
+    OpenRaftServingRecoveryReport,
 };
 use okv_eval::storage_layout::{
     run_columnar_cache_admission_contract, run_columnar_cache_admission_contract_on_backend,
@@ -2561,17 +2563,32 @@ fn run_openraft_serving_worker_recovery(
         },
         (Err(error), _) | (_, Err(error)) => return execution_from_result(Err(error)),
     };
+    let hot_read_negative_control = match workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+    {
+        Some("mismatched_block_cache") => {
+            Some(OpenRaftHotReadNegativeControl::MismatchedBlockCache)
+        }
+        Some("counter_reset") => Some(OpenRaftHotReadNegativeControl::CounterReset),
+        Some("skip_concurrent_catchup") | None => None,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown OpenRaft serving recovery negative control {other}"
+            )))
+        }
+    };
     let mode = match workload
         .parameters
         .get("negative_control")
         .and_then(toml::Value::as_str)
     {
         Some("skip_concurrent_catchup") => OpenRaftServingRecoveryMode::SkipConcurrentCatchupPoison,
-        Some(other) => {
-            return execution_from_result(Err(format!(
-                "unknown OpenRaft serving recovery negative control {other}"
-            )))
+        Some("mismatched_block_cache" | "counter_reset") => {
+            OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate
         }
+        Some(_) => unreachable!("negative control was validated above"),
         None if workload
             .parameters
             .get("subject")
@@ -2704,17 +2721,44 @@ fn run_openraft_serving_worker_recovery(
         Ok(value) => value,
         Err(error) => return execution_from_result(Err(error)),
     };
-    let hot_read_block_cache_bytes =
+    let declared_hot_read_block_cache_bytes =
         match hot_read_resource_limit("block_cache_bytes", 128 * 1_024 * 1_024) {
             Ok(value) => value,
             Err(error) => return execution_from_result(Err(error)),
         };
+    let hot_read_block_cache_bytes = if hot_read_negative_control
+        == Some(OpenRaftHotReadNegativeControl::MismatchedBlockCache)
+    {
+        declared_hot_read_block_cache_bytes.saturating_mul(2)
+    } else {
+        declared_hot_read_block_cache_bytes
+    };
+    let reuse_fixture_across_repeats = profile
+        .parameters
+        .get("reuse_fixture_across_repeats")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false);
+    let fixture_runs = if reuse_fixture_across_repeats {
+        1
+    } else {
+        profile.repeats
+    };
+    let samples_per_fixture = if reuse_fixture_across_repeats {
+        usize::try_from(profile.repeats).unwrap_or(usize::MAX)
+    } else {
+        1
+    };
+    let require_linux_process_metrics = profile
+        .parameters
+        .get("require_linux_process_metrics")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false);
     let mut reports = Vec::with_capacity(
         seeds
             .len()
-            .saturating_mul(usize::try_from(profile.repeats).unwrap_or(usize::MAX)),
+            .saturating_mul(usize::try_from(fixture_runs).unwrap_or(usize::MAX)),
     );
-    for repeat in 0..profile.repeats {
+    for repeat in 0..fixture_runs {
         for (index, seed) in seeds.iter().enumerate() {
             let object_backend = serving_recovery_object_backend(
                 backend,
@@ -2733,6 +2777,8 @@ fn run_openraft_serving_worker_recovery(
                     access_pattern: hot_read_access_pattern,
                     max_local_bytes: hot_read_max_local_bytes,
                     block_cache_bytes: hot_read_block_cache_bytes,
+                    sample_count: samples_per_fixture,
+                    negative_control: hot_read_negative_control,
                 }
             });
             match run_openraft_serving_recovery_contract_with_hot_reads(
@@ -2749,19 +2795,19 @@ fn run_openraft_serving_worker_recovery(
             }
         }
     }
-    let replay_hot_read = hot_read_operations.map(|(warmup_operations, measured_operations)| {
-        OpenRaftHotReadProfile {
-            subject: hot_read_subject,
-            seed: seeds[0],
-            key_count: recovery_profile.key_count,
-            value_bytes: recovery_profile.value_bytes,
-            warmup_operations,
-            measured_operations,
-            concurrent_clients: hot_read_concurrent_clients,
-            access_pattern: hot_read_access_pattern,
-            max_local_bytes: hot_read_max_local_bytes,
-            block_cache_bytes: hot_read_block_cache_bytes,
-        }
+    let replay_hot_read = hot_read_operations.map(|_| OpenRaftHotReadProfile {
+        subject: hot_read_subject,
+        seed: seeds[0],
+        key_count: recovery_profile.key_count,
+        value_bytes: recovery_profile.value_bytes,
+        warmup_operations: hot_read_concurrent_clients,
+        measured_operations: hot_read_concurrent_clients,
+        concurrent_clients: hot_read_concurrent_clients,
+        access_pattern: hot_read_access_pattern,
+        max_local_bytes: hot_read_max_local_bytes,
+        block_cache_bytes: declared_hot_read_block_cache_bytes,
+        sample_count: 1,
+        negative_control: None,
     });
     let replay = match run_openraft_serving_recovery_contract_with_hot_reads(
         seeds[0],
@@ -2775,7 +2821,20 @@ fn run_openraft_serving_worker_recovery(
         Ok(report) => report,
         Err(error) => return execution_from_result(Err(error)),
     };
-    openraft_serving_recovery_execution(workload, backend, mode, &reports, &replay)
+    openraft_serving_recovery_execution(
+        workload,
+        backend,
+        mode,
+        &reports,
+        &replay,
+        OpenRaftHotReadEvaluationContract {
+            declared_block_cache_bytes: declared_hot_read_block_cache_bytes,
+            samples_per_fixture,
+            reuse_fixture_across_repeats,
+            require_linux_process_metrics,
+            negative_control: hot_read_negative_control,
+        },
+    )
 }
 
 fn serving_recovery_object_backend(
@@ -2805,15 +2864,252 @@ fn hot_storage_values(
 ) -> Vec<f64> {
     reports
         .iter()
-        .filter_map(|report| {
+        .flat_map(|report| {
             report
                 .process
                 .hot_read
-                .as_ref()
-                .and_then(|hot_read| hot_read.storage.as_ref())
-                .map(&value)
+                .iter()
+                .flat_map(|hot_read| hot_read.samples.iter().map(|sample| value(&sample.storage)))
         })
         .collect()
+}
+
+fn hot_read_samples(
+    reports: &[OpenRaftServingRecoveryReport],
+) -> Vec<&OpenRaftHotReadSampleReport> {
+    reports
+        .iter()
+        .flat_map(|report| {
+            report
+                .process
+                .hot_read
+                .iter()
+                .flat_map(|hot_read| &hot_read.samples)
+        })
+        .collect()
+}
+
+fn hot_read_summary_measurements(
+    workload: &WorkloadConfig,
+    backend: &str,
+    hot_read: &OpenRaftHotReadReport,
+) -> Vec<Measurement> {
+    vec![
+        Measurement {
+            metric: "operation.throughput",
+            value: hot_read.operations_per_second,
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("operation", "single_range_resident_point_read"),
+                ("backend", backend),
+            ]),
+        },
+        Measurement {
+            metric: "operation.duration",
+            value: resident_count_as_f64(hot_read.latency_ns_p99) / 1_000_000_000.0,
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("operation", "single_range_resident_point_read"),
+                ("backend", backend),
+                ("result", "success"),
+            ]),
+        },
+        Measurement {
+            metric: "object_store.requests",
+            value: resident_count_as_f64(hot_read.object_requests),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("store", "object_base"),
+                ("api", "get"),
+                ("result", "attempted"),
+                ("backend", backend),
+            ]),
+        },
+    ]
+}
+
+#[allow(clippy::too_many_lines)]
+fn hot_read_sample_measurements(
+    workload: &WorkloadConfig,
+    backend: &str,
+    sample: &OpenRaftHotReadSampleReport,
+) -> Vec<Measurement> {
+    let sample_id = sample.sample.to_string();
+    let common = |extra: &[(&str, &str)]| {
+        let mut values = vec![
+            ("lane", workload.lane.as_str()),
+            ("workload", workload.id.as_str()),
+            ("backend", backend),
+            ("sample", sample_id.as_str()),
+        ];
+        values.extend_from_slice(extra);
+        attributes(&values)
+    };
+    let storage = &sample.storage;
+    let process = &sample.process;
+    vec![
+        Measurement {
+            metric: "operation.throughput",
+            value: sample.operations_per_second,
+            attributes: common(&[("operation", "single_range_resident_point_read")]),
+        },
+        Measurement {
+            metric: "operation.duration",
+            value: resident_count_as_f64(sample.latency_ns_p99) / 1_000_000_000.0,
+            attributes: common(&[
+                ("operation", "single_range_resident_point_read"),
+                ("result", "success"),
+            ]),
+        },
+        Measurement {
+            metric: "object_store.requests",
+            value: resident_count_as_f64(sample.object_requests),
+            attributes: common(&[
+                ("store", "object_base"),
+                ("api", "get"),
+                ("result", "attempted"),
+            ]),
+        },
+        Measurement {
+            metric: "cache.hit_ratio",
+            value: storage.block_cache_hit_ratio,
+            attributes: common(&[("cache.tier", "rocksdb-block-cache")]),
+        },
+        Measurement {
+            metric: "serving.local_bytes",
+            value: resident_count_as_f64(storage.block_cache_usage_bytes),
+            attributes: common(&[
+                ("cache.tier", "rocksdb-block-cache"),
+                ("range.class", "single-range"),
+            ]),
+        },
+        Measurement {
+            metric: "rocksdb.cache_requests",
+            value: resident_count_as_f64(storage.block_cache_hits),
+            attributes: common(&[("block.class", "all"), ("result", "hit")]),
+        },
+        Measurement {
+            metric: "rocksdb.cache_requests",
+            value: resident_count_as_f64(storage.block_cache_misses),
+            attributes: common(&[("block.class", "all"), ("result", "miss")]),
+        },
+        Measurement {
+            metric: "rocksdb.read_bytes",
+            value: resident_count_as_f64(storage.bytes_read),
+            attributes: common(&[("counter.class", "bytes-read")]),
+        },
+        Measurement {
+            metric: "rocksdb.read_bytes",
+            value: resident_count_as_f64(storage.block_cache_bytes_read),
+            attributes: common(&[("counter.class", "block-cache-bytes-read")]),
+        },
+        Measurement {
+            metric: "rocksdb.read_bytes",
+            value: resident_count_as_f64(storage.read_amp_useful_bytes),
+            attributes: common(&[("counter.class", "read-amp-useful")]),
+        },
+        Measurement {
+            metric: "rocksdb.read_bytes",
+            value: resident_count_as_f64(storage.read_amp_total_bytes),
+            attributes: common(&[("counter.class", "read-amp-total")]),
+        },
+        Measurement {
+            metric: "rocksdb.read_amplification",
+            value: storage.read_amplification_ratio,
+            attributes: common(&[]),
+        },
+        Measurement {
+            metric: "compute.cpu_duration",
+            value: resident_count_as_f64(process.user_cpu_nanoseconds) / 1_000_000_000.0,
+            attributes: common(&[("component", "serving-worker"), ("cpu.class", "user")]),
+        },
+        Measurement {
+            metric: "compute.cpu_duration",
+            value: resident_count_as_f64(process.system_cpu_nanoseconds) / 1_000_000_000.0,
+            attributes: common(&[("component", "serving-worker"), ("cpu.class", "system")]),
+        },
+        Measurement {
+            metric: "compute.cpu_duration",
+            value: resident_count_as_f64(process.total_cpu_nanoseconds) / 1_000_000_000.0,
+            attributes: common(&[("component", "serving-worker"), ("cpu.class", "total")]),
+        },
+        Measurement {
+            metric: "process.cpu_per_operation",
+            value: process.cpu_nanoseconds_per_read,
+            attributes: common(&[("operation", "single_range_resident_point_read")]),
+        },
+        Measurement {
+            metric: "memory.resident_bytes",
+            value: resident_count_as_f64(process.rss_before_warmup_bytes),
+            attributes: common(&[("component", "serving-worker"), ("phase", "before-warmup")]),
+        },
+        Measurement {
+            metric: "memory.resident_bytes",
+            value: resident_count_as_f64(process.rss_after_warmup_bytes),
+            attributes: common(&[("component", "serving-worker"), ("phase", "after-warmup")]),
+        },
+        Measurement {
+            metric: "memory.resident_bytes",
+            value: resident_count_as_f64(process.rss_after_measurement_bytes),
+            attributes: common(&[
+                ("component", "serving-worker"),
+                ("phase", "after-measurement"),
+            ]),
+        },
+        Measurement {
+            metric: "memory.resident_bytes",
+            value: resident_count_as_f64(process.peak_rss_bytes),
+            attributes: common(&[("component", "serving-worker"), ("phase", "peak")]),
+        },
+        Measurement {
+            metric: "process.io_bytes",
+            value: resident_count_as_f64(process.logical_read_bytes),
+            attributes: common(&[("io.class", "logical-read")]),
+        },
+        Measurement {
+            metric: "process.io_bytes",
+            value: resident_count_as_f64(process.logical_write_bytes),
+            attributes: common(&[("io.class", "logical-write")]),
+        },
+        Measurement {
+            metric: "process.io_bytes",
+            value: resident_count_as_f64(process.physical_read_bytes),
+            attributes: common(&[("io.class", "physical-read")]),
+        },
+        Measurement {
+            metric: "process.io_bytes",
+            value: resident_count_as_f64(process.physical_write_bytes),
+            attributes: common(&[("io.class", "physical-write")]),
+        },
+        Measurement {
+            metric: "network.bytes",
+            value: resident_count_as_f64(process.host_network_rx_bytes),
+            attributes: common(&[
+                ("peer.class", "host-network-namespace"),
+                ("direction", "receive"),
+            ]),
+        },
+        Measurement {
+            metric: "network.bytes",
+            value: resident_count_as_f64(process.host_network_tx_bytes),
+            attributes: common(&[
+                ("peer.class", "host-network-namespace"),
+                ("direction", "transmit"),
+            ]),
+        },
+    ]
+}
+
+#[derive(Clone, Copy)]
+struct OpenRaftHotReadEvaluationContract {
+    declared_block_cache_bytes: u64,
+    samples_per_fixture: usize,
+    reuse_fixture_across_repeats: bool,
+    require_linux_process_metrics: bool,
+    negative_control: Option<OpenRaftHotReadNegativeControl>,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2823,7 +3119,15 @@ fn openraft_serving_recovery_execution(
     mode: OpenRaftServingRecoveryMode,
     reports: &[OpenRaftServingRecoveryReport],
     replay: &OpenRaftServingRecoveryReport,
+    contract: OpenRaftHotReadEvaluationContract,
 ) -> WorkloadExecution {
+    let OpenRaftHotReadEvaluationContract {
+        declared_block_cache_bytes,
+        samples_per_fixture,
+        reuse_fixture_across_repeats,
+        require_linux_process_metrics,
+        negative_control,
+    } = contract;
     let anomaly_count = reports
         .iter()
         .map(|report| report.correctness_anomalies)
@@ -2926,38 +3230,61 @@ fn openraft_serving_recovery_execution(
         OpenRaftServingRecoveryMode::IntegratedKernelRocksDbCandidate
             | OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate
     );
-    let hot_read_exact = !resident_hot_mode
-        || reports.iter().all(|report| {
-            report.process.hot_read.as_ref().is_some_and(|hot_read| {
-                hot_read.measured_operations > 0
-                    && hot_read.concurrent_clients > 0
-                    && hot_read.concurrent_clients <= 256
-                    && hot_read.trace_sha256.len() == 64
-                    && hot_read.correctness_failures == 0
-                    && hot_read.object_requests == 0
-                    && hot_read.operations_per_second.is_finite()
-                    && hot_read.operations_per_second > 0.0
+    let hot_samples = hot_read_samples(reports);
+    let fixture_reuse_exact = !resident_hot_mode
+        || (samples_per_fixture > 0
+            && reports.iter().all(|report| {
+                report.process.hot_read.as_ref().is_some_and(|hot_read| {
+                    hot_read.samples.len() == samples_per_fixture
+                        && hot_read.samples.iter().enumerate().all(|(index, sample)| {
+                            sample.sample == u64::try_from(index).unwrap_or(u64::MAX)
+                        })
+                })
             })
-        });
+            && (!reuse_fixture_across_repeats || samples_per_fixture > 1));
+    let hot_read_exact = !resident_hot_mode
+        || (!hot_samples.is_empty()
+            && reports.iter().all(|report| {
+                report.process.hot_read.as_ref().is_some_and(|hot_read| {
+                    hot_read.measured_operations > 0
+                        && hot_read.concurrent_clients > 0
+                        && hot_read.concurrent_clients <= 256
+                        && hot_read.trace_sha256.len() == 64
+                        && hot_read.correctness_failures == 0
+                        && hot_read.object_requests == 0
+                        && hot_read.operations_per_second.is_finite()
+                        && hot_read.operations_per_second > 0.0
+                })
+            })
+            && hot_samples.iter().all(|sample| {
+                sample.correctness_failures == 0
+                    && sample.object_requests == 0
+                    && sample.operations_per_second.is_finite()
+                    && sample.operations_per_second > 0.0
+                    && sample.latency_ns_max >= sample.latency_ns_p999
+            }));
     let hot_read_storage_exact = mode
         != OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate
-        || reports.iter().all(|report| {
-            report
-                .process
-                .hot_read
-                .as_ref()
-                .and_then(|hot_read| hot_read.storage.as_ref())
-                .is_some_and(|storage| {
-                    storage.block_cache_capacity_bytes > 0
-                        && storage.block_cache_usage_bytes
-                            <= storage
-                                .block_cache_capacity_bytes
-                                .saturating_mul(105)
-                                .saturating_div(100)
-                        && storage.block_cache_hit_ratio.is_finite()
-                        && storage.read_amplification_ratio.is_finite()
-                })
-        });
+        || (!hot_samples.is_empty()
+            && hot_samples.iter().all(|sample| {
+                sample.storage.block_cache_capacity_bytes == declared_block_cache_bytes
+                    && sample.storage.block_cache_usage_bytes
+                        <= declared_block_cache_bytes
+                            .saturating_mul(105)
+                            .saturating_div(100)
+                    && sample.storage.block_cache_hit_ratio.is_finite()
+                    && sample.storage.read_amplification_ratio.is_finite()
+            }));
+    let measured_counter_deltas_exact = !resident_hot_mode
+        || (!hot_samples.is_empty() && hot_samples.iter().all(|sample| sample.counter_delta_valid));
+    let process_metrics_exact = !resident_hot_mode
+        || (!hot_samples.is_empty()
+            && hot_samples.iter().all(|sample| {
+                sample.process.process_cpu_supported
+                    && sample.process.cpu_nanoseconds_per_read.is_finite()
+                    && sample.process.cpu_nanoseconds_per_read > 0.0
+                    && (!require_linux_process_metrics || sample.process.linux_proc_supported)
+            }));
     let hot_read_clients_exact = first_hot_read_clients(reports).is_some_and(|clients| {
         clients > 0
             && clients <= 256
@@ -2985,13 +3312,22 @@ fn openraft_serving_recovery_execution(
         || !expected_path
         || !serving_image_exact
         || !resident_engine_exact
-        || !hot_read_exact
-        || !hot_read_storage_exact
-        || (resident_hot_mode && !hot_read_clients_exact)
     {
         Some("OpenRaft replacement exceeded its authoritative object-read path".to_owned())
+    } else if !hot_read_exact || (resident_hot_mode && !hot_read_clients_exact) {
+        Some("resident hot-read window did not preserve its declared execution contract".to_owned())
+    } else if !hot_read_storage_exact {
+        Some("resident hot-read window did not preserve its declared block-cache budget".to_owned())
+    } else if !measured_counter_deltas_exact {
+        Some("resident hot-read counters were not valid measured-window deltas".to_owned())
+    } else if !process_metrics_exact {
+        Some("resident hot-read process resources were not attributable".to_owned())
+    } else if !fixture_reuse_exact {
+        Some("resident fixture was not reused across the declared samples".to_owned())
     } else if !exact_replay {
         Some("fresh-process OpenRaft recovery changed its semantic digest".to_owned())
+    } else if negative_control.is_some() {
+        Some("OpenRaft negative control was not rejected".to_owned())
     } else {
         None
     };
@@ -3029,136 +3365,13 @@ fn openraft_serving_recovery_execution(
                 },
             ];
             if let Some(hot_read) = report.process.hot_read.as_ref() {
-                measurements.extend([
-                    Measurement {
-                        metric: "operation.throughput",
-                        value: hot_read.operations_per_second,
-                        attributes: attributes(&[
-                            ("lane", &workload.lane),
-                            ("workload", &workload.id),
-                            ("operation", "single_range_resident_point_read"),
-                            ("backend", backend),
-                        ]),
-                    },
-                    Measurement {
-                        metric: "operation.duration",
-                        value: resident_count_as_f64(hot_read.latency_ns_p99) / 1_000_000_000.0,
-                        attributes: attributes(&[
-                            ("lane", &workload.lane),
-                            ("workload", &workload.id),
-                            ("operation", "single_range_resident_point_read"),
-                            ("backend", backend),
-                            ("result", "success"),
-                        ]),
-                    },
-                    Measurement {
-                        metric: "object_store.requests",
-                        value: resident_count_as_f64(hot_read.object_requests),
-                        attributes: attributes(&[
-                            ("lane", &workload.lane),
-                            ("workload", &workload.id),
-                            ("store", "object_base"),
-                            ("api", "get"),
-                            ("result", "attempted"),
-                            ("backend", backend),
-                        ]),
-                    },
-                ]);
-                if let Some(storage) = hot_read.storage.as_ref() {
-                    measurements.extend([
-                        Measurement {
-                            metric: "cache.hit_ratio",
-                            value: storage.block_cache_hit_ratio,
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("cache.tier", "rocksdb-block-cache"),
-                                ("backend", backend),
-                            ]),
-                        },
-                        Measurement {
-                            metric: "serving.local_bytes",
-                            value: resident_count_as_f64(storage.block_cache_usage_bytes),
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("backend", backend),
-                                ("cache.tier", "rocksdb-block-cache"),
-                                ("range.class", "single-range"),
-                            ]),
-                        },
-                        Measurement {
-                            metric: "rocksdb.cache_requests",
-                            value: resident_count_as_f64(storage.block_cache_hits),
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("backend", backend),
-                                ("block.class", "all"),
-                                ("result", "hit"),
-                            ]),
-                        },
-                        Measurement {
-                            metric: "rocksdb.cache_requests",
-                            value: resident_count_as_f64(storage.block_cache_misses),
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("backend", backend),
-                                ("block.class", "all"),
-                                ("result", "miss"),
-                            ]),
-                        },
-                        Measurement {
-                            metric: "rocksdb.read_bytes",
-                            value: resident_count_as_f64(storage.bytes_read),
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("backend", backend),
-                                ("counter.class", "bytes-read"),
-                            ]),
-                        },
-                        Measurement {
-                            metric: "rocksdb.read_bytes",
-                            value: resident_count_as_f64(storage.block_cache_bytes_read),
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("backend", backend),
-                                ("counter.class", "block-cache-bytes-read"),
-                            ]),
-                        },
-                        Measurement {
-                            metric: "rocksdb.read_bytes",
-                            value: resident_count_as_f64(storage.read_amp_useful_bytes),
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("backend", backend),
-                                ("counter.class", "read-amp-useful"),
-                            ]),
-                        },
-                        Measurement {
-                            metric: "rocksdb.read_bytes",
-                            value: resident_count_as_f64(storage.read_amp_total_bytes),
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("backend", backend),
-                                ("counter.class", "read-amp-total"),
-                            ]),
-                        },
-                        Measurement {
-                            metric: "rocksdb.read_amplification",
-                            value: storage.read_amplification_ratio,
-                            attributes: attributes(&[
-                                ("lane", &workload.lane),
-                                ("workload", &workload.id),
-                                ("backend", backend),
-                            ]),
-                        },
-                    ]);
+                if hot_read.samples.is_empty() {
+                    measurements.extend(hot_read_summary_measurements(workload, backend, hot_read));
+                } else {
+                    for sample in &hot_read.samples {
+                        measurements
+                            .extend(hot_read_sample_measurements(workload, backend, sample));
+                    }
                 }
             }
             measurements
@@ -3381,6 +3594,44 @@ fn openraft_serving_recovery_execution(
                     })
             }),
         });
+        hard_gates.push(HardGateResult {
+            id: "fixture_reused_across_independent_samples".to_owned(),
+            status: gate_status(fixture_reuse_exact),
+            detail: Some(format!(
+                "fixture_runs={},samples_per_fixture={},reuse={reuse_fixture_across_repeats}",
+                reports.len(),
+                samples_per_fixture
+            )),
+        });
+        hard_gates.push(HardGateResult {
+            id: "measured_window_counter_deltas_valid".to_owned(),
+            status: gate_status(measured_counter_deltas_exact),
+            detail: Some(format!(
+                "valid={}/{}",
+                hot_samples
+                    .iter()
+                    .filter(|sample| sample.counter_delta_valid)
+                    .count(),
+                hot_samples.len()
+            )),
+        });
+        hard_gates.push(HardGateResult {
+            id: "process_cpu_and_linux_io_attributed".to_owned(),
+            status: gate_status(process_metrics_exact),
+            detail: Some(format!(
+                "process_cpu={}/{},linux_proc={}/{},linux_required={require_linux_process_metrics}",
+                hot_samples
+                    .iter()
+                    .filter(|sample| sample.process.process_cpu_supported)
+                    .count(),
+                hot_samples.len(),
+                hot_samples
+                    .iter()
+                    .filter(|sample| sample.process.linux_proc_supported)
+                    .count(),
+                hot_samples.len()
+            )),
+        });
     }
     let durations = reports
         .iter()
@@ -3394,55 +3645,25 @@ fn openraft_serving_recovery_execution(
         .iter()
         .map(|report| resident_count_as_f64(report.process.txlog_response_payload_bytes))
         .collect::<Vec<_>>();
-    let hot_throughput = reports
+    let hot_throughput = hot_samples
         .iter()
-        .filter_map(|report| {
-            report
-                .process
-                .hot_read
-                .as_ref()
-                .map(|hot_read| hot_read.operations_per_second)
-        })
+        .map(|sample| sample.operations_per_second)
         .collect::<Vec<_>>();
-    let hot_p99_ns = reports
+    let hot_p99_ns = hot_samples
         .iter()
-        .filter_map(|report| {
-            report
-                .process
-                .hot_read
-                .as_ref()
-                .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p99))
-        })
+        .map(|sample| resident_count_as_f64(sample.latency_ns_p99))
         .collect::<Vec<_>>();
-    let hot_p50_ns = reports
+    let hot_p50_ns = hot_samples
         .iter()
-        .filter_map(|report| {
-            report
-                .process
-                .hot_read
-                .as_ref()
-                .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p50))
-        })
+        .map(|sample| resident_count_as_f64(sample.latency_ns_p50))
         .collect::<Vec<_>>();
-    let hot_p95_ns = reports
+    let hot_p95_ns = hot_samples
         .iter()
-        .filter_map(|report| {
-            report
-                .process
-                .hot_read
-                .as_ref()
-                .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p95))
-        })
+        .map(|sample| resident_count_as_f64(sample.latency_ns_p95))
         .collect::<Vec<_>>();
-    let hot_p999_ns = reports
+    let hot_p99_9_ns = hot_samples
         .iter()
-        .filter_map(|report| {
-            report
-                .process
-                .hot_read
-                .as_ref()
-                .map(|hot_read| resident_count_as_f64(hot_read.latency_ns_p999))
-        })
+        .map(|sample| resident_count_as_f64(sample.latency_ns_p999))
         .collect::<Vec<_>>();
     let hot_concurrent_clients = reports
         .iter()
@@ -3465,6 +3686,40 @@ fn openraft_serving_recovery_execution(
         hot_storage_values(reports, |storage| resident_count_as_f64(storage.bytes_read));
     let hot_read_amplification =
         hot_storage_values(reports, |storage| storage.read_amplification_ratio);
+    let hot_cpu_ns_per_read = hot_samples
+        .iter()
+        .map(|sample| sample.process.cpu_nanoseconds_per_read)
+        .collect::<Vec<_>>();
+    let measured_operations_per_sample = reports
+        .first()
+        .and_then(|report| report.process.hot_read.as_ref())
+        .map_or(0, |hot_read| hot_read.measured_operations);
+    let hot_physical_read_bytes_per_read = hot_samples
+        .iter()
+        .map(|sample| {
+            ratio_as_f64(
+                sample.process.physical_read_bytes,
+                measured_operations_per_sample,
+            )
+        })
+        .collect::<Vec<_>>();
+    let hot_logical_read_bytes_per_read = hot_samples
+        .iter()
+        .map(|sample| {
+            ratio_as_f64(
+                sample.process.logical_read_bytes,
+                measured_operations_per_sample,
+            )
+        })
+        .collect::<Vec<_>>();
+    let hot_rss_after_measurement = hot_samples
+        .iter()
+        .map(|sample| resident_count_as_f64(sample.process.rss_after_measurement_bytes))
+        .collect::<Vec<_>>();
+    let hot_peak_rss = hot_samples
+        .iter()
+        .map(|sample| resident_count_as_f64(sample.process.peak_rss_bytes))
+        .collect::<Vec<_>>();
     let mut secondary_metrics = BTreeMap::from([
         (
             "serving_recovery_openraft.first_read_seconds.median".to_owned(),
@@ -3506,11 +3761,39 @@ fn openraft_serving_recovery_execution(
         );
         secondary_metrics.insert(
             "single_range.hot_read_p999_ns.median".to_owned(),
-            median(&hot_p999_ns),
+            median(&hot_p99_9_ns),
         );
         secondary_metrics.insert(
             "single_range.hot_read_concurrent_clients.median".to_owned(),
             median(&hot_concurrent_clients),
+        );
+        secondary_metrics.insert(
+            "single_range.fixture_runs".to_owned(),
+            usize_as_f64(reports.len()),
+        );
+        secondary_metrics.insert(
+            "single_range.measured_samples".to_owned(),
+            usize_as_f64(hot_samples.len()),
+        );
+        secondary_metrics.insert(
+            "single_range.process_cpu_ns_per_read.median".to_owned(),
+            median(&hot_cpu_ns_per_read),
+        );
+        secondary_metrics.insert(
+            "single_range.process_physical_read_bytes_per_read.median".to_owned(),
+            median(&hot_physical_read_bytes_per_read),
+        );
+        secondary_metrics.insert(
+            "single_range.process_logical_read_bytes_per_read.median".to_owned(),
+            median(&hot_logical_read_bytes_per_read),
+        );
+        secondary_metrics.insert(
+            "single_range.process_rss_after_measurement_bytes.median".to_owned(),
+            median(&hot_rss_after_measurement),
+        );
+        secondary_metrics.insert(
+            "single_range.process_peak_rss_bytes.maximum".to_owned(),
+            hot_peak_rss.iter().copied().reduce(f64::max).unwrap_or(0.0),
         );
         if !hot_cache_capacity_bytes.is_empty() {
             secondary_metrics.insert(
@@ -3545,7 +3828,10 @@ fn openraft_serving_recovery_execution(
             reports
                 .iter()
                 .filter_map(|report| report.process.hot_read.as_ref())
-                .map(|hot_read| resident_count_as_f64(hot_read.measured_operations))
+                .map(|hot_read| {
+                    resident_count_as_f64(hot_read.measured_operations)
+                        * usize_as_f64(hot_read.samples.len())
+                })
                 .sum()
         },
         artifact_refs: reports
@@ -4228,6 +4514,20 @@ fn resident_secondary_metrics(report: &ResidentReport) -> BTreeMap<String, f64> 
 #[allow(clippy::cast_precision_loss)]
 fn resident_count_as_f64(value: u64) -> f64 {
     value as f64
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn usize_as_f64(value: usize) -> f64 {
+    value as f64
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn ratio_as_f64(numerator: u64, denominator: u64) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 / denominator as f64
+    }
 }
 
 fn run_slatedb_phase0_filesystem(

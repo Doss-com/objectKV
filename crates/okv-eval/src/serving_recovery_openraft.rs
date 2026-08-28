@@ -2,6 +2,8 @@
 //! retained transaction stream owned by real `OpenRaft` data processes.
 
 use crate::serving_recovery::{ServingReadOutcome, ServingRecoveryProfile};
+use nix::sys::resource::{getrusage, UsageWho};
+use nix::sys::time::TimeValLike;
 use okv::{ReadOutcome, SingleRange, SingleRangeConfig, StreamCursor};
 use okv_consensus::{
     GenerationClient, GenerationPhase, PublicationAction, PublicationAuthorityProcessFixture,
@@ -131,6 +133,10 @@ pub struct OpenRaftHotReadProfile {
     pub max_local_bytes: u64,
     #[serde(default = "default_hot_read_block_cache_bytes")]
     pub block_cache_bytes: u64,
+    #[serde(default = "single_hot_read_sample")]
+    pub sample_count: usize,
+    #[serde(default)]
+    pub negative_control: Option<OpenRaftHotReadNegativeControl>,
 }
 
 const fn single_hot_read_client() -> usize {
@@ -143,6 +149,18 @@ const fn default_hot_read_local_bytes() -> u64 {
 
 const fn default_hot_read_block_cache_bytes() -> u64 {
     128 * 1_024 * 1_024
+}
+
+const fn single_hot_read_sample() -> usize {
+    1
+}
+
+/// Deliberate measurement defect that a poison workload must reject.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenRaftHotReadNegativeControl {
+    MismatchedBlockCache,
+    CounterReset,
 }
 
 /// Point-read implementation measured after the same full recovery topology.
@@ -196,7 +214,48 @@ pub struct OpenRaftHotReadReport {
     pub correctness_failures: u64,
     pub object_requests: u64,
     pub storage: Option<OpenRaftHotReadStorageReport>,
+    pub samples: Vec<OpenRaftHotReadSampleReport>,
     pub checksum: u64,
+}
+
+/// One independently warmed and measured read window on a reused fixture.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct OpenRaftHotReadSampleReport {
+    pub sample: u64,
+    pub elapsed_seconds: f64,
+    pub operations_per_second: f64,
+    pub latency_ns_p50: u64,
+    pub latency_ns_p95: u64,
+    pub latency_ns_p99: u64,
+    pub latency_ns_p999: u64,
+    pub latency_ns_max: u64,
+    pub correctness_failures: u64,
+    pub object_requests: u64,
+    pub counter_delta_valid: bool,
+    pub storage: OpenRaftHotReadStorageReport,
+    pub process: OpenRaftHotReadProcessReport,
+    pub checksum: u64,
+}
+
+/// Process and host-namespace resource deltas around one measured window.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct OpenRaftHotReadProcessReport {
+    pub process_cpu_supported: bool,
+    pub linux_proc_supported: bool,
+    pub user_cpu_nanoseconds: u64,
+    pub system_cpu_nanoseconds: u64,
+    pub total_cpu_nanoseconds: u64,
+    pub cpu_nanoseconds_per_read: f64,
+    pub rss_before_warmup_bytes: u64,
+    pub rss_after_warmup_bytes: u64,
+    pub rss_after_measurement_bytes: u64,
+    pub peak_rss_bytes: u64,
+    pub logical_read_bytes: u64,
+    pub logical_write_bytes: u64,
+    pub physical_read_bytes: u64,
+    pub physical_write_bytes: u64,
+    pub host_network_rx_bytes: u64,
+    pub host_network_tx_bytes: u64,
 }
 
 /// Measured-window `RocksDB` cache and read-amplification evidence.
@@ -847,6 +906,7 @@ async fn run_integrated_hot_reads(
         correctness_failures,
         object_requests,
         storage: None,
+        samples: Vec::new(),
         checksum: std::hint::black_box(checksum),
     })
 }
@@ -882,33 +942,37 @@ fn run_native_hot_reads(
     .map(key_bytes)
     .collect::<Vec<_>>();
     let trace_sha256 = hot_trace_sha256(&keys);
-    let window = run_parallel_hot_read_window(&keys, profile, &|key| snapshot.get(key), &|| {
-        resident_engine.metrics()
-    })?;
-    correctness_failures = correctness_failures.saturating_add(window.correctness_failures);
+    let mut samples = Vec::with_capacity(profile.sample_count);
+    for sample in 0..profile.sample_count {
+        resident_engine.reset_block_cache()?;
+        let object_before = total_request_count(&range.object_stats());
+        let window =
+            run_parallel_hot_read_window(&keys, profile, &|key| snapshot.get(key), &|| {
+                resident_engine.metrics()
+            })?;
+        let object_requests =
+            total_request_count(&range.object_stats()).saturating_sub(object_before);
+        samples.push(hot_read_sample(sample, profile, window, object_requests));
+    }
     let object_requests =
         total_request_count(&range.object_stats()).saturating_sub(object_requests_before);
-    Ok(OpenRaftHotReadReport {
-        subject: OpenRaftHotReadSubject::NativeSnapshot,
-        access_pattern: profile.access_pattern,
+    if object_requests
+        != samples
+            .iter()
+            .map(|sample| sample.object_requests)
+            .sum::<u64>()
+    {
+        return Err(
+            "native hot-read object accounting changed outside measured samples".to_owned(),
+        );
+    }
+    build_hot_read_report(
+        OpenRaftHotReadSubject::NativeSnapshot,
+        profile,
         trace_sha256,
-        concurrent_clients: u64::try_from(profile.concurrent_clients).unwrap_or(u64::MAX),
-        max_local_bytes: profile.max_local_bytes,
-        warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
-        measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
-        elapsed_seconds: window.elapsed_seconds,
-        operations_per_second: count_as_f64(
-            u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
-        ) / window.elapsed_seconds,
-        latency_ns_p50: percentile(&window.latencies, 50, 100),
-        latency_ns_p95: percentile(&window.latencies, 95, 100),
-        latency_ns_p99: percentile(&window.latencies, 99, 100),
-        latency_ns_p999: percentile(&window.latencies, 999, 1_000),
         correctness_failures,
-        object_requests,
-        storage: Some(window.storage),
-        checksum: std::hint::black_box(window.checksum),
-    })
+        samples,
+    )
 }
 
 #[cfg(feature = "resident-rocksdb")]
@@ -921,7 +985,7 @@ fn run_matched_direct_hot_reads(
     if cache_capacity == 0 {
         return Err("matched direct RocksDB requires a positive cache budget".to_owned());
     }
-    let block_cache = Cache::new_lru_cache(cache_capacity);
+    let mut block_cache = Cache::new_lru_cache(cache_capacity);
     let mut options = Options::default();
     options.create_if_missing(true);
     options.optimize_for_point_lookup(128);
@@ -970,26 +1034,56 @@ fn run_matched_direct_hot_reads(
     .map(key_bytes)
     .collect::<Vec<_>>();
     let trace_sha256 = hot_trace_sha256(&keys);
-    let window = run_parallel_hot_read_window(
-        &keys,
+    let mut samples = Vec::with_capacity(profile.sample_count);
+    for sample in 0..profile.sample_count {
+        reset_direct_block_cache(&mut block_cache, cache_capacity)?;
+        let window = run_parallel_hot_read_window(
+            &keys,
+            profile,
+            &|key| {
+                database
+                    .get(key)
+                    .map(|value| value.map_or(ReadOutcome::Absent, ReadOutcome::Value))
+                    .map_err(|error| format!("read matched direct RocksDB control: {error}"))
+            },
+            &|| direct_rocksdb_metrics(&options, &block_cache, profile.block_cache_bytes),
+        )?;
+        samples.push(hot_read_sample(sample, profile, window, 0));
+    }
+    build_hot_read_report(
+        OpenRaftHotReadSubject::DirectOwnedRocksdb,
         profile,
-        &|key| {
-            database
-                .get(key)
-                .map(|value| value.map_or(ReadOutcome::Absent, ReadOutcome::Value))
-                .map_err(|error| format!("read matched direct RocksDB control: {error}"))
-        },
-        &|| direct_rocksdb_metrics(&options, &block_cache, profile.block_cache_bytes),
-    )?;
-    correctness_failures = correctness_failures.saturating_add(window.correctness_failures);
-    Ok(OpenRaftHotReadReport {
-        subject: OpenRaftHotReadSubject::DirectOwnedRocksdb,
-        access_pattern: profile.access_pattern,
         trace_sha256,
-        concurrent_clients: u64::try_from(profile.concurrent_clients).unwrap_or(u64::MAX),
-        max_local_bytes: profile.max_local_bytes,
-        warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
-        measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
+        correctness_failures,
+        samples,
+    )
+}
+
+#[cfg(feature = "resident-rocksdb")]
+fn reset_direct_block_cache(cache: &mut Cache, capacity: usize) -> Result<(), String> {
+    cache.set_capacity(0);
+    let remaining = cache.get_usage();
+    let pinned = cache.get_pinned_usage();
+    cache.set_capacity(capacity);
+    if remaining > pinned {
+        return Err(format!(
+            "matched direct RocksDB cache retained {} unpinned bytes after reset",
+            remaining.saturating_sub(pinned)
+        ));
+    }
+    Ok(())
+}
+
+fn hot_read_sample(
+    sample: usize,
+    profile: &OpenRaftHotReadProfile,
+    window: HotReadWindow,
+    object_requests: u64,
+) -> OpenRaftHotReadSampleReport {
+    let counter_delta_valid =
+        profile.negative_control != Some(OpenRaftHotReadNegativeControl::CounterReset);
+    OpenRaftHotReadSampleReport {
+        sample: u64::try_from(sample).unwrap_or(u64::MAX),
         elapsed_seconds: window.elapsed_seconds,
         operations_per_second: count_as_f64(
             u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
@@ -998,11 +1092,111 @@ fn run_matched_direct_hot_reads(
         latency_ns_p95: percentile(&window.latencies, 95, 100),
         latency_ns_p99: percentile(&window.latencies, 99, 100),
         latency_ns_p999: percentile(&window.latencies, 999, 1_000),
-        correctness_failures,
-        object_requests: 0,
-        storage: Some(window.storage),
+        latency_ns_max: window.latencies.last().copied().unwrap_or(0),
+        correctness_failures: window.correctness_failures,
+        object_requests,
+        counter_delta_valid,
+        storage: window.storage,
+        process: window.process,
         checksum: std::hint::black_box(window.checksum),
+    }
+}
+
+fn build_hot_read_report(
+    subject: OpenRaftHotReadSubject,
+    profile: &OpenRaftHotReadProfile,
+    trace_sha256: String,
+    setup_correctness_failures: u64,
+    samples: Vec<OpenRaftHotReadSampleReport>,
+) -> Result<OpenRaftHotReadReport, String> {
+    if samples.len() != profile.sample_count || samples.is_empty() {
+        return Err("hot-read fixture did not produce the declared sample count".to_owned());
+    }
+    let throughput = samples
+        .iter()
+        .map(|sample| sample.operations_per_second)
+        .collect::<Vec<_>>();
+    let elapsed = samples
+        .iter()
+        .map(|sample| sample.elapsed_seconds)
+        .collect::<Vec<_>>();
+    let p50 = samples
+        .iter()
+        .map(|sample| sample.latency_ns_p50)
+        .collect::<Vec<_>>();
+    let p95 = samples
+        .iter()
+        .map(|sample| sample.latency_ns_p95)
+        .collect::<Vec<_>>();
+    let p99 = samples
+        .iter()
+        .map(|sample| sample.latency_ns_p99)
+        .collect::<Vec<_>>();
+    let p999 = samples
+        .iter()
+        .map(|sample| sample.latency_ns_p999)
+        .collect::<Vec<_>>();
+    let correctness_failures = setup_correctness_failures.saturating_add(
+        samples
+            .iter()
+            .map(|sample| sample.correctness_failures)
+            .sum::<u64>(),
+    );
+    let object_requests = samples
+        .iter()
+        .map(|sample| sample.object_requests)
+        .sum::<u64>();
+    let checksum = samples
+        .iter()
+        .enumerate()
+        .fold(0_u64, |combined, (index, sample)| {
+            combined
+                ^ sample
+                    .checksum
+                    .rotate_left(u32::try_from(index % 64).unwrap_or(0))
+        });
+    Ok(OpenRaftHotReadReport {
+        subject,
+        access_pattern: profile.access_pattern,
+        trace_sha256,
+        concurrent_clients: u64::try_from(profile.concurrent_clients).unwrap_or(u64::MAX),
+        max_local_bytes: profile.max_local_bytes,
+        warmup_operations: u64::try_from(profile.warmup_operations).unwrap_or(u64::MAX),
+        measured_operations: u64::try_from(profile.measured_operations).unwrap_or(u64::MAX),
+        elapsed_seconds: median_f64(&elapsed),
+        operations_per_second: median_f64(&throughput),
+        latency_ns_p50: median_u64(&p50),
+        latency_ns_p95: median_u64(&p95),
+        latency_ns_p99: median_u64(&p99),
+        latency_ns_p999: median_u64(&p999),
+        correctness_failures,
+        object_requests,
+        storage: samples.first().map(|sample| sample.storage.clone()),
+        samples,
+        checksum: std::hint::black_box(checksum),
     })
+}
+
+fn median_f64(values: &[f64]) -> f64 {
+    let mut values = values.to_vec();
+    values.sort_by(f64::total_cmp);
+    let middle = values.len() / 2;
+    if values.len() % 2 == 0 {
+        f64::midpoint(values[middle - 1], values[middle])
+    } else {
+        values[middle]
+    }
+}
+
+fn median_u64(values: &[u64]) -> u64 {
+    let mut values = values.to_vec();
+    values.sort_unstable();
+    let middle = values.len() / 2;
+    if values.len() % 2 == 0 {
+        values[middle - 1].saturating_add(values[middle]) / 2
+    } else {
+        values[middle]
+    }
 }
 
 struct HotReadWindow {
@@ -1011,6 +1205,7 @@ struct HotReadWindow {
     correctness_failures: u64,
     checksum: u64,
     storage: OpenRaftHotReadStorageReport,
+    process: OpenRaftHotReadProcessReport,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1026,6 +1221,199 @@ struct HotReadStorageSnapshot {
     bytes_read: u64,
     read_amp_useful_bytes: u64,
     read_amp_total_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ProcessResourceSnapshot {
+    process_cpu_supported: bool,
+    linux_proc_supported: bool,
+    user_cpu_nanoseconds: u64,
+    system_cpu_nanoseconds: u64,
+    rss_bytes: u64,
+    peak_rss_bytes: u64,
+    logical_read_bytes: u64,
+    logical_write_bytes: u64,
+    physical_read_bytes: u64,
+    physical_write_bytes: u64,
+    host_network_rx_bytes: u64,
+    host_network_tx_bytes: u64,
+}
+
+fn process_resource_snapshot() -> Result<ProcessResourceSnapshot, String> {
+    let usage = getrusage(UsageWho::RUSAGE_SELF)
+        .map_err(|error| format!("capture process resource usage: {error}"))?;
+    let mut snapshot = ProcessResourceSnapshot {
+        process_cpu_supported: true,
+        user_cpu_nanoseconds: timeval_nanoseconds(usage.user_time())?,
+        system_cpu_nanoseconds: timeval_nanoseconds(usage.system_time())?,
+        peak_rss_bytes: peak_rss_bytes(usage.max_rss()),
+        ..ProcessResourceSnapshot::default()
+    };
+    capture_linux_proc_resources(&mut snapshot)?;
+    if !snapshot.linux_proc_supported {
+        snapshot.rss_bytes = snapshot.peak_rss_bytes;
+    }
+    Ok(snapshot)
+}
+
+fn timeval_nanoseconds(value: nix::sys::time::TimeVal) -> Result<u64, String> {
+    u64::try_from(value.num_microseconds())
+        .map(|microseconds| microseconds.saturating_mul(1_000))
+        .map_err(|_| "process CPU time was negative".to_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn peak_rss_bytes(value: std::ffi::c_long) -> u64 {
+    u64::try_from(value).unwrap_or(0)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn peak_rss_bytes(value: std::ffi::c_long) -> u64 {
+    u64::try_from(value).unwrap_or(0).saturating_mul(1_024)
+}
+
+#[cfg(target_os = "linux")]
+fn capture_linux_proc_resources(snapshot: &mut ProcessResourceSnapshot) -> Result<(), String> {
+    let status = fs::read_to_string("/proc/self/status")
+        .map_err(|error| format!("read /proc/self/status: {error}"))?;
+    snapshot.rss_bytes = proc_status_kib(&status, "VmRSS:")?.saturating_mul(1_024);
+    snapshot.peak_rss_bytes = proc_status_kib(&status, "VmHWM:")?.saturating_mul(1_024);
+
+    let io = fs::read_to_string("/proc/self/io")
+        .map_err(|error| format!("read /proc/self/io: {error}"))?;
+    snapshot.logical_read_bytes = proc_io_counter(&io, "rchar:")?;
+    snapshot.logical_write_bytes = proc_io_counter(&io, "wchar:")?;
+    snapshot.physical_read_bytes = proc_io_counter(&io, "read_bytes:")?;
+    snapshot.physical_write_bytes = proc_io_counter(&io, "write_bytes:")?;
+
+    let network = fs::read_to_string("/proc/self/net/dev")
+        .map_err(|error| format!("read /proc/self/net/dev: {error}"))?;
+    let (rx, tx) = proc_network_bytes(&network)?;
+    snapshot.host_network_rx_bytes = rx;
+    snapshot.host_network_tx_bytes = tx;
+    snapshot.linux_proc_supported = true;
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(clippy::unnecessary_wraps)]
+fn capture_linux_proc_resources(_snapshot: &mut ProcessResourceSnapshot) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn proc_status_kib(document: &str, name: &str) -> Result<u64, String> {
+    document
+        .lines()
+        .find_map(|line| {
+            let value = line.strip_prefix(name)?.trim();
+            value.split_whitespace().next()?.parse::<u64>().ok()
+        })
+        .ok_or_else(|| format!("{name} is absent from /proc/self/status"))
+}
+
+#[cfg(target_os = "linux")]
+fn proc_io_counter(document: &str, name: &str) -> Result<u64, String> {
+    document
+        .lines()
+        .find_map(|line| line.strip_prefix(name)?.trim().parse::<u64>().ok())
+        .ok_or_else(|| format!("{name} is absent from /proc/self/io"))
+}
+
+#[cfg(target_os = "linux")]
+fn proc_network_bytes(document: &str) -> Result<(u64, u64), String> {
+    let mut rx = 0_u64;
+    let mut tx = 0_u64;
+    let mut interfaces = 0_u64;
+    for line in document.lines().skip(2) {
+        let Some((name, counters)) = line.split_once(':') else {
+            continue;
+        };
+        if name.trim() == "lo" {
+            continue;
+        }
+        let values = counters
+            .split_whitespace()
+            .map(str::parse::<u64>)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("decode /proc/self/net/dev: {error}"))?;
+        if values.len() < 16 {
+            return Err("network interface counters are truncated".to_owned());
+        }
+        rx = rx.saturating_add(values[0]);
+        tx = tx.saturating_add(values[8]);
+        interfaces = interfaces.saturating_add(1);
+    }
+    if interfaces == 0 {
+        return Err("no non-loopback network interface is visible".to_owned());
+    }
+    Ok((rx, tx))
+}
+
+fn process_resource_delta(
+    before_warmup: ProcessResourceSnapshot,
+    after_warmup: ProcessResourceSnapshot,
+    after_measurement: ProcessResourceSnapshot,
+    operations: usize,
+) -> Result<OpenRaftHotReadProcessReport, String> {
+    let user_cpu_nanoseconds = counter_delta(
+        "process_user_cpu_nanoseconds",
+        after_warmup.user_cpu_nanoseconds,
+        after_measurement.user_cpu_nanoseconds,
+    )?;
+    let system_cpu_nanoseconds = counter_delta(
+        "process_system_cpu_nanoseconds",
+        after_warmup.system_cpu_nanoseconds,
+        after_measurement.system_cpu_nanoseconds,
+    )?;
+    let total_cpu_nanoseconds = user_cpu_nanoseconds.saturating_add(system_cpu_nanoseconds);
+    let operation_count = u64::try_from(operations).unwrap_or(u64::MAX);
+    Ok(OpenRaftHotReadProcessReport {
+        process_cpu_supported: before_warmup.process_cpu_supported
+            && after_warmup.process_cpu_supported
+            && after_measurement.process_cpu_supported,
+        linux_proc_supported: before_warmup.linux_proc_supported
+            && after_warmup.linux_proc_supported
+            && after_measurement.linux_proc_supported,
+        user_cpu_nanoseconds,
+        system_cpu_nanoseconds,
+        total_cpu_nanoseconds,
+        cpu_nanoseconds_per_read: ratio(total_cpu_nanoseconds, operation_count),
+        rss_before_warmup_bytes: before_warmup.rss_bytes,
+        rss_after_warmup_bytes: after_warmup.rss_bytes,
+        rss_after_measurement_bytes: after_measurement.rss_bytes,
+        peak_rss_bytes: after_measurement.peak_rss_bytes,
+        logical_read_bytes: counter_delta(
+            "process_logical_read_bytes",
+            after_warmup.logical_read_bytes,
+            after_measurement.logical_read_bytes,
+        )?,
+        logical_write_bytes: counter_delta(
+            "process_logical_write_bytes",
+            after_warmup.logical_write_bytes,
+            after_measurement.logical_write_bytes,
+        )?,
+        physical_read_bytes: counter_delta(
+            "process_physical_read_bytes",
+            after_warmup.physical_read_bytes,
+            after_measurement.physical_read_bytes,
+        )?,
+        physical_write_bytes: counter_delta(
+            "process_physical_write_bytes",
+            after_warmup.physical_write_bytes,
+            after_measurement.physical_write_bytes,
+        )?,
+        host_network_rx_bytes: counter_delta(
+            "host_network_rx_bytes",
+            after_warmup.host_network_rx_bytes,
+            after_measurement.host_network_rx_bytes,
+        )?,
+        host_network_tx_bytes: counter_delta(
+            "host_network_tx_bytes",
+            after_warmup.host_network_tx_bytes,
+            after_measurement.host_network_tx_bytes,
+        )?,
+    })
 }
 
 #[cfg(feature = "resident-rocksdb")]
@@ -1163,9 +1551,10 @@ where
         return Err("hot-read concurrency requires at least one operation per client".to_owned());
     }
 
+    let resources_before_warmup = process_resource_snapshot()?;
     let ready_barrier = Arc::new(Barrier::new(profile.concurrent_clients.saturating_add(1)));
     let start_barrier = Arc::new(Barrier::new(profile.concurrent_clients.saturating_add(1)));
-    let (elapsed_seconds, thread_windows, storage) = thread::scope(|scope| {
+    let (elapsed_seconds, thread_windows, storage, process) = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(profile.concurrent_clients);
         for client in 0..profile.concurrent_clients {
             let ready_barrier = Arc::clone(&ready_barrier);
@@ -1231,6 +1620,7 @@ where
             }));
         }
         ready_barrier.wait();
+        let resources_after_warmup = process_resource_snapshot()?;
         let storage_before = metrics();
         let measured_started = Instant::now();
         start_barrier.wait();
@@ -1244,10 +1634,17 @@ where
         }
         let elapsed_seconds = measured_started.elapsed().as_secs_f64();
         let storage_after = metrics();
+        let resources_after_measurement = process_resource_snapshot()?;
         Ok::<_, String>((
             elapsed_seconds,
             windows,
             storage_delta(storage_before, storage_after)?,
+            process_resource_delta(
+                resources_before_warmup,
+                resources_after_warmup,
+                resources_after_measurement,
+                profile.measured_operations,
+            )?,
         ))
     })?;
 
@@ -1271,6 +1668,7 @@ where
         correctness_failures,
         checksum,
         storage,
+        process,
     })
 }
 
@@ -1439,10 +1837,21 @@ impl OpenedResidentEngine {
         self.measured.metrics().into()
     }
 
+    #[cfg(feature = "resident-rocksdb")]
+    fn reset_block_cache(&self) -> Result<(), String> {
+        self.measured.reset_block_cache()
+    }
+
     #[cfg(not(feature = "resident-rocksdb"))]
     #[allow(clippy::unused_self)]
     fn metrics(&self) -> HotReadStorageSnapshot {
         HotReadStorageSnapshot::default()
+    }
+
+    #[cfg(not(feature = "resident-rocksdb"))]
+    #[allow(clippy::unused_self)]
+    fn reset_block_cache(&self) -> Result<(), String> {
+        Err("block-cache reset requires resident-rocksdb".to_owned())
     }
 }
 
@@ -2425,6 +2834,8 @@ fn validate_hot_read_profile(
         || hot_read.measured_operations < hot_read.concurrent_clients
         || hot_read.max_local_bytes == 0
         || hot_read.block_cache_bytes == 0
+        || hot_read.sample_count == 0
+        || hot_read.sample_count > 100
     {
         return Err("invalid OpenRaft public-kernel hot-read profile".to_owned());
     }
@@ -2560,6 +2971,8 @@ mod tests {
                 access_pattern: OpenRaftHotReadAccessPattern::Zipf1_4,
                 max_local_bytes: 128 * 1_024 * 1_024,
                 block_cache_bytes: 4 * 1_024 * 1_024,
+                sample_count: 2,
+                negative_control: None,
             },
         )
         .expect("run matched topology control");
@@ -2568,6 +2981,7 @@ mod tests {
         assert_eq!(report.correctness_failures, 0);
         assert_eq!(report.object_requests, 0);
         assert_eq!(report.measured_operations, 256);
+        assert_eq!(report.samples.len(), 2);
         assert_eq!(report.concurrent_clients, 4);
         assert_eq!(report.access_pattern, OpenRaftHotReadAccessPattern::Zipf1_4);
         assert_eq!(report.trace_sha256.len(), 64);
@@ -2581,6 +2995,10 @@ mod tests {
                 .saturating_add(storage.block_cache_misses)
                 > 0
         );
+        assert!(report
+            .samples
+            .iter()
+            .all(|sample| sample.counter_delta_valid));
     }
 
     #[cfg(feature = "resident-rocksdb")]

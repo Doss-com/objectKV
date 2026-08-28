@@ -333,6 +333,30 @@ impl RocksDbResidentRangeEngine {
         }
     }
 
+    /// Evict every unpinned block-cache entry while preserving the configured
+    /// capacity. This is an evaluator boundary used between independent
+    /// workload samples on one immutable local fixture.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any unpinned cache bytes survive eviction.
+    pub fn reset_block_cache(&self) -> Result<(), String> {
+        let capacity = usize::try_from(self.block_cache_bytes)
+            .map_err(|_| "native resident block-cache budget exceeds usize".to_owned())?;
+        let mut cache = self.block_cache.clone();
+        cache.set_capacity(0);
+        let remaining = cache.get_usage();
+        let pinned = cache.get_pinned_usage();
+        cache.set_capacity(capacity);
+        if remaining > pinned {
+            return Err(format!(
+                "native resident block cache retained {} unpinned bytes after reset",
+                remaining.saturating_sub(pinned)
+            ));
+        }
+        Ok(())
+    }
+
     fn history_get(&self, key: &[u8], read_version: u64) -> Result<ReadOutcome, String> {
         let history = self
             .database
@@ -917,20 +941,67 @@ fn directory_bytes(root: &Path) -> Result<u64, String> {
         for entry in fs::read_dir(&directory)
             .map_err(|error| format!("read RocksDB serving directory: {error}"))?
         {
-            let entry = entry.map_err(|error| error.to_string())?;
-            let file_type = entry.file_type().map_err(|error| error.to_string())?;
-            if file_type.is_symlink() {
-                return Err("RocksDB serving root contains a symlink".to_owned());
-            }
-            if file_type.is_dir() {
-                pending.push(entry.path());
-            } else if file_type.is_file() {
-                total = total
-                    .saturating_add(entry.metadata().map_err(|error| error.to_string())?.len());
+            let entry = entry.map_err(|error| {
+                format!(
+                    "read RocksDB serving entry below {}: {error}",
+                    directory.display()
+                )
+            })?;
+            match directory_entry(&entry)? {
+                DirectoryEntry::Missing | DirectoryEntry::Other => {}
+                DirectoryEntry::Symlink => {
+                    return Err("RocksDB serving root contains a symlink".to_owned());
+                }
+                DirectoryEntry::Directory(path) => pending.push(path),
+                DirectoryEntry::File(bytes) => total = total.saturating_add(bytes),
             }
         }
     }
     Ok(total)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum DirectoryEntry {
+    Missing,
+    Symlink,
+    Directory(PathBuf),
+    File(u64),
+    Other,
+}
+
+fn directory_entry(entry: &fs::DirEntry) -> Result<DirectoryEntry, String> {
+    let entry_path = entry.path();
+    let file_type = match entry.file_type() {
+        Ok(file_type) => file_type,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(DirectoryEntry::Missing);
+        }
+        Err(error) => {
+            return Err(format!(
+                "read RocksDB serving entry type {}: {error}",
+                entry_path.display()
+            ));
+        }
+    };
+    if file_type.is_symlink() {
+        return Ok(DirectoryEntry::Symlink);
+    }
+    if file_type.is_dir() {
+        return Ok(DirectoryEntry::Directory(entry_path));
+    }
+    if file_type.is_file() {
+        return match entry.metadata() {
+            Ok(metadata) => Ok(DirectoryEntry::File(metadata.len())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(DirectoryEntry::Missing)
+            }
+            Err(error) => Err(format!(
+                "read RocksDB serving entry metadata {}: {error}",
+                entry_path.display()
+            )),
+        };
+    }
+    Ok(DirectoryEntry::Other)
 }
 
 fn database_directory_bytes(database: &DB, root: &Path) -> Result<u64, String> {
@@ -953,14 +1024,31 @@ fn database_directory_bytes(database: &DB, root: &Path) -> Result<u64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RocksDbResidentRangeEngine, RocksDbServingImage};
+    use super::{directory_entry, DirectoryEntry, RocksDbResidentRangeEngine, RocksDbServingImage};
     use okv::{
         ReadOutcome, ResidentActivationRequest, ResidentAdvanceRequest, ResidentMutation,
         ResidentRangeBounds, ResidentRangeEngine, ResidentTransactionRecord, ServingImage,
         ServingImageRecord, StreamCursor,
     };
-    use std::sync::Arc;
+    use std::{fs, sync::Arc};
     use tempfile::TempDir;
+
+    #[test]
+    fn byte_accounting_ignores_an_entry_deleted_after_directory_read() {
+        let root = TempDir::new().expect("temporary accounting root");
+        let transient = root.path().join("transient.log");
+        fs::write(&transient, b"obsolete").expect("write transient entry");
+        let entry = fs::read_dir(root.path())
+            .expect("read accounting root")
+            .next()
+            .expect("transient entry")
+            .expect("read transient entry");
+        fs::remove_file(&transient).expect("remove transient entry");
+        assert_eq!(
+            directory_entry(&entry).expect("ignore an entry deleted during accounting"),
+            DirectoryEntry::Missing
+        );
+    }
 
     #[test]
     fn activates_exact_values_tombstones_and_absence() {
@@ -1088,6 +1176,11 @@ mod tests {
         assert!(after.block_cache_hits >= before.block_cache_hits);
         assert!(after.block_cache_misses >= before.block_cache_misses);
         assert!(after.bytes_read >= before.bytes_read);
+        engine
+            .reset_block_cache()
+            .expect("evict measured block cache");
+        let reset = engine.metrics();
+        assert!(reset.block_cache_usage_bytes <= reset.block_cache_pinned_usage_bytes);
     }
 
     #[test]

@@ -20,6 +20,7 @@ clap.workspace = true
 datafusion.workspace = true
 futures-util.workspace = true
 jsonschema.workspace = true
+nix.workspace = true
 okv.workspace = true
 okv-consensus.workspace = true
 okv-htap.workspace = true

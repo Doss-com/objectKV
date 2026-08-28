@@ -36,8 +36,12 @@ not the RAM-to-NVMe curve. The first T27 source slice now exposes one explicit
 shared cache and cumulative RocksDB counters. The paired runner now applies the
 same cache to the direct control, captures measured-window counter deltas,
 generates deterministic Zipf traces with a trace digest, and exports the cache
-and RocksDB counters through OTel. Reusable fixture construction, process CPU
-and I/O counters, poison workloads, and the cloud receipt remain open.
+and RocksDB counters through OTel. Reusable fixture execution now builds one
+recovered fixture per seed and runs five independently warmed samples after
+explicit block-cache eviction. Each sample reports process user/system CPU,
+RSS, Linux logical and physical I/O, and host network-namespace deltas.
+Mismatched-cache and counter-reset poison workloads both discard. The cloud
+receipt remains open.
 
 The invariant is:
 
@@ -202,7 +206,7 @@ must receive `discard` before the clean GCP run.
 2. `[CODE-COMPLETE]` Wire the same cache into the direct control, report counter
    deltas, bind deterministic Zipf traces to a digest, and reject counter
    resets.
-3. `[EVALUATING]` Report process CPU and I/O, reuse fixtures, and add poison
+3. `[CODE-COMPLETE]` Report process CPU and I/O, reuse fixtures, and add poison
    subjects.
 4. `[PROPOSED]` Run the 64 MiB calibration fixture once on the R0 machine shape.
 5. `[PROPOSED]` Inspect attribution and adjust operation counts so each sample
@@ -228,11 +232,13 @@ for T29 replicated commit.
 Each failure must either occur before measurement and produce no comparison, or
 invalidate the sample. Partial samples never enter percentile aggregation.
 
-A local diagnostic observed one activation-time `ENOENT` while accounting for
-the RocksDB directory. Two immediate reruns completed, including one on the
-default temporary root, so this is not yet a reproducible defect. The GCP
-calibration must record any recurrence and distinguish disappearing log files
-from scratch-root lifecycle failure before admission.
+A local diagnostic reproduced activation-time `ENOENT` while accounting for a
+live RocksDB directory. A deterministic regression proved that RocksDB can
+remove an obsolete entry between directory enumeration and metadata lookup.
+Accounting now ignores only `NotFound` for that vanished entry while preserving
+all other I/O errors and symlink rejection. The original reused-fixture CLI
+preflight passes after the correction; the GCP calibration must still record
+any recurrence.
 
 ## Alternatives
 

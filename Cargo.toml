@@ -49,6 +49,7 @@ datafusion = { version = "=54.0.0", default-features = false, features = ["parqu
 crc-fast = "=1.9.0"
 futures-util = "0.3.31"
 jsonschema = { version = "0.50.1", default-features = false }
+nix = { version = "0.31.3", default-features = false, features = ["resource"] }
 okv-consensus = { path = "crates/okv-consensus" }
 okv = { path = "crates/okv" }
 okv-app-history = { path = "crates/okv-app-history" }

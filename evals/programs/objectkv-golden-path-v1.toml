@@ -213,7 +213,10 @@ workload = "native-cache-pressure-2x-zipf14"
 backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme"
 lane = "native-resident-cache-pressure"
 checkpoint = "ssd-resident"
-negative_controls = []
+negative_controls = [
+  "native-cache-mismatch-poison",
+  "native-counter-reset-poison",
+]
 evidence = []
 control = { id = "direct-rocksdb-cache-pressure-2x-zipf14", suite = "../suites/native-resident-cache-pressure-calibration.toml", profile = "gcp-r0-calibration-2x-zipf14", workload = "direct-rocksdb-cache-pressure-2x-zipf14-control", backend = "object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme", lane = "native-resident-cache-pressure" }
 

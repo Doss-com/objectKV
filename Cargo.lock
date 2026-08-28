@@ -3103,6 +3103,7 @@ dependencies = [
  "datafusion",
  "futures-util",
  "jsonschema",
+ "nix",
  "okv",
  "okv-consensus",
  "okv-history-oracle",

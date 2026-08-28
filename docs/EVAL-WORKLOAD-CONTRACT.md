@@ -119,6 +119,7 @@ in RFC-0043.
 `native-resident-cache-pressure-calibration-v1` now freezes the first of those
 points as GP3.1.2: 64 MiB logical data, 32 MiB block cache, Zipf 1.4, eight
 clients, one million measured reads per sample, three seeds, five repeats, and
-direct owned-value RocksDB control. It remains `[EVALUATING]` until fixture
-reuse, process CPU and I/O attribution, negative-control workloads, OTel, and a
-clean GCP receipt are complete.
+direct owned-value RocksDB control. Fixture reuse, process CPU and I/O
+attribution, and mismatched-cache plus counter-reset negative controls are
+`[CODE-COMPLETE]`. It remains `[EVALUATING]` until the paired clean GCP run
+exports required OTel signals and preserves its bounded evidence.

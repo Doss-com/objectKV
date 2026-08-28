@@ -79,14 +79,18 @@ profiles remain useful infrastructure evidence but cannot admit a curve.
 same explicit block-cache budget, deterministic Hotset or Zipf trace, and
 measured-window cache counters. Counter resets fail closed. Cache hit ratio,
 cache requests, cache bytes, RocksDB read counters, and read amplification are
-registered OTel metrics. The local smoke path emitted exact 50,000-read native
-and control receipts with zero object operations.
+registered OTel metrics. The runner reuses one recovered fixture across
+independently warmed samples and records process CPU, RSS, Linux logical and
+physical I/O, and host network-namespace deltas per sample. The local smoke
+path emitted exact two-sample native and control receipts with zero object
+operations. Mismatched-cache and counter-reset poisons both discarded.
 
 `[EVALUATING]` GP3.1.2 is the first cache-pressure workload profile: 64 MiB
 logical data over a 32 MiB block cache, Zipf 1.4, eight clients, one million
 measured reads, three seeds, five repeats, and matched direct RocksDB control.
-The suite and 22-gate program validate. Fixture reuse, CPU and operating-system
-I/O attribution, poison workloads, and its clean GCP receipt remain open.
+The suite and 22-gate program validate. The reusable-fixture runner, resource
+attribution, and two required poison workloads are `[CODE-COMPLETE]`; its clean
+GCP receipt remains open.
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The

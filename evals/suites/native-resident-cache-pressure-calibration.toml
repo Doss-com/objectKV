@@ -1,6 +1,6 @@
 schema_version = 1
 id = "native-resident-cache-pressure-calibration-v1"
-status = "evaluating"
+status = "code_complete"
 metric_registry = "../metrics.toml"
 result_schema = "../schema/result.schema.json"
 contract_files = [
@@ -22,6 +22,16 @@ logical_bytes = 67108864
 key_count = 65536
 seeds = [1103, 2207, 3301]
 
+[dataset.local-reuse-dev]
+logical_bytes = 4194304
+key_count = 4096
+seeds = [1103]
+
+[dataset.poison-dev]
+logical_bytes = 1048576
+key_count = 1024
+seeds = [1103]
+
 [profiles.gcp-r0-calibration-2x-zipf14]
 budget_kind = "operations"
 budget_limit = 15000000
@@ -34,7 +44,7 @@ max_local_bytes = 536870912
 local_byte_budget = 536870912
 row_object_target_bytes = 8388608
 row_object_block_bytes = 65536
-retained_stream_page_records = 256
+retained_stream_page_records = 2
 hot_read_warmup_operations = 200000
 hot_read_operations = 1000000
 measurement_operations = 1000000
@@ -43,6 +53,8 @@ machine_receipt_env = "OKV_EVAL_MACHINE_RECEIPT"
 machine_receipt_schema = "../schema/benchmark-machine-receipt-v1.schema.json"
 required_hot_scratch_interface = "nvme"
 serving_scratch_env = "OKV_EVAL_SERVING_SCRATCH_ROOT"
+reuse_fixture_across_repeats = true
+require_linux_process_metrics = true
 
 [profiles.gcp-r0-calibration-2x-zipf14.workload_profile]
 schema_version = 1
@@ -67,6 +79,11 @@ required_metrics = [
   "rocksdb.cache_requests",
   "rocksdb.read_bytes",
   "rocksdb.read_amplification",
+  "compute.cpu_duration",
+  "process.cpu_per_operation",
+  "process.io_bytes",
+  "memory.resident_bytes",
+  "network.bytes",
 ]
 
 [profiles.gcp-r0-calibration-2x-zipf14.workload_profile.operation_mix]
@@ -86,6 +103,39 @@ block_cache_bytes = 33554432
 local_bytes = 536870912
 authority_processes = 6
 serving_workers = 1
+
+[profiles.local-reuse-dev]
+budget_kind = "operations"
+budget_limit = 100000
+repeats = 2
+evidence_class = "smoke"
+max_local_bytes = 134217728
+local_byte_budget = 134217728
+block_cache_bytes = 2097152
+row_object_target_bytes = 1048576
+row_object_block_bytes = 65536
+retained_stream_page_records = 2
+hot_read_warmup_operations = 10000
+hot_read_operations = 50000
+measurement_operations = 50000
+warmup_operations = 10000
+reuse_fixture_across_repeats = true
+
+[profiles.poison-dev]
+budget_kind = "operations"
+budget_limit = 4096
+repeats = 1
+evidence_class = "contract"
+max_local_bytes = 67108864
+local_byte_budget = 67108864
+block_cache_bytes = 524288
+row_object_target_bytes = 524288
+row_object_block_bytes = 65536
+retained_stream_page_records = 2
+hot_read_warmup_operations = 1024
+hot_read_operations = 4096
+measurement_operations = 4096
+warmup_operations = 1024
 
 [[lanes]]
 id = "native-resident-cache-pressure"
@@ -136,6 +186,28 @@ distribution = "zipf-1.4"
 value_bytes = 1024
 concurrent_clients = 8
 
+[[workloads]]
+id = "native-cache-mismatch-poison"
+lane = "native-resident-cache-pressure"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "integrated_kernel_native_rocksdb"
+hot_read_subject = "native_snapshot"
+distribution = "zipf-1.4"
+value_bytes = 1024
+concurrent_clients = 2
+negative_control = "mismatched_block_cache"
+
+[[workloads]]
+id = "native-counter-reset-poison"
+lane = "native-resident-cache-pressure"
+operation = "serving_worker_openraft_recovery_contract"
+subject = "integrated_kernel_native_rocksdb"
+hot_read_subject = "native_snapshot"
+distribution = "zipf-1.4"
+value_bytes = 1024
+concurrent_clients = 2
+negative_control = "counter_reset"
+
 [hard_gates]
 correctness_anomalies = 0
 candidate_and_control_share_workload_profile = true
@@ -146,6 +218,8 @@ candidate_and_control_use_33554432_byte_block_cache = true
 dataset_is_twice_the_declared_block_cache = true
 measured_window_counters_are_deltas = true
 counter_reset_invalidates_sample = true
+fixture_is_reused_across_five_measured_samples = true
+linux_process_cpu_and_io_are_attributed_per_sample = true
 cache_usage_within_105_percent_of_budget = true
 measured_reads_issue_zero_object_operations = true
 minimum_samples_per_subject = 15
