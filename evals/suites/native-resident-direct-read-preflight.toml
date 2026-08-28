@@ -42,48 +42,6 @@ reuse_fixture_across_repeats = true
 require_linux_process_metrics = true
 direct_reads = true
 
-[profiles.linux-direct-io-preflight.workload_profile]
-schema_version = 1
-name = "native-resident-direct-read-preflight-v1"
-dataset = "linux-direct-io-preflight"
-access_pattern = "zipf-0.8"
-cache_state = "resident"
-matched_control = "direct-owned-rocksdb-with-matched-direct-table-reads"
-concurrency = [8]
-failure_schedule = [
-  "kill-first-worker-before-measurement",
-  "activate-empty-replacement-before-warmup",
-  "no-failure-during-measurement",
-]
-required_metrics = [
-  "operation.throughput",
-  "operation.duration",
-  "correctness.anomalies",
-  "object_store.requests",
-  "cache.hit_ratio",
-  "rocksdb.cache_requests",
-  "rocksdb.read_bytes",
-  "process.io_bytes",
-]
-
-[profiles.linux-direct-io-preflight.workload_profile.operation_mix]
-point_read = 1.0
-
-[profiles.linux-direct-io-preflight.workload_profile.warmup]
-kind = "operations"
-amount = 25000
-
-[profiles.linux-direct-io-preflight.workload_profile.measurement]
-kind = "operations"
-amount = 100000
-
-[profiles.linux-direct-io-preflight.workload_profile.resource_limits]
-logical_dataset_bytes = 16777216
-block_cache_bytes = 4194304
-local_bytes = 268435456
-authority_processes = 6
-serving_workers = 1
-
 [[lanes]]
 id = "native-resident-direct-read-preflight"
 primary_metric = "operation.throughput"
