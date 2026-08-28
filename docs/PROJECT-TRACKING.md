@@ -103,10 +103,20 @@ and 0.5659x direct RocksDB throughput; p99 was 1.3312x and 1.5567x control.
 CPU time was 1.6685x and 1.7460x control. Both subjects reported zero physical
 read bytes, so this is a combined RocksDB plus operating-system-cache curve,
 not an isolated NVMe curve. T27 remains `[EVALUATING]`; the 1 GiB admission is
-blocked on a native CPU profile, one bounded read-path optimization, executable
-CPU and physical-byte comparisons, and actual cross-subject fixture reuse.
+blocked on the current v2 rerun and actual cross-subject fixture reuse.
 Evidence is in
 [`docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md).
+
+`[VERIFIED]` The first CPU attribution found that activation created a base SST
+and every small tail advance forced another SST. An untouched latest read then
+searched both files, producing two RocksDB cache probes and explaining most of
+the measured CPU tax. The bounded correction leaves the disposable recent tail
+in the mutable RocksDB layer while txLog remains the durability authority. On
+the real R0 host, the focused regression produced exactly 256 cache probes for
+256 latest reads; all eight RangeEngine package tests passed. The v2 comparator
+now executes throughput, p99, CPU/read, and exact-zero physical-read bounds.
+`[EVALUATING]` The full 60-million-read A/B plus B/A rerun is active at source
+`a4cf9a8a8d86a1dfa84d5af01eb514149dce1ed8`.
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The

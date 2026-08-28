@@ -88,7 +88,7 @@ substitute an upper-layer result for a missing kernel result.
 | # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | GP3.1.2: 0.566x to 0.597x throughput, 1.331x to 1.557x p99, and 1.668x to 1.746x CPU/read; all 84 semantic and telemetry gates pass; physical reads are zero | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read under matched cache pressure | Isolate native head/history lookup and allocation cost, make CPU and physical-byte constraints executable, then rerun unchanged GP3.1.2 |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | Baseline: 0.566x to 0.597x throughput, 1.331x to 1.557x p99, and 1.668x to 1.746x CPU/read. The forced tail SST caused two cache probes per untouched latest read; the corrected R0 regression produces exactly 256 probes for 256 reads. The 60-million-read v2 rerun is active at `a4cf9a8`. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read under matched cache pressure; candidate and zero control both report zero physical read bytes | Complete the frozen A/B plus B/A v2 rerun, correlate all four run IDs in OTel, and update this row from the comparison receipts |
 | 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Clean GCS dataset-size sweep after row 1 passes |
 | 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Local projected scan reaches 2.544M source rows/s and 4.718x indexed-row scan; clean cloud composition is unmeasured | Preserve row-class point cost, materially improve projected scans, bound resident index and compaction amplification, recover one authenticated closure | Matched row versus column object layout on the same GCS closure |
 | 4 | Native three-node replicated commit | `[EVALUATING]` | One-host G4.10b reaches 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x its one-entry control; independent-media latency is unmeasured | One-range p99 within 1.25x matched-durability control, exact retries and conflicts, zero normal-path object operations, quorum acknowledgement on independent media | Three independent GCP machines and media after rows 1 through 3 |
@@ -112,7 +112,12 @@ implementation or experiment
 ```
 
 The active row is 1. Its control is direct owned-value RocksDB under the same
-recovered topology. Its evidence is
+recovered topology. `[VERIFIED]` The first bounded correction removed the
+forced post-advance flush that produced a second SST probe on latest reads.
+The focused R0 regression returned exactly one cache lookup per read, all eight
+RangeEngine package tests passed, and the four-dimensional v2 comparator now
+executes throughput, p99, CPU/read, and zero physical-read bounds. The complete
+A/B plus B/A workload is `[EVALUATING]` on the leased R0 host. Its baseline evidence is
 `docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/`.
 Rows 2 through 7 contain useful mechanism evidence, but none may advance past
 `[EVALUATING]` while its own admission receipt is missing.

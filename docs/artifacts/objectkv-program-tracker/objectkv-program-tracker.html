@@ -189,7 +189,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
       <span>objectKV</span>
       <span>Technical program tracker</span>
       <span>Branch research/native-matched-topology-r0</span>
-      <span>Base 7d98fe9</span>
+      <span>Base a4cf9a8</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
     <p class="lede">The native resident boundary remains verified through 32 concurrent clients, but the first larger-than-cache calibration failed in both process orders. With 64 MiB of values over a 32 MiB block cache, native retained only 56.59% through 59.68% of direct RocksDB throughput and used 1.67x through 1.75x CPU per read. T27 now blocks expansion until that native software cost is removed.</p>
@@ -227,7 +227,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
 <a href="#decisions"><span>10</span>Active decisions</a>
 <a href="#work-log"><span>11</span>Work in progress log</a>
 <a href="#next-review"><span>12</span>Next architecture review</a></nav>
-      <p class="side-note">Generated 2026-08-28 16:11 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
+      <p class="side-note">Generated 2026-08-28 17:01 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
     </aside>
 
     <article class="content">
@@ -371,7 +371,7 @@ Arrow batches at T</pre></article>
           <thead><tr><th>Order</th><th>Metric surface</th><th>Status</th><th>Current measured position</th><th>Admission target</th><th>Next experiment</th></tr></thead>
           <tbody>
             <tr><td>0</td><td>Resident NVMe reads</td><td><span class="status verified">VERIFIED</span></td><td>0.873x to 0.920x RocksDB throughput; 0.913x to 1.184x p99; zero measured object operations</td><td>At least 0.80x throughput; at most 1.20x p99</td><td>Remain the regression control for row 1</td></tr>
-            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status evaluating">EVALUATING</span></td><td>0.566x to 0.597x throughput; 1.331x to 1.557x p99; 1.668x to 1.746x CPU/read; 84 gates pass</td><td>At least 0.80x throughput; at most 1.20x p99 and 1.25x CPU/read</td><td>Isolate lookup and allocation cost, execute CPU/physical-byte constraints, rerun GP3.1.2 unchanged</td></tr>
+            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status evaluating">EVALUATING</span></td><td>Baseline: 0.566x to 0.597x throughput; 1.331x to 1.557x p99; 1.668x to 1.746x CPU/read. Corrected R0 regression: exactly 256 probes for 256 latest reads.</td><td>At least 0.80x throughput; at most 1.20x p99 and 1.25x CPU/read; zero physical bytes</td><td>Complete the active 60-million-read A/B plus B/A v2 rerun at <code>a4cf9a8</code></td></tr>
             <tr><td>2</td><td>GCS cold point and refill</td><td><span class="status evaluating">EVALUATING</span></td><td>Local mechanism reaches one 64 KiB-class block through 64 MiB; no admitted cloud curve</td><td>One bounded metadata path plus one to three named data requests, independent of database size</td><td>Clean GCS dataset-size sweep after row 1</td></tr>
             <tr><td>3</td><td>Point and projected-scan object geometry</td><td><span class="status evaluating">EVALUATING</span></td><td>2.544M source rows/s and 4.718x indexed-row projected scan locally</td><td>Row-class point cost, material scan gain, bounded index and compaction amplification</td><td>Matched row versus column layout on one GCS closure</td></tr>
             <tr><td>4</td><td>Independent-media replicated commit</td><td><span class="status evaluating">EVALUATING</span></td><td>One-host G4.10b: 1,075.343 outcomes/s, 104.274 ms max p99, 28.776x one-entry control</td><td>One-range p99 within 1.25x matched durability control; exact quorum acknowledgement</td><td>Three independent GCP machines after rows 1 through 3</td></tr>
@@ -385,7 +385,7 @@ Arrow batches at T</pre></article>
             <tr><td>12</td><td>Comparative production envelope</td><td><span class="status proposed">PROPOSED</span></td><td>Component measurements only; no complete-stack envelope</td><td>Matched workload, topology, durability, price, and failures, including losses</td><td>Run after selected profiles are admitted</td></tr>
           </tbody>
         </table></div>
-        <p><strong>Active row:</strong> 1, cache coverage, skew, and eviction. The current bounded slice diagnoses the native point-read CPU gap without weakening the frozen GP3.1.2 workload. Rows 2 through 7 have useful mechanism evidence, but remain Evaluating until their own admission receipts exist.</p>
+        <p><strong>Active row:</strong> 1, cache coverage, skew, and eviction. The forced tail SST caused two cache probes per untouched latest read. The correction passed its focused R0 regression and the full v2 A/B plus B/A workload is active. Rows 2 through 7 have useful mechanism evidence, but remain Evaluating until their own admission receipts exist.</p>
       </section>
 
       <section>
@@ -458,6 +458,7 @@ Arrow batches at T</pre></article>
       <section>
         <h2 id="work-log"><span class="section-id">[11]</span>Work in progress log</h2>
         <div class="log">
+          <article class="log-entry"><time>2026-08-28</time><h3>One forced tail SST explains the latest-read probe tax</h3><p>Activation created the base SST and every small tail advance forced another SST. Untouched latest reads searched both. The correction keeps the disposable recent tail mutable while txLog remains durable. The focused R0 regression produced exactly 256 cache probes for 256 reads; all eight RangeEngine tests passed. The full 60-million-read v2 rerun is active.</p></article>
           <article class="log-entry"><time>2026-08-28</time><h3>GP3.1.2 localizes a native CPU regression above physical media</h3><p>The four clean GCP receipts contain 60 million reads. Native retained 0.5968x and 0.5659x control throughput; p99 was 1.3312x and 1.5567x; CPU per read was 1.6685x and 1.7460x. Exact semantics and all three OTel signals passed, physical reads were zero, 550.9 MB of scratch was removed, and all nine leased resources were destroyed. T27 remains Evaluating.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>Performance evidence now fails closed on workload shape</h3><p>Profiles declare contract, smoke, or workload. Performance and economics comparison accepts only workload receipts with a validated profile hash. The runner binds the selected access distribution and concurrency to that envelope; older receipts remain readable but cannot silently enter a new comparison.</p></article>
           <article class="log-entry"><time>2026-08-27</time><h3>GP3.1.2 cache-pressure calibration is code complete</h3><p>The native and direct RocksDB paths share an explicit block cache, deterministic Zipf trace, and measured-window counter snapshots. The first frozen workload uses 64 MiB data over a 32 MiB cache and one million measured reads per sample. Local native and control smoke receipts passed; the GCP workload remains evaluating.</p></article>
@@ -485,12 +486,12 @@ Arrow batches at T</pre></article>
 
       <section>
         <h2 id="next-review"><span class="section-id">[12]</span>Next architecture review</h2>
-        <p>The next review starts from the failed GP3.1.2 calibration. Profile native and direct point reads on the exact 64 MiB fixture, identify the layer responsible for 1.67x to 1.75x CPU per read, and apply one bounded optimization without weakening snapshot or recovery semantics. Persist one content-addressed fixture across candidate, control, AB, and BA; make CPU and physical-byte comparisons executable; then repeat the unchanged calibration. Do not start the 1 GiB admission, replicated commit performance, PostgreSQL, or HTAP performance until this local serving boundary passes.</p>
+        <p>The next review reads the active v2 comparison receipts. Admit row 1 only if both process orders clear throughput, p99, CPU/read, exact semantics, zero object operations, zero physical-read bytes, and required OTel correlation. If it misses, attribute the remaining measured gap and change one mechanism. Do not start the 1 GiB admission, replicated commit performance, PostgreSQL, or HTAP performance until this local serving boundary passes.</p>
       </section>
     </article>
   </div>
 
-  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-28 16:11 UTC</span></footer>
+  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-28 17:01 UTC</span></footer>
 </main>
 
 </body>
