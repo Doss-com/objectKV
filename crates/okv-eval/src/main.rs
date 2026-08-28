@@ -8328,7 +8328,7 @@ fn run_object_fixture_resident_process(
     };
     let started = Instant::now();
     let mut pairs = Vec::new();
-    let mut poison_detected = !poison;
+    let mut poison_detected = true;
     for seed in seeds {
         if poison {
             let outcome = run_openraft_serving_recovery_contract_from_object_fixture(
