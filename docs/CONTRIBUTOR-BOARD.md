@@ -580,7 +580,7 @@ become one GitHub issue.
   zero wrong values, zero measured object operations, correlated OTel signals,
   and complete scratch and lease teardown.
 
-### T27. Freeze the native cache-pressure curve `[PROPOSED]`
+### T27. Verify the native cache-pressure curve `[EVALUATING]`
 
 - Scope: one explicit block-cache budget shared by native and direct control,
   a reusable immutable object fixture larger than that budget, and metrics for
@@ -592,6 +592,17 @@ become one GitHub issue.
   fixture state for every measurement.
 - Dependency: T26 clean receipt. Do not combine this with the first concurrency
   gate.
+- Frozen contract: RFC-0043 starts with a 64 MiB calibration and a 1 GiB GCP R0
+  admission fixture, one explicit cache budget, 50, 20, and 5 percent cache
+  coverage, Zipf alpha 0.8, 1.4, and 2.0, and eight clients. It adds cache
+  ticker deltas, CPU time, process physical bytes, read amplification, memory,
+  object attribution, and identity digests. T27 does not require a
+  three-machine topology because it isolates the local serving hierarchy.
+- Execution slices: `[CODE-COMPLETE]` resident shared-cache configuration and
+  cumulative RocksDB counters; `[EVALUATING]` matched-control configuration,
+  counter deltas, process I/O, reusable fixtures, and poison subjects;
+  `[PROPOSED]` 64 MiB R0 calibration; `[PROPOSED]` frozen 1 GiB paired GCP
+  admission.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 

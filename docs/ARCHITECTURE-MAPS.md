@@ -2,6 +2,10 @@
 
 Status: `[EVALUATING]` working visual index.
 
+Canonical living visual:
+[`docs/artifacts/objectkv-architecture/objectkv-architecture.html`](artifacts/objectkv-architecture/objectkv-architecture.html).
+These text maps remain the diff-friendly source for focused subsystem reviews.
+
 These diagrams are intentionally small. Each answers one operational question
 and is kept as text so architecture reviews can edit it directly in a diff.
 

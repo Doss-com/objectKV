@@ -4,6 +4,11 @@ Status: `[EVALUATING]`
 
 Updated: 2026-08-27
 
+Canonical living visual:
+[`docs/artifacts/objectkv-architecture/objectkv-architecture.html`](artifacts/objectkv-architecture/objectkv-architecture.html).
+This Markdown file retains the detailed prose record. The HTML artifact owns
+the current implementation map and infrastructure-evidence boundary.
+
 ## The answer
 
 objectKV now has one continuous application-facing slice, but it is not yet a

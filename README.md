@@ -2,8 +2,9 @@
 
 The object-native transactional kernel for building databases.
 
-Status: `[EVALUATING]` repository bootstrap. No durability, distribution, or
-PostgreSQL compatibility claim exists yet.
+Status: `[EVALUATING]` repository bootstrap. Local and one-machine cloud
+mechanisms have verified receipts. No production durability, independent-host
+cell, real workload, or PostgreSQL compatibility claim is admitted yet.
 
 objectKV is intended to become a FoundationDB-inspired ordered, transactional
 key-value kernel whose permanent bytes live in object storage. A short-lived
@@ -286,7 +287,8 @@ not complete-query memory, a `T - W_p` cost curve, manifests, leases, or Vortex.
 - OLTP and OLAP may use different physical layouts but share one logical history.
 - objectKV is not ZebraDB.
 
-Start with [the product specification](docs/PRODUCT-SPEC.md),
+Start with [the living architecture tracker](docs/artifacts/objectkv-architecture/objectkv-architecture.html),
+[the product specification](docs/PRODUCT-SPEC.md),
 [the system shape](docs/SYSTEM-SHAPE.md),
 [the compact architecture maps](docs/ARCHITECTURE-MAPS.md), and
 [the bootstrap plan](docs/BOOTSTRAP-PLAN.md), then choose one open RFC or eval

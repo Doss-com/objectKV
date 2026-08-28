@@ -50,5 +50,6 @@ not harden until their RFC is accepted.
 | 0040 | Native resident-engine data plane | `[VERIFIED]` topology-matched single-range read boundary under D56 | native concurrency and replicated-commit gates, with FoundationDB retained as oracle and fallback |
 | 0041 | Incumbent transaction-plane adapter | `[CODE-COMPLETE]` contract and source-pinned preflight, `[EVALUATING]` fallback lifecycle | semantic oracle, object continuity control, and fallback profile |
 | 0042 | Native resident concurrent-read curve | `[VERIFIED]` GCP R0 at 8 and 32 clients | paired resident concurrency admission before cache pressure |
+| 0043 | Native resident cache-pressure curve | `[EVALUATING]` experiment contract frozen | explicit cache, reusable fixture, and physical-work attribution |
 
 Use `0000-template.md` for new proposals.

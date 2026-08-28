@@ -2,11 +2,17 @@
 
 Status: `[EVALUATING]` active technical program.
 
-The canonical living tracker is
+The canonical living program tracker is
 [`docs/artifacts/objectkv-program-tracker/objectkv-program-tracker.html`](artifacts/objectkv-program-tracker/objectkv-program-tracker.html).
 It assembles the architecture, dependency frontier, target curves,
 systems-to-infrastructure ladder, recent experiment receipts, decisions, and
 work log from the current tree and `experiments/ledger.jsonl`.
+
+The canonical living implementation architecture is
+[`docs/artifacts/objectkv-architecture/objectkv-architecture.html`](artifacts/objectkv-architecture/objectkv-architecture.html).
+It compounds the bottom-up construction, runtime ownership, read and write
+paths, current-to-target gaps, and the exact boundary between smoke evidence,
+verified mechanisms, admitted workloads, and production credibility.
 
 ## Open the playground
 
@@ -14,18 +20,22 @@ The tracker uses a dedicated local port so it does not collide with the
 DOSSBOT app page:
 
 ```bash
-cd /Users/wileyjones/Documents/doss/repos/okv
+cd "$(git rev-parse --show-toplevel)"
 python3 -m http.server 4197 --bind 127.0.0.1 --directory .
 ```
 
 Open
 `http://127.0.0.1:4197/docs/artifacts/objectkv-program-tracker/objectkv-program-tracker.html`.
+The architecture tracker is at
+`http://127.0.0.1:4197/docs/artifacts/objectkv-architecture/objectkv-architecture.html`.
 
 Rebuild before a review:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 \
   docs/artifacts/objectkv-program-tracker/_assemble.py
+PYTHONDONTWRITEBYTECODE=1 python3 \
+  docs/artifacts/objectkv-architecture/_assemble.py
 ```
 
 The former DOSSBOT project-tracker route is a legacy archive. New objectKV
@@ -34,7 +44,10 @@ program state is owned here rather than copied into that retired queue.
 ## Authority boundaries
 
 - `docs/BOOTSTRAP-PLAN.md` owns the program goal, sequencing, and gates.
-- The HTML tracker owns the concise current readout and links to evidence.
+- The program tracker owns the concise program readout, sequencing, and links
+  to evidence.
+- The architecture tracker owns the current implementation composition,
+  service ownership, pipeline maps, and evidence-maturity boundary.
 - `docs/PRODUCT-SPEC-SHEET.md` owns atomic requirements and performance targets.
 - `docs/CONTRIBUTOR-BOARD.md` owns bounded contributor tasks.
 - `docs/DECISIONS.md` and `rfcs/` own architectural decisions.

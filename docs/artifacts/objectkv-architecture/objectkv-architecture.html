@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Living objectKV implementation architecture and infrastructure evidence boundary">
+  <title>objectKV Architecture</title>
+  <style>
+:root {
+  color-scheme: dark;
+  --ds-background-100: hsl(0, 0%, 4%);
+  --ds-background-200: hsl(0, 0%, 7%);
+  --ds-gray-100: rgba(255, 255, 255, 0.03);
+  --ds-gray-200: rgba(255, 255, 255, 0.05);
+  --ds-gray-300: rgba(255, 255, 255, 0.08);
+  --ds-gray-400: hsl(0, 0%, 18%);
+  --ds-gray-500: hsl(0, 0%, 27%);
+  --ds-gray-600: hsl(0, 0%, 53%);
+  --ds-gray-900: hsl(0, 0%, 63%);
+  --ds-gray-1000: hsl(0, 0%, 93%);
+  --ds-gray-alpha-100: #ffffff0f;
+  --ds-gray-alpha-200: #ffffff17;
+  --ds-gray-alpha-400: #ffffff24;
+  --ds-gray-alpha-500: #ffffff3d;
+  --ds-accent-700: hsl(212, 100%, 54%);
+  --ds-accent-900: hsl(210, 100%, 66%);
+  --ds-green-700: hsl(131, 41%, 46%);
+  --ds-green-900: hsl(131, 43%, 57%);
+  --ds-amber-700: hsl(39, 100%, 57%);
+  --ds-amber-900: hsl(39, 90%, 60%);
+  --ds-red-700: hsl(358, 75%, 59%);
+  --ds-red-900: hsl(358, 100%, 69%);
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--ds-background-100); color: var(--ds-gray-900); font: 14px/1.6 var(--sans); }
+a { color: var(--ds-accent-900); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font: 12px/1.5 var(--mono); color: var(--ds-gray-1000); }
+strong { color: var(--ds-gray-1000); font-weight: 600; }
+.muted { color: var(--ds-gray-600); }
+
+.shell { width: min(1540px, 100%); margin: 0 auto; padding: 40px 44px 72px; }
+.hero { max-width: 1100px; padding: 18px 0 36px; }
+.kicker { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--ds-gray-600); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+h1 { max-width: 980px; margin: 18px 0 16px; color: var(--ds-gray-1000); font-size: clamp(38px, 5vw, 48px); font-weight: 600; letter-spacing: -.03em; line-height: 1.1; }
+.lede { max-width: 980px; margin: 0; color: var(--ds-gray-900); font-size: 19px; line-height: 1.55; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.button { display: inline-flex; align-items: center; min-height: 34px; padding: 6px 12px; border: 1px solid var(--ds-gray-alpha-500); border-radius: 4px; background: transparent; color: var(--ds-gray-1000); font-size: 12px; font-weight: 600; }
+.button:hover { background: var(--ds-gray-200); text-decoration: none; }
+.button.primary { border-color: var(--ds-gray-1000); background: var(--ds-gray-1000); color: var(--ds-background-100); }
+
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 48px; }
+.summary-card { min-height: 138px; padding: 18px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 5px; background: var(--ds-gray-100); }
+.summary-card .label { color: var(--ds-gray-600); font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.summary-card .value { display: block; margin: 8px 0 5px; color: var(--ds-gray-1000); font-size: 28px; font-weight: 600; letter-spacing: -.03em; line-height: 1.1; }
+.summary-card p { margin: 0; color: var(--ds-gray-600); font-size: 12px; line-height: 1.45; }
+
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 64px; align-items: start; }
+.side { position: sticky; top: 20px; }
+.side-title { margin-bottom: 10px; color: var(--ds-gray-600); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.toc { display: flex; flex-direction: column; gap: 2px; }
+.toc a { display: grid; grid-template-columns: 25px 1fr; gap: 6px; padding: 6px 8px; border-radius: 4px; color: var(--ds-gray-900); font-size: 12px; line-height: 1.35; }
+.toc a span { color: var(--ds-gray-600); font-family: var(--mono); }
+.toc a:hover { background: var(--ds-gray-100); color: var(--ds-gray-1000); text-decoration: none; }
+.side-note { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-600); font-size: 11px; line-height: 1.5; }
+.content { min-width: 0; max-width: 1180px; }
+.content section { margin-bottom: 72px; scroll-margin-top: 24px; }
+h2 { margin: 0 0 22px; color: var(--ds-gray-1000); font-size: 28px; font-weight: 600; letter-spacing: -.025em; line-height: 1.15; }
+.section-id { display: inline-block; min-width: 50px; margin-right: 4px; color: var(--ds-gray-600); font: 13px var(--mono); vertical-align: 4px; }
+h3 { margin: 30px 0 12px; color: var(--ds-gray-1000); font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+p { margin: 0 0 15px; }
+
+.callout { display: grid; grid-template-columns: 220px 1fr; gap: 28px; padding: 22px; border: 1px solid var(--ds-gray-alpha-500); border-radius: 5px; background: var(--ds-gray-100); }
+.callout .label { color: var(--ds-gray-600); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.callout h3 { margin: 4px 0 0; font-size: 20px; }
+.callout p { margin: 0; color: var(--ds-gray-900); font-size: 15px; }
+
+.status { display: inline-flex; align-items: center; min-height: 21px; padding: 2px 7px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 9999px; font-size: 10px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
+.status.verified { border-color: var(--ds-green-700); color: var(--ds-green-900); }
+.status.complete { border-color: var(--ds-accent-700); color: var(--ds-accent-900); }
+.status.evaluating { border-color: var(--ds-amber-700); color: var(--ds-amber-900); }
+.status.proposed, .status.future { border-color: var(--ds-gray-alpha-500); color: var(--ds-gray-600); }
+.status.no { border-color: var(--ds-red-700); color: var(--ds-red-900); }
+
+.stack { padding: 20px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 5px; background: var(--ds-background-200); }
+.stack-layer { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--ds-gray-alpha-400); }
+.stack-layer:last-child { border-bottom: 0; }
+.stack-label { color: var(--ds-gray-600); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.stack-nodes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stack-node { min-height: 64px; padding: 10px 12px; border: 1px solid var(--ds-gray-alpha-500); border-radius: 4px; background: var(--ds-gray-100); color: var(--ds-gray-1000); font-size: 12px; font-weight: 600; }
+.stack-node small { display: block; margin-top: 3px; color: var(--ds-gray-600); font-weight: 400; line-height: 1.35; }
+.equation { margin-top: 16px; padding: 13px 16px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 4px; background: var(--ds-gray-100); color: var(--ds-gray-1000); font: 13px/1.5 var(--mono); text-align: center; }
+
+.diagram-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.diagram { min-width: 0; padding: 17px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 5px; background: var(--ds-background-200); }
+.diagram h3 { margin: 0 0 11px; font-size: 14px; }
+.diagram pre { overflow-x: auto; margin: 0; color: var(--ds-gray-900); font: 11.5px/1.52 var(--mono); white-space: pre; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--ds-gray-alpha-400); border-radius: 5px; }
+table { width: 100%; border-collapse: collapse; background: var(--ds-background-100); }
+th { padding: 9px 11px; border-bottom: 1px solid var(--ds-gray-alpha-500); background: var(--ds-gray-100); color: var(--ds-gray-600); font-size: 10px; font-weight: 600; letter-spacing: .04em; text-align: left; text-transform: uppercase; vertical-align: bottom; }
+td { padding: 11px; border-bottom: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-900); font-size: 12px; line-height: 1.48; vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--ds-gray-alpha-100); }
+
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.card { padding: 18px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 5px; background: var(--ds-gray-100); }
+.card-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.card h3 { margin: 0; font-size: 15px; }
+.card dl { display: grid; grid-template-columns: 96px 1fr; gap: 7px 12px; margin: 16px 0 0; font-size: 12px; }
+.card dt { color: var(--ds-gray-600); }
+.card dd { margin: 0; color: var(--ds-gray-900); }
+
+.ladder { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); gap: 8px; overflow-x: auto; align-items: stretch; }
+.rung { min-width: 130px; padding: 14px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 4px; background: var(--ds-gray-100); }
+.rung.current { border-color: var(--ds-green-700); }
+.rung .n { color: var(--ds-gray-1000); font-size: 20px; font-weight: 600; }
+.rung strong { display: block; margin: 6px 0; font-size: 12px; }
+.rung p { margin: 0 0 10px; color: var(--ds-gray-600); font-size: 10.5px; line-height: 1.4; }
+
+.foot { display: flex; justify-content: space-between; gap: 20px; margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--ds-gray-alpha-400); color: var(--ds-gray-600); font-size: 11px; }
+
+@media (max-width: 1040px) {
+  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .layout { grid-template-columns: 1fr; gap: 36px; }
+  .side { position: static; padding: 14px; border: 1px solid var(--ds-gray-alpha-400); border-radius: 5px; }
+  .toc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .shell { padding: 24px 16px 48px; }
+  .summary-grid, .diagram-grid, .cards, .callout { grid-template-columns: 1fr; }
+  .stack-layer { grid-template-columns: 1fr; }
+  .stack-nodes { grid-template-columns: 1fr; }
+  .toc { grid-template-columns: 1fr; }
+  .foot { flex-direction: column; }
+}
+@media print {
+  *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .shell { max-width: none; padding: .45in; }
+  .layout { grid-template-columns: 1fr; }
+  .side { position: static; break-after: page; }
+  .button { display: none; }
+  .summary-card, .callout, .stack, .diagram, .card, .table-wrap, .ladder { break-inside: avoid; }
+}
+</style>
+
+</head>
+<body>
+  <main class="shell">
+  <header class="hero">
+    <div class="kicker">
+      <span>objectKV architecture</span>
+      <span>branch research/native-matched-topology-r0</span>
+      <span>revision f676699</span>
+      <span>generated 2026-08-28 04:04 UTC</span>
+    </div>
+    <h1>The implementation architecture and its evidence boundary</h1>
+    <p class="lede">objectKV today is a real single-range laboratory kernel composed from process-replicated authorities, a regional GCS object base, a retained txLog, and a disposable RocksDB read engine. Its resident read mechanism is cloud-admitted. The continuously objectifying, multi-machine transactional cell and a stable workload-facing API are not yet admitted.</p>
+    <div class="hero-actions">
+      <a class="button primary" href="../objectkv-program-tracker/objectkv-program-tracker.html">Program tracker</a>
+      <a class="button" href="../../BOOTSTRAP-PLAN.md">Bootstrap plan</a>
+      <a class="button" href="../../REAL-INFRA-EVALS.md">Infrastructure evidence</a>
+      <a class="button" href="../../../crates/okv/src/lib.rs">Integrated kernel source</a>
+    </div>
+  </header>
+
+  <div class="summary-grid">
+    <article class="summary-card"><span class="label">Strongest performance evidence</span><span class="value">24M reads</span><p>Clean GCP R0, 8 and 32 clients, both process orders, matched direct RocksDB control.</p></article>
+    <article class="summary-card"><span class="label">Current architecture unit</span><span class="value">1 range</span><p>One generation, publication root, transaction authority, object closure, retained suffix, and resident engine.</p></article>
+    <article class="summary-card"><span class="label">Real workload admitted</span><span class="value">No</span><p>No stable network read API, range scan, multi-machine commit, cache-pressure receipt, or continuous objectifier.</p></article>
+    <article class="summary-card"><span class="label">Immediate gate</span><span class="value">T27</span><p>Explicit block-cache budget, larger-than-cache fixture, CPU, physical bytes, amplification, and skew.</p></article>
+  </div>
+
+  <div class="layout">
+    <aside class="side">
+      <div class="side-title">Architecture index</div>
+      <nav class="toc"><a href="#today"><span>01</span>Architecture today</a>
+<a href="#read"><span>02</span>Read pipeline</a>
+<a href="#write"><span>03</span>Write and publication pipeline</a>
+<a href="#services"><span>04</span>Runtime services and ownership</a>
+<a href="#structures"><span>05</span>State structures and invariants</a>
+<a href="#evidence"><span>06</span>Infrastructure evidence</a>
+<a href="#admission"><span>07</span>Real workload admission</a>
+<a href="#target"><span>08</span>Target cell</a>
+<a href="#sequence"><span>09</span>Construction sequence</a>
+<a href="#log"><span>10</span>Architecture log</a></nav>
+      <div class="side-note">This is the canonical current-construction readout. RFCs own decisions. The program tracker owns sequencing. Receipts own measured claims.</div>
+    </aside>
+
+    <div class="content">
+      <section>
+        <h2 id="today"><span class="section-id">[01]</span>Architecture today</h2>
+        <div class="callout">
+          <div><span class="label">Clarity</span><h3>Real mechanism, not yet a database service</h3></div>
+          <p>The repository has the pieces and one integrated recovery and read slice. That slice can execute transactions, rebuild a replacement worker from objects plus retained history, and serve exact versioned point reads. It is still an evaluator-driven process topology rather than a deployable workload endpoint.</p>
+        </div>
+
+        <h3>Bottom-up construction</h3>
+        <div class="stack">
+          <div class="stack-layer">
+            <div class="stack-label">Application boundary</div>
+            <div class="stack-nodes">
+              <div class="stack-node">okv::SingleRange<small>Experimental in-process get, commit, catch-up, snapshot, and counters</small></div>
+              <div class="stack-node">Tetris and Chess<small>Separate semantic harnesses over okv-model and okv-log</small></div>
+              <div class="stack-node">okv-htap<small>Local DataFusion overlay contracts, not connected to SingleRange</small></div>
+            </div>
+          </div>
+          <div class="stack-layer">
+            <div class="stack-label">Disposable serving</div>
+            <div class="stack-nodes">
+              <div class="stack-node">RocksDbResidentRangeEngine<small>Head, MVCC history, metadata, generation-bound snapshots</small></div>
+              <div class="stack-node">Tail overlay<small>Fallback in-process BTreeMap for object base plus retained suffix</small></div>
+              <div class="stack-node">Indexed cold reader<small>Manifest lookup, index GET, selected data range GET</small></div>
+            </div>
+          </div>
+          <div class="stack-layer">
+            <div class="stack-label">Transaction and control</div>
+            <div class="stack-nodes">
+              <div class="stack-node">3 transaction processes<small>OpenRaft, OCC state machine, retained txLog, exact retry outcomes</small></div>
+              <div class="stack-node">3 control processes<small>Generation fencing and publication root authority</small></div>
+              <div class="stack-node">Stable node journals<small>Vote, committed position, append, truncate, purge, snapshot metadata</small></div>
+            </div>
+          </div>
+          <div class="stack-layer">
+            <div class="stack-label">Permanent object state</div>
+            <div class="stack-nodes">
+              <div class="stack-node">Row segment data<small>Immutable, checksummed, content-addressed objects</small></div>
+              <div class="stack-node">Sparse segment indexes<small>Key bounds and block offsets for bounded range reads</small></div>
+              <div class="stack-node">Manifest root<small>Generation, covered-through version, exact object closure</small></div>
+            </div>
+          </div>
+          <div class="stack-layer">
+            <div class="stack-label">Infrastructure</div>
+            <div class="stack-nodes">
+              <div class="stack-node">Regional versioned GCS<small>Permanent experiment objects and immutable evidence</small></div>
+              <div class="stack-node">Local NVMe and pd-ssd<small>Disposable serving and stable benchmark media</small></div>
+              <div class="stack-node">OTel collector<small>Separate VM for logs, metrics, and traces in admitted R0 runs</small></div>
+            </div>
+          </div>
+        </div>
+        <div class="equation">Logical state at C = manifested object state through O + retained txLog suffix (O, C]</div>
+
+        <h3>The exact current composition</h3>
+        <div class="diagram">
+<pre>okv-eval controller
+  ├── 3 OpenRaft control processes
+  │     ├── generation authority
+  │     └── publication authority
+  ├── 3 OpenRaft transaction processes
+  │     ├── conflict validation
+  │     ├── commit versions
+  │     ├── exact retry outcomes
+  │     └── retained txLog
+  ├── GCS row objects + indexes + manifest
+  └── serving worker process
+        └── SingleRange
+              └── RocksDbResidentRangeEngine on local NVMe</pre>
+        </div>
+        <p class="muted">In the verified R0 read runs, all six authority processes and the serving worker ran on one GCP machine. OpenRaft crossed real operating-system process and TCP boundaries, but not independent machines or disks.</p>
+      </section>
+
+      <section>
+        <h2 id="read"><span class="section-id">[02]</span>Read pipeline</h2>
+        <div class="diagram-grid">
+          <article class="diagram">
+            <h3>Open and recover a resident range</h3>
+<pre>GenerationAuthority.read
+  → PublicationAuthority.read(root)
+  → GET and verify manifest
+  → GET and verify every row segment
+  → decode complete object state
+  → install head + history + metadata in RocksDB
+  → read retained txLog pages after O
+  → atomically advance data + applied cursor
+  → bind snapshot at T</pre>
+          </article>
+          <article class="diagram">
+            <h3>Serve a hot point read</h3>
+<pre>key + exact version T
+  → SingleRange coverage check
+  → ResidentRangeEngine.snapshot(G, T)
+  → current head when T = applied frontier
+  → MVCC history when T is older
+  → owned value | tombstone | absent
+
+object requests in measured window: 0</pre>
+          </article>
+          <article class="diagram">
+            <h3>Serve the separate indexed cold path</h3>
+<pre>key + exact version T
+  → locate row segment in manifest
+  → index GET and checksum
+  → select block offset
+  → one data range GET
+  → decode exact visible version
+
+LIST authority: never</pre>
+          </article>
+          <article class="diagram">
+            <h3>What is not composed yet</h3>
+<pre>suite-controlled RocksDB block cache
+  + larger-than-cache resident image
+  + lazy object-block refill
+  + eviction and demotion policy
+  + remote read RPC
+  + range routing
+
+status: T27 and T28</pre>
+          </article>
+        </div>
+
+        <h3>Current performance meaning</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Property</th><th>What executed</th><th>What it proves</th><th>What it does not prove</th></tr></thead>
+            <tbody>
+              <tr><td>Dataset</td><td>4,098 records, about 4 MiB logical values</td><td>Public native snapshot overhead for a resident working set</td><td>Cache eviction, NVMe misses, large metadata, or dataset scale</td></tr>
+              <tr><td>Concurrency</td><td>8 and 32 synchronized client threads</td><td>In-process parallel point-read saturation through 32 clients</td><td>Network clients, RPC queues, admission control, or multi-range routing</td></tr>
+              <tr><td>Topology</td><td>Six live authority processes plus replacement worker on one VM</td><td>Candidate and control paid for the same local process interference</td><td>Independent media, zones, or distributed availability</td></tr>
+              <tr><td>Storage</td><td>RocksDB on local NVMe after complete GCS hydration</td><td>Zero object operations during the measured hot window</td><td>The admitted receipt predates the new explicit shared-cache counters and does not separate RocksDB from the operating-system page cache</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="write"><span class="section-id">[03]</span>Write and publication pipeline</h2>
+        <div class="diagram-grid">
+          <article class="diagram">
+            <h3>Current commit path</h3>
+<pre>TransactionCommand
+  → commit_fenced(identity, generation)
+  → transaction OpenRaft leader
+  → conflict check + commit version
+  → quorum-stable node journals
+  → retained outcome
+  → commit response
+  → SingleRange catches up through commit
+  → disposable RocksDB head/history/frontier flush</pre>
+          </article>
+          <article class="diagram">
+            <h3>Current object publication path</h3>
+<pre>frozen base records
+  → encode indexed row segment set
+  → prepare exact publication intent
+  → PUT immutable data and index objects
+  → PUT manifest
+  → publish exact root transition
+  → readers walk the named closure
+
+not called by every SingleRange commit</pre>
+          </article>
+        </div>
+        <p>The commit acknowledgement does not wait on object storage. This part matches the target architecture. The gap is lifecycle integration: the current evaluator constructs and publishes a base before the read experiment. There is no continuously running objectifier that drains committed txLog history, advances <code>O</code>, compacts runs, and reclaims the safe suffix while workload traffic continues.</p>
+
+        <h3>Durability boundaries</h3>
+        <div class="cards">
+          <article class="card"><div class="card-head"><h3>txLog durability</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Current</dt><dd>Three OpenRaft processes with synchronized local journals and exact retry outcomes on one machine.</dd><dt>Missing</dt><dd>Three machines with independent stable media, leader-loss performance, majority-loss refusal, and recovery under load.</dd></dl></article>
+          <article class="card"><div class="card-head"><h3>Object durability</h3><span class="status verified">VERIFIED</span></div><dl><dt>Current</dt><dd>Named immutable GCS generations, checksummed closure, conditional publication, and a verified FoundationDB media-loss reconstruction.</dd><dt>Missing</dt><dd>Native continuous objectification, bounded <code>C - O</code>, brownout backpressure, and native host-loss RPO/RTO.</dd></dl></article>
+          <article class="card"><div class="card-head"><h3>Serving durability</h3><span class="status complete">CODE COMPLETE</span></div><dl><dt>Current</dt><dd>RocksDB serving state is rebuilt and flushed locally, but its WAL is disabled because it is disposable.</dd><dt>Authority</dt><dd>The txLog and published object closure own recovery. The local serving engine must never be the only copy.</dd></dl></article>
+          <article class="card"><div class="card-head"><h3>Branch durability</h3><span class="status verified">VERIFIED</span></div><dl><dt>Current</dt><dd>Tetris and Chess reuse immutable prefixes and store a divergent suffix in an in-memory object adapter.</dd><dt>Missing</dt><dd>The same fork contract over the continuously published native cell on GCS.</dd></dl></article>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="services"><span class="section-id">[04]</span>Runtime services and ownership</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Role</th><th>Current implementation</th><th>Current runtime form</th><th>Target responsibility</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Client and fabric</td><td><code>okv::SingleRange</code></td><td>In-process Rust API</td><td>Stable ordered KV transactions, exact snapshots, streams, branches, and adapter contracts</td><td><span class="status complete">CODE COMPLETE</span></td></tr>
+              <tr><td>Generation authority</td><td><code>okv-consensus::GenerationAuthorityState</code></td><td>Three local OpenRaft processes</td><td>Cell generation, membership, recovery phase, fencing, and transaction-system identity</td><td><span class="status verified">VERIFIED</span></td></tr>
+              <tr><td>Publication authority</td><td><code>PublicationAuthorityState</code></td><td>Shares the three control processes</td><td>Exact immutable roots, intents, outcomes, pins, and GC reservations</td><td><span class="status verified">VERIFIED</span></td></tr>
+              <tr><td>Transaction authority</td><td><code>TransactionAuthority</code> through <code>TransactionLogClient</code></td><td>Three local OpenRaft processes</td><td>Read versions, conflicts, ordered commits, retry outcomes, retained txLog, and object frontier</td><td><span class="status evaluating">EVALUATING</span></td></tr>
+              <tr><td>RangeEngine</td><td><code>RocksDbResidentRangeEngine</code></td><td>Disposable worker-local library</td><td>Assigned range, exact versions, RAM and NVMe cache tiers, object refill, range scan, and bounded local bytes</td><td><span class="status verified">VERIFIED</span></td></tr>
+              <tr><td>Objectifier</td><td>Publication contracts and eval-only builders</td><td>Not a continuous service</td><td>Pack committed mutations, publish manifests, advance <code>O</code>, compact, and expose debt</td><td><span class="status evaluating">EVALUATING</span></td></tr>
+              <tr><td>Range map and distributor</td><td>Trait and RFC concepts only</td><td>None</td><td>Route, split, move, balance, and fence ranges inside one cell</td><td><span class="status proposed">PROPOSED</span></td></tr>
+              <tr><td>PostgreSQL and Redis adapters</td><td>Requirements and model contracts</td><td>None on SingleRange</td><td>Build database semantics through <code>okv-fabric</code>, not kernel-specific protocol shortcuts</td><td><span class="status future">FUTURE</span></td></tr>
+              <tr><td>DataFusion adapter</td><td><code>ZebraSnapshotTableProvider</code> and <code>SnapshotOverlayExec</code></td><td>Local physical contract</td><td>Exact base plus durable tail at one snapshot version</td><td><span class="status evaluating">EVALUATING</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="structures"><span class="section-id">[05]</span>State structures and invariants</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Structure</th><th>Owner</th><th>Contents</th><th>Invariant</th></tr></thead>
+            <tbody>
+              <tr><td>Generation credential</td><td>Control authority</td><td>Generation plus transaction-system identity</td><td>A stale generation cannot commit, publish, or activate serving state.</td></tr>
+              <tr><td>Transaction command</td><td>Transaction authority</td><td>Read version, read and write conflict ranges, ordered mutations, request identity</td><td>One retained outcome exists for every acknowledged identity.</td></tr>
+              <tr><td>Retained txLog record</td><td>Transaction authority</td><td>Commit version, batch order, canonical command</td><td>Pages are prefix-closed and resume by complete versionstamp.</td></tr>
+              <tr><td>Row object segment</td><td>Object state</td><td>Versioned keys and values grouped into independently checksummed blocks</td><td>Requested point work is bounded by index and selected blocks, not database size.</td></tr>
+              <tr><td>Row manifest</td><td>Publication authority</td><td>Generation, object frontier, sorted segment references and digests</td><td>Root visibility follows complete closure verification.</td></tr>
+              <tr><td>Resident head</td><td>RangeEngine</td><td>Latest owned value or tombstone by key</td><td>Fast current reads need no external overlay or object request.</td></tr>
+              <tr><td>Resident history</td><td>RangeEngine</td><td>Key plus descending commit, batch, and mutation order</td><td>An exact older snapshot remains readable after newer advancement.</td></tr>
+              <tr><td>Applied metadata</td><td>RangeEngine</td><td>Generation, root, object frontier, applied cursor, owned bounds, byte receipt</td><td>Data mutation and applied cursor advance atomically or the engine fails closed.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="evidence"><span class="section-id">[06]</span>Infrastructure evidence</h2>
+        <div class="callout">
+          <div><span class="label">Current answer</span><h3>Mechanism-admitted, not workload-admitted</h3></div>
+          <p>The cloud receipts are real and reproducible. They prove specific mechanisms on named infrastructure. They do not yet prove that an external application can connect to a stable objectKV service and sustain a realistic mixed workload through failure.</p>
+        </div>
+
+        <h3>Evidence inventory</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Evidence</th><th>Executed topology</th><th>Result</th><th>Classification</th><th>Real workload authority</th></tr></thead>
+            <tbody>
+              <tr><td>Model, serializability, and negative subjects</td><td>Deterministic in-process state machines</td><td>Exact histories and poison rejection</td><td><span class="status verified">VERIFIED</span></td><td>No. Semantic oracle only.</td></tr>
+              <tr><td>WAL, OpenRaft storage, recovery, publication</td><td>Local files and independent OS processes over TCP</td><td>Vote, log, quorum, restart, lost reply, fencing, and publication contracts</td><td><span class="status verified">VERIFIED</span></td><td>No. One machine and diagnostic workloads.</td></tr>
+              <tr><td>GCP R0 infrastructure smoke</td><td>Private n2-standard-8, regional GCS, separate OTel VM</td><td>24 hard gates, complete telemetry, durable receipt path</td><td><span class="status verified">VERIFIED</span></td><td>No. Dirty source and one sample.</td></tr>
+              <tr><td>SingleRange GCS recovery smoke</td><td>Six local authority processes, worker replacement, real GCS</td><td>Exact base plus tail, one manifest, one index, one range GET</td><td><span class="status evaluating">EVALUATING</span></td><td>No. Dirty source, one sample, uncontrolled machine.</td></tr>
+              <tr><td>Native resident reads</td><td>Clean GCP R0, NVMe, regional GCS, six local authority processes</td><td>24 million reads; 0.873x to 0.891x throughput and 1.107x to 1.184x p99 versus matched RocksDB at 8 and 32 clients</td><td><span class="status verified">VERIFIED</span></td><td>Not yet. In-process reads and 4 MiB resident set.</td></tr>
+              <tr><td>Provider media loss</td><td>Deleted FoundationDB source VM and disks, new VM and disk, regional GCS</td><td>Exact 950-row closure reconstructed and fresh commit accepted</td><td><span class="status verified">VERIFIED</span></td><td>No. FoundationDB adapter, sequential recovery, single sample.</td></tr>
+              <tr><td>Tetris and Chess GP-G0 to GP-G6</td><td>Local model, local processes, RAM, in-memory object adapter</td><td>Replay, fork, branch, recovery, publication, and GC semantics</td><td><span class="status verified">VERIFIED</span></td><td>No. Components are intentionally separate and the web backend is volatile.</td></tr>
+              <tr><td>Three-machine native cell</td><td>Not executed</td><td>Replicated commit, independent media, voter loss, and cross-range work remain open</td><td><span class="status proposed">PROPOSED</span></td><td>No.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Current cloud resources</h3>
+        <p>At the 2026-08-27 read-only audit, no benchmark VM or disk with the objectKV project label remained. The regional versioned bucket <code>doss-objectkv-dev-okv-evals</code> remained, with a 30-day deletion rule for current <code>scratch/</code> objects. This is the intended zero-idle-compute state, not a live service.</p>
+      </section>
+
+      <section>
+        <h2 id="admission"><span class="section-id">[07]</span>Real workload admission</h2>
+        <p>“Real and legit” needs a named rung. The project will not use a passing smoke test as a workload claim.</p>
+        <div class="ladder">
+          <article class="rung"><span class="n">0</span><strong>Code contract</strong><p>Unit, model, and negative controls.</p><span class="status verified">VERIFIED</span></article>
+          <article class="rung"><span class="n">1</span><strong>Process system</strong><p>Real files, TCP, process kill, restart.</p><span class="status verified">VERIFIED</span></article>
+          <article class="rung"><span class="n">2</span><strong>Cloud plumbing</strong><p>Named VM, media, GCS, OTel, teardown.</p><span class="status verified">VERIFIED</span></article>
+          <article class="rung current"><span class="n">3</span><strong>Mechanism admitted</strong><p>Clean paired measurements for one exact path. This is the current highest rung.</p><span class="status verified">VERIFIED</span></article>
+          <article class="rung"><span class="n">4</span><strong>Workload admitted</strong><p>Stable API, representative data, mixed traffic, recovery.</p><span class="status evaluating">EVALUATING</span></article>
+          <article class="rung"><span class="n">5</span><strong>Production credible</strong><p>Independent machines and zones, sustained faults, bounded cost.</p><span class="status proposed">PROPOSED</span></article>
+        </div>
+
+        <h3>Gate for the first honest workload claim</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Requirement</th><th>Minimum evidence</th><th>Current gap</th></tr></thead>
+            <tbody>
+              <tr><td>Stable workload boundary</td><td>Versioned client API or daemon for point get, bounded range scan, and transaction commit</td><td>SingleRange is in-process and has no public range scan.</td></tr>
+              <tr><td>Representative state</td><td>Reusable fixture larger than the declared RAM cache, with exact dataset identity</td><td>Verified resident fixture is about 4 MiB and fits in cache.</td></tr>
+              <tr><td>Continuous lifecycle</td><td>Commit, read, objectify, compact, advance <code>O</code>, and reclaim txLog during one run</td><td>Object publication is an eval phase, not a continuous worker.</td></tr>
+              <tr><td>Mixed workload</td><td>Declared read/write/scan mix for at least one bounded duration, with p50, p99, throughput, CPU, bytes, and cost</td><td>Cloud performance receipt covers resident point reads only.</td></tr>
+              <tr><td>Recovery during load</td><td>Kill serving worker and one txLog voter; exact outcomes, declared RTO, no lost acknowledgement</td><td>Worker replacement and Raft faults are verified in separate lower-rung tests.</td></tr>
+              <tr><td>Independent failure media</td><td>Three data machines with separate stable media and a controller outside the quorum</td><td>R1 infrastructure is not implemented or executed.</td></tr>
+              <tr><td>Application proof</td><td>Tetris or Chess uses the stable API unchanged, followed by one Redis-like or filesystem-like trace</td><td>Games currently use model and log crates directly.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="target"><span class="section-id">[08]</span>Target cell</h2>
+        <div class="diagram">
+<pre>applications
+  └── okv-fabric
+        ├── ordered KV and bounded transactions
+        ├── okv-log and okv-wal
+        ├── snapshots and branches
+        └── typed projections
+              ↓
+        one bounded objectKV cell
+        ├── API and routing
+        │     ├── read-version proxies
+        │     ├── commit proxies
+        │     └── range map
+        ├── transaction plane
+        │     ├── resolver partitions
+        │     └── replicated txLog groups on independent media
+        ├── serving plane
+        │     ├── RangeEngine workers
+        │     ├── bounded RAM profile
+        │     └── bounded NVMe profile
+        ├── object-state plane
+        │     ├── objectifier and compactors
+        │     ├── authenticated manifests
+        │     └── row and typed immutable runs
+        └── operations
+              ├── recovery coordinator
+              ├── ratekeeper and backpressure
+              └── OTel and eval receipts
+                    ↓
+              S3-compatible object storage</pre>
+        </div>
+        <p>A cell is the complete transaction domain and failure boundary. Ranges are internal placement and scaling units. Tenants may transact across ranges inside one cell. There is no cross-cell transaction in the kernel.</p>
+
+        <h3>Current to target gaps</h3>
+        <div class="cards">
+          <article class="card"><div class="card-head"><h3>Serving gap <small>T27-T28</small></h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Current</dt><dd>Full-hydrated RocksDB image or separate indexed cold reader. The resident source now exposes one shared cache budget and cumulative cache and amplification counters, but the paired eval and GCP receipt are still open.</dd><dt>Target</dt><dd>One bounded RangeEngine that moves among RAM, NVMe, and object blocks with explicit cache state.</dd></dl></article>
+          <article class="card"><div class="card-head"><h3>Commit gap <small>T29</small></h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Current</dt><dd>Correct local OpenRaft process topology.</dd><dt>Target</dt><dd>Independent-media quorum commit competitive with a same-durability control.</dd></dl></article>
+          <article class="card"><div class="card-head"><h3>Lifecycle gap <small>T30-T31</small></h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Current</dt><dd>Separate commit, publication, recovery, and branch contracts.</dd><dt>Target</dt><dd>Continuously bounded objectification, recovery, branching, and garbage collection.</dd></dl></article>
+          <article class="card"><div class="card-head"><h3>Distribution gap <small>T32</small></h3><span class="status proposed">PROPOSED</span></div><dl><dt>Current</dt><dd>One range and one transaction authority group.</dd><dt>Target</dt><dd>Range routing, splitting, placement, and strict-serializable transactions across range groups.</dd></dl></article>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="sequence"><span class="section-id">[09]</span>Construction sequence</h2>
+        <div class="diagram">
+<pre>[VERIFIED] resident reads
+      ↓
+[EVALUATING] T27 explicit cache pressure
+      ↓
+[EVALUATING] T28 GCS cold reads and object geometry
+      ↓
+[EVALUATING] T29 independent-media replicated commit
+      ↓
+[EVALUATING] T30 continuous objectification and bounded recovery debt
+      ↓
+[EVALUATING] T31 branch and lazy reopen on the integrated cell
+      ↓
+[PROPOSED] T32 multi-range cell
+      ↓
+[PROPOSED] workload-facing okv-fabric, PostgreSQL, and HTAP</pre>
+        </div>
+        <p>T27 is first because the current resident result is the strongest admitted mechanism and its largest unknown is hidden cache residency. RFC-0043 freezes that experiment. The first source slice exposes a shared cache budget and cumulative RocksDB counters; wiring the paired runner, reusable fixture, operating-system counters, and receipt remains. T28 then decides how the same RangeEngine crosses into object-backed misses. Only after read geometry is explicit do we pay for three-machine commit and continuous lifecycle integration.</p>
+      </section>
+
+      <section>
+        <h2 id="log"><span class="section-id">[10]</span>Architecture log</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Change</th><th>Consequence</th></tr></thead>
+            <tbody>
+              <tr><td>2026-08-27</td><td>Created the canonical implementation architecture and infrastructure evidence boundary.</td><td>“Verified mechanism” and “workload admitted” are now separate review states.</td></tr>
+              <tr><td>2026-08-27</td><td>Froze RFC-0043 and exposed the resident engine's shared cache budget and cumulative RocksDB counters.</td><td>T27 can attribute cache hits, misses, bytes, and read amplification after runner integration.</td></tr>
+              <tr><td>2026-08-27</td><td>Admitted native resident reads through 32 clients on matched GCP R0 topology.</td><td>Continue native-first into explicit cache pressure and replicated commit.</td></tr>
+              <tr><td>2026-08-27</td><td>Separated object publication from normal commit acknowledgement.</td><td>The next lifecycle slice must prove bounded asynchronous objectification debt.</td></tr>
+              <tr><td>2026-08-26</td><td>Retained manifested multi-layout storage as the physical direction.</td><td>Opaque row point reads and typed analytical reads share history, not one forced format.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Canonical current architecture surface</span><span>Source body + deterministic assembler + Git revision</span></footer>
+</main>
+
+</body>
+</html>

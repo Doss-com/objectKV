@@ -5,9 +5,10 @@ use okv::{
     ResidentMutation, ResidentRangeBounds, ResidentRangeEngine, ResidentSnapshot,
     ResidentTransactionRecord, ServingImage, ServingImageReceipt, ServingImageRecord, StreamCursor,
 };
+use rocksdb::statistics::Ticker;
 use rocksdb::{
-    AsColumnFamilyRef, ColumnFamilyDescriptor, Direction, IteratorMode, Options, WriteBatch,
-    WriteOptions, DB,
+    AsColumnFamilyRef, BlockBasedOptions, Cache, ColumnFamilyDescriptor, Direction, IteratorMode,
+    Options, WriteBatch, WriteOptions, DB,
 };
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -20,6 +21,7 @@ use std::sync::{Arc, Mutex};
 const TOMBSTONE_TAG: u8 = 0;
 const VALUE_TAG: u8 = 1;
 const INSTALL_BATCH_RECORDS: usize = 4_096;
+const DEFAULT_RESIDENT_BLOCK_CACHE_BYTES: u64 = 128 * 1_024 * 1_024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ActiveImage {
@@ -204,8 +206,30 @@ pub struct RocksDbResidentRangeEngine {
     database: DB,
     root: PathBuf,
     max_local_bytes: u64,
+    block_cache_bytes: u64,
+    block_cache: Cache,
+    statistics: Options,
     state: Mutex<NativeEngineState>,
     transition_epoch: AtomicU64,
+}
+
+/// One cumulative `RocksDB` counter snapshot for a resident range engine.
+///
+/// Evaluators subtract two snapshots around a measured window. Cache capacity,
+/// usage, and pinned usage are gauges and must not be subtracted.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct RocksDbResidentMetrics {
+    pub block_cache_capacity_bytes: u64,
+    pub block_cache_usage_bytes: u64,
+    pub block_cache_pinned_usage_bytes: u64,
+    pub block_cache_hits: u64,
+    pub block_cache_misses: u64,
+    pub block_cache_data_hits: u64,
+    pub block_cache_data_misses: u64,
+    pub block_cache_bytes_read: u64,
+    pub bytes_read: u64,
+    pub read_amp_useful_bytes: u64,
+    pub read_amp_total_bytes: u64,
 }
 
 impl Debug for RocksDbResidentRangeEngine {
@@ -214,6 +238,7 @@ impl Debug for RocksDbResidentRangeEngine {
             .debug_struct("RocksDbResidentRangeEngine")
             .field("root", &self.root)
             .field("max_local_bytes", &self.max_local_bytes)
+            .field("block_cache_bytes", &self.block_cache_bytes)
             .field(
                 "transition_epoch",
                 &self.transition_epoch.load(Ordering::Relaxed),
@@ -230,18 +255,44 @@ impl RocksDbResidentRangeEngine {
     /// Returns an error for a non-empty root, zero byte budget, or `RocksDB`
     /// open failure.
     pub fn open(root: &Path, max_local_bytes: u64) -> Result<Self, String> {
+        Self::open_with_block_cache(root, max_local_bytes, DEFAULT_RESIDENT_BLOCK_CACHE_BYTES)
+    }
+
+    /// Open one empty native resident engine with an explicit shared block
+    /// cache budget.
+    ///
+    /// The default head and MVCC history column families share this cache and
+    /// one `RocksDB` statistics object. This makes cache use and read
+    /// amplification observable at the complete resident-engine boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a non-empty root, a zero local or cache budget, a
+    /// cache budget that cannot fit in `usize`, or a `RocksDB` open failure.
+    pub fn open_with_block_cache(
+        root: &Path,
+        max_local_bytes: u64,
+        block_cache_bytes: u64,
+    ) -> Result<Self, String> {
         if max_local_bytes == 0 {
             return Err("native resident engine requires a positive local-byte budget".to_owned());
         }
+        if block_cache_bytes == 0 {
+            return Err("native resident engine requires a positive block-cache budget".to_owned());
+        }
+        let cache_capacity = usize::try_from(block_cache_bytes)
+            .map_err(|_| "native resident block-cache budget exceeds usize".to_owned())?;
         require_empty_root(root)?;
-        let mut database_options = point_options();
+        let block_cache = Cache::new_lru_cache(cache_capacity);
+        let point_options = measured_point_options(&block_cache);
+        let mut database_options = point_options.clone();
         database_options.create_missing_column_families(true);
         let database = DB::open_cf_descriptors(
             &database_options,
             root,
             [
-                ColumnFamilyDescriptor::new("default", point_options()),
-                ColumnFamilyDescriptor::new(HISTORY_CF, point_options()),
+                ColumnFamilyDescriptor::new("default", point_options.clone()),
+                ColumnFamilyDescriptor::new(HISTORY_CF, point_options.clone()),
                 ColumnFamilyDescriptor::new(METADATA_CF, Options::default()),
             ],
         )
@@ -250,9 +301,36 @@ impl RocksDbResidentRangeEngine {
             database,
             root: root.to_path_buf(),
             max_local_bytes,
+            block_cache_bytes,
+            block_cache,
+            statistics: point_options,
             state: Mutex::new(NativeEngineState::default()),
             transition_epoch: AtomicU64::new(0),
         })
+    }
+
+    /// Capture cumulative `RocksDB` counters and current shared-cache gauges.
+    #[must_use]
+    pub fn metrics(&self) -> RocksDbResidentMetrics {
+        RocksDbResidentMetrics {
+            block_cache_capacity_bytes: self.block_cache_bytes,
+            block_cache_usage_bytes: usize_as_u64(self.block_cache.get_usage()),
+            block_cache_pinned_usage_bytes: usize_as_u64(self.block_cache.get_pinned_usage()),
+            block_cache_hits: self.statistics.get_ticker_count(Ticker::BlockCacheHit),
+            block_cache_misses: self.statistics.get_ticker_count(Ticker::BlockCacheMiss),
+            block_cache_data_hits: self.statistics.get_ticker_count(Ticker::BlockCacheDataHit),
+            block_cache_data_misses: self.statistics.get_ticker_count(Ticker::BlockCacheDataMiss),
+            block_cache_bytes_read: self
+                .statistics
+                .get_ticker_count(Ticker::BlockCacheBytesRead),
+            bytes_read: self.statistics.get_ticker_count(Ticker::BytesRead),
+            read_amp_useful_bytes: self
+                .statistics
+                .get_ticker_count(Ticker::ReadAmpEstimateUsefulBytes),
+            read_amp_total_bytes: self
+                .statistics
+                .get_ticker_count(Ticker::ReadAmpTotalReadBytes),
+        }
     }
 
     fn history_get(&self, key: &[u8], read_version: u64) -> Result<ReadOutcome, String> {
@@ -737,6 +815,19 @@ fn point_options() -> Options {
     options
 }
 
+fn measured_point_options(block_cache: &Cache) -> Options {
+    let mut options = point_options();
+    options.enable_statistics();
+    let mut table = BlockBasedOptions::default();
+    table.set_block_cache(block_cache);
+    options.set_block_based_table_factory(&table);
+    options
+}
+
+fn usize_as_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
 fn require_empty_root(root: &Path) -> Result<(), String> {
     if root.exists() {
         let mut entries =
@@ -956,6 +1047,58 @@ mod tests {
             })
             .expect("activate native resident engine");
         (root, engine)
+    }
+
+    #[test]
+    fn native_engine_exposes_explicit_cache_and_read_counters() {
+        let root = TempDir::new().expect("temporary native resident root");
+        let engine = Arc::new(
+            RocksDbResidentRangeEngine::open_with_block_cache(
+                root.path(),
+                64 * 1_024 * 1_024,
+                2 * 1_024 * 1_024,
+            )
+            .expect("open native resident engine with explicit cache"),
+        );
+        engine
+            .activate(ResidentActivationRequest {
+                generation: 7,
+                object_root: "manifest/sha256/cache-metrics".to_owned(),
+                object_durable_version: 11,
+                owned_range: ResidentRangeBounds::default(),
+                object_first_key: b"a".to_vec(),
+                object_last_key: b"z".to_vec(),
+                records: vec![ServingImageRecord {
+                    key: b"a".to_vec(),
+                    value: Some(vec![42; 4_096]),
+                }],
+            })
+            .expect("activate native resident engine");
+        let before = engine.metrics();
+        let snapshot = engine.clone().snapshot(7, 11).expect("bind snapshot");
+        for _ in 0..32 {
+            assert_eq!(
+                snapshot.get(b"a").expect("read measured value"),
+                ReadOutcome::Value(vec![42; 4_096])
+            );
+        }
+        let after = engine.metrics();
+        assert_eq!(after.block_cache_capacity_bytes, 2 * 1_024 * 1_024);
+        assert!(after.block_cache_usage_bytes <= after.block_cache_capacity_bytes);
+        assert!(after.block_cache_hits >= before.block_cache_hits);
+        assert!(after.block_cache_misses >= before.block_cache_misses);
+        assert!(after.bytes_read >= before.bytes_read);
+    }
+
+    #[test]
+    fn native_engine_rejects_zero_cache_budget() {
+        let root = TempDir::new().expect("temporary native resident root");
+        assert!(RocksDbResidentRangeEngine::open_with_block_cache(
+            root.path(),
+            64 * 1_024 * 1_024,
+            0,
+        )
+        .is_err());
     }
 
     #[test]
