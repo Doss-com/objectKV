@@ -238,12 +238,16 @@ treatment is not reused.
 
 ## Minimum implementation sequence
 
-1. `[PROPOSED]` Add canonical `FixturePlacementLocatorV1` encoding,
-   validation, envelope hashing, and corrupt-field unit tests.
+1. `[VERIFIED]` Add canonical `FixturePlacementLocatorV1` encoding,
+   validation, envelope hashing, and corrupt-field unit tests. Commit `d5018bc`
+   passed the focused remote suite with the RocksDB feature enabled.
 2. `[PROPOSED]` Add separate fixture preparation and required-existing
    consumer commands. Split durable fixture placement from run scratch.
-3. `[PROPOSED]` Build a standalone direct subject that never opens the native
-   resident engine.
+3. `[VERIFIED]` Build a standalone direct subject that never opens the native
+   resident engine. Commit `19b4e11` passed seven focused remote tests and one
+   actual two-worker kill/replacement controller trace. The trace reported no
+   native resident provider, exact base-plus-tail identity, zero hot-window
+   object requests, and one directly owned RocksDB image.
 4. `[PROPOSED]` Split fixture seed from trace seed and emit one receipt per
    fresh process.
 5. `[PROPOSED]` Build and validate the immutable ABBA plan controller.
@@ -258,6 +262,8 @@ treatment is not reused.
 ## Review disposition
 
 The adversarial review's five blocking findings are accepted. Phase 5 is not
-`[CODE-COMPLETE]` on the current runner. The next code slice is locator
-serialization plus a clean direct-control construction boundary. No 1 GiB
-performance claim will be made before both pass their negative controls.
+`[CODE-COMPLETE]` on the current runner. Locator serialization and the clean
+direct-control construction boundary are verified. The next code slice is the
+separate preparation/required-existing command boundary, followed by one fresh
+process per immutable plan position. No 1 GiB performance claim will be made
+before their negative controls pass.

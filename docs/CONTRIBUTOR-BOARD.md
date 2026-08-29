@@ -613,8 +613,11 @@ become one GitHub issue.
   fixture and exact tail, plus regenerated-control poison detection;
   `[VERIFIED]` one 64 MiB regional GCS fixture reused through three exact
   descriptor reopens across fresh ABBA subjects, plus reuse-bypass poison;
-  `[EVALUATING]` placement-locator, standalone-direct-control, and immutable
-  fresh-process ABBA plan implementation before the 1 GiB GCP admission.
+  `[VERIFIED]` canonical placement-locator encoding and corruption tests;
+  `[VERIFIED]` a standalone direct control that passed seven focused remote
+  tests and one actual two-worker kill/replacement trace with no native
+  resident engine; `[EVALUATING]` separate required-existing commands and the
+  immutable fresh-process ABBA plan before the 1 GiB GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
@@ -625,9 +628,11 @@ become one GitHub issue.
   with maximum setup at 11.696264 seconds and transaction-authority scratch at
   0.001623x logical data. The phase-5 adversarial review then blocked the 1 GiB
   spend because locator identity does not yet cross CLI invocations, the direct
-  control opens a hidden native database, repeats share process state, buffered
-  page cache can mask NVMe pressure, and fixture and trace seeds are coupled.
-  T27 remains `[EVALUATING]`; this review produced no new performance point.
+  control opened a hidden native database, repeats shared process state,
+  buffered page cache could mask NVMe pressure, and fixture and trace seeds
+  were coupled. The locator envelope and standalone direct construction are
+  now verified, but their full command and poison boundary is not. T27 remains
+  `[EVALUATING]`; phase 5 has produced no new performance point.
   The phase-0
   bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the

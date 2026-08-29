@@ -256,14 +256,17 @@ cache pressure
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
 stop decision for objectKV. The immediate owned task remains T27. Fable's
-phase-5 review found five blockers in the current runner: the locator does not
-cross CLI invocations, the direct control opens a hidden native database,
-repeats share process state, buffered I/O masks the 1 GiB cache curve, and one
-seed drives both fixture bytes and read traces. The next slice implements one
-committed placement locator and a direct subject with exactly one database and
-cache. The 1 GiB run begins only after fresh-process, read-only-GCS, hidden-
-cache, and plan-order poisons pass. The corrected 64 MiB calibration remains
-the buffered regression anchor.
+phase-5 review found five blockers in the current runner. Commits `d5018bc` and
+`19b4e11` now verify the canonical locator envelope and a direct subject with
+exactly one database and cache. The direct subject passed seven focused remote
+tests and an actual two-worker kill/replacement controller trace without
+opening the native resident engine. The locator still needs separate
+preparation and required-existing consumer invocations; repeats still need
+fresh processes; direct I/O still needs to replace buffered admission; and
+fixture and trace seeds still need independent bindings. The 1 GiB run begins
+only after those boundaries and the read-only-GCS, hidden-cache, and plan-order
+poisons pass. The corrected 64 MiB calibration remains the buffered regression
+anchor.
 
 ## Current checkpoint
 
