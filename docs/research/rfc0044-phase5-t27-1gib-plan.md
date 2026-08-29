@@ -209,11 +209,13 @@ same fixture ID, descriptor generation, semantic oracle, trace, subject order,
 cache budget, and hot-read measurement boundaries, while removing one complete
 non-measured reconstruction per position.
 
-Run one full 20-position stratum after this correction. If its measured wall
-time still projects beyond one 24-hour lease, add authenticated per-stratum
-resumption before expanding the run. Parallel generation-pinned object reads
-and a content-verified local closure remain later setup-cost optimizations; they
-must not be used to relabel setup time as hot-read performance.
+The corrected two-worker recovery probe took 4 minutes 58 seconds for one
+position. Even after removing its deliberate restart from statistical
+positions, 540 positions project near or beyond one 24-hour infrastructure
+lease. Use authenticated per-stratum execution before expanding the run.
+Parallel generation-pinned object reads and a content-verified local closure
+remain later setup-cost optimizations; they must not be used to relabel setup
+time as hot-read performance.
 
 ## D1.3. One stratum is the atomic resumable execution unit
 
@@ -253,6 +255,13 @@ This optimizes for bounded leases, recoverable progress, and immutable evidence.
 It gives up one controller ID and one machine identity across the entire sweep.
 The complete T27 result remains `[EVALUATING]` until all 27 strata and the final
 aggregate validate.
+
+`[CODE-COMPLETE]` `okv-eval t27-stratum-run-gcs` selects one named stratum from
+the full sealed plan, executes only its canonical positions, and emits
+`stratum-run.json`. The receipt contract is
+`evals/schema/t27-stratum-run-receipt-v1.schema.json`. Unit coverage rejects a
+partial stratum and validates the authenticated receipt against that schema.
+Real 1 GiB execution and aggregation remain `[EVALUATING]`.
 
 ## D2. Candidate and control each own exactly one database and cache
 

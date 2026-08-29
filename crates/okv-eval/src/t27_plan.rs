@@ -20,6 +20,7 @@ const PLAN_MAGIC: &[u8] = b"OKVT27P1";
 const OPTIONS_MAGIC: &[u8] = b"OKVT27O1";
 const RECEIPT_MAGIC: &[u8] = b"OKVT27R1";
 const RUN_RECEIPT_MAGIC: &[u8] = b"OKVT27C1";
+const STRATUM_RECEIPT_MAGIC: &[u8] = b"OKVT27S1";
 const WORKLOAD_MAGIC: &[u8] = b"OKVT27W1";
 const INCARNATION_RECEIPT_MAGIC: &[u8] = b"OKVT27I1";
 const POISON_RECEIPT_MAGIC: &[u8] = b"OKVT27X1";
@@ -884,6 +885,41 @@ pub struct T27StratumComparisonV1 {
     pub passed: bool,
 }
 
+/// Immutable completion evidence for one complete resumable T27 stratum.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T27StratumRunReceiptV1 {
+    pub schema_version: u32,
+    pub controller_id: String,
+    pub lease_id: String,
+    pub lease_acquired_at: String,
+    pub lease_released_at: String,
+    pub plan_sha256: String,
+    pub workload_sha256: String,
+    pub execution_sha256: String,
+    pub runtime_source_sha256: String,
+    pub runtime_executable_sha256: String,
+    pub runtime_cargo_lock_sha256: String,
+    pub stratum_id: String,
+    pub started_at: String,
+    pub finished_at: String,
+    pub position_ordinals: Vec<u64>,
+    pub position_receipt_sha256s: Vec<String>,
+    pub comparisons: Vec<T27StratumComparisonV1>,
+    pub telemetry_run_id: String,
+    pub telemetry_endpoint_sha256: String,
+    pub telemetry_required_signals: Vec<String>,
+    pub telemetry_emitted_positions: u64,
+    pub telemetry_metrics_flush_succeeded: bool,
+    pub telemetry_traces_flush_succeeded: bool,
+    pub telemetry_logs_flush_succeeded: bool,
+    pub telemetry_metrics_shutdown_succeeded: bool,
+    pub telemetry_traces_shutdown_succeeded: bool,
+    pub telemetry_logs_shutdown_succeeded: bool,
+    pub passed: bool,
+    pub receipt_sha256: String,
+}
+
 /// Immutable completion evidence for one sequential fresh-process plan run.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -910,6 +946,241 @@ pub struct T27PlanRunReceiptV1 {
     pub telemetry_logs_shutdown_succeeded: bool,
     pub passed: bool,
     pub receipt_sha256: String,
+}
+
+impl T27StratumRunReceiptV1 {
+    /// Build and validate one complete stratum receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when receipts do not cover one exact planned stratum,
+    /// process identities overlap, comparisons are incomplete, or telemetry is
+    /// not bound to the run.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        plan: &T27ExecutionPlanV1,
+        stratum_id: String,
+        receipts: &[T27PositionReceiptV1],
+        started_at: String,
+        finished_at: String,
+        lease_id: String,
+        lease_acquired_at: String,
+        lease_released_at: String,
+        telemetry_endpoint_sha256: String,
+        telemetry_flush: TelemetryFlushReport,
+    ) -> Result<Self, String> {
+        validate_t27_stratum_position_receipts(plan, &stratum_id, receipts)?;
+        if !valid_sha256(&telemetry_endpoint_sha256) {
+            return Err("T27 stratum telemetry endpoint digest is invalid".to_owned());
+        }
+        let comparisons = build_t27_comparisons(receipts)?;
+        if comparisons.len() != 2 {
+            return Err("T27 stratum did not produce both AB and BA comparisons".to_owned());
+        }
+        let controller_id = receipts
+            .first()
+            .map(|value| value.controller_id.clone())
+            .ok_or_else(|| "T27 stratum run has no position receipts".to_owned())?;
+        let passed = comparisons.iter().all(|comparison| comparison.passed)
+            && telemetry_flush.all_succeeded();
+        let mut receipt = Self {
+            schema_version: RECEIPT_SCHEMA_VERSION,
+            controller_id: controller_id.clone(),
+            lease_id,
+            lease_acquired_at,
+            lease_released_at,
+            plan_sha256: plan.plan_sha256.clone(),
+            workload_sha256: plan.calculated_workload_sha256(),
+            execution_sha256: plan.execution.calculated_execution_sha256(),
+            runtime_source_sha256: plan.execution.runtime_source_sha256.clone(),
+            runtime_executable_sha256: plan.execution.runtime_executable_sha256.clone(),
+            runtime_cargo_lock_sha256: plan.execution.runtime_cargo_lock_sha256.clone(),
+            stratum_id,
+            started_at,
+            finished_at,
+            position_ordinals: receipts
+                .iter()
+                .map(|value| value.position.ordinal)
+                .collect(),
+            position_receipt_sha256s: receipts
+                .iter()
+                .map(|value| value.receipt_sha256.clone())
+                .collect(),
+            comparisons,
+            telemetry_run_id: controller_id,
+            telemetry_endpoint_sha256,
+            telemetry_required_signals: vec![
+                "logs".to_owned(),
+                "metrics".to_owned(),
+                "traces".to_owned(),
+            ],
+            telemetry_emitted_positions: u64::try_from(receipts.len()).unwrap_or(u64::MAX),
+            telemetry_metrics_flush_succeeded: telemetry_flush.metrics_flush_succeeded,
+            telemetry_traces_flush_succeeded: telemetry_flush.traces_flush_succeeded,
+            telemetry_logs_flush_succeeded: telemetry_flush.logs_flush_succeeded,
+            telemetry_metrics_shutdown_succeeded: telemetry_flush.metrics_shutdown_succeeded,
+            telemetry_traces_shutdown_succeeded: telemetry_flush.traces_shutdown_succeeded,
+            telemetry_logs_shutdown_succeeded: telemetry_flush.logs_shutdown_succeeded,
+            passed,
+            receipt_sha256: String::new(),
+        };
+        receipt.receipt_sha256 = receipt.calculated_receipt_sha256();
+        receipt.validate(plan, receipts)?;
+        Ok(receipt)
+    }
+
+    /// Return the digest of the canonical stratum receipt fields.
+    #[must_use]
+    pub fn calculated_receipt_sha256(&self) -> String {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(STRATUM_RECEIPT_MAGIC);
+        bytes.extend_from_slice(&self.schema_version.to_be_bytes());
+        for value in [
+            &self.controller_id,
+            &self.lease_id,
+            &self.lease_acquired_at,
+            &self.lease_released_at,
+            &self.plan_sha256,
+            &self.workload_sha256,
+            &self.execution_sha256,
+            &self.runtime_source_sha256,
+            &self.runtime_executable_sha256,
+            &self.runtime_cargo_lock_sha256,
+            &self.stratum_id,
+            &self.started_at,
+            &self.finished_at,
+        ] {
+            push_string(&mut bytes, value);
+        }
+        bytes.extend_from_slice(
+            &u64::try_from(self.position_ordinals.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        for ordinal in &self.position_ordinals {
+            bytes.extend_from_slice(&ordinal.to_be_bytes());
+        }
+        bytes.extend_from_slice(
+            &u64::try_from(self.position_receipt_sha256s.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        for digest in &self.position_receipt_sha256s {
+            push_string(&mut bytes, digest);
+        }
+        bytes.extend_from_slice(
+            &u64::try_from(self.comparisons.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        for comparison in &self.comparisons {
+            encode_t27_comparison(&mut bytes, comparison);
+        }
+        push_string(&mut bytes, &self.telemetry_run_id);
+        push_string(&mut bytes, &self.telemetry_endpoint_sha256);
+        bytes.extend_from_slice(
+            &u64::try_from(self.telemetry_required_signals.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        for signal in &self.telemetry_required_signals {
+            push_string(&mut bytes, signal);
+        }
+        bytes.extend_from_slice(&self.telemetry_emitted_positions.to_be_bytes());
+        bytes.push(u8::from(self.telemetry_metrics_flush_succeeded));
+        bytes.push(u8::from(self.telemetry_traces_flush_succeeded));
+        bytes.push(u8::from(self.telemetry_logs_flush_succeeded));
+        bytes.push(u8::from(self.telemetry_metrics_shutdown_succeeded));
+        bytes.push(u8::from(self.telemetry_traces_shutdown_succeeded));
+        bytes.push(u8::from(self.telemetry_logs_shutdown_succeeded));
+        bytes.push(u8::from(self.passed));
+        sha256(&bytes)
+    }
+
+    /// Validate one stratum completion receipt and all referenced positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for incomplete, reordered, overlapping, or tampered
+    /// evidence.
+    pub fn validate(
+        &self,
+        plan: &T27ExecutionPlanV1,
+        receipts: &[T27PositionReceiptV1],
+    ) -> Result<(), String> {
+        validate_t27_stratum_position_receipts(plan, &self.stratum_id, receipts)?;
+        let started = DateTime::parse_from_rfc3339(&self.started_at)
+            .map_err(|_| "T27 stratum start timestamp is invalid".to_owned())?;
+        let finished = DateTime::parse_from_rfc3339(&self.finished_at)
+            .map_err(|_| "T27 stratum finish timestamp is invalid".to_owned())?;
+        let lease_acquired = DateTime::parse_from_rfc3339(&self.lease_acquired_at)
+            .map_err(|_| "T27 stratum lease acquisition timestamp is invalid".to_owned())?;
+        let lease_released = DateTime::parse_from_rfc3339(&self.lease_released_at)
+            .map_err(|_| "T27 stratum lease release timestamp is invalid".to_owned())?;
+        Uuid::parse_str(&self.lease_id)
+            .map_err(|_| "T27 stratum lease ID is invalid".to_owned())?;
+        let first = receipts
+            .first()
+            .ok_or_else(|| "T27 stratum has no first position".to_owned())?;
+        let last = receipts
+            .last()
+            .ok_or_else(|| "T27 stratum has no last position".to_owned())?;
+        let first_started = DateTime::parse_from_rfc3339(&first.started_at)
+            .map_err(|_| "T27 stratum first position timestamp is invalid".to_owned())?;
+        let last_finished = DateTime::parse_from_rfc3339(&last.finished_at)
+            .map_err(|_| "T27 stratum last position timestamp is invalid".to_owned())?;
+        let comparisons = build_t27_comparisons(receipts)?;
+        if self.schema_version != RECEIPT_SCHEMA_VERSION
+            || self.controller_id != first.controller_id
+            || self.lease_id != first.lease_id
+            || self.plan_sha256 != plan.plan_sha256
+            || self.workload_sha256 != plan.calculated_workload_sha256()
+            || self.execution_sha256 != plan.execution.calculated_execution_sha256()
+            || self.runtime_source_sha256 != plan.execution.runtime_source_sha256
+            || self.runtime_executable_sha256 != plan.execution.runtime_executable_sha256
+            || self.runtime_cargo_lock_sha256 != plan.execution.runtime_cargo_lock_sha256
+            || self.position_ordinals
+                != receipts
+                    .iter()
+                    .map(|value| value.position.ordinal)
+                    .collect::<Vec<_>>()
+            || self.position_receipt_sha256s
+                != receipts
+                    .iter()
+                    .map(|value| value.receipt_sha256.clone())
+                    .collect::<Vec<_>>()
+            || self.comparisons != comparisons
+            || self.comparisons.len() != 2
+            || self.telemetry_run_id != self.controller_id
+            || !valid_sha256(&self.telemetry_endpoint_sha256)
+            || self.telemetry_required_signals != ["logs", "metrics", "traces"]
+            || self.telemetry_emitted_positions != u64::try_from(receipts.len()).unwrap_or(u64::MAX)
+            || self.passed
+                != (self.comparisons.iter().all(|comparison| comparison.passed)
+                    && self.telemetry_export_succeeded())
+            || finished < started
+            || lease_released < lease_acquired
+            || lease_released < finished
+            || lease_acquired > first_started
+            || lease_released < last_finished
+            || first_started < started
+            || last_finished > finished
+            || self.receipt_sha256 != self.calculated_receipt_sha256()
+        {
+            return Err("T27 stratum run receipt identity mismatch".to_owned());
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub const fn telemetry_export_succeeded(&self) -> bool {
+        self.telemetry_metrics_flush_succeeded
+            && self.telemetry_traces_flush_succeeded
+            && self.telemetry_logs_flush_succeeded
+            && self.telemetry_metrics_shutdown_succeeded
+            && self.telemetry_traces_shutdown_succeeded
+            && self.telemetry_logs_shutdown_succeeded
+    }
 }
 
 impl T27PlanRunReceiptV1 {
@@ -1005,53 +1276,7 @@ impl T27PlanRunReceiptV1 {
                 .to_be_bytes(),
         );
         for comparison in &self.comparisons {
-            push_string(&mut bytes, &comparison.stratum_id);
-            bytes.push(match comparison.order {
-                T27ComparisonOrderV1::Ab => 1,
-                T27ComparisonOrderV1::Ba => 2,
-            });
-            bytes.extend_from_slice(&comparison.sample_pairs.to_be_bytes());
-            bytes.extend_from_slice(&comparison.native_throughput_ratio.to_bits().to_be_bytes());
-            bytes.extend_from_slice(&comparison.native_p99_ratio.to_bits().to_be_bytes());
-            bytes.extend_from_slice(&comparison.native_cpu_per_read_ratio.to_bits().to_be_bytes());
-            bytes.extend_from_slice(
-                &comparison
-                    .native_block_cache_misses_per_read
-                    .to_bits()
-                    .to_be_bytes(),
-            );
-            bytes.extend_from_slice(
-                &comparison
-                    .control_block_cache_misses_per_read
-                    .to_bits()
-                    .to_be_bytes(),
-            );
-            bytes.extend_from_slice(
-                &comparison
-                    .native_physical_bytes_per_read
-                    .to_bits()
-                    .to_be_bytes(),
-            );
-            bytes.extend_from_slice(
-                &comparison
-                    .control_physical_bytes_per_read
-                    .to_bits()
-                    .to_be_bytes(),
-            );
-            bytes.extend_from_slice(
-                &comparison
-                    .native_physical_bytes_per_read_ratio
-                    .to_bits()
-                    .to_be_bytes(),
-            );
-            bytes.extend_from_slice(
-                &comparison
-                    .native_read_amplification_ratio
-                    .to_bits()
-                    .to_be_bytes(),
-            );
-            bytes.push(u8::from(comparison.pressure_passed));
-            bytes.push(u8::from(comparison.passed));
+            encode_t27_comparison(&mut bytes, comparison);
         }
         push_string(&mut bytes, &self.telemetry_run_id);
         push_string(&mut bytes, &self.telemetry_endpoint_sha256);
@@ -1196,6 +1421,89 @@ pub fn validate_t27_position_receipts(
         }
     }
     Ok(())
+}
+
+/// Require one nonoverlapping fresh-process receipt for every position in one
+/// exact planned stratum.
+///
+/// # Errors
+///
+/// Returns an error for an unknown stratum, missing, duplicated, reordered,
+/// overlapping, or cross-controller evidence.
+pub fn validate_t27_stratum_position_receipts(
+    plan: &T27ExecutionPlanV1,
+    stratum_id: &str,
+    receipts: &[T27PositionReceiptV1],
+) -> Result<(), String> {
+    plan.validate()?;
+    let expected = plan
+        .positions
+        .iter()
+        .filter(|position| position.stratum_id == stratum_id)
+        .collect::<Vec<_>>();
+    if expected.is_empty() || receipts.len() != expected.len() {
+        return Err("T27 stratum receipt count mismatch".to_owned());
+    }
+    let controller_id = &receipts[0].controller_id;
+    let lease_id = &receipts[0].lease_id;
+    let mut worker_ids = BTreeSet::new();
+    let mut wrapper_process_ids = BTreeSet::new();
+    let mut measured_process_ids = BTreeSet::new();
+    let mut receipt_digests = BTreeSet::new();
+    for (expected, receipt) in expected.into_iter().zip(receipts) {
+        receipt.validate(plan)?;
+        if receipt.position != *expected
+            || receipt.controller_id != *controller_id
+            || receipt.lease_id != *lease_id
+        {
+            return Err("T27 stratum receipts are reordered or cross-controller".to_owned());
+        }
+        if !worker_ids.insert(receipt.worker_id.clone())
+            || !wrapper_process_ids.insert(receipt.wrapper_process_id)
+            || !measured_process_ids.insert((
+                receipt.measured_worker_linux_boot_id.clone(),
+                receipt.measured_worker_process_id,
+                receipt.measured_worker_start_ticks,
+            ))
+            || !receipt_digests.insert(receipt.receipt_sha256.clone())
+        {
+            return Err("T27 stratum reused a worker process or receipt".to_owned());
+        }
+    }
+    for pair in receipts.windows(2) {
+        let previous_finished = DateTime::parse_from_rfc3339(&pair[0].finished_at)
+            .map_err(|_| "T27 stratum position finish timestamp is invalid".to_owned())?;
+        let next_started = DateTime::parse_from_rfc3339(&pair[1].started_at)
+            .map_err(|_| "T27 stratum position start timestamp is invalid".to_owned())?;
+        if next_started < previous_finished {
+            return Err("T27 stratum positions overlap".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn encode_t27_comparison(bytes: &mut Vec<u8>, comparison: &T27StratumComparisonV1) {
+    push_string(bytes, &comparison.stratum_id);
+    bytes.push(match comparison.order {
+        T27ComparisonOrderV1::Ab => 1,
+        T27ComparisonOrderV1::Ba => 2,
+    });
+    bytes.extend_from_slice(&comparison.sample_pairs.to_be_bytes());
+    for value in [
+        comparison.native_throughput_ratio,
+        comparison.native_p99_ratio,
+        comparison.native_cpu_per_read_ratio,
+        comparison.native_block_cache_misses_per_read,
+        comparison.control_block_cache_misses_per_read,
+        comparison.native_physical_bytes_per_read,
+        comparison.control_physical_bytes_per_read,
+        comparison.native_physical_bytes_per_read_ratio,
+        comparison.native_read_amplification_ratio,
+    ] {
+        bytes.extend_from_slice(&value.to_bits().to_be_bytes());
+    }
+    bytes.push(u8::from(comparison.pressure_passed));
+    bytes.push(u8::from(comparison.passed));
 }
 
 #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
@@ -2073,10 +2381,11 @@ fn valid_sha256(value: &str) -> bool {
 mod tests {
     use super::{
         build_positions, build_t27_execution_incarnation, build_t27_execution_plan,
-        decode_t27_execution_plan, validate_t27_position_receipts, verify_t27_plan_poison,
-        verify_t27_position_poison, T27ExecutionEnvelopeV1, T27ExecutionPlanV1,
-        T27ExpectedIdentityV1, T27PlanPoisonV1, T27PlanProfileV1, T27PlanRunReceiptV1,
-        T27PlanSubjectV1, T27PositionObservationV1, T27PositionPoisonV1, T27PositionReceiptV1,
+        decode_t27_execution_plan, validate_t27_position_receipts,
+        validate_t27_stratum_position_receipts, verify_t27_plan_poison, verify_t27_position_poison,
+        T27ExecutionEnvelopeV1, T27ExecutionPlanV1, T27ExpectedIdentityV1, T27PlanPoisonV1,
+        T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
+        T27PositionPoisonV1, T27PositionReceiptV1, T27StratumRunReceiptV1,
     };
     use crate::object_fixture::{FixturePlacementLocatorV1, ObjectFixtureLocatorV1};
     use crate::telemetry::TelemetryFlushReport;
@@ -2353,6 +2662,63 @@ mod tests {
         .expect("build run receipt");
         run.validate(&plan, &receipts)
             .expect("validate run receipt");
+    }
+
+    #[test]
+    fn one_complete_stratum_is_an_authenticated_resumable_unit() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let receipts = plan
+            .positions
+            .iter()
+            .enumerate()
+            .map(|(index, position)| receipt(&plan, index, position.subject))
+            .collect::<Vec<_>>();
+        let stratum_id = plan.positions[0].stratum_id.clone();
+
+        validate_t27_stratum_position_receipts(&plan, &stratum_id, &receipts)
+            .expect("validate complete stratum");
+        let run = T27StratumRunReceiptV1::new(
+            &plan,
+            stratum_id,
+            &receipts,
+            "2026-08-29T01:00:00Z".to_owned(),
+            "2026-08-29T01:00:08Z".to_owned(),
+            "30000000-0000-4000-8000-000000000001".to_owned(),
+            "2026-08-29T00:59:59Z".to_owned(),
+            "2026-08-29T01:00:09Z".to_owned(),
+            "d".repeat(64),
+            TelemetryFlushReport::succeeded(),
+        )
+        .expect("build stratum run receipt");
+
+        assert!(run.passed);
+        assert_eq!(run.workload_sha256, plan.calculated_workload_sha256());
+        assert_eq!(
+            run.execution_sha256,
+            plan.execution.calculated_execution_sha256()
+        );
+        assert_eq!(run.position_ordinals, vec![0, 1, 2, 3]);
+        assert_eq!(run.comparisons.len(), 2);
+        run.validate(&plan, &receipts)
+            .expect("validate stratum run receipt");
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../evals/schema/t27-stratum-run-receipt-v1.schema.json"
+        ))
+        .expect("decode stratum receipt schema");
+        let validator = jsonschema::validator_for(&schema).expect("compile stratum schema");
+        let instance = serde_json::to_value(&run).expect("encode stratum receipt");
+        validator
+            .validate(&instance)
+            .expect("stratum receipt must satisfy its schema");
+
+        let error = validate_t27_stratum_position_receipts(
+            &plan,
+            &run.stratum_id,
+            &receipts[..receipts.len() - 1],
+        )
+        .expect_err("partial stratum must fail closed");
+        assert!(error.contains("count mismatch"));
     }
 
     #[test]

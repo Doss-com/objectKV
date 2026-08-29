@@ -84,9 +84,9 @@ use okv_eval::t27_plan::{
     derive_t27_expected_identity, verify_t27_plan_poison, verify_t27_position_poison,
     T27AccessPatternV1, T27ExecutionEnvelopeV1, T27PlanPoisonV1, T27PlanProfileV1,
     T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1, T27PositionPoisonV1,
-    T27PositionReceiptV1,
+    T27PositionReceiptV1, T27StratumRunReceiptV1,
 };
-use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry};
+use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
     run_transaction_batch_contract, TransactionBatchMode, TransactionBatchProfile,
     TransactionBatchReport,
@@ -173,6 +173,18 @@ struct T27HostLease {
     lease_id: String,
     acquired_at: String,
     path: PathBuf,
+}
+
+struct T27ControllerRunOutcome {
+    plan: okv_eval::t27_plan::T27ExecutionPlanV1,
+    receipts: Vec<T27PositionReceiptV1>,
+    started_at: String,
+    finished_at: String,
+    lease_id: String,
+    lease_acquired_at: String,
+    lease_released_at: String,
+    telemetry_endpoint_sha256: String,
+    telemetry_flush: TelemetryFlushReport,
 }
 
 impl WorkloadExecution {
@@ -563,6 +575,23 @@ enum Commands {
         plan: PathBuf,
         #[arg(long)]
         expected_plan_sha256: String,
+        #[arg(long)]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long)]
+        machine_receipt: PathBuf,
+        #[arg(long)]
+        scratch_root: PathBuf,
+        #[arg(long)]
+        output_dir: PathBuf,
+    },
+    /// Execute one complete T27 stratum as an authenticated resumable unit.
+    T27StratumRunGcs {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long)]
+        stratum_id: String,
         #[arg(long)]
         runtime_cargo_lock: PathBuf,
         #[arg(long)]
@@ -1285,6 +1314,26 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let receipt = run_t27_plan_controller(
                 &plan,
                 &expected_plan_sha256,
+                &runtime_cargo_lock,
+                &machine_receipt,
+                &scratch_root,
+                &output_dir,
+            )?;
+            println!("{}", serde_json::to_string(&receipt)?);
+        }
+        Commands::T27StratumRunGcs {
+            plan,
+            expected_plan_sha256,
+            stratum_id,
+            runtime_cargo_lock,
+            machine_receipt,
+            scratch_root,
+            output_dir,
+        } => {
+            let receipt = run_t27_stratum_controller(
+                &plan,
+                &expected_plan_sha256,
+                &stratum_id,
                 &runtime_cargo_lock,
                 &machine_receipt,
                 &scratch_root,
@@ -6580,15 +6629,24 @@ fn run_t27_plan_position(
 }
 
 #[allow(clippy::too_many_lines)]
-fn run_t27_plan_controller(
+fn run_t27_positions_controller(
     plan_path: &Path,
     expected_plan_sha256: &str,
+    stratum_id: Option<&str>,
     runtime_cargo_lock: &Path,
     machine_receipt: &Path,
     scratch_root: &Path,
     output_dir: &Path,
-) -> Result<T27PlanRunReceiptV1, Box<dyn Error>> {
+) -> Result<T27ControllerRunOutcome, Box<dyn Error>> {
     let plan = decode_t27_execution_plan(&fs::read(plan_path)?, expected_plan_sha256)?;
+    let positions = plan
+        .positions
+        .iter()
+        .filter(|position| stratum_id.is_none_or(|value| position.stratum_id == value))
+        .collect::<Vec<_>>();
+    if positions.is_empty() {
+        return Err(std::io::Error::other("T27 stratum is absent from the immutable plan").into());
+    }
     let observed_execution = capture_t27_execution_envelope(
         &plan.execution.runtime_source_sha256,
         runtime_cargo_lock,
@@ -6617,6 +6675,7 @@ fn run_t27_plan_controller(
     };
     let metric_registry: MetricRegistry =
         toml::from_str(include_str!("../../../evals/metrics.toml"))?;
+    let profile_id = stratum_id.map_or_else(|| "t27".to_owned(), |value| format!("t27-{value}"));
     let telemetry_resource = RunResource {
         service_version: env!("CARGO_PKG_VERSION").to_owned(),
         environment: "objectkv-dev-gcs".to_owned(),
@@ -6624,7 +6683,7 @@ fn run_t27_plan_controller(
         batch_id: controller_id.clone(),
         suite_id: "t27-native-vs-direct-rocksdb".to_owned(),
         suite_hash: plan.plan_sha256.clone(),
-        profile_id: "t27".to_owned(),
+        profile_id: profile_id.clone(),
         profile_hash: plan.plan_sha256.clone(),
         candidate_commit: plan.execution.runtime_source_sha256.clone(),
         backend: "gcs+nvme+rocksdb".to_owned(),
@@ -6635,6 +6694,7 @@ fn run_t27_plan_controller(
         "okv.eval.t27.run",
         run.id = %controller_id,
         plan.sha256 = %plan.plan_sha256,
+        stratum.id = stratum_id.unwrap_or("all"),
         profile = ?plan.profile
     );
     let run_guard = run_span.enter();
@@ -6647,13 +6707,14 @@ fn run_t27_plan_controller(
         "lease_id": &host_lease.lease_id,
         "host_lease_path": &host_lease.path,
         "plan_sha256": &plan.plan_sha256,
+        "stratum_id": stratum_id,
         "started_at": &started_at,
         "process_id": std::process::id()
     }))?;
     write_new_file(&output_dir.join("controller-lease.json"), &lease)?;
     let executable = std::env::current_exe()?;
-    let mut receipts = Vec::with_capacity(plan.positions.len());
-    for position in &plan.positions {
+    let mut receipts = Vec::with_capacity(positions.len());
+    for position in positions {
         let worker_id = Uuid::new_v4().to_string();
         let position_span = info_span!(
             "okv.eval.t27.position",
@@ -6748,9 +6809,9 @@ fn run_t27_plan_controller(
     let lease_id = host_lease.lease_id.clone();
     let lease_acquired_at = host_lease.acquired_at.clone();
     let lease_released_at = host_lease.release()?;
-    let run_receipt = T27PlanRunReceiptV1::new(
-        &plan,
-        &receipts,
+    Ok(T27ControllerRunOutcome {
+        plan,
+        receipts,
         started_at,
         finished_at,
         lease_id,
@@ -6758,6 +6819,37 @@ fn run_t27_plan_controller(
         lease_released_at,
         telemetry_endpoint_sha256,
         telemetry_flush,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_t27_plan_controller(
+    plan_path: &Path,
+    expected_plan_sha256: &str,
+    runtime_cargo_lock: &Path,
+    machine_receipt: &Path,
+    scratch_root: &Path,
+    output_dir: &Path,
+) -> Result<T27PlanRunReceiptV1, Box<dyn Error>> {
+    let outcome = run_t27_positions_controller(
+        plan_path,
+        expected_plan_sha256,
+        None,
+        runtime_cargo_lock,
+        machine_receipt,
+        scratch_root,
+        output_dir,
+    )?;
+    let run_receipt = T27PlanRunReceiptV1::new(
+        &outcome.plan,
+        &outcome.receipts,
+        outcome.started_at,
+        outcome.finished_at,
+        outcome.lease_id,
+        outcome.lease_acquired_at,
+        outcome.lease_released_at,
+        outcome.telemetry_endpoint_sha256,
+        outcome.telemetry_flush,
     )?;
     write_new_file(
         &output_dir.join("plan-run.json"),
@@ -6768,6 +6860,51 @@ fn run_t27_plan_controller(
         return Err(std::io::Error::other(format!(
             "T27 plan failed one or more ABBA or telemetry admission gates; sealed evidence is at {}",
             output_dir.join("plan-run.json").display()
+        ))
+        .into());
+    }
+    Ok(run_receipt)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_t27_stratum_controller(
+    plan_path: &Path,
+    expected_plan_sha256: &str,
+    stratum_id: &str,
+    runtime_cargo_lock: &Path,
+    machine_receipt: &Path,
+    scratch_root: &Path,
+    output_dir: &Path,
+) -> Result<T27StratumRunReceiptV1, Box<dyn Error>> {
+    let outcome = run_t27_positions_controller(
+        plan_path,
+        expected_plan_sha256,
+        Some(stratum_id),
+        runtime_cargo_lock,
+        machine_receipt,
+        scratch_root,
+        output_dir,
+    )?;
+    let run_receipt = T27StratumRunReceiptV1::new(
+        &outcome.plan,
+        stratum_id.to_owned(),
+        &outcome.receipts,
+        outcome.started_at,
+        outcome.finished_at,
+        outcome.lease_id,
+        outcome.lease_acquired_at,
+        outcome.lease_released_at,
+        outcome.telemetry_endpoint_sha256,
+        outcome.telemetry_flush,
+    )?;
+    write_new_file(
+        &output_dir.join("stratum-run.json"),
+        &serde_json::to_vec_pretty(&run_receipt)?,
+    )?;
+    if !run_receipt.passed {
+        return Err(std::io::Error::other(format!(
+            "T27 stratum failed one or more ABBA or telemetry admission gates; sealed evidence is at {}",
+            output_dir.join("stratum-run.json").display()
         ))
         .into());
     }
