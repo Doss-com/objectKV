@@ -48,6 +48,11 @@ const GENERATION: u64 = 7;
 const LOGICAL_TXLOG_ROOT: &str = "wal-g7";
 const PAGE_RECORDS: u32 = 2;
 const BASE_BATCH_KEYS: usize = 32;
+const DEFAULT_PROCESS_BARRIER_TIMEOUT_MILLIS: u64 = 10_000;
+const FIXTURE_BARRIER_BASE_SECONDS: u64 = 30;
+const FIXTURE_BARRIER_MIN_SECONDS: u64 = 60;
+const FIXTURE_BARRIER_MAX_SECONDS: u64 = 30 * 60;
+const FIXTURE_RECONSTRUCTION_FLOOR_BYTES_PER_SECOND: u64 = 2 * 1_024 * 1_024;
 
 /// Frozen subject behavior for the G4.4 retained-stream recovery contract.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -117,11 +122,29 @@ pub struct OpenRaftServingProcessConfig {
     pub mode: OpenRaftServingRecoveryMode,
     pub initial_catchup_barrier: PathBuf,
     pub continue_barrier: PathBuf,
+    #[serde(default = "default_process_barrier_timeout_millis")]
+    pub process_barrier_timeout_millis: u64,
     pub max_page_records: u32,
     #[serde(default)]
     pub hot_read: Option<OpenRaftHotReadProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub object_fixture: Option<OpenRaftObjectFixtureProcessConfig>,
+}
+
+const fn default_process_barrier_timeout_millis() -> u64 {
+    DEFAULT_PROCESS_BARRIER_TIMEOUT_MILLIS
+}
+
+impl OpenRaftServingProcessConfig {
+    fn process_barrier_timeout(&self) -> Result<Duration, String> {
+        if !(1..=FIXTURE_BARRIER_MAX_SECONDS * 1_000).contains(&self.process_barrier_timeout_millis)
+        {
+            return Err(
+                "serving process barrier timeout is outside the bounded contract".to_owned(),
+            );
+        }
+        Ok(Duration::from_millis(self.process_barrier_timeout_millis))
+    }
 }
 
 /// Immutable object-fixture identity supplied to one fresh resident process.
@@ -862,7 +885,7 @@ pub async fn run_openraft_serving_recovery_node(
     }
     let (mut worker, initial_target, initial_applied) = OpenWorker::open(&config).await?;
     create_barrier(&config.initial_catchup_barrier, "initial_catchup_complete")?;
-    wait_for_continue(&config.continue_barrier)?;
+    wait_for_continue(&config.continue_barrier, config.process_barrier_timeout()?)?;
     let (activation_target, concurrent_observed, concurrent_applied) =
         worker.catch_up(None, true).await?;
     if config.mode == OpenRaftServingRecoveryMode::FullHydrationControl {
@@ -1012,7 +1035,7 @@ async fn run_integrated_kernel_node(
     .await
     .map_err(|error| error.to_string())?;
     create_barrier(&config.initial_catchup_barrier, "initial_catchup_complete")?;
-    wait_for_continue(&config.continue_barrier)?;
+    wait_for_continue(&config.continue_barrier, config.process_barrier_timeout()?)?;
     let concurrent = range
         .catch_up(None)
         .await
@@ -1241,7 +1264,7 @@ async fn run_standalone_direct_control_node(
         return Err("standalone direct control did not read a complete initial tail".to_owned());
     }
     create_barrier(&config.initial_catchup_barrier, "initial_catchup_complete")?;
-    wait_for_continue(&config.continue_barrier)?;
+    wait_for_continue(&config.continue_barrier, config.process_barrier_timeout()?)?;
     let activated = txlog
         .read(RetainedTransactionReadRequest {
             after_version_exclusive: fixture.base_version,
@@ -3015,6 +3038,8 @@ async fn run_contract(
         }
     };
     let mut read_version = object_durable_version;
+    let process_barrier_timeout_millis =
+        object_fixture_process_barrier_timeout_millis(object_fixture.as_ref());
     if matches!(
         mode,
         OpenRaftServingRecoveryMode::IntegratedKernelCandidate
@@ -3068,12 +3093,14 @@ async fn run_contract(
         mode,
         initial_catchup_barrier: first_initial.clone(),
         continue_barrier: first_continue,
+        process_barrier_timeout_millis,
         max_page_records,
         hot_read,
         object_fixture,
     };
+    let process_barrier_timeout = first_config.process_barrier_timeout()?;
     let mut first = spawn_worker(executable, &first_config, false)?;
-    wait_for_barrier(&mut first, &first_initial)?;
+    wait_for_barrier(&mut first, &first_initial, process_barrier_timeout)?;
     first.kill().map_err(|error| error.to_string())?;
     first.wait().map_err(|error| error.to_string())?;
 
@@ -3086,7 +3113,11 @@ async fn run_contract(
         ..first_config
     };
     let mut replacement = spawn_worker(executable, &replacement_config, true)?;
-    wait_for_barrier(&mut replacement, &replacement_initial)?;
+    wait_for_barrier(
+        &mut replacement,
+        &replacement_initial,
+        process_barrier_timeout,
+    )?;
     let replacement_process_id = replacement.id();
     let replacement_linux_identity = linux_process_identity(replacement_process_id);
     let initial_target = read_version;
@@ -4056,8 +4087,31 @@ fn linux_process_identity(process_id: u32) -> Option<OpenRaftWorkerProcessIdenti
     })
 }
 
-fn wait_for_barrier(child: &mut std::process::Child, path: &Path) -> Result<(), String> {
-    for _ in 0..1_000 {
+fn object_fixture_process_barrier_timeout_millis(
+    fixture: Option<&OpenRaftObjectFixtureProcessConfig>,
+) -> u64 {
+    let Some(fixture) = fixture else {
+        return DEFAULT_PROCESS_BARRIER_TIMEOUT_MILLIS;
+    };
+    let logical_bytes = fixture
+        .key_count
+        .saturating_mul(u64::try_from(fixture.value_bytes).unwrap_or(u64::MAX));
+    let reconstruction_seconds = logical_bytes
+        .saturating_add(FIXTURE_RECONSTRUCTION_FLOOR_BYTES_PER_SECOND - 1)
+        / FIXTURE_RECONSTRUCTION_FLOOR_BYTES_PER_SECOND;
+    FIXTURE_BARRIER_BASE_SECONDS
+        .saturating_add(reconstruction_seconds)
+        .clamp(FIXTURE_BARRIER_MIN_SECONDS, FIXTURE_BARRIER_MAX_SECONDS)
+        .saturating_mul(1_000)
+}
+
+fn wait_for_barrier(
+    child: &mut std::process::Child,
+    path: &Path,
+    timeout: Duration,
+) -> Result<(), String> {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
         if path.is_file() {
             return Ok(());
         }
@@ -4073,17 +4127,24 @@ fn wait_for_barrier(child: &mut std::process::Child, path: &Path) -> Result<(), 
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    Err("serving worker did not reach catch-up barrier".to_owned())
+    Err(format!(
+        "serving worker did not reach catch-up barrier within {} ms",
+        timeout.as_millis()
+    ))
 }
 
-fn wait_for_continue(path: &Path) -> Result<(), String> {
-    for _ in 0..1_000 {
+fn wait_for_continue(path: &Path, timeout: Duration) -> Result<(), String> {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
         if path.is_file() {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    Err("serving worker did not receive concurrent-commit barrier".to_owned())
+    Err(format!(
+        "serving worker did not receive concurrent-commit barrier within {} ms",
+        timeout.as_millis()
+    ))
 }
 
 fn create_barrier(path: &Path, state: &str) -> Result<(), String> {
@@ -4239,8 +4300,9 @@ fn count_as_f64(value: u64) -> f64 {
 mod tests {
     use super::{
         base_value, direct_logical_image, history_after_base, hot_operation_keys, hot_trace_sha256,
-        key_bytes, object_fixture_workload_seed, validate_unchanged_base_values,
-        OpenRaftHotReadAccessPattern, OpenRaftServingRecoveryMode, ServingRecoveryProfile,
+        key_bytes, object_fixture_process_barrier_timeout_millis, object_fixture_workload_seed,
+        validate_unchanged_base_values, OpenRaftHotReadAccessPattern,
+        OpenRaftObjectFixtureProcessConfig, OpenRaftServingRecoveryMode, ServingRecoveryProfile,
         TailOverlay,
     };
     #[cfg(feature = "resident-rocksdb")]
@@ -4253,6 +4315,35 @@ mod tests {
     use okv_consensus::{RetainedTransactionRecord, TransactionMutation};
     use okv_object::RowRecord;
     use okv_transaction::{KeyRange, TransactionCommand};
+
+    #[test]
+    fn object_fixture_barrier_timeout_scales_with_logical_bytes_and_stays_bounded() {
+        let fixture = |key_count| OpenRaftObjectFixtureProcessConfig {
+            fixture_seed: 4_244,
+            fixture_id: "fixture".to_owned(),
+            descriptor_length: 1,
+            descriptor_sha256: "0".repeat(64),
+            descriptor_generation: Some("1".to_owned()),
+            base_version: 2,
+            key_count,
+            value_bytes: 1_024,
+            regenerate_control_poison: false,
+        };
+
+        assert_eq!(object_fixture_process_barrier_timeout_millis(None), 10_000);
+        assert_eq!(
+            object_fixture_process_barrier_timeout_millis(Some(&fixture(65_536))),
+            62_000
+        );
+        assert_eq!(
+            object_fixture_process_barrier_timeout_millis(Some(&fixture(1_048_576))),
+            542_000
+        );
+        assert_eq!(
+            object_fixture_process_barrier_timeout_millis(Some(&fixture(u64::MAX))),
+            1_800_000
+        );
+    }
 
     #[test]
     fn range_clear_orders_against_point_updates() {
