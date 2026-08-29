@@ -609,8 +609,10 @@ become one GitHub issue.
   anchor across 20 fresh authorities plus the changed-identity bypass poison;
   `[VERIFIED]` local 4 MiB zero-base-txLog, exact-tail, complete-closure,
   semantic subject-image identity, and four-poison contracts;
-  `[EVALUATING]` actual fresh-process native/control image construction and one
-  persisted fixture reused across candidate, control, and both process orders;
+  `[VERIFIED]` actual fresh-process native/control image construction from one
+  fixture and exact tail, plus regenerated-control poison detection;
+  `[EVALUATING]` one persisted fixture reused across candidate, control, and
+  both process orders;
   `[PROPOSED]` 64 MiB setup preflight and frozen 1 GiB paired GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
@@ -623,7 +625,9 @@ become one GitHub issue.
   receipts. The phase-0 bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the
   phase-1 identity and closure receipt is under
-  `docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/`.
+  `docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/`;
+  the phase-2 process receipt is under
+  `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/`.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 

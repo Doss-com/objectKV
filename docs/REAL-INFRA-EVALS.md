@@ -269,6 +269,17 @@ did not require OTel and does not admit a performance point or persisted GCS
 reuse. See
 `docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/README.md`.
 
+`[VERIFIED]` An eleventh bounded R0 execution verified RFC-0044 phase 2 from
+clean source `1ae2eded0c7d4da856aa8bbb65d5cacb3c500b28`. Independent empty
+native and direct-control workers verified the same 4 MiB fixture and exact
+seven-record txLog tail, then built actual RocksDB resident images. The image
+IDs differ while the complete logical digest is equal. Native used 8,769,143
+local bytes, control used 4,331,990, and both issued zero object requests in
+their short semantic read window. The candidate pair and regenerated-control
+poison receipts returned `keep` with no failed hard gates. This does not admit
+a performance point. See
+`docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7
@@ -401,8 +412,7 @@ zero matching instances, disks, firewall rules, subnetworks, or routers remain.
 
 The next receipt sequence remains incremental:
 
-1. build actual fresh-process native and control images from the verified 4
-   MiB fixture, then persist the same fixture contract in GCS;
+1. persist the verified fresh-process fixture contract in GCS at 64 MiB;
 2. add CPU time, physical bytes, block-cache hits, read amplification, and
    object-fetch attribution;
 3. run warm, mixed, and eviction-heavy points in both process orders;

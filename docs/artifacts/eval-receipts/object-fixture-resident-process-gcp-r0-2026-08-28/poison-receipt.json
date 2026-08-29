@@ -1,0 +1,119 @@
+{
+  "artifact_refs": [
+    "/tmp/resident-poison-final.json"
+  ],
+  "backend": "object-store-local-fs+data-openraft-local-process+rocksdb-resident",
+  "batch_id": "b110122b-4763-4d10-87be-6a34e38d2282",
+  "budget": {
+    "kind": "seconds",
+    "limit": 300.0,
+    "observed": 0.500359784
+  },
+  "candidate_commit": "1ae2eded0c7d4da856aa8bbb65d5cacb3c500b28",
+  "created_at": "2026-08-28T23:15:52.778782396+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "object_fixture_worker_recovery_exact",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "fresh_subject_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "same_fixture_identity",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "same_tail_identity",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "resident_images_distinct",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "resident_logical_image_equal",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "resident_images_nonzero",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "post_activation_zero_object_requests",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "regenerated_control_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=true",
+      "id": "release_build",
+      "status": "pass"
+    }
+  ],
+  "lane": "object-fixture-resident-process",
+  "parent_commit": "e82aa43e9f03cee41b1eeb81490e3d8413fb622e",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.000015099999999990121,
+    "median": 0.5003446840000001,
+    "name": "okv.eval.operation.duration",
+    "samples": [
+      0.500329584,
+      0.500359784
+    ],
+    "statistic": "maximum",
+    "unit": "s",
+    "value": 0.500359784
+  },
+  "profile": {
+    "evidence_class": "contract",
+    "hash": "2b521639af878ccd70f2f71387f3aba7c1520139df5274e2edbf27140ec08709",
+    "id": "local-contract",
+    "lockfile_hash": "85fd5d79ab99965dd3eac6fbba955d57045de2b48e4d2a4bc3ab1d30e2698201",
+    "machine": "x86_64",
+    "rustc": "unknown"
+  },
+  "reason": "all configured hard gates passed",
+  "run_id": "b110122b-4763-4d10-87be-6a34e38d2282",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "object_fixture_resident.control_local_bytes": -0.0,
+    "object_fixture_resident.native_local_bytes": -0.0,
+    "operation.duration.median": 0.500359784
+  },
+  "seeds": [
+    4244
+  ],
+  "suite": "object-fixture-resident-process-v1",
+  "suite_hash": "e394935c7494fcf60abdae4032a361d29d4c55bbe807cf08b1becbc152d27116",
+  "verdict": "keep"
+}

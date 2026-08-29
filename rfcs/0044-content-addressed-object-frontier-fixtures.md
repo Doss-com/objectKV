@@ -1,6 +1,6 @@
 # RFC-0044: Content-addressed object-frontier fixtures
 
-- Status: `[EVALUATING]`, with phases 0 and 1 `[VERIFIED]`
+- Status: `[EVALUATING]`, with phases 0 through 2 `[VERIFIED]`
 - Authors: DOSS
 - Created: 2026-08-28
 - Scope: T27 fixture construction, reuse, and transaction-plane isolation
@@ -351,6 +351,11 @@ The minimum implementation sequence is:
 3. 4 MiB local process recovery with fresh subject directories;
 4. 64 MiB persisted GCS reuse and setup-bound preflight;
 5. frozen 1 GiB T27 suite.
+
+`[VERIFIED]` Steps 1 through 3 passed on clean GCP release builds. Step 3 used
+independent empty native and direct-control processes, one exact fixture and
+tail identity, distinct nonempty physical images, one equal complete logical
+digest, and a regenerated-control poison. Step 4 is the current boundary.
 
 The frozen `native-resident-cache-pressure-rerun-v2` suite and its result
 schema remain byte-identical. RFC-0044 receives a new versioned contract suite

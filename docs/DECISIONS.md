@@ -1480,7 +1480,7 @@ Evidence:
 
 ## D62. Bootstrap evaluation authorities at the object frontier
 
-Status: `[EVALUATING]`, with phases 0 and 1 `[VERIFIED]`, 2026-08-28.
+Status: `[EVALUATING]`, with phases 0 through 2 `[VERIFIED]`, 2026-08-28.
 
 Decision: build one content-addressed logical object fixture, establish its
 covered-through version with one canonical empty transaction on each fresh
@@ -1520,6 +1520,11 @@ Phase 1 reconstructed a 4 MiB logical base from 11 content-addressed objects,
 kept all base values out of txLog, bound one exact seven-record suffix, and
 proved distinct semantic native/control image identities over one equal
 complete logical image. The candidate and four poisons passed from clean
-source. This does not yet verify physical resident image construction or
-persisted reuse. Its receipt is in
+source. Its receipt is in
 `docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/README.md`.
+Phase 2 started independent empty native and direct-control processes from that
+fixture and tail. Their actual physical image IDs differ, their complete
+logical digest is equal, and both formal receipts passed, including the
+regenerated-control poison. Persisted GCS reuse and the 1 GiB performance curve
+remain open. Evidence is in
+`docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md`.

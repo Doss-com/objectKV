@@ -78,8 +78,11 @@ one empty retained record, zero mutations, zero live keys, and exact retry
 after a lost response. The changed-identity bypass poison was detected.
 `[VERIFIED]` Phase 1 now fixes the 4 MiB descriptor, complete immutable
 closure, exact seven-record tail, and distinct native/control semantic image
-identities. Five clean-source candidate and poison receipts passed. Actual
-fresh-process RocksDB image construction and persisted GCS reuse remain
+identities. Five clean-source candidate and poison receipts passed.
+`[VERIFIED]` Phase 2 built native and direct-control RocksDB images in
+independent empty processes from that closure and tail. Their physical IDs
+differ, their complete logical digest is equal, both use nonzero local bytes,
+and the regenerated-control poison failed closed. Persisted GCS reuse remains
 `[EVALUATING]`.
 Three-node replicated commit, RAM, multi-range, PostgreSQL, and HTAP remain
 blocked on the complete T27 gate.
@@ -102,7 +105,7 @@ substitute an upper-layer result for a missing kernel result.
 | # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` buffered 64 MiB calibration: 0.943x and 0.973x throughput, 1.044x and 0.995x p99, 1.059x and 1.030x CPU/read. `[VERIFIED]` direct-read mechanism: 2,960.75 versus 2,966.00 physical B/read, 0.9982x, with 44 hard gates passing. `[VERIFIED]` RFC-0044 phase 0: 20 fresh authorities all assigned `O=2`. `[VERIFIED]` phase 1: a 4 MiB base became 11 immutable objects at `O=2`, zero base values entered txLog, one exact seven-record tail fed distinct native/control semantic identities with one equal complete logical digest, and all five candidate/poison receipts passed. No new performance point was measured. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Build both actual resident images from the verified 4 MiB closure in fresh processes; then run the 64 MiB persisted-GCS setup preflight |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` buffered 64 MiB calibration: 0.943x and 0.973x throughput, 1.044x and 0.995x p99, 1.059x and 1.030x CPU/read. `[VERIFIED]` direct-read mechanism: 2,960.75 versus 2,966.00 physical B/read, 0.9982x, with 44 hard gates passing. `[VERIFIED]` RFC-0044 phases 0 through 2: `O=2` is deterministic, the 4 MiB closure carries zero base values through txLog, and independent empty native/control processes built distinct physical images with one equal complete logical digest from the same seven-record tail. The pair and regenerated-control poison receipts passed. No new performance point was measured. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Run the 64 MiB persisted-GCS setup preflight, then freeze the 1 GiB candidate/control curve |
 | 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Clean GCS dataset-size sweep after row 1 passes |
 | 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Local projected scan reaches 2.544M source rows/s and 4.718x indexed-row scan; clean cloud composition is unmeasured | Preserve row-class point cost, materially improve projected scans, bound resident index and compaction amplification, recover one authenticated closure | Matched row versus column object layout on the same GCS closure |
 | 4 | Native three-node replicated commit | `[EVALUATING]` | One-host G4.10b reaches 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x its one-entry control; independent-media latency is unmeasured | One-range p99 within 1.25x matched-durability control, exact retries and conflicts, zero normal-path object operations, quorum acknowledgement on independent media | Three independent GCP machines and media after rows 1 through 3 |
@@ -152,10 +155,15 @@ all base values out of txLog, bound an exact seven-record suffix, produced
 distinct semantic native/control image IDs with one equal complete logical
 digest, and detected four deliberate poisons. Evidence is under
 `docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/`.
-The next change is actual 4 MiB native and control process recovery from this
-fixture, not another identity-only contract. This turn added semantic evidence
-but no new performance measurement, so row 1 remains `[EVALUATING]` at the
-same admitted ratios.
+RFC-0044 phase 2 is `[VERIFIED]` on clean source `1ae2ede`. Independent empty
+native and direct-control processes verified the same fixture and tail, built
+distinct nonempty RocksDB images, and returned one equal complete logical
+digest. The candidate pair and regenerated-control poison returned `keep`.
+Evidence is under
+`docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/`.
+This turn added semantic process evidence but no new performance measurement,
+so row 1 remains `[EVALUATING]` at the same admitted ratios. The next change is
+the 64 MiB persisted-GCS setup preflight.
 Rows 2 through 7 contain useful mechanism evidence, but none may advance past
 `[EVALUATING]` while its own admission receipt is missing.
 

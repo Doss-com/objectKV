@@ -160,9 +160,20 @@ seven-record tail produced distinct native and control semantic image IDs and
 one equal complete logical image digest. The candidate and four descriptor,
 anchor, tail, and shared-root poisons all returned `keep` with no failing hard
 gate. Local temporary storage reports no persisted cross-subject reuse. This
-is semantic setup evidence, not a performance point. The next slice builds the
-actual fresh-process resident images before GCS persistence. Evidence is in
+is semantic setup evidence, not a performance point. The phase-2 slice below
+builds the actual fresh-process resident images before GCS persistence.
+Evidence is in
 [`docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/README.md).
+
+`[VERIFIED]` RFC-0044 phase 2 ran from clean source
+`1ae2eded0c7d4da856aa8bbb65d5cacb3c500b28` on one disposable GCP builder.
+Independent empty native and direct-control processes verified the same 4 MiB
+fixture and exact seven-record tail. They produced different physical resident
+IDs, the same complete logical digest across 4,099 outcomes, nonzero local
+images, and zero post-activation object requests. The regenerated-control
+poison failed closed. Both formal receipts returned `keep`; no performance
+point was admitted. Evidence is in
+[`docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md).
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
