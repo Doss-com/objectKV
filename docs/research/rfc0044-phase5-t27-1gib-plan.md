@@ -264,7 +264,7 @@ treatment is not reused.
    admission positions, starts one sequential evaluator process per position,
    and seals one receipt with the plan, locator, tail, trace, options, process,
    executable, machine, boot, NVMe device, cache, CPU, I/O, and timing
-   identities. Twenty-five focused plan and controller tests reject AABB, missing,
+   identities. Twenty-six focused plan and controller tests reject AABB, missing,
    altered-option, execution-drift, wrapper-substitution, reused-process,
    overlapping, cross-lease, systematic tail or trace, hidden-provider,
    implicit-cache, malformed-raw-evidence, zero-pressure, telemetry-drift,
@@ -275,8 +275,14 @@ treatment is not reused.
    then flushes and shuts down logs, metrics, and traces before binding all six
    outcomes into the receipt.
 6. `[VERIFIED]` A valid fixture preparation under object-viewer credentials
-   failed with permission denied and created zero objects. `[PROPOSED]` Pass
-   the remaining 64 MiB missing-locator, hidden-cache, and AABB poisons.
+   failed with permission denied and created zero objects. `[CODE-COMPLETE]`
+   `t27-plan-poison-check` now authenticates one valid source plan, creates an
+   exact AABB, missing-position, or option-mismatch artifact, recomputes its
+   internal digest, and passes only when the production decoder returns the
+   intended frozen-contract rejection. Its schema-bound receipt also rejects
+   artifact tampering. Twenty-four focused library tests pass locally.
+   `[PROPOSED]` Execute those plan poisons and the remaining missing-locator and
+   hidden-cache controls on the real 64 MiB fixture.
 7. `[PROPOSED]` Prepare the 1 GiB fixture, commit its locator, and freeze the
    suite hash.
 8. `[PROPOSED]` Execute the 27 admitting strata and two buffered sentinels,

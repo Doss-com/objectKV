@@ -221,6 +221,17 @@ empty. T27 remains `[EVALUATING]` for the remaining poisons and frozen 1 GiB
 sweep. Evidence is in
 [`docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md).
 
+`[CODE-COMPLETE]` `t27-plan-poison-check` converts three plan-integrity
+negative controls into portable immutable artifacts. It first authenticates
+the source plan, applies exactly one AABB schedule, missing-position, or
+effective-option corruption, recomputes the poisoned plan digest, invokes the
+production decoder, and seals the source digest, poisoned bytes, expected
+rejection, observed rejection, and receipt digest. Twenty-four focused T27
+library tests pass locally, including schema validation and artifact-tampering
+rejection. No new performance point was produced. Real-infrastructure poison
+receipts, missing-locator and hidden-cache controls, and the 1 GiB sweep remain
+`[EVALUATING]`.
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
@@ -293,7 +304,7 @@ phase-5 review found six evidence blockers in the prior runner. The canonical
 locator, separate writer and read-only consumers, standalone direct subject,
 and base-seed separation are `[VERIFIED]`. The immutable ABBA controller and
 one sealed receipt per fresh sequential process are `[VERIFIED]` at the 64 MiB
-preflight profile. Twenty-five focused plan and controller tests reject malformed schedules, changed treatments,
+preflight profile. Twenty-six focused plan and controller tests reject malformed schedules, changed treatments,
 execution-envelope drift, wrapper substitution, process reuse, overlap,
 cross-lease evidence, systematic oracle errors, hidden providers, implicit
 caches, malformed raw evidence, absent cache pressure, telemetry drift, host
@@ -305,9 +316,10 @@ receipt before it seals. Exporter failure preserves evidence with
 `passed=false`. The full RocksDB-featured `okv-eval` suite passes 105 tests, and
 the owning `okv-serving-rocksdb` crate passes all nine tests locally. No new
 performance point is admitted beyond the bounded preflight. Fable's bounded
-rereview closed all six runner-admission findings. The next experiment is the
-remaining missing-locator, plan-order, and telemetry poisons, followed by the
-frozen 1 GiB sweep. The corrected 64 MiB calibration remains the buffered
+rereview closed all six runner-admission findings. The plan-order poisons now
+have a sealed `[CODE-COMPLETE]` command and receipt schema. The next experiment
+executes those receipts with the missing-locator and hidden-cache controls,
+followed by the frozen 1 GiB sweep. The corrected 64 MiB calibration remains the buffered
 regression anchor, and the direct-NVMe preflight is its physical-media control.
 
 ## Current checkpoint

@@ -81,8 +81,9 @@ use okv_eval::storage_layout::{
 };
 use okv_eval::t27_plan::{
     build_t27_execution_plan, decode_t27_execution_plan, derive_t27_expected_identity,
-    T27AccessPatternV1, T27ExecutionEnvelopeV1, T27PlanProfileV1, T27PlanRunReceiptV1,
-    T27PlanSubjectV1, T27PositionObservationV1, T27PositionReceiptV1,
+    verify_t27_plan_poison, T27AccessPatternV1, T27ExecutionEnvelopeV1, T27PlanPoisonV1,
+    T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
+    T27PositionReceiptV1,
 };
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry};
 use okv_eval::transaction_batch::{
@@ -507,6 +508,19 @@ enum Commands {
         scratch_root: PathBuf,
         #[arg(long)]
         output: PathBuf,
+    },
+    /// Build and verify one sealed corruption of an authenticated T27 plan.
+    T27PlanPoisonCheck {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long)]
+        poison: String,
+        #[arg(long)]
+        poisoned_plan_output: PathBuf,
+        #[arg(long)]
+        receipt_output: PathBuf,
     },
     /// Execute every T27 position sequentially in a fresh process.
     T27PlanRunGcs {
@@ -1145,6 +1159,23 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let bytes = serde_json::to_vec_pretty(&plan)?;
             write_new_file(&output, &bytes)?;
             println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T27PlanPoisonCheck {
+            plan,
+            expected_plan_sha256,
+            poison,
+            poisoned_plan_output,
+            receipt_output,
+        } => {
+            let plan = decode_t27_execution_plan(&fs::read(plan)?, &expected_plan_sha256)?;
+            let poison = poison
+                .parse::<T27PlanPoisonV1>()
+                .map_err(std::io::Error::other)?;
+            let (poisoned_plan_bytes, receipt) = verify_t27_plan_poison(&plan, poison)?;
+            write_new_file(&poisoned_plan_output, &poisoned_plan_bytes)?;
+            let receipt_bytes = serde_json::to_vec_pretty(&receipt)?;
+            write_new_file(&receipt_output, &receipt_bytes)?;
+            println!("{}", String::from_utf8(receipt_bytes)?);
         }
         Commands::T27PlanRunGcs {
             plan,

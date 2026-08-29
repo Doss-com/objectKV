@@ -645,8 +645,10 @@ become one GitHub issue.
   and 0.9882x; CPU/read was 1.0718x and 0.9797x; physical bytes/read were
   1.0647x and 1.0638x; read amplification was 1.0000x. All six OTel
   flush/shutdown outcomes passed, and the collector held the run ID in logs,
-  metrics, and traces. T27 remains `[EVALUATING]` for the remaining poisons
-  and 1 GiB sweep.
+  metrics, and traces. `[CODE-COMPLETE]` the plan-poison command now seals and
+  rejects exact AABB, missing-position, and option-mismatch artifacts through
+  the production decoder; 24 focused library tests pass locally. T27 remains
+  `[EVALUATING]` for real-infrastructure poison receipts and the 1 GiB sweep.
   The phase-0
   bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the

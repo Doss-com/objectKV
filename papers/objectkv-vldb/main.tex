@@ -467,7 +467,11 @@ The first fixture used the wrong empty-anchor version and was rejected before
 measurement after the plan boundary was tightened. A valid preparation under
 the measured read-only principal also failed and created no objects. This
 short 1,024-read-per-position run verifies the complete preflight chain. The
-540-position 1 GiB workload remains \evaluating{}.
+evaluator now has a code-complete sealed poison command for exact AABB,
+missing-position, and effective-option mutations. Each mutation recomputes its
+plan digest and must still fail the production decoder's frozen-contract gate.
+The command has not yet run on the real plan. The 540-position 1 GiB workload
+remains \evaluating{}.
 
 \subsection{Objectification and publication}
 
@@ -1329,8 +1333,8 @@ The dependency order is evidence driven:
   repeated calibration inside every explicit bound. The persisted-GCS
   preflight then reused one fixture across four fresh ABBA subjects and held
   transaction-authority scratch to 0.001623x. Freeze the 1 GiB suite and
-  control the operating-system page cache before executing the coverage and
-  skew admission. FoundationDB remains the semantic oracle.
+  run the sealed plan and runtime-inventory poisons before executing the
+  coverage and skew admission. FoundationDB remains the semantic oracle.
   \item The GCS closure passed empty logical-generation reconstruction and
   fresh-provider reconstruction after source VM and disk deletion. The local
   external incarnation authority is verified and the real-provider harness is

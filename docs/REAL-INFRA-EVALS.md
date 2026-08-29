@@ -456,11 +456,15 @@ schema-valid machine-bound result. The completed lease destroyed nine resources;
 zero matching instances, disks, firewall rules, subnetworks, or routers remain.
 `[VERIFIED]` one clean digest-addressed 64 MiB ABBA experiment now composes
 that infrastructure with read-only fixture consumption and direct NVMe
-measurement. `[EVALUATING]` the remaining poisons and 1 GiB workload envelope.
+measurement. `[CODE-COMPLETE]` a sealed plan-poison command and schema now bind
+and reject AABB, missing-position, and option-mismatch artifacts through the
+production decoder. `[EVALUATING]` their real-infrastructure receipts, the
+missing-locator and hidden-cache poisons, and the 1 GiB workload envelope.
 
 The next receipt sequence remains incremental:
 
-1. run the remaining locator, schedule, and telemetry poisons;
+1. run the sealed plan poisons plus the remaining locator, runtime-inventory,
+   and telemetry poisons;
 2. execute the frozen 1 GiB cache-coverage and skew sweep in both process
    orders;
 3. run the GCS cold-point and object-layout geometry curve;

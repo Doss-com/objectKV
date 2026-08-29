@@ -20,6 +20,9 @@ const PLAN_MAGIC: &[u8] = b"OKVT27P1";
 const OPTIONS_MAGIC: &[u8] = b"OKVT27O1";
 const RECEIPT_MAGIC: &[u8] = b"OKVT27R1";
 const RUN_RECEIPT_MAGIC: &[u8] = b"OKVT27C1";
+const POISON_RECEIPT_MAGIC: &[u8] = b"OKVT27X1";
+const PLAN_POSITIONS_REJECTION: &str =
+    "T27 execution plan positions differ from the frozen contract";
 const FIXTURE_SEED: u64 = 4_244;
 const FIXTURE_BASE_VERSION: u64 = 2;
 const VALUE_BYTES: u64 = 1_024;
@@ -262,6 +265,107 @@ pub struct T27ExecutionPlanV1 {
     pub expected: T27ExpectedIdentityV1,
     pub positions: Vec<T27PlanPositionV1>,
     pub plan_sha256: String,
+}
+
+/// One controlled corruption of an otherwise authenticated T27 plan.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum T27PlanPoisonV1 {
+    AabbSchedule,
+    MissingPosition,
+    OptionMismatch,
+}
+
+impl T27PlanPoisonV1 {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::AabbSchedule => 1,
+            Self::MissingPosition => 2,
+            Self::OptionMismatch => 3,
+        }
+    }
+}
+
+impl std::str::FromStr for T27PlanPoisonV1 {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "aabb_schedule" => Ok(Self::AabbSchedule),
+            "missing_position" => Ok(Self::MissingPosition),
+            "option_mismatch" => Ok(Self::OptionMismatch),
+            other => Err(format!("unknown T27 plan poison {other}")),
+        }
+    }
+}
+
+/// Sealed evidence that one exact poisoned plan failed closed.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T27PlanPoisonReceiptV1 {
+    pub schema_version: u32,
+    pub source_plan_sha256: String,
+    pub poison: T27PlanPoisonV1,
+    pub poisoned_plan_sha256: String,
+    pub poisoned_plan_file_sha256: String,
+    pub expected_rejection: String,
+    pub observed_rejection: String,
+    pub passed: bool,
+    pub receipt_sha256: String,
+}
+
+impl T27PlanPoisonReceiptV1 {
+    /// Return the digest of the canonical poison-receipt fields.
+    #[must_use]
+    pub fn calculated_receipt_sha256(&self) -> String {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(POISON_RECEIPT_MAGIC);
+        bytes.extend_from_slice(&self.schema_version.to_be_bytes());
+        push_string(&mut bytes, &self.source_plan_sha256);
+        bytes.push(self.poison.tag());
+        push_string(&mut bytes, &self.poisoned_plan_sha256);
+        push_string(&mut bytes, &self.poisoned_plan_file_sha256);
+        push_string(&mut bytes, &self.expected_rejection);
+        push_string(&mut bytes, &self.observed_rejection);
+        bytes.push(u8::from(self.passed));
+        sha256(&bytes)
+    }
+
+    /// Reconstruct and validate the controlled corruption and its rejection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the source, poison bytes, rejection, or receipt was
+    /// altered.
+    pub fn validate(
+        &self,
+        source: &T27ExecutionPlanV1,
+        poisoned_plan_bytes: &[u8],
+    ) -> Result<(), String> {
+        source.validate()?;
+        let expected_poison = build_poisoned_t27_plan(source, self.poison)?;
+        let expected_bytes =
+            serde_json::to_vec_pretty(&expected_poison).map_err(|error| error.to_string())?;
+        let observed_rejection =
+            match decode_t27_execution_plan(poisoned_plan_bytes, &expected_poison.plan_sha256) {
+                Ok(_) => return Err("T27 poisoned execution plan was accepted".to_owned()),
+                Err(error) => error,
+            };
+        if self.schema_version != RECEIPT_SCHEMA_VERSION
+            || self.source_plan_sha256 != source.plan_sha256
+            || poisoned_plan_bytes != expected_bytes
+            || self.poisoned_plan_sha256 != expected_poison.plan_sha256
+            || self.poisoned_plan_file_sha256 != sha256(poisoned_plan_bytes)
+            || self.expected_rejection != PLAN_POSITIONS_REJECTION
+            || self.observed_rejection != observed_rejection
+            || self.observed_rejection != self.expected_rejection
+            || !self.passed
+            || self.receipt_sha256 != self.calculated_receipt_sha256()
+        {
+            return Err("T27 plan poison receipt identity mismatch".to_owned());
+        }
+        Ok(())
+    }
 }
 
 /// Immutable evidence produced by one fresh T27 process position.
@@ -1075,7 +1179,7 @@ impl T27ExecutionPlanV1 {
             self.expected.clone(),
         )?;
         if self.positions != expected.positions {
-            return Err("T27 execution plan positions differ from the frozen contract".to_owned());
+            return Err(PLAN_POSITIONS_REJECTION.to_owned());
         }
         Ok(())
     }
@@ -1198,6 +1302,94 @@ pub fn decode_t27_execution_plan(
     if plan.plan_sha256 != expected_plan_sha256 {
         return Err("T27 execution plan identity mismatch".to_owned());
     }
+    Ok(plan)
+}
+
+/// Build and independently reject one exact controlled plan corruption.
+///
+/// The returned bytes are the complete poisoned plan artifact. The receipt
+/// binds the valid source plan, the exact artifact bytes, and the production
+/// decoder's rejection.
+///
+/// # Errors
+///
+/// Returns an error when the source plan is invalid, the poison cannot be
+/// constructed, or the decoder does not reject the intended contract breach.
+pub fn verify_t27_plan_poison(
+    source: &T27ExecutionPlanV1,
+    poison: T27PlanPoisonV1,
+) -> Result<(Vec<u8>, T27PlanPoisonReceiptV1), String> {
+    source.validate()?;
+    let poisoned = build_poisoned_t27_plan(source, poison)?;
+    let poisoned_plan_bytes =
+        serde_json::to_vec_pretty(&poisoned).map_err(|error| error.to_string())?;
+    let observed_rejection = decode_t27_execution_plan(&poisoned_plan_bytes, &poisoned.plan_sha256)
+        .map_or_else(
+            |error| error,
+            |_| "T27 poisoned execution plan was accepted".to_owned(),
+        );
+    let expected_rejection = PLAN_POSITIONS_REJECTION.to_owned();
+    if observed_rejection != expected_rejection {
+        return Err(format!(
+            "T27 plan poison reached the wrong rejection: {observed_rejection}"
+        ));
+    }
+    let mut receipt = T27PlanPoisonReceiptV1 {
+        schema_version: RECEIPT_SCHEMA_VERSION,
+        source_plan_sha256: source.plan_sha256.clone(),
+        poison,
+        poisoned_plan_sha256: poisoned.plan_sha256,
+        poisoned_plan_file_sha256: sha256(&poisoned_plan_bytes),
+        expected_rejection,
+        observed_rejection,
+        passed: true,
+        receipt_sha256: String::new(),
+    };
+    receipt.receipt_sha256 = receipt.calculated_receipt_sha256();
+    receipt.validate(source, &poisoned_plan_bytes)?;
+    Ok((poisoned_plan_bytes, receipt))
+}
+
+fn build_poisoned_t27_plan(
+    source: &T27ExecutionPlanV1,
+    poison: T27PlanPoisonV1,
+) -> Result<T27ExecutionPlanV1, String> {
+    let mut plan = source.clone();
+    match poison {
+        T27PlanPoisonV1::AabbSchedule => {
+            let block = plan
+                .positions
+                .get_mut(0..4)
+                .ok_or_else(|| "T27 AABB poison requires one complete block".to_owned())?;
+            block[1].subject = T27PlanSubjectV1::NativeSnapshot;
+            block[1].expected_engine_options_sha256 =
+                crate::serving_recovery_openraft::rocksdb_effective_options_sha256(
+                    true,
+                    block[1].block_cache_bytes,
+                    block[1].direct_reads,
+                );
+            block[3].subject = T27PlanSubjectV1::DirectOwnedRocksdb;
+            block[3].expected_engine_options_sha256 =
+                crate::serving_recovery_openraft::rocksdb_effective_options_sha256(
+                    false,
+                    block[3].block_cache_bytes,
+                    block[3].direct_reads,
+                );
+        }
+        T27PlanPoisonV1::MissingPosition => {
+            plan.positions
+                .pop()
+                .ok_or_else(|| "T27 missing-position poison requires a position".to_owned())?;
+        }
+        T27PlanPoisonV1::OptionMismatch => {
+            let position = plan
+                .positions
+                .first_mut()
+                .ok_or_else(|| "T27 option poison requires a position".to_owned())?;
+            position.block_cache_bytes = position.block_cache_bytes.saturating_add(1);
+        }
+    }
+    plan.plan_sha256 = plan.calculated_plan_sha256();
     Ok(plan)
 }
 
@@ -1540,9 +1732,9 @@ fn valid_sha256(value: &str) -> bool {
 mod tests {
     use super::{
         build_positions, build_t27_execution_plan, decode_t27_execution_plan,
-        validate_t27_position_receipts, T27ExecutionEnvelopeV1, T27ExecutionPlanV1,
-        T27ExpectedIdentityV1, T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1,
-        T27PositionObservationV1, T27PositionReceiptV1,
+        validate_t27_position_receipts, verify_t27_plan_poison, T27ExecutionEnvelopeV1,
+        T27ExecutionPlanV1, T27ExpectedIdentityV1, T27PlanPoisonV1, T27PlanProfileV1,
+        T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1, T27PositionReceiptV1,
     };
     use crate::object_fixture::{FixturePlacementLocatorV1, ObjectFixtureLocatorV1};
     use crate::telemetry::TelemetryFlushReport;
@@ -1607,34 +1799,75 @@ mod tests {
     #[test]
     fn relabeled_aabb_plan_fails_even_with_a_recomputed_digest() {
         let fixture = locator(65_536);
-        let mut plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
-        plan.positions[2].subject = T27PlanSubjectV1::NativeSnapshot;
-        plan.plan_sha256 = plan.calculated_plan_sha256();
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let (bytes, receipt) = verify_t27_plan_poison(&plan, T27PlanPoisonV1::AabbSchedule)
+            .expect("AABB poison must be rejected and sealed");
+        let poisoned: T27ExecutionPlanV1 =
+            serde_json::from_slice(&bytes).expect("decode poisoned plan artifact");
 
-        let error = plan.validate().expect_err("AABB relabel must fail");
-        assert!(error.contains("positions"));
+        assert_eq!(
+            poisoned
+                .positions
+                .iter()
+                .map(|position| position.subject)
+                .collect::<Vec<_>>(),
+            vec![
+                T27PlanSubjectV1::NativeSnapshot,
+                T27PlanSubjectV1::NativeSnapshot,
+                T27PlanSubjectV1::DirectOwnedRocksdb,
+                T27PlanSubjectV1::DirectOwnedRocksdb,
+            ]
+        );
+        receipt
+            .validate(&plan, &bytes)
+            .expect("validate AABB poison receipt");
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../evals/schema/t27-plan-poison-receipt-v1.schema.json"
+        ))
+        .expect("decode poison receipt schema");
+        let validator = jsonschema::validator_for(&schema).expect("compile poison receipt schema");
+        let instance = serde_json::to_value(&receipt).expect("encode poison receipt");
+        validator
+            .validate(&instance)
+            .expect("poison receipt must satisfy its schema");
     }
 
     #[test]
     fn missing_position_fails_even_with_a_recomputed_digest() {
         let fixture = locator(65_536);
-        let mut plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
-        plan.positions.pop();
-        plan.plan_sha256 = plan.calculated_plan_sha256();
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let (bytes, receipt) = verify_t27_plan_poison(&plan, T27PlanPoisonV1::MissingPosition)
+            .expect("missing-position poison must be rejected and sealed");
 
-        let error = plan.validate().expect_err("missing position must fail");
-        assert!(error.contains("positions"));
+        receipt
+            .validate(&plan, &bytes)
+            .expect("validate missing-position poison receipt");
     }
 
     #[test]
     fn option_mismatch_fails_even_with_a_recomputed_digest() {
         let fixture = locator(65_536);
-        let mut plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
-        plan.positions[1].block_cache_bytes += 1;
-        plan.plan_sha256 = plan.calculated_plan_sha256();
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let (bytes, receipt) = verify_t27_plan_poison(&plan, T27PlanPoisonV1::OptionMismatch)
+            .expect("option-mismatch poison must be rejected and sealed");
 
-        let error = plan.validate().expect_err("option mismatch must fail");
-        assert!(error.contains("positions"));
+        receipt
+            .validate(&plan, &bytes)
+            .expect("validate option-mismatch poison receipt");
+    }
+
+    #[test]
+    fn plan_poison_receipt_rejects_artifact_tampering() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let (mut bytes, receipt) = verify_t27_plan_poison(&plan, T27PlanPoisonV1::MissingPosition)
+            .expect("build poison receipt");
+        bytes.push(b' ');
+
+        let error = receipt
+            .validate(&plan, &bytes)
+            .expect_err("tampered poison bytes must fail");
+        assert!(error.contains("identity mismatch"));
     }
 
     #[test]
