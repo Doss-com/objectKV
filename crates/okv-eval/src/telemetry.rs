@@ -36,6 +36,42 @@ pub struct Telemetry {
     logger_provider: SdkLoggerProvider,
 }
 
+/// Per-signal exporter completion observed before an evaluation receipt seals.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TelemetryFlushReport {
+    pub metrics_flush_succeeded: bool,
+    pub traces_flush_succeeded: bool,
+    pub logs_flush_succeeded: bool,
+    pub metrics_shutdown_succeeded: bool,
+    pub traces_shutdown_succeeded: bool,
+    pub logs_shutdown_succeeded: bool,
+}
+
+impl TelemetryFlushReport {
+    /// A deterministic successful report for receipt-contract tests.
+    #[must_use]
+    pub const fn succeeded() -> Self {
+        Self {
+            metrics_flush_succeeded: true,
+            traces_flush_succeeded: true,
+            logs_flush_succeeded: true,
+            metrics_shutdown_succeeded: true,
+            traces_shutdown_succeeded: true,
+            logs_shutdown_succeeded: true,
+        }
+    }
+
+    #[must_use]
+    pub const fn all_succeeded(self) -> bool {
+        self.metrics_flush_succeeded
+            && self.traces_flush_succeeded
+            && self.logs_flush_succeeded
+            && self.metrics_shutdown_succeeded
+            && self.traces_shutdown_succeeded
+            && self.logs_shutdown_succeeded
+    }
+}
+
 impl Telemetry {
     /// Initialize `OTel` logs, metrics, and traces when an endpoint is configured.
     ///
@@ -134,13 +170,23 @@ impl Telemetry {
         MetricRecorder::new(&self.meter_provider.meter("okv-eval"), registry)
     }
 
-    pub fn shutdown(self) {
-        let _ = self.meter_provider.force_flush();
-        let _ = self.tracer_provider.force_flush();
-        let _ = self.logger_provider.force_flush();
-        let _ = self.meter_provider.shutdown();
-        let _ = self.tracer_provider.shutdown();
-        let _ = self.logger_provider.shutdown();
+    /// Flush and close all three exporters, retaining every completion result.
+    #[must_use]
+    pub fn shutdown(self) -> TelemetryFlushReport {
+        let metrics_flush_succeeded = self.meter_provider.force_flush().is_ok();
+        let traces_flush_succeeded = self.tracer_provider.force_flush().is_ok();
+        let logs_flush_succeeded = self.logger_provider.force_flush().is_ok();
+        let metrics_shutdown_succeeded = self.meter_provider.shutdown().is_ok();
+        let traces_shutdown_succeeded = self.tracer_provider.shutdown().is_ok();
+        let logs_shutdown_succeeded = self.logger_provider.shutdown().is_ok();
+        TelemetryFlushReport {
+            metrics_flush_succeeded,
+            traces_flush_succeeded,
+            logs_flush_succeeded,
+            metrics_shutdown_succeeded,
+            traces_shutdown_succeeded,
+            logs_shutdown_succeeded,
+        }
     }
 }
 

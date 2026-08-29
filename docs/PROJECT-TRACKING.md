@@ -275,17 +275,26 @@ cache pressure
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
 stop decision for objectKV. The immediate owned task remains T27. Fable's
-phase-5 review found five blockers in the current runner. Commits `d5018bc` and
-`19b4e11` now verify the canonical locator envelope and a direct subject with
-exactly one database and cache. The direct subject passed seven focused remote
-tests and an actual two-worker kill/replacement controller trace without
-opening the native resident engine. The locator still needs separate
-preparation and required-existing consumer invocations; repeats still need
-fresh processes; direct I/O still needs to replace buffered admission; and
-fixture and trace seeds still need independent bindings. The 1 GiB run begins
-only after those boundaries and the read-only-GCS, hidden-cache, and plan-order
-poisons pass. The corrected 64 MiB calibration remains the buffered regression
-anchor.
+phase-5 review found six evidence blockers in the prior runner. The canonical
+locator, separate writer and read-only consumers, standalone direct subject,
+and base-seed separation are `[VERIFIED]`. The immutable ABBA controller and
+one sealed receipt per fresh sequential process are `[CODE-COMPLETE]`.
+Twenty-four focused plan and controller tests reject malformed schedules, changed treatments,
+execution-envelope drift, wrapper substitution, process reuse, overlap,
+cross-lease evidence, systematic oracle errors, hidden providers, implicit
+caches, malformed raw evidence, absent cache pressure, telemetry drift, host
+lease contention, failed exporter completion, and catastrophic performance
+regressions. Completed plans require an OTLP endpoint, emit all position
+metrics under one run identity, and bind the endpoint digest, required logs,
+metrics, and traces, plus per-signal flush and shutdown outcomes into the run
+receipt before it seals. Exporter failure preserves evidence with
+`passed=false`. The full RocksDB-featured `okv-eval` suite passes 104 tests, and
+the owning `okv-serving-rocksdb` crate passes all nine tests locally. No new
+performance point was produced. Fable's bounded rereview closed all six
+runner-admission findings. The next experiment is the four-position 64
+MiB GCS replay, followed by the missing-locator, read-only-GCS, telemetry, and
+plan-order poisons. The corrected 64 MiB calibration remains the buffered
+regression anchor.
 
 ## Current checkpoint
 

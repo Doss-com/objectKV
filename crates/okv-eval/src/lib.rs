@@ -24,5 +24,6 @@ pub mod result;
 pub mod serving_recovery;
 pub mod serving_recovery_openraft;
 pub mod storage_layout;
+pub mod t27_plan;
 pub mod telemetry;
 pub mod transaction_batch;

@@ -392,6 +392,50 @@ pub async fn prepare_fixture_placement(
     Ok(locator)
 }
 
+/// Derive the canonical retained-tail and logical-image oracle independently
+/// of a measured resident-engine process.
+pub(crate) async fn derive_fixture_expected_identity(
+    seed: u64,
+    profile: &ObjectFixtureProfile,
+    expected_base_version: u64,
+    verified_base_records: &[RowRecord],
+    executable: &Path,
+) -> Result<(String, String), String> {
+    let authority = TransactionAuthorityProcessFixture::start(executable, seed).await?;
+    let transaction = authority.client()?;
+    let anchor = establish_fixture_anchor(
+        &transaction,
+        RequestIdentity {
+            client_id: seed.max(1),
+            request_id: 1,
+        },
+    )
+    .await?;
+    if anchor.version != expected_base_version || anchor.live_keys != 0 {
+        return Err("T27 oracle authority established the wrong empty anchor".to_owned());
+    }
+    let expected_base = base_records(seed, profile, expected_base_version)?;
+    if verified_base_records != expected_base {
+        return Err("T27 oracle fixture closure differs from the frozen generator".to_owned());
+    }
+    let tail = commit_tail(seed, profile, expected_base_version, &transaction).await?;
+    let tail_digest = tail_sha256(&tail.records)?;
+    validate_tail(&tail_digest, &tail.records)?;
+    let image = build_resident_image(
+        "oracle",
+        "logical-oracle",
+        1,
+        "logical-oracle-v1",
+        "oracle-fixture",
+        &tail_digest,
+        tail.applied_through,
+        profile,
+        verified_base_records,
+        &tail.records,
+    )?;
+    Ok((tail_digest, image.descriptor.resident_logical_sha256))
+}
+
 impl BuiltFixture {
     #[must_use]
     pub(crate) fn locator(&self) -> ObjectFixtureLocatorV1 {

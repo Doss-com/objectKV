@@ -253,9 +253,25 @@ treatment is not reused.
    object requests, and one directly owned RocksDB image.
 4. `[VERIFIED]` Split fixture seed from trace seed at the resident validator.
    Commit `1cfad27` reduced the reproduced native aggregate failure from 4,080
-   to zero without changing the native/control trace digest. Emitting one
-   receipt per immutable-plan process remains `[PROPOSED]`.
-5. `[PROPOSED]` Build and validate the immutable ABBA plan controller.
+   to zero without changing the native/control trace digest. `[CODE-COMPLETE]`
+   The plan runner now also derives the canonical tail from fixture seed 4244,
+   rather than from any of the three independent read-trace seeds. The
+   cross-seed GCS receipt remains open.
+5. `[CODE-COMPLETE]` Build and validate the immutable ABBA plan controller.
+   The runner freezes either four 64 MiB preflight positions or 540 1 GiB
+   admission positions, starts one sequential evaluator process per position,
+   and seals one receipt with the plan, locator, tail, trace, options, process,
+   executable, machine, boot, NVMe device, cache, CPU, I/O, and timing
+   identities. Twenty-four focused plan and controller tests reject AABB, missing,
+   altered-option, execution-drift, wrapper-substitution, reused-process,
+   overlapping, cross-lease, systematic tail or trace, hidden-provider,
+   implicit-cache, malformed-raw-evidence, zero-pressure, telemetry-drift,
+   exporter-completion, host-lock-contention, and performance-regression
+   poisons. Failed comparisons or exporter completion seal a `passed=false`
+   run receipt before the command exits nonzero. The controller derives its
+   single lock path from machine and NVMe identity, requires an OTLP endpoint,
+   then flushes and shuts down logs, metrics, and traces before binding all six
+   outcomes into the receipt.
 6. `[PROPOSED]` Pass 64 MiB versions of the missing-locator, read-only-GCS,
    hidden-cache, and AABB poisons.
 7. `[PROPOSED]` Prepare the 1 GiB fixture, commit its locator, and freeze the
@@ -266,11 +282,15 @@ treatment is not reused.
 
 ## Review disposition
 
-The adversarial review's five blocking findings are accepted. Phase 5 is not
-`[CODE-COMPLETE]` on the current runner. Locator serialization, the clean
-direct-control construction boundary, separate preparation and read-only
-consumption, and independent fixture and trace seeds are verified. The next
-code slice is one fresh invocation and one receipt per immutable ABBA plan
-position, followed by the 64 MiB negative controls. No 1 GiB performance claim
-will be made before their negative controls pass. Evidence is in
+The adversarial review's six blocking findings are closed. The corrected
+phase-5 fresh-process runner is `[CODE-COMPLETE]`, while phase 5 and T27 remain
+`[EVALUATING]`. It binds the measured nested worker, executable, lockfile,
+machine receipt, boot, NVMe device, host-global lease, independently derived
+oracle, subject-specific RocksDB topology, raw report, cache pressure, OTLP
+emission and exporter completion, and AB/BA gates. Locator
+serialization, the clean direct-control construction boundary, separate
+preparation and read-only consumption, and the base-seed boundary are
+`[VERIFIED]`. The next experiment is the four-position 64 MiB GCS preflight,
+followed by its negative controls. No 1 GiB performance claim will be made
+before those controls pass. Prior cross-invocation evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.

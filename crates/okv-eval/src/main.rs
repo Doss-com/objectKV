@@ -1,5 +1,6 @@
 use chrono::Utc;
 use clap::{Parser, Subcommand};
+use nix::fcntl::{Flock, FlockArg};
 use okv_consensus::{
     run_generation_process_contract, run_process_node, run_publication_process_contract,
     run_raft_cluster_contract, run_raft_process_contract, run_raft_storage_contract,
@@ -29,7 +30,7 @@ use okv_eval::commit_proxy_object_frontier::{
 use okv_eval::comparison::{compare_results, validate_comparison_receipt};
 use okv_eval::config::{
     contract_hash, load_suite, validate_workload_selection, BudgetKind, DatasetConfig, LoadedSuite,
-    ProfileConfig, WorkloadConfig,
+    MetricRegistry, ProfileConfig, TelemetryConfig, WorkloadConfig,
 };
 use okv_eval::fixture_anchor::{
     run_fixture_anchor_contract, FixtureAnchorMode, FixtureAnchorReport,
@@ -78,7 +79,12 @@ use okv_eval::storage_layout::{
     ColumnarCacheAdmissionMode, ColumnarCacheAdmissionReport, ColumnarDataFusionMode,
     ColumnarDataFusionReport, StorageLayoutMode, StorageLayoutProfile, StorageLayoutReport,
 };
-use okv_eval::telemetry::{RunResource, Telemetry};
+use okv_eval::t27_plan::{
+    build_t27_execution_plan, decode_t27_execution_plan, derive_t27_expected_identity,
+    T27AccessPatternV1, T27ExecutionEnvelopeV1, T27PlanProfileV1, T27PlanRunReceiptV1,
+    T27PlanSubjectV1, T27PositionObservationV1, T27PositionReceiptV1,
+};
+use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry};
 use okv_eval::transaction_batch::{
     run_transaction_batch_contract, TransactionBatchMode, TransactionBatchProfile,
     TransactionBatchReport,
@@ -120,13 +126,15 @@ use okv_slate::{
     run_phase0_filesystem_contract, Phase0Config, Phase0IoDelta, Phase0Mode, Phase0PhaseReport,
     Phase0Report,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 use std::time::Instant;
 use tracing::{info, info_span};
 use uuid::Uuid;
@@ -150,6 +158,19 @@ struct TransactionContractRun {
     process: TransactionProcessReport,
     topology_sha256: Option<String>,
     machine_report: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct T27PositionExecutionOutputV1 {
+    receipt: T27PositionReceiptV1,
+    raw_report: OpenRaftServingRecoveryReport,
+}
+
+struct T27HostLease {
+    file: Flock<File>,
+    lease_id: String,
+    acquired_at: String,
+    path: PathBuf,
 }
 
 impl WorkloadExecution {
@@ -467,6 +488,62 @@ enum Commands {
         block_cache_bytes: u64,
         #[arg(long, default_value_t = false)]
         direct_reads: bool,
+    },
+    /// Build one immutable T27 ABBA plan from a verified fixture placement.
+    T27PlanBuild {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long, default_value = "preflight_64_mib")]
+        profile: String,
+        #[arg(long)]
+        runtime_source_sha256: String,
+        #[arg(long)]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long)]
+        machine_receipt: PathBuf,
+        #[arg(long)]
+        scratch_root: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Execute every T27 position sequentially in a fresh process.
+    T27PlanRunGcs {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long)]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long)]
+        machine_receipt: PathBuf,
+        #[arg(long)]
+        scratch_root: PathBuf,
+        #[arg(long)]
+        output_dir: PathBuf,
+    },
+    /// Execute one T27 position. Only the plan controller should invoke this.
+    #[command(hide = true)]
+    T27PlanPositionGcs {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long)]
+        ordinal: u64,
+        #[arg(long)]
+        controller_id: String,
+        #[arg(long)]
+        worker_id: String,
+        #[arg(long)]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long)]
+        machine_receipt: PathBuf,
+        #[arg(long)]
+        scratch_root: PathBuf,
+        #[arg(long)]
+        lease_id: String,
     },
     /// Build one actual resident process from the RFC-0044 object fixture.
     ObjectFixtureResidentTrace {
@@ -1037,6 +1114,80 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             )?;
             println!("{}", serde_json::to_string(&report)?);
         }
+        Commands::T27PlanBuild {
+            locator,
+            expected_envelope_sha256,
+            profile,
+            runtime_source_sha256,
+            runtime_cargo_lock,
+            machine_receipt,
+            scratch_root,
+            output,
+        } => {
+            let placement =
+                decode_fixture_placement_locator(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let profile = parse_t27_plan_profile(&profile).map_err(std::io::Error::other)?;
+            let execution = capture_t27_execution_envelope(
+                &runtime_source_sha256,
+                &runtime_cargo_lock,
+                &machine_receipt,
+                &scratch_root,
+            )?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let expected = runtime.block_on(derive_t27_expected_identity(
+                &placement,
+                profile,
+                &std::env::current_exe()?,
+            ))?;
+            let plan = build_t27_execution_plan(&placement, profile, execution, expected)?;
+            let bytes = serde_json::to_vec_pretty(&plan)?;
+            write_new_file(&output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T27PlanRunGcs {
+            plan,
+            expected_plan_sha256,
+            runtime_cargo_lock,
+            machine_receipt,
+            scratch_root,
+            output_dir,
+        } => {
+            let receipt = run_t27_plan_controller(
+                &plan,
+                &expected_plan_sha256,
+                &runtime_cargo_lock,
+                &machine_receipt,
+                &scratch_root,
+                &output_dir,
+            )?;
+            println!("{}", serde_json::to_string(&receipt)?);
+        }
+        Commands::T27PlanPositionGcs {
+            plan,
+            expected_plan_sha256,
+            ordinal,
+            controller_id,
+            worker_id,
+            runtime_cargo_lock,
+            machine_receipt,
+            scratch_root,
+            lease_id,
+        } => {
+            let receipt = run_t27_plan_position(
+                &plan,
+                &expected_plan_sha256,
+                ordinal,
+                controller_id,
+                worker_id,
+                &runtime_cargo_lock,
+                &machine_receipt,
+                &scratch_root,
+                &lease_id,
+            )?;
+            println!("{}", serde_json::to_string(&receipt)?);
+        }
         Commands::ObjectFixtureResidentTrace {
             seed,
             subject,
@@ -1565,7 +1716,13 @@ fn run_suite(
     info!(verdict = ?result.verdict, "evaluation finished");
     drop(run_guard);
     drop(run_span);
-    telemetry.shutdown();
+    let telemetry_flush = telemetry.shutdown();
+    if !telemetry_flush.all_succeeded() {
+        return Err(std::io::Error::other(
+            "evaluation telemetry did not flush and shut down all required signal exporters",
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -5944,6 +6101,755 @@ fn parse_openraft_serving_recovery_mode(
         }
         other => Err(format!("unknown OpenRaft serving recovery mode {other}")),
     }
+}
+
+fn parse_t27_plan_profile(value: &str) -> Result<T27PlanProfileV1, String> {
+    match value {
+        "preflight_64_mib" | "preflight" => Ok(T27PlanProfileV1::Preflight64Mib),
+        "admission_1_gib" | "admission" => Ok(T27PlanProfileV1::Admission1Gib),
+        other => Err(format!("unknown T27 plan profile {other}")),
+    }
+}
+
+fn capture_t27_execution_envelope(
+    runtime_source_sha256: &str,
+    runtime_cargo_lock: &Path,
+    machine_receipt_path: &Path,
+    scratch_root: &Path,
+) -> Result<T27ExecutionEnvelopeV1, Box<dyn Error>> {
+    fs::create_dir_all(scratch_root)?;
+    let scratch_root = scratch_root.canonicalize()?;
+    let machine_receipt_bytes = fs::read(machine_receipt_path)?;
+    let machine_receipt: serde_json::Value = serde_json::from_slice(&machine_receipt_bytes)?;
+    if machine_receipt.pointer("/checks/runner_ready") != Some(&serde_json::Value::Bool(true))
+        || machine_receipt.pointer("/checks/binary_sha256_recorded")
+            != Some(&serde_json::Value::Bool(true))
+    {
+        return Err(std::io::Error::other("T27 machine receipt is not runner-ready").into());
+    }
+    let runner = machine_receipt
+        .get("runner")
+        .ok_or_else(|| std::io::Error::other("T27 machine receipt omits runner identity"))?;
+    let machine_instance_id = runner
+        .get("instance_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| std::io::Error::other("T27 machine receipt omits instance ID"))?
+        .to_owned();
+    let infrastructure_lease_expires_epoch = runner
+        .get("lease_expires_epoch")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| std::io::Error::other("T27 machine receipt omits lease expiry"))?
+        .parse::<u64>()?;
+    require_t27_infrastructure_lease(infrastructure_lease_expires_epoch)?;
+    let executable = std::env::current_exe()?;
+    let runtime_executable_sha256 = sha256(&fs::read(&executable)?);
+    let declared_binary_sha256 = runner
+        .get("binary_sha256")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| std::io::Error::other("T27 machine receipt omits runner binary SHA"))?;
+    if declared_binary_sha256 != runtime_executable_sha256 {
+        return Err(std::io::Error::other(
+            "T27 current executable differs from the machine receipt",
+        )
+        .into());
+    }
+    let hot_scratch = runner
+        .get("hot_scratch")
+        .ok_or_else(|| std::io::Error::other("T27 machine receipt omits hot scratch"))?;
+    if hot_scratch
+        .get("interface")
+        .and_then(serde_json::Value::as_str)
+        != Some("nvme")
+    {
+        return Err(std::io::Error::other("T27 hot scratch is not NVMe").into());
+    }
+    let declared_mount = PathBuf::from(
+        hot_scratch
+            .get("mount")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| std::io::Error::other("T27 hot scratch omits its mount"))?,
+    )
+    .canonicalize()?;
+    if !scratch_root.starts_with(&declared_mount) {
+        return Err(std::io::Error::other(
+            "T27 scratch root is not backed by the declared hot-scratch mount",
+        )
+        .into());
+    }
+    let findmnt = Command::new("findmnt")
+        .arg("--json")
+        .arg("--target")
+        .arg(&scratch_root)
+        .arg("--output")
+        .arg("SOURCE,UUID,FSTYPE,TARGET,MAJ:MIN")
+        .output()?;
+    if !findmnt.status.success() {
+        return Err(std::io::Error::other("findmnt failed for T27 scratch root").into());
+    }
+    let mounts: serde_json::Value = serde_json::from_slice(&findmnt.stdout)?;
+    let mount = mounts
+        .pointer("/filesystems/0")
+        .ok_or_else(|| std::io::Error::other("findmnt omitted the T27 scratch filesystem"))?;
+    let mount_field = |name: &str| -> Result<String, std::io::Error> {
+        mount
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| std::io::Error::other(format!("findmnt omitted T27 field {name}")))
+    };
+    let scratch_mount_source = mount_field("source")?;
+    let scratch_filesystem_uuid = mount_field("uuid")?;
+    let scratch_filesystem_type = mount_field("fstype")?;
+    let scratch_mount_point = mount_field("target")?;
+    let scratch_major_minor = mount_field("maj:min")?;
+    if Path::new(&scratch_mount_point).canonicalize()? != declared_mount {
+        return Err(
+            std::io::Error::other("T27 observed mount differs from the machine receipt").into(),
+        );
+    }
+    let linux_boot_id = fs::read_to_string("/proc/sys/kernel/random/boot_id")?
+        .trim()
+        .to_owned();
+    let host_lease_path = canonical_t27_host_lease_path(
+        &machine_instance_id,
+        &scratch_filesystem_uuid,
+        &scratch_major_minor,
+    );
+    let execution = T27ExecutionEnvelopeV1 {
+        runtime_source_sha256: runtime_source_sha256.to_owned(),
+        runtime_executable_sha256,
+        runtime_cargo_lock_sha256: sha256(&fs::read(runtime_cargo_lock)?),
+        machine_receipt_sha256: sha256(&machine_receipt_bytes),
+        machine_instance_id,
+        infrastructure_lease_expires_epoch,
+        linux_boot_id,
+        scratch_root: scratch_root.display().to_string(),
+        scratch_mount_point,
+        scratch_mount_source: scratch_mount_source.clone(),
+        scratch_filesystem_type,
+        scratch_major_minor,
+        scratch_device_number: fs::metadata(&scratch_root)?.dev(),
+        scratch_filesystem_uuid,
+        scratch_block_device: scratch_mount_source,
+        host_lease_path: host_lease_path.display().to_string(),
+    };
+    execution.validate()?;
+    Ok(execution)
+}
+
+fn canonical_t27_host_lease_path(
+    machine_instance_id: &str,
+    scratch_filesystem_uuid: &str,
+    scratch_major_minor: &str,
+) -> PathBuf {
+    let identity =
+        format!("{machine_instance_id}\0{scratch_filesystem_uuid}\0{scratch_major_minor}");
+    let digest = sha256(identity.as_bytes());
+    PathBuf::from("/var/lib/objectkv/receipts").join(format!("t27-host-{}.lock", &digest[..16]))
+}
+
+fn require_t27_infrastructure_lease(expires_epoch: u64) -> Result<(), Box<dyn Error>> {
+    let now = u64::try_from(Utc::now().timestamp())?;
+    if expires_epoch <= now {
+        return Err(std::io::Error::other("T27 infrastructure lease has expired").into());
+    }
+    Ok(())
+}
+
+fn t27_access_pattern(value: T27AccessPatternV1) -> OpenRaftHotReadAccessPattern {
+    match value {
+        T27AccessPatternV1::Zipf0_8 => OpenRaftHotReadAccessPattern::Zipf0_8,
+        T27AccessPatternV1::Zipf1_4 => OpenRaftHotReadAccessPattern::Zipf1_4,
+        T27AccessPatternV1::Zipf2_0 => OpenRaftHotReadAccessPattern::Zipf2_0,
+    }
+}
+
+fn t27_subject(value: T27PlanSubjectV1) -> OpenRaftHotReadSubject {
+    match value {
+        T27PlanSubjectV1::NativeSnapshot => OpenRaftHotReadSubject::NativeSnapshot,
+        T27PlanSubjectV1::DirectOwnedRocksdb => OpenRaftHotReadSubject::DirectOwnedRocksdb,
+    }
+}
+
+fn t27_observed_subject(value: OpenRaftHotReadSubject) -> T27PlanSubjectV1 {
+    match value {
+        OpenRaftHotReadSubject::NativeSnapshot => T27PlanSubjectV1::NativeSnapshot,
+        OpenRaftHotReadSubject::DirectOwnedRocksdb => T27PlanSubjectV1::DirectOwnedRocksdb,
+    }
+}
+
+fn run_t27_plan_position(
+    plan_path: &Path,
+    expected_plan_sha256: &str,
+    ordinal: u64,
+    controller_id: String,
+    worker_id: String,
+    runtime_cargo_lock: &Path,
+    machine_receipt: &Path,
+    scratch_root: &Path,
+    lease_id: &str,
+) -> Result<T27PositionExecutionOutputV1, Box<dyn Error>> {
+    Uuid::parse_str(&controller_id)?;
+    Uuid::parse_str(&worker_id)?;
+    Uuid::parse_str(lease_id)?;
+    let plan = decode_t27_execution_plan(&fs::read(plan_path)?, expected_plan_sha256)?;
+    let observed_execution = capture_t27_execution_envelope(
+        &plan.execution.runtime_source_sha256,
+        runtime_cargo_lock,
+        machine_receipt,
+        scratch_root,
+    )?;
+    if observed_execution != plan.execution {
+        return Err(std::io::Error::other("T27 position execution envelope mismatch").into());
+    }
+    validate_t27_host_lease(&plan, &controller_id, lease_id)?;
+    let position = plan
+        .positions
+        .get(usize::try_from(ordinal)?)
+        .ok_or_else(|| std::io::Error::other("T27 plan position is absent"))?
+        .clone();
+    if position.ordinal != ordinal {
+        return Err(std::io::Error::other("T27 plan ordinal is not canonical").into());
+    }
+    let started_at = Utc::now().to_rfc3339();
+    let profile = ServingRecoveryProfile {
+        key_count: plan.fixture.key_count,
+        value_bytes: usize::try_from(plan.fixture.value_bytes)?,
+        target_object_bytes: usize::try_from(plan.fixture.target_object_bytes)?,
+        target_block_bytes: usize::try_from(plan.fixture.target_block_bytes)?,
+    };
+    let executable = std::env::current_exe()?;
+    let report = run_openraft_serving_recovery_contract_from_fixture_placement(
+        position.trace_seed,
+        &profile,
+        2,
+        &executable,
+        &plan.fixture,
+        OpenRaftHotReadProfile {
+            subject: t27_subject(position.subject),
+            seed: position.trace_seed,
+            key_count: plan.fixture.key_count,
+            value_bytes: profile.value_bytes,
+            warmup_operations: usize::try_from(position.warmup_operations)?,
+            measured_operations: usize::try_from(position.measured_operations)?,
+            concurrent_clients: usize::try_from(position.concurrent_clients)?,
+            access_pattern: t27_access_pattern(position.access_pattern),
+            max_local_bytes: position.max_local_bytes,
+            block_cache_bytes: position.block_cache_bytes,
+            direct_reads: position.direct_reads,
+            sample_count: 1,
+            negative_control: None,
+        },
+        false,
+    )?;
+    let hot_read = report
+        .process
+        .hot_read
+        .as_ref()
+        .ok_or_else(|| std::io::Error::other("T27 position omitted hot-read evidence"))?;
+    if hot_read.subject != t27_subject(position.subject)
+        || hot_read.access_pattern != t27_access_pattern(position.access_pattern)
+        || hot_read.concurrent_clients != position.concurrent_clients
+        || hot_read.max_local_bytes != position.max_local_bytes
+        || hot_read.warmup_operations != position.warmup_operations
+        || hot_read.measured_operations != position.measured_operations
+    {
+        return Err(
+            std::io::Error::other("T27 position report differs from the immutable plan").into(),
+        );
+    }
+    let sample = hot_read
+        .samples
+        .first()
+        .ok_or_else(|| std::io::Error::other("T27 position omitted its measured sample"))?;
+    let image = report
+        .process
+        .object_fixture_image
+        .as_ref()
+        .ok_or_else(|| std::io::Error::other("T27 position omitted fixture-image evidence"))?;
+    let raw_report_bytes = serde_json::to_vec(&report)?;
+    let receipt = T27PositionReceiptV1::new(
+        &plan,
+        &position,
+        controller_id,
+        lease_id.to_owned(),
+        worker_id,
+        std::process::id(),
+        started_at,
+        Utc::now().to_rfc3339(),
+        T27PositionObservationV1 {
+            execution: observed_execution,
+            measured_worker_process_id: report.process.worker_process.process_id,
+            measured_worker_linux_boot_id: report
+                .process
+                .worker_process
+                .linux_boot_id
+                .clone()
+                .ok_or_else(|| std::io::Error::other("T27 worker omitted Linux boot ID"))?,
+            measured_worker_start_ticks: report
+                .process
+                .worker_process
+                .linux_process_start_ticks
+                .ok_or_else(|| std::io::Error::other("T27 worker omitted process start ticks"))?,
+            fixture_id: image.fixture_id.clone(),
+            image_provider: image.provider.clone(),
+            runtime_resident_provider: report.process.resident_engine_provider.clone(),
+            runtime_serving_image_provider: report.process.serving_image_provider.clone(),
+            tail_sha256: image.tail_sha256.clone(),
+            resident_logical_sha256: image.resident_logical_sha256.clone(),
+            report_semantic_sha256: report.semantic_sha256.clone(),
+            trace_sha256: hot_read.trace_sha256.clone(),
+            subject: t27_observed_subject(hot_read.subject),
+            effective_engine_options_sha256: sample.storage.effective_engine_options_sha256.clone(),
+            engine_topology: sample.storage.engine_topology.clone(),
+            database_count: sample.storage.database_count,
+            block_cache_count: sample.storage.block_cache_count,
+            implicit_block_cache_count: sample.storage.implicit_block_cache_count,
+            column_family_count: sample.storage.column_family_count,
+            metadata_cache_disabled: sample.storage.metadata_cache_disabled,
+            direct_reads: sample.storage.direct_reads,
+            block_cache_capacity_bytes: sample.storage.block_cache_capacity_bytes,
+            block_cache_usage_bytes: sample.storage.block_cache_usage_bytes,
+            block_cache_misses: sample.storage.block_cache_misses,
+            operations_per_second: sample.operations_per_second,
+            latency_ns_p99: sample.latency_ns_p99,
+            cpu_nanoseconds_per_read: sample.process.cpu_nanoseconds_per_read,
+            physical_read_bytes: sample.process.physical_read_bytes,
+            read_amplification_ratio: sample.storage.read_amplification_ratio,
+            flush_write_bytes: sample.storage.flush_write_bytes,
+            compaction_read_bytes: sample.storage.compaction_read_bytes,
+            compaction_write_bytes: sample.storage.compaction_write_bytes,
+            correctness_failures: sample.correctness_failures,
+            object_requests: sample.object_requests,
+            scratch_was_empty: report.process.scratch_was_empty && image.scratch_was_empty,
+            process_cpu_supported: sample.process.process_cpu_supported,
+            linux_proc_supported: sample.process.linux_proc_supported,
+            raw_report_sha256: sha256(&raw_report_bytes),
+        },
+    );
+    receipt.validate(&plan)?;
+    Ok(T27PositionExecutionOutputV1 {
+        receipt,
+        raw_report: report,
+    })
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_t27_plan_controller(
+    plan_path: &Path,
+    expected_plan_sha256: &str,
+    runtime_cargo_lock: &Path,
+    machine_receipt: &Path,
+    scratch_root: &Path,
+    output_dir: &Path,
+) -> Result<T27PlanRunReceiptV1, Box<dyn Error>> {
+    let plan = decode_t27_execution_plan(&fs::read(plan_path)?, expected_plan_sha256)?;
+    let observed_execution = capture_t27_execution_envelope(
+        &plan.execution.runtime_source_sha256,
+        runtime_cargo_lock,
+        machine_receipt,
+        scratch_root,
+    )?;
+    if observed_execution != plan.execution {
+        return Err(std::io::Error::other("T27 controller execution envelope mismatch").into());
+    }
+    let controller_id = Uuid::new_v4().to_string();
+    let host_lease = acquire_t27_host_lease(&plan, &controller_id)?;
+    let telemetry_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            std::io::Error::other(
+                "T27 requires OTEL_EXPORTER_OTLP_ENDPOINT for logs, metrics, and traces",
+            )
+        })?;
+    let telemetry_endpoint_sha256 = sha256(telemetry_endpoint.as_bytes());
+    let telemetry_config = TelemetryConfig {
+        protocol: "otlp-http".to_owned(),
+        endpoint_env: "OTEL_EXPORTER_OTLP_ENDPOINT".to_owned(),
+        required_signals: vec!["logs".to_owned(), "metrics".to_owned(), "traces".to_owned()],
+        required_for_profiles: vec!["t27".to_owned()],
+    };
+    let metric_registry: MetricRegistry =
+        toml::from_str(include_str!("../../../evals/metrics.toml"))?;
+    let telemetry_resource = RunResource {
+        service_version: env!("CARGO_PKG_VERSION").to_owned(),
+        environment: "objectkv-dev-gcs".to_owned(),
+        run_id: controller_id.clone(),
+        batch_id: controller_id.clone(),
+        suite_id: "t27-native-vs-direct-rocksdb".to_owned(),
+        suite_hash: plan.plan_sha256.clone(),
+        profile_id: "t27".to_owned(),
+        profile_hash: plan.plan_sha256.clone(),
+        candidate_commit: plan.execution.runtime_source_sha256.clone(),
+        backend: "gcs+nvme+rocksdb".to_owned(),
+    };
+    let telemetry = Telemetry::init(&telemetry_config, "t27", &telemetry_resource)?;
+    let mut telemetry_recorder = telemetry.recorder(&metric_registry);
+    let run_span = info_span!(
+        "okv.eval.t27.run",
+        run.id = %controller_id,
+        plan.sha256 = %plan.plan_sha256,
+        profile = ?plan.profile
+    );
+    let run_guard = run_span.enter();
+    info!("T27 fresh-process plan started");
+    fs::create_dir(output_dir)?;
+    let started_at = Utc::now().to_rfc3339();
+    let lease = serde_json::to_vec_pretty(&serde_json::json!({
+        "schema_version": 1,
+        "controller_id": &controller_id,
+        "lease_id": &host_lease.lease_id,
+        "host_lease_path": &host_lease.path,
+        "plan_sha256": &plan.plan_sha256,
+        "started_at": &started_at,
+        "process_id": std::process::id()
+    }))?;
+    write_new_file(&output_dir.join("controller-lease.json"), &lease)?;
+    let executable = std::env::current_exe()?;
+    let mut receipts = Vec::with_capacity(plan.positions.len());
+    for position in &plan.positions {
+        let worker_id = Uuid::new_v4().to_string();
+        let position_span = info_span!(
+            "okv.eval.t27.position",
+            position.ordinal = position.ordinal,
+            position.stratum = %position.stratum_id,
+            position.subject = ?position.subject,
+            worker.id = %worker_id
+        );
+        let _position_guard = position_span.enter();
+        let child = Command::new(&executable)
+            .arg("t27-plan-position-gcs")
+            .arg("--plan")
+            .arg(plan_path)
+            .arg("--expected-plan-sha256")
+            .arg(expected_plan_sha256)
+            .arg("--ordinal")
+            .arg(position.ordinal.to_string())
+            .arg("--controller-id")
+            .arg(&controller_id)
+            .arg("--worker-id")
+            .arg(&worker_id)
+            .arg("--runtime-cargo-lock")
+            .arg(runtime_cargo_lock)
+            .arg("--machine-receipt")
+            .arg(machine_receipt)
+            .arg("--scratch-root")
+            .arg(scratch_root)
+            .arg("--lease-id")
+            .arg(&host_lease.lease_id)
+            .env("OKV_EVAL_SERVING_SCRATCH_ROOT", scratch_root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let process_id = child.id();
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            let failure_path =
+                output_dir.join(format!("position-{:03}-failure.txt", position.ordinal));
+            let mut failure = output.stdout;
+            failure.extend_from_slice(&output.stderr);
+            write_new_file(&failure_path, &failure)?;
+            return Err(std::io::Error::other(format!(
+                "T27 position {} failed; evidence is at {}",
+                position.ordinal,
+                failure_path.display()
+            ))
+            .into());
+        }
+        let position_output: T27PositionExecutionOutputV1 = serde_json::from_slice(&output.stdout)?;
+        let receipt = position_output.receipt;
+        receipt.validate(&plan)?;
+        if receipt.controller_id != controller_id
+            || receipt.worker_id != worker_id
+            || receipt.wrapper_process_id != process_id
+            || receipt.lease_id != host_lease.lease_id
+        {
+            return Err(std::io::Error::other(format!(
+                "T27 position {} process identity mismatch",
+                position.ordinal
+            ))
+            .into());
+        }
+        let raw_report_bytes = serde_json::to_vec(&position_output.raw_report)?;
+        if sha256(&raw_report_bytes) != receipt.raw_report_sha256 {
+            return Err(std::io::Error::other(format!(
+                "T27 position {} raw report digest mismatch",
+                position.ordinal
+            ))
+            .into());
+        }
+        let raw_report_path = output_dir.join(format!("position-{:03}.raw.json", position.ordinal));
+        write_new_file(&raw_report_path, &raw_report_bytes)?;
+        let receipt_path = output_dir.join(format!("position-{:03}.json", position.ordinal));
+        write_new_file(&receipt_path, &serde_json::to_vec_pretty(&receipt)?)?;
+        record_t27_position_telemetry(&mut telemetry_recorder, &receipt)?;
+        info!(
+            operations_per_second = receipt.operations_per_second,
+            latency_ns_p99 = receipt.latency_ns_p99,
+            block_cache_misses = receipt.block_cache_misses,
+            physical_read_bytes = receipt.physical_read_bytes,
+            "T27 fresh-process position recorded"
+        );
+        receipts.push(receipt);
+        require_t27_infrastructure_lease(plan.execution.infrastructure_lease_expires_epoch)?;
+        validate_t27_host_lease(&plan, &controller_id, &host_lease.lease_id)?;
+    }
+    info!("T27 fresh-process measurements completed; flushing telemetry exporters");
+    drop(telemetry_recorder);
+    drop(run_guard);
+    let telemetry_flush = telemetry.shutdown();
+    let finished_at = Utc::now().to_rfc3339();
+    let lease_id = host_lease.lease_id.clone();
+    let lease_acquired_at = host_lease.acquired_at.clone();
+    let lease_released_at = host_lease.release()?;
+    let run_receipt = T27PlanRunReceiptV1::new(
+        &plan,
+        &receipts,
+        started_at,
+        finished_at,
+        lease_id,
+        lease_acquired_at,
+        lease_released_at,
+        telemetry_endpoint_sha256,
+        telemetry_flush,
+    )?;
+    write_new_file(
+        &output_dir.join("plan-run.json"),
+        &serde_json::to_vec_pretty(&run_receipt)?,
+    )?;
+    let passed = run_receipt.passed;
+    info!(passed, "T27 fresh-process plan completed");
+    if !passed {
+        return Err(std::io::Error::other(format!(
+            "T27 plan failed one or more ABBA or telemetry admission gates; sealed evidence is at {}",
+            output_dir.join("plan-run.json").display()
+        ))
+        .into());
+    }
+    Ok(run_receipt)
+}
+
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+fn record_t27_position_telemetry(
+    recorder: &mut MetricRecorder,
+    receipt: &T27PositionReceiptV1,
+) -> Result<(), Box<dyn Error>> {
+    let sample = receipt.position.ordinal.to_string();
+    let workload = match receipt.observed_subject {
+        T27PlanSubjectV1::NativeSnapshot => "t27-native-snapshot",
+        T27PlanSubjectV1::DirectOwnedRocksdb => "t27-direct-owned-rocksdb",
+    };
+    let lane = "cache-pressure";
+    let backend = "gcs+nvme+rocksdb";
+    let operation = "resident-point-read";
+    recorder.record(
+        "operation.throughput",
+        receipt.operations_per_second,
+        attributes(&[
+            ("lane", lane),
+            ("workload", workload),
+            ("operation", operation),
+            ("backend", backend),
+            ("sample", &sample),
+        ]),
+    )?;
+    recorder.record(
+        "operation.duration",
+        receipt.latency_ns_p99 as f64 / 1_000_000_000.0,
+        attributes(&[
+            ("lane", lane),
+            ("workload", workload),
+            ("operation", operation),
+            ("backend", backend),
+            ("result", "success"),
+            ("sample", &sample),
+        ]),
+    )?;
+    recorder.record(
+        "process.cpu_per_operation",
+        receipt.cpu_nanoseconds_per_read,
+        attributes(&[
+            ("lane", lane),
+            ("workload", workload),
+            ("backend", backend),
+            ("operation", operation),
+            ("sample", &sample),
+        ]),
+    )?;
+    recorder.record(
+        "process.io_bytes",
+        receipt.physical_read_bytes as f64,
+        attributes(&[
+            ("lane", lane),
+            ("workload", workload),
+            ("backend", backend),
+            ("io.class", "physical-read"),
+            ("sample", &sample),
+        ]),
+    )?;
+    recorder.record(
+        "rocksdb.cache_requests",
+        receipt.block_cache_misses as f64,
+        attributes(&[
+            ("lane", lane),
+            ("workload", workload),
+            ("backend", backend),
+            ("block.class", "all"),
+            ("result", "miss"),
+            ("sample", &sample),
+        ]),
+    )?;
+    recorder.record(
+        "rocksdb.read_amplification",
+        receipt.read_amplification_ratio,
+        attributes(&[
+            ("lane", lane),
+            ("workload", workload),
+            ("backend", backend),
+            ("sample", &sample),
+        ]),
+    )?;
+    recorder.record(
+        "correctness.failures",
+        receipt.correctness_failures as f64,
+        attributes(&[("lane", lane), ("workload", workload)]),
+    )?;
+    recorder.record(
+        "object_store.requests",
+        receipt.object_requests as f64,
+        attributes(&[
+            ("lane", lane),
+            ("workload", workload),
+            ("backend", backend),
+            ("store", "object-base"),
+            ("api", "get"),
+            ("result", "attempted"),
+            ("sample", &sample),
+        ]),
+    )?;
+    Ok(())
+}
+
+fn acquire_t27_host_lease(
+    plan: &okv_eval::t27_plan::T27ExecutionPlanV1,
+    controller_id: &str,
+) -> Result<T27HostLease, Box<dyn Error>> {
+    acquire_t27_host_lease_at(
+        Path::new(&plan.execution.host_lease_path),
+        plan.execution.infrastructure_lease_expires_epoch,
+        &plan.plan_sha256,
+        &plan.execution.linux_boot_id,
+        controller_id,
+    )
+}
+
+fn acquire_t27_host_lease_at(
+    path: &Path,
+    infrastructure_lease_expires_epoch: u64,
+    plan_sha256: &str,
+    linux_boot_id: &str,
+    controller_id: &str,
+) -> Result<T27HostLease, Box<dyn Error>> {
+    require_t27_infrastructure_lease(infrastructure_lease_expires_epoch)?;
+    let path = path.to_path_buf();
+    let parent = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("T27 host lease has no parent directory"))?;
+    if !parent.is_dir() {
+        return Err(std::io::Error::other("T27 host lease parent does not exist").into());
+    }
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&path)?;
+    let mut file = Flock::lock(file, FlockArg::LockExclusiveNonblock)
+        .map_err(|(_, error)| std::io::Error::other(format!("T27 host lease is busy: {error}")))?;
+    let lease_id = Uuid::new_v4().to_string();
+    let acquired_at = Utc::now().to_rfc3339();
+    let body = serde_json::to_vec(&serde_json::json!({
+        "schema_version": 1,
+        "status": "active",
+        "lease_id": &lease_id,
+        "controller_id": controller_id,
+        "controller_process_id": std::process::id(),
+        "plan_sha256": plan_sha256,
+        "linux_boot_id": linux_boot_id,
+        "acquired_at": &acquired_at
+    }))?;
+    file.set_len(0)?;
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(&body)?;
+    file.sync_all()?;
+    Ok(T27HostLease {
+        file,
+        lease_id,
+        acquired_at,
+        path,
+    })
+}
+
+fn validate_t27_host_lease(
+    plan: &okv_eval::t27_plan::T27ExecutionPlanV1,
+    controller_id: &str,
+    lease_id: &str,
+) -> Result<(), Box<dyn Error>> {
+    require_t27_infrastructure_lease(plan.execution.infrastructure_lease_expires_epoch)?;
+    let path = Path::new(&plan.execution.host_lease_path);
+    let value: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+    if value.get("status").and_then(serde_json::Value::as_str) != Some("active")
+        || value.get("lease_id").and_then(serde_json::Value::as_str) != Some(lease_id)
+        || value
+            .get("controller_id")
+            .and_then(serde_json::Value::as_str)
+            != Some(controller_id)
+        || value.get("plan_sha256").and_then(serde_json::Value::as_str)
+            != Some(plan.plan_sha256.as_str())
+        || value
+            .get("linux_boot_id")
+            .and_then(serde_json::Value::as_str)
+            != Some(plan.execution.linux_boot_id.as_str())
+    {
+        return Err(std::io::Error::other("T27 host lease identity mismatch").into());
+    }
+    let file = OpenOptions::new().read(true).write(true).open(path)?;
+    match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
+        Ok(unexpected_lock) => {
+            drop(unexpected_lock);
+            Err(std::io::Error::other("T27 host lease is not actively locked").into())
+        }
+        Err((_file, error)) if error == nix::errno::Errno::EWOULDBLOCK => Ok(()),
+        Err((_file, error)) => Err(std::io::Error::other(format!(
+            "T27 host lease could not be validated: {error}"
+        ))
+        .into()),
+    }
+}
+
+impl T27HostLease {
+    fn release(mut self) -> Result<String, Box<dyn Error>> {
+        let released_at = Utc::now().to_rfc3339();
+        let body = serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "status": "released",
+            "lease_id": &self.lease_id,
+            "released_at": &released_at
+        }))?;
+        self.file.set_len(0)?;
+        self.file.seek(SeekFrom::Start(0))?;
+        self.file.write_all(&body)?;
+        self.file.sync_all()?;
+        drop(self.file);
+        Ok(released_at)
+    }
+}
+
+fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
+    let mut file = OpenOptions::new().create_new(true).write(true).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 fn parse_object_frontier_mode(value: &str) -> Result<ObjectFrontierMode, String> {
@@ -16777,4 +17683,51 @@ fn command_output(program: &str, arguments: &[&str]) -> Option<String> {
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+#[cfg(test)]
+mod t27_controller_tests {
+    use super::{acquire_t27_host_lease_at, canonical_t27_host_lease_path};
+
+    #[test]
+    fn machine_and_device_identity_derive_one_canonical_lease_path() {
+        let first = canonical_t27_host_lease_path("instance-1", "filesystem-1", "259:0");
+        let replay = canonical_t27_host_lease_path("instance-1", "filesystem-1", "259:0");
+        let other_device = canonical_t27_host_lease_path("instance-1", "filesystem-2", "259:1");
+
+        assert_eq!(first, replay);
+        assert_ne!(first, other_device);
+        assert_eq!(
+            first.parent().and_then(std::path::Path::to_str),
+            Some("/var/lib/objectkv/receipts")
+        );
+    }
+
+    #[test]
+    fn two_controllers_contend_on_the_same_host_global_lock() {
+        let root = tempfile::TempDir::new().expect("create lease root");
+        let path = root.path().join("t27-host.lock");
+        let first = acquire_t27_host_lease_at(
+            &path,
+            u64::MAX,
+            &"a".repeat(64),
+            "40000000-0000-4000-8000-000000000001",
+            "10000000-0000-4000-8000-000000000001",
+        )
+        .expect("first controller acquires host lock");
+
+        let error = match acquire_t27_host_lease_at(
+            &path,
+            u64::MAX,
+            &"a".repeat(64),
+            "40000000-0000-4000-8000-000000000001",
+            "10000000-0000-4000-8000-000000000002",
+        ) {
+            Ok(_) => panic!("second controller unexpectedly acquired host lock"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("busy"));
+
+        first.release().expect("release first host lock");
+    }
 }

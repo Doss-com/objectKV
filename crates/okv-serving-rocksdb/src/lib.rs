@@ -220,6 +220,11 @@ pub struct RocksDbResidentRangeEngine {
 /// usage, and pinned usage are gauges and must not be subtracted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct RocksDbResidentMetrics {
+    pub database_count: u64,
+    pub block_cache_count: u64,
+    pub implicit_block_cache_count: u64,
+    pub column_family_count: u64,
+    pub metadata_cache_disabled: bool,
     pub block_cache_capacity_bytes: u64,
     pub block_cache_usage_bytes: u64,
     pub block_cache_pinned_usage_bytes: u64,
@@ -232,6 +237,9 @@ pub struct RocksDbResidentMetrics {
     pub bytes_read: u64,
     pub read_amp_useful_bytes: u64,
     pub read_amp_total_bytes: u64,
+    pub flush_write_bytes: u64,
+    pub compaction_read_bytes: u64,
+    pub compaction_write_bytes: u64,
 }
 
 impl Debug for RocksDbResidentRangeEngine {
@@ -319,7 +327,7 @@ impl RocksDbResidentRangeEngine {
             [
                 ColumnFamilyDescriptor::new("default", point_options.clone()),
                 ColumnFamilyDescriptor::new(HISTORY_CF, point_options.clone()),
-                ColumnFamilyDescriptor::new(METADATA_CF, Options::default()),
+                ColumnFamilyDescriptor::new(METADATA_CF, uncached_metadata_options()),
             ],
         )
         .map_err(|error| format!("open native resident RocksDB: {error}"))?;
@@ -340,6 +348,11 @@ impl RocksDbResidentRangeEngine {
     #[must_use]
     pub fn metrics(&self) -> RocksDbResidentMetrics {
         RocksDbResidentMetrics {
+            database_count: 1,
+            block_cache_count: 1,
+            implicit_block_cache_count: 0,
+            column_family_count: 3,
+            metadata_cache_disabled: true,
             block_cache_capacity_bytes: self.block_cache_bytes,
             block_cache_usage_bytes: usize_as_u64(self.block_cache.get_usage()),
             block_cache_pinned_usage_bytes: usize_as_u64(self.block_cache.get_pinned_usage()),
@@ -358,6 +371,9 @@ impl RocksDbResidentRangeEngine {
             read_amp_total_bytes: self
                 .statistics
                 .get_ticker_count(Ticker::ReadAmpTotalReadBytes),
+            flush_write_bytes: self.statistics.get_ticker_count(Ticker::FlushWriteBytes),
+            compaction_read_bytes: self.statistics.get_ticker_count(Ticker::CompactReadBytes),
+            compaction_write_bytes: self.statistics.get_ticker_count(Ticker::CompactWriteBytes),
         }
     }
 
@@ -867,12 +883,23 @@ fn point_options() -> Options {
     options
 }
 
-fn measured_point_options(block_cache: &Cache, direct_reads: bool) -> Options {
+/// Construct the exact measured point-read options shared by native and direct
+/// T27 subjects.
+#[must_use]
+pub fn measured_point_options(block_cache: &Cache, direct_reads: bool) -> Options {
     let mut options = point_options();
     options.set_use_direct_reads(direct_reads);
     options.enable_statistics();
     let mut table = BlockBasedOptions::default();
     table.set_block_cache(block_cache);
+    options.set_block_based_table_factory(&table);
+    options
+}
+
+fn uncached_metadata_options() -> Options {
+    let mut options = point_options();
+    let mut table = BlockBasedOptions::default();
+    table.disable_cache();
     options.set_block_based_table_factory(&table);
     options
 }
@@ -1213,6 +1240,11 @@ mod tests {
             );
         }
         let after = engine.metrics();
+        assert_eq!(after.database_count, 1);
+        assert_eq!(after.block_cache_count, 1);
+        assert_eq!(after.implicit_block_cache_count, 0);
+        assert_eq!(after.column_family_count, 3);
+        assert!(after.metadata_cache_disabled);
         assert_eq!(after.block_cache_capacity_bytes, 2 * 1_024 * 1_024);
         assert!(!after.direct_reads);
         assert!(after.block_cache_usage_bytes <= after.block_cache_capacity_bytes);

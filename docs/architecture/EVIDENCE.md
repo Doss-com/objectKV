@@ -115,9 +115,30 @@ This is construction and recovery evidence, not a new throughput point.
 ```
 
 The immutable locator, separate writer and read-only consumers, standalone
-direct control, descriptor generation, and independent fixture and trace seeds
-are `[VERIFIED]`. Fresh-process plan execution, 64 MiB poisons, and the 1 GiB
-curve remain open.
+direct control, descriptor generation, and base-seed boundary are `[VERIFIED]`.
+The fresh-process ABBA controller is `[CODE-COMPLETE]` with focused order,
+identity, overlap, option, pressure, telemetry, lease-contention, and digest
+poisons. The controller flushes and shuts down logs, metrics, and traces before
+sealing their six outcomes into the admission receipt. Failed comparison or
+exporter completion persists a sealed failure receipt before exit. Its 64 MiB
+GCS execution, collector-side three-signal receipt, the remaining
+capability poisons, and the 1 GiB curve remain open.
+
+```text
+immutable plan + independent oracle + machine envelope
+  -> host-global lease
+     -> fresh position wrapper
+        -> measured replacement worker
+           -> raw report + worker PID/boot/start identity
+        -> sealed position receipt
+     -> AB and BA median gates + cache-pressure gate
+     -> one bound OTLP logs, metrics, and traces run
+  -> sealed run receipt
+```
+
+The wrapper manages one position. The nested replacement worker owns the
+measured RocksDB instance and read window. Receipts name both processes and
+bind the latter to the worker identity reported inside the raw result.
 
 ## Layer unlocks
 
@@ -155,5 +176,5 @@ layer receipt.
 - [Corrected cache calibration](../artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md)
 - [Direct-read attribution preflight](../artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md)
 
-This documentation slice adds no performance measurement and changes no matrix
-status.
+The current implementation slice adds no performance measurement and changes
+no matrix status.

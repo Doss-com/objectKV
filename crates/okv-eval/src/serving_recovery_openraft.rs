@@ -42,7 +42,7 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
 #[cfg(feature = "resident-rocksdb")]
 use rocksdb::statistics::Ticker;
 #[cfg(feature = "resident-rocksdb")]
-use rocksdb::{BlockBasedOptions, Cache, Options, WriteBatch, WriteOptions, DB};
+use rocksdb::{Cache, Options, WriteBatch, WriteOptions, DB};
 
 const GENERATION: u64 = 7;
 const LOGICAL_TXLOG_ROOT: &str = "wal-g7";
@@ -289,6 +289,13 @@ pub struct OpenRaftHotReadProcessReport {
 /// Measured-window `RocksDB` cache and read-amplification evidence.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OpenRaftHotReadStorageReport {
+    pub effective_engine_options_sha256: String,
+    pub engine_topology: String,
+    pub database_count: u64,
+    pub block_cache_count: u64,
+    pub implicit_block_cache_count: u64,
+    pub column_family_count: u64,
+    pub metadata_cache_disabled: bool,
     pub block_cache_capacity_bytes: u64,
     pub block_cache_usage_bytes: u64,
     pub block_cache_pinned_usage_bytes: u64,
@@ -302,13 +309,27 @@ pub struct OpenRaftHotReadStorageReport {
     pub bytes_read: u64,
     pub read_amp_useful_bytes: u64,
     pub read_amp_total_bytes: u64,
+    pub flush_write_bytes: u64,
+    pub compaction_read_bytes: u64,
+    pub compaction_write_bytes: u64,
     pub block_cache_hit_ratio: f64,
     pub read_amplification_ratio: f64,
+}
+
+/// Operating-system identity of the disposable process that served the reads.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OpenRaftWorkerProcessIdentity {
+    pub process_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linux_boot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linux_process_start_ticks: Option<u64>,
 }
 
 /// Evidence emitted by one replacement process.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OpenRaftServingProcessReport {
+    pub worker_process: OpenRaftWorkerProcessIdentity,
     pub mode: OpenRaftServingRecoveryMode,
     pub scratch_was_empty: bool,
     pub generation_sandwich_stable: bool,
@@ -395,7 +416,7 @@ pub struct OpenRaftServingRead {
 }
 
 /// End-to-end G4.4 evidence across one killed worker and its replacement.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OpenRaftServingRecoveryReport {
     pub seed: u64,
     pub mode: OpenRaftServingRecoveryMode,
@@ -862,6 +883,7 @@ pub async fn run_openraft_serving_recovery_node(
     let list_requests = request_count(&stats, "list");
     let total_object_response_bytes = response_bytes(&stats);
     Ok(OpenRaftServingProcessReport {
+        worker_process: current_worker_process_identity(),
         mode: config.mode,
         scratch_was_empty,
         generation_sandwich_stable: true,
@@ -1107,6 +1129,7 @@ async fn run_integrated_kernel_node(
     let resident_engine_local_bytes = stats.resident_engine_local_bytes;
     let resident_engine_applied_version = range.coverage().recovered_version;
     Ok(OpenRaftServingProcessReport {
+        worker_process: current_worker_process_identity(),
         mode: config.mode,
         scratch_was_empty,
         generation_sandwich_stable: true,
@@ -1276,6 +1299,7 @@ async fn run_standalone_direct_control_node(
                 .len(),
         );
     Ok(OpenRaftServingProcessReport {
+        worker_process: current_worker_process_identity(),
         mode: config.mode,
         scratch_was_empty,
         generation_sandwich_stable: true,
@@ -1723,6 +1747,7 @@ struct DirectFixtureContext {
     scratch_was_empty: bool,
 }
 
+#[cfg(feature = "resident-rocksdb")]
 struct DirectFixtureImageContext {
     fixture: OpenRaftObjectFixtureProcessConfig,
     tail_sha256: String,
@@ -1749,15 +1774,7 @@ fn run_matched_direct_hot_reads(
         return Err("matched direct RocksDB requires a positive cache budget".to_owned());
     }
     let mut block_cache = Cache::new_lru_cache(cache_capacity);
-    let mut options = Options::default();
-    options.create_if_missing(true);
-    options.optimize_for_point_lookup(128);
-    options.set_max_open_files(256);
-    options.set_use_direct_reads(profile.direct_reads);
-    options.enable_statistics();
-    let mut table = BlockBasedOptions::default();
-    table.set_block_cache(&block_cache);
-    options.set_block_based_table_factory(&table);
+    let options = okv_serving_rocksdb::measured_point_options(&block_cache, profile.direct_reads);
     let database = DB::open(&options, root)
         .map_err(|error| format!("open matched direct RocksDB control: {error}"))?;
     let fixture_image_context = fixture_context.as_ref().map(|context| {
@@ -2058,6 +2075,12 @@ struct HotReadWindow {
 
 #[derive(Clone, Copy, Debug, Default)]
 struct HotReadStorageSnapshot {
+    native_resident: bool,
+    database_count: u64,
+    block_cache_count: u64,
+    implicit_block_cache_count: u64,
+    column_family_count: u64,
+    metadata_cache_disabled: bool,
     block_cache_capacity_bytes: u64,
     block_cache_usage_bytes: u64,
     block_cache_pinned_usage_bytes: u64,
@@ -2070,6 +2093,9 @@ struct HotReadStorageSnapshot {
     bytes_read: u64,
     read_amp_useful_bytes: u64,
     read_amp_total_bytes: u64,
+    flush_write_bytes: u64,
+    compaction_read_bytes: u64,
+    compaction_write_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2269,6 +2295,12 @@ fn process_resource_delta(
 impl From<okv_serving_rocksdb::RocksDbResidentMetrics> for HotReadStorageSnapshot {
     fn from(metrics: okv_serving_rocksdb::RocksDbResidentMetrics) -> Self {
         Self {
+            native_resident: true,
+            database_count: metrics.database_count,
+            block_cache_count: metrics.block_cache_count,
+            implicit_block_cache_count: metrics.implicit_block_cache_count,
+            column_family_count: metrics.column_family_count,
+            metadata_cache_disabled: metrics.metadata_cache_disabled,
             block_cache_capacity_bytes: metrics.block_cache_capacity_bytes,
             block_cache_usage_bytes: metrics.block_cache_usage_bytes,
             block_cache_pinned_usage_bytes: metrics.block_cache_pinned_usage_bytes,
@@ -2281,6 +2313,9 @@ impl From<okv_serving_rocksdb::RocksDbResidentMetrics> for HotReadStorageSnapsho
             bytes_read: metrics.bytes_read,
             read_amp_useful_bytes: metrics.read_amp_useful_bytes,
             read_amp_total_bytes: metrics.read_amp_total_bytes,
+            flush_write_bytes: metrics.flush_write_bytes,
+            compaction_read_bytes: metrics.compaction_read_bytes,
+            compaction_write_bytes: metrics.compaction_write_bytes,
         }
     }
 }
@@ -2293,6 +2328,12 @@ fn direct_rocksdb_metrics(
     direct_reads: bool,
 ) -> HotReadStorageSnapshot {
     HotReadStorageSnapshot {
+        native_resident: false,
+        database_count: 1,
+        block_cache_count: 1,
+        implicit_block_cache_count: 0,
+        column_family_count: 1,
+        metadata_cache_disabled: false,
         block_cache_capacity_bytes: block_cache_bytes,
         block_cache_usage_bytes: u64::try_from(block_cache.get_usage()).unwrap_or(u64::MAX),
         block_cache_pinned_usage_bytes: u64::try_from(block_cache.get_pinned_usage())
@@ -2306,6 +2347,9 @@ fn direct_rocksdb_metrics(
         bytes_read: options.get_ticker_count(Ticker::BytesRead),
         read_amp_useful_bytes: options.get_ticker_count(Ticker::ReadAmpEstimateUsefulBytes),
         read_amp_total_bytes: options.get_ticker_count(Ticker::ReadAmpTotalReadBytes),
+        flush_write_bytes: options.get_ticker_count(Ticker::FlushWriteBytes),
+        compaction_read_bytes: options.get_ticker_count(Ticker::CompactReadBytes),
+        compaction_write_bytes: options.get_ticker_count(Ticker::CompactWriteBytes),
     }
 }
 
@@ -2313,10 +2357,16 @@ fn storage_delta(
     before: HotReadStorageSnapshot,
     after: HotReadStorageSnapshot,
 ) -> Result<OpenRaftHotReadStorageReport, String> {
-    if before.direct_reads != after.direct_reads {
-        return Err(
-            "RocksDB direct-read configuration changed inside the measured window".to_owned(),
-        );
+    if before.direct_reads != after.direct_reads
+        || before.native_resident != after.native_resident
+        || before.database_count != after.database_count
+        || before.block_cache_count != after.block_cache_count
+        || before.implicit_block_cache_count != after.implicit_block_cache_count
+        || before.column_family_count != after.column_family_count
+        || before.metadata_cache_disabled != after.metadata_cache_disabled
+        || before.block_cache_capacity_bytes != after.block_cache_capacity_bytes
+    {
+        return Err("RocksDB engine topology changed inside the measured window".to_owned());
     }
     let block_cache_hits = counter_delta(
         "block_cache_hits",
@@ -2339,7 +2389,23 @@ fn storage_delta(
         after.read_amp_total_bytes,
     )?;
     let cache_lookups = block_cache_hits.saturating_add(block_cache_misses);
+    let effective_engine_options_sha256 = rocksdb_effective_options_sha256(
+        after.native_resident,
+        after.block_cache_capacity_bytes,
+        after.direct_reads,
+    );
     Ok(OpenRaftHotReadStorageReport {
+        effective_engine_options_sha256,
+        engine_topology: if after.native_resident {
+            "native-resident:1db:1cache:3cf".to_owned()
+        } else {
+            "direct-owned:1db:1cache:1cf".to_owned()
+        },
+        database_count: after.database_count,
+        block_cache_count: after.block_cache_count,
+        implicit_block_cache_count: after.implicit_block_cache_count,
+        column_family_count: after.column_family_count,
+        metadata_cache_disabled: after.metadata_cache_disabled,
         block_cache_capacity_bytes: after.block_cache_capacity_bytes,
         block_cache_usage_bytes: after.block_cache_usage_bytes,
         block_cache_pinned_usage_bytes: after.block_cache_pinned_usage_bytes,
@@ -2364,9 +2430,47 @@ fn storage_delta(
         bytes_read: counter_delta("bytes_read", before.bytes_read, after.bytes_read)?,
         read_amp_useful_bytes,
         read_amp_total_bytes,
+        flush_write_bytes: counter_delta(
+            "flush_write_bytes",
+            before.flush_write_bytes,
+            after.flush_write_bytes,
+        )?,
+        compaction_read_bytes: counter_delta(
+            "compaction_read_bytes",
+            before.compaction_read_bytes,
+            after.compaction_read_bytes,
+        )?,
+        compaction_write_bytes: counter_delta(
+            "compaction_write_bytes",
+            before.compaction_write_bytes,
+            after.compaction_write_bytes,
+        )?,
         block_cache_hit_ratio: ratio(block_cache_hits, cache_lookups),
         read_amplification_ratio: ratio(read_amp_total_bytes, read_amp_useful_bytes),
     })
+}
+
+/// Canonical digest for the `RocksDB` point-read options and constructor-owned
+/// topology expected by one T27 subject.
+#[must_use]
+pub(crate) fn rocksdb_effective_options_sha256(
+    native_resident: bool,
+    block_cache_bytes: u64,
+    direct_reads: bool,
+) -> String {
+    let mut bytes = b"OKVRDBO1".to_vec();
+    bytes.push(u8::from(native_resident));
+    bytes.extend_from_slice(&1_u64.to_be_bytes());
+    bytes.extend_from_slice(&1_u64.to_be_bytes());
+    bytes.extend_from_slice(&0_u64.to_be_bytes());
+    bytes.extend_from_slice(&(if native_resident { 3_u64 } else { 1_u64 }).to_be_bytes());
+    bytes.push(u8::from(native_resident));
+    bytes.extend_from_slice(&block_cache_bytes.to_be_bytes());
+    bytes.push(u8::from(direct_reads));
+    bytes.extend_from_slice(&128_u64.to_be_bytes());
+    bytes.extend_from_slice(&256_i32.to_be_bytes());
+    bytes.push(1);
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn counter_delta(name: &str, before: u64, after: u64) -> Result<u64, String> {
@@ -2575,6 +2679,21 @@ fn hot_operation_keys(
             zipf_operation_keys(key_count, operations, seed, 2.0)
         }
     }
+}
+
+/// Derive the immutable read-trace digest before a T27 measured process starts.
+#[must_use]
+pub(crate) fn canonical_hot_trace_sha256(
+    key_count: u64,
+    operations: usize,
+    seed: u64,
+    access_pattern: OpenRaftHotReadAccessPattern,
+) -> String {
+    let keys = hot_operation_keys(key_count, operations, seed, access_pattern)
+        .into_iter()
+        .map(key_bytes)
+        .collect::<Vec<_>>();
+    hot_trace_sha256(&keys)
 }
 
 fn hotset_operation_keys(key_count: u64, operations: usize, seed: u64) -> Vec<u64> {
@@ -2790,10 +2909,7 @@ async fn run_contract(
                 target_object_bytes: profile.target_object_bytes,
                 target_block_bytes: profile.target_block_bytes,
             };
-            let fixture_seed = existing_fixture_seed.unwrap_or(seed);
-            if fixture_seed == 0 {
-                return Err("object fixture seed must be nonzero".to_owned());
-            }
+            let fixture_seed = object_fixture_workload_seed(seed, existing_fixture_seed)?;
             let (fixture, verified, verification_seconds, opened_existing) = if let Some(locator) =
                 existing_fixture.as_ref()
             {
@@ -2881,7 +2997,7 @@ async fn run_contract(
                 transaction_authority_serialized_bytes: 0,
                 transaction_authority_physical_bytes: 0,
             });
-            let mut history = history_after_base(seed, profile, anchor.version, verified);
+            let mut history = history_after_base(fixture_seed, profile, anchor.version, verified);
             history.expected = evaluate_expected(&history, profile)?;
             let process_fixture = OpenRaftObjectFixtureProcessConfig {
                 fixture_seed,
@@ -2971,6 +3087,8 @@ async fn run_contract(
     };
     let mut replacement = spawn_worker(executable, &replacement_config, true)?;
     wait_for_barrier(&mut replacement, &replacement_initial)?;
+    let replacement_process_id = replacement.id();
+    let replacement_linux_identity = linux_process_identity(replacement_process_id);
     let initial_target = read_version;
     for command in &history.concurrent_commands {
         read_version = commit_command(
@@ -2995,7 +3113,11 @@ async fn run_contract(
     }
     let process: OpenRaftServingProcessReport = serde_json::from_slice(&output.stdout)
         .map_err(|error| format!("decode replacement report: {error}"))?;
-    if process.object_durable_version != published.object_durable_version
+    if process.worker_process.process_id != replacement_process_id
+        || replacement_linux_identity
+            .as_ref()
+            .is_some_and(|expected| process.worker_process != *expected)
+        || process.object_durable_version != published.object_durable_version
         || process.row_segment_count != published.segment_count
         || process.row_index_closure_bytes != published.index_closure_bytes
         || process.row_data_closure_bytes != published.data_closure_bytes
@@ -3512,6 +3634,17 @@ fn history_after_base(
     }
 }
 
+fn object_fixture_workload_seed(
+    trace_seed: u64,
+    existing_fixture_seed: Option<u64>,
+) -> Result<u64, String> {
+    let fixture_seed = existing_fixture_seed.unwrap_or(trace_seed);
+    if fixture_seed == 0 {
+        return Err("object fixture seed must be nonzero".to_owned());
+    }
+    Ok(fixture_seed)
+}
+
 fn point_command(
     read_version: u64,
     key_id: u64,
@@ -3897,6 +4030,32 @@ fn spawn_worker(
         .map_err(|error| format!("start serving worker: {error}"))
 }
 
+fn current_worker_process_identity() -> OpenRaftWorkerProcessIdentity {
+    linux_process_identity(std::process::id()).unwrap_or(OpenRaftWorkerProcessIdentity {
+        process_id: std::process::id(),
+        linux_boot_id: None,
+        linux_process_start_ticks: None,
+    })
+}
+
+fn linux_process_identity(process_id: u32) -> Option<OpenRaftWorkerProcessIdentity> {
+    let linux_boot_id = fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .ok()?
+        .trim()
+        .to_owned();
+    if linux_boot_id.is_empty() {
+        return None;
+    }
+    let stat = fs::read_to_string(format!("/proc/{process_id}/stat")).ok()?;
+    let (_, fields) = stat.rsplit_once(") ")?;
+    let linux_process_start_ticks = fields.split_whitespace().nth(19)?.parse().ok()?;
+    Some(OpenRaftWorkerProcessIdentity {
+        process_id,
+        linux_boot_id: Some(linux_boot_id),
+        linux_process_start_ticks: Some(linux_process_start_ticks),
+    })
+}
+
 fn wait_for_barrier(child: &mut std::process::Child, path: &Path) -> Result<(), String> {
     for _ in 0..1_000 {
         if path.is_file() {
@@ -4079,14 +4238,15 @@ fn count_as_f64(value: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        base_value, direct_logical_image, hot_operation_keys, hot_trace_sha256, key_bytes,
-        validate_unchanged_base_values, OpenRaftHotReadAccessPattern, OpenRaftServingRecoveryMode,
+        base_value, direct_logical_image, history_after_base, hot_operation_keys, hot_trace_sha256,
+        key_bytes, object_fixture_workload_seed, validate_unchanged_base_values,
+        OpenRaftHotReadAccessPattern, OpenRaftServingRecoveryMode, ServingRecoveryProfile,
         TailOverlay,
     };
     #[cfg(feature = "resident-rocksdb")]
     use super::{
-        partition_operations, run_matched_direct_hot_reads, storage_delta, HotReadStorageSnapshot,
-        OpenRaftHotReadProfile, OpenRaftHotReadSubject,
+        partition_operations, rocksdb_effective_options_sha256, run_matched_direct_hot_reads,
+        storage_delta, HotReadStorageSnapshot, OpenRaftHotReadProfile, OpenRaftHotReadSubject,
     };
     use crate::serving_recovery::ServingReadOutcome;
     use okv::ReadOutcome;
@@ -4219,6 +4379,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn persisted_fixture_tail_is_independent_of_trace_seed() {
+        let profile = ServingRecoveryProfile {
+            key_count: 64,
+            value_bytes: 128,
+            target_object_bytes: 32_768,
+            target_block_bytes: 4_096,
+        };
+        let first_seed = object_fixture_workload_seed(1_103, Some(4_244))
+            .expect("select first fixture workload seed");
+        let second_seed = object_fixture_workload_seed(2_207, Some(4_244))
+            .expect("select second fixture workload seed");
+        let first = history_after_base(first_seed, &profile, 2, Vec::new());
+        let second = history_after_base(second_seed, &profile, 2, Vec::new());
+
+        assert_eq!(first_seed, 4_244);
+        assert_eq!(second_seed, 4_244);
+        assert_eq!(first.initial_commands, second.initial_commands);
+        assert_eq!(first.concurrent_commands, second.concurrent_commands);
+    }
+
     #[cfg(feature = "resident-rocksdb")]
     #[test]
     fn matched_topology_control_returns_exact_owned_values() {
@@ -4255,6 +4436,12 @@ mod tests {
         assert_eq!(report.trace_sha256.len(), 64);
         assert!(report.operations_per_second.is_finite());
         let storage = report.storage.expect("measured storage counters");
+        assert_eq!(storage.database_count, 1);
+        assert_eq!(storage.block_cache_count, 1);
+        assert_eq!(storage.implicit_block_cache_count, 0);
+        assert_eq!(storage.column_family_count, 1);
+        assert!(!storage.metadata_cache_disabled);
+        assert_eq!(storage.engine_topology, "direct-owned:1db:1cache:1cf");
         assert_eq!(storage.block_cache_capacity_bytes, 4 * 1_024 * 1_024);
         assert!(!storage.direct_reads);
         assert!(storage.block_cache_usage_bytes <= storage.block_cache_capacity_bytes);
@@ -4268,6 +4455,17 @@ mod tests {
             .samples
             .iter()
             .all(|sample| sample.counter_delta_valid));
+    }
+
+    #[cfg(feature = "resident-rocksdb")]
+    #[test]
+    fn effective_option_digest_is_subject_specific_and_deterministic() {
+        let native = rocksdb_effective_options_sha256(true, 4 * 1_024 * 1_024, true);
+        let native_replay = rocksdb_effective_options_sha256(true, 4 * 1_024 * 1_024, true);
+        let direct = rocksdb_effective_options_sha256(false, 4 * 1_024 * 1_024, true);
+
+        assert_eq!(native, native_replay);
+        assert_ne!(native, direct);
     }
 
     #[cfg(feature = "resident-rocksdb")]
