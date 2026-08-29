@@ -1,0 +1,154 @@
+{
+  "artifact_refs": [
+    "okv-eval://object-fixture-gcs-preflight-v1/634db09bd09fe95129f7ca45b8d9d75fc3e41ec062f8c31dda3612c72f0c14b8",
+    "okv-eval://object-fixture-gcs-preflight-v1/634db09bd09fe95129f7ca45b8d9d75fc3e41ec062f8c31dda3612c72f0c14b8",
+    "okv-eval://object-fixture-gcs-preflight-v1/634db09bd09fe95129f7ca45b8d9d75fc3e41ec062f8c31dda3612c72f0c14b8",
+    "okv-eval://object-fixture-gcs-preflight-v1/634db09bd09fe95129f7ca45b8d9d75fc3e41ec062f8c31dda3612c72f0c14b8",
+    "/var/lib/objectkv/receipts/candidate-64m.json",
+    "/var/lib/objectkv/receipts/machine.json"
+  ],
+  "backend": "object-store-gcs+data-openraft-local-process+rocksdb-resident+persisted-fixture",
+  "batch_id": "rfc0044-gcs-preflight-r0-20260828",
+  "budget": {
+    "kind": "seconds",
+    "limit": 300.0,
+    "observed": 55.906525983
+  },
+  "candidate_commit": "6f812ddf3d261d30cc9698b6baed3f97876ace45",
+  "created_at": "2026-08-29T02:54:09.507727158+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "pass"
+    },
+    {
+      "id": "workload_execution",
+      "status": "pass"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "gcs_backend_exact",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "one_fixture_identity",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "one_tail_identity",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "abba_subject_order",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "fresh_subject_processes",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "minimum_three_exact_descriptor_reopens",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "one_empty_anchor_per_authority",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "zero_base_values_in_txlog",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "complete_closure_at_anchor",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "setup_within_300_seconds",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "transaction_authority_scratch_at_most_0_25x",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "resident_logical_images_equal",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "post_activation_zero_object_requests",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "reuse_bypass_poison_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "poison=false,prefix=runs/rfc0044-gcs-preflight-r0-20260828/candidate-6f812dd,reopens=3,max_setup_seconds=11.696264,scratch_ratio=0.001623",
+      "id": "release_build",
+      "status": "pass"
+    }
+  ],
+  "lane": "object-fixture-gcs-preflight",
+  "parent_commit": "e4fcbe89fa9519a020ffe1df8a4b3d39b63d0c8e",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 2.984184157,
+    "median": 4.84530764,
+    "name": "okv.eval.object_fixture.setup_seconds",
+    "samples": [
+      7.419748018,
+      1.451379704,
+      11.696263524,
+      2.270867262
+    ],
+    "statistic": "maximum",
+    "unit": "s",
+    "value": 11.696263524
+  },
+  "profile": {
+    "evidence_class": "smoke",
+    "hash": "0a9eaab7bfa034589be1cc98a1f7a037cdf296b270c81cb86ef83d74c004dbd2",
+    "id": "gcp-r0-64m",
+    "lockfile_hash": "85fd5d79ab99965dd3eac6fbba955d57045de2b48e4d2a4bc3ab1d30e2698201",
+    "machine": "receipt-sha256:aaa96fc8f710c11f5a0f947afa619fc7ba8438c604d08b8dc0cbbb8df6e28f2f",
+    "rustc": "unknown"
+  },
+  "reason": "all configured hard gates passed",
+  "run_id": "ffe07640-13e7-4631-bd8d-9ff64aef133d",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "object_fixture.fixture_request_bytes_total": 68857626.0,
+    "object_fixture.fixture_response_bytes_total": 413165382.0,
+    "object_fixture.gcs_exact_descriptor_reopens": 3.0,
+    "object_fixture.transaction_authority_physical_bytes_max": 108918.0,
+    "object_fixture.transaction_authority_scratch_ratio_max": 0.001623004674911499,
+    "operation.duration.median": 55.906525983
+  },
+  "seeds": [
+    4244
+  ],
+  "suite": "object-fixture-gcs-preflight-v1",
+  "suite_hash": "1c15f35b9089a21b491ca83e73680cef15f4e1285b954a23af6ba2358f0213ac",
+  "verdict": "keep"
+}

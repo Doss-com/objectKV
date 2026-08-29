@@ -611,23 +611,27 @@ become one GitHub issue.
   semantic subject-image identity, and four-poison contracts;
   `[VERIFIED]` actual fresh-process native/control image construction from one
   fixture and exact tail, plus regenerated-control poison detection;
-  `[EVALUATING]` one persisted fixture reused across candidate, control, and
-  both process orders;
-  `[PROPOSED]` 64 MiB setup preflight and frozen 1 GiB paired GCP admission.
+  `[VERIFIED]` one 64 MiB regional GCS fixture reused through three exact
+  descriptor reopens across fresh ABBA subjects, plus reuse-bypass poison;
+  `[EVALUATING]` frozen 1 GiB paired GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
   constraints passed. Every run ID occurred in OTel logs, metrics, and traces.
   The later direct-read preflight reported about 2.96 KiB of physical device
   reads per logical read for both subjects, with a 0.9982x physical-byte ratio.
-  T27 remains `[EVALUATING]` because that result is one smoke sample. The 1 GiB
-  coverage and skew curve still requires one shared fixture and AB/BA workload
-  receipts. The phase-0 bootstrap receipt is under
+  The persisted-fixture preflight then passed 19 gates in 55.906526 seconds,
+  with maximum setup at 11.696264 seconds and transaction-authority scratch at
+  0.001623x logical data. T27 remains `[EVALUATING]` because neither smoke
+  result admits the 1 GiB coverage and skew performance curve. The phase-0
+  bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the
   phase-1 identity and closure receipt is under
   `docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/`;
   the phase-2 process receipt is under
-  `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/`.
+  `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/`;
+  and the phase-4 persisted GCS receipt is under
+  `docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/`.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 

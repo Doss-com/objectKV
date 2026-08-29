@@ -280,6 +280,20 @@ poison receipts returned `keep` with no failed hard gates. This does not admit
 a performance point. See
 `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md`.
 
+`[VERIFIED]` A twelfth bounded R0 execution verified RFC-0044 phase 4 from
+clean source `6f812ddf3d261d30cc9698b6baed3f97876ace45`. One 64 MiB logical fixture
+occupied 68,857,626 bytes across 20 regional, versioned GCS objects. Four fresh
+ABBA worker processes shared one fixture and tail identity; three opened the
+exact persisted descriptor, every authority retained one empty anchor and zero
+base values in txLog, every resident image returned one equal complete logical
+digest, and hot reads issued zero object requests. The candidate passed 19
+gates in 55.906526 seconds; maximum setup was 11.696264 seconds and maximum
+transaction-authority scratch was 108,918 bytes, 0.001623x logical data. The
+reuse-bypass poison passed by detecting only two exact reopens. Candidate and
+poison run IDs occur in OTel traces, metrics, and logs. This is setup evidence,
+not T27 performance admission. See
+`docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7

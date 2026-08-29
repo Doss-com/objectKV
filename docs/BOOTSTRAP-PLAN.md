@@ -82,7 +82,10 @@ identities. Five clean-source candidate and poison receipts passed.
 `[VERIFIED]` Phase 2 built native and direct-control RocksDB images in
 independent empty processes from that closure and tail. Their physical IDs
 differ, their complete logical digest is equal, both use nonzero local bytes,
-and the regenerated-control poison failed closed. Persisted GCS reuse remains
+and the regenerated-control poison failed closed. `[VERIFIED]` Phase 4
+persisted a 64 MiB closure to regional GCS, reopened its exact descriptor
+three times across fresh ABBA subjects, held transaction-authority scratch to
+0.001623x, and detected the reuse-bypass poison. The 1 GiB curve remains
 `[EVALUATING]`.
 Three-node replicated commit, RAM, multi-range, PostgreSQL, and HTAP remain
 blocked on the complete T27 gate.
@@ -105,7 +108,7 @@ substitute an upper-layer result for a missing kernel result.
 | # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` buffered 64 MiB calibration: 0.943x and 0.973x throughput, 1.044x and 0.995x p99, 1.059x and 1.030x CPU/read. `[VERIFIED]` direct-read mechanism: 2,960.75 versus 2,966.00 physical B/read, 0.9982x, with 44 hard gates passing. `[VERIFIED]` RFC-0044 phases 0 through 2: `O=2` is deterministic, the 4 MiB closure carries zero base values through txLog, and independent empty native/control processes built distinct physical images with one equal complete logical digest from the same seven-record tail. The pair and regenerated-control poison receipts passed. No new performance point was measured. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Run the 64 MiB persisted-GCS setup preflight, then freeze the 1 GiB candidate/control curve |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` buffered 64 MiB calibration: 0.943x and 0.973x throughput, 1.044x and 0.995x p99, 1.059x and 1.030x CPU/read. `[VERIFIED]` direct-read mechanism: 2,960.75 versus 2,966.00 physical B/read, 0.9982x, with 44 hard gates passing. `[VERIFIED]` RFC-0044 phases 0 through 4: the 64 MiB fixture is 20 regional GCS objects totaling 68,857,626 bytes; ABBA used three exact descriptor reopens, all 19 gates passed in 55.906526 seconds, maximum setup was 11.696264 seconds, transaction-authority scratch was 108,918 bytes or 0.001623x, and hot reads issued zero object requests. The reuse-bypass poison passed. This is setup evidence, not a new performance point. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Freeze and run the 1 GiB candidate/control coverage and skew curve from the persisted fixture |
 | 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Clean GCS dataset-size sweep after row 1 passes |
 | 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Local projected scan reaches 2.544M source rows/s and 4.718x indexed-row scan; clean cloud composition is unmeasured | Preserve row-class point cost, materially improve projected scans, bound resident index and compaction amplification, recover one authenticated closure | Matched row versus column object layout on the same GCS closure |
 | 4 | Native three-node replicated commit | `[EVALUATING]` | One-host G4.10b reaches 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x its one-entry control; independent-media latency is unmeasured | One-range p99 within 1.25x matched-durability control, exact retries and conflicts, zero normal-path object operations, quorum acknowledgement on independent media | Three independent GCP machines and media after rows 1 through 3 |
@@ -161,9 +164,17 @@ distinct nonempty RocksDB images, and returned one equal complete logical
 digest. The candidate pair and regenerated-control poison returned `keep`.
 Evidence is under
 `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/`.
-This turn added semantic process evidence but no new performance measurement,
-so row 1 remains `[EVALUATING]` at the same admitted ratios. The next change is
-the 64 MiB persisted-GCS setup preflight.
+RFC-0044 phase 4 is `[VERIFIED]` on clean source `6f812dd`. The regional GCS
+preflight persisted one 64 MiB fixture as 20 objects totaling 68,857,626 bytes.
+Four fresh ABBA subjects shared one fixture and tail identity, three reopened
+the exact descriptor, all retained one empty anchor with zero base values in
+txLog, and all reproduced one complete logical image with zero measured-window
+object requests. The candidate and reuse-bypass poison returned `keep`; both
+run IDs occur in OTel traces, metrics, and logs. Evidence is under
+`docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/`.
+This turn added setup and storage-bound evidence but no throughput, p99, or
+CPU/read admission point, so row 1 remains `[EVALUATING]` at the same admitted
+ratios. The next change freezes the 1 GiB persisted-fixture curve.
 Rows 2 through 7 contain useful mechanism evidence, but none may advance past
 `[EVALUATING]` while its own admission receipt is missing.
 

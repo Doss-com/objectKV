@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-29T02:52:07Z",
+  "run_label": "rfc0044-gcs-preflight-r0-20260828",
+  "project": "doss-objectkv-dev",
+  "region": "us-central1",
+  "zone": "us-central1-a",
+  "source_revision": "6f812ddf3d261d30cc9698b6baed3f97876ace45",
+  "bucket": {
+    "name": "doss-objectkv-dev-okv-evals",
+    "location": "US-CENTRAL1",
+    "storage_class": "STANDARD",
+    "versioning_enabled": true
+  },
+  "runner": {
+    "name": "objectkv-rfc0044-gcs-preflight-r0",
+    "instance_id": "527586196457520141",
+    "machine_type": "c3-highcpu-22",
+    "cpu_platform": "Intel Sapphire Rapids",
+    "image": "https://www.googleapis.com/compute/v1/projects/debian-cloud/global/images/debian-12-bookworm-v20260826",
+    "internal_ip": "10.41.0.10",
+    "public_ip": null,
+    "service_account": "objectkv-eval-runner@doss-objectkv-dev.iam.gserviceaccount.com",
+    "data_disk_type": "pd-balanced",
+    "data_disk_gib": 100,
+    "lease_expires_epoch": "1788000691",
+    "binary_sha256": "2543c70b2e558c691bb67fb90df94e3901d1ccf056f1e5be18d8482265217281",
+    "runtime_identity": "Linux 6.1.0-52-cloud-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.180-1 (2026-08-03) x86_64 GNU/Linux",
+    "hot_scratch": null
+  },
+  "collector": {
+    "name": "objectkv-rfc0044-gcs-preflight-r0",
+    "instance_id": "527586196457520141",
+    "machine_type": "c3-highcpu-22",
+    "cpu_platform": "Intel Sapphire Rapids",
+    "image": "https://www.googleapis.com/compute/v1/projects/debian-cloud/global/images/debian-12-bookworm-v20260826",
+    "internal_ip": "10.41.0.10",
+    "public_ip": null,
+    "service_account": "objectkv-eval-runner@doss-objectkv-dev.iam.gserviceaccount.com",
+    "data_disk_type": "pd-balanced",
+    "data_disk_gib": 100,
+    "lease_expires_epoch": "1788000691",
+    "binary_sha256": "40867e47e7af07c76033726ba0b3291a1ef46e8b8b01805bdd3a614f13051a9c",
+    "runtime_identity": "otelcol-contrib version 0.157.0",
+    "hot_scratch": null
+  },
+  "checks": {
+    "runner_ready": true,
+    "binary_sha256_recorded": true,
+    "collector_healthy": true,
+    "no_public_ips": true
+  }
+}

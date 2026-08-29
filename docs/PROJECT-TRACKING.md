@@ -175,6 +175,19 @@ poison failed closed. Both formal receipts returned `keep`; no performance
 point was admitted. Evidence is in
 [`docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md).
 
+`[VERIFIED]` RFC-0044 phase 4 ran from clean source
+`6f812ddf3d261d30cc9698b6baed3f97876ace45` on one private GCP R0 runner.
+The 64 MiB fixture occupied 68,857,626 bytes across 20 regional GCS objects.
+Four fresh ABBA subjects used one exact fixture and tail identity; the final
+three reopened the persisted descriptor, each authority retained one empty
+anchor and zero base values, and every resident image produced the same
+complete logical digest with zero measured-window object requests. The
+candidate passed 19 gates in 55.906526 seconds and used 108,918 transaction-
+authority bytes, 0.001623x logical data. The reuse-bypass poison was detected,
+and both run IDs occur in all three OTel signals. This verifies setup mechanics,
+not T27 performance admission. Evidence is in
+[`docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
