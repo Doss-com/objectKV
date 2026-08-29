@@ -463,16 +463,22 @@ receipt and rejects an otherwise isolated hidden native provider through the
 production receipt validator. All four structured controls passed against the
 exact preflight evidence. The missing-locator process also exited before plan
 creation while the versioned GCS fixture manifest remained unchanged.
-`[EVALUATING]` the 1 GiB workload envelope.
+`[VERIFIED]` source `9cf5014` then published the immutable 1 GiB fixture,
+revoked writer authority, exact-opened its generation-pinned descriptor under
+object-viewer credentials, and froze the complete 540-position plan. The
+fixture contains 266 objects totaling 1,101,701,925 bytes. Plan `b76be02a`
+contains 27 strata and exact native/direct parity across every treatment. The
+viewer grant and all nine leased resources were removed after evidence
+capture. This is setup evidence, not a performance point. `[EVALUATING]` the
+execution of the 1 GiB workload envelope.
 
 The next receipt sequence remains incremental:
 
-1. prepare one immutable 1 GiB fixture and freeze its exact plan;
-2. execute the frozen 1 GiB cache-coverage and skew sweep in both process
+1. execute the frozen 1 GiB cache-coverage and skew sweep in both process
    orders;
-3. run the GCS cold-point and object-layout geometry curve;
-4. build the native three-node replicated commit path;
-5. compare it with a same-durability control under normal operation, leader
+2. run the GCS cold-point and object-layout geometry curve;
+3. build the native three-node replicated commit path;
+4. compare it with a same-durability control under normal operation, leader
    loss, and recovery;
-6. compose admitted read, commit, publication, and empty-worker recovery into
+5. compose admitted read, commit, publication, and empty-worker recovery into
    the first one-range Cell v0 slice.

@@ -1,0 +1,5 @@
+generation	bytes	sha256	uri
+1788021219233826	1962410	89975feb25537a91bb6989e66370f2816df413298dce05c65aa93a3916bc3315	gs://doss-objectkv-dev-okv-evals/runs/rfc0044-t27-admission-r0-20260829/evidence-v1/objectkv-9cf501460cd09e08c41e2f6064667b9fe24e7d9d-source.tgz
+1788021221584955	2237	560da2de16020dff23d773cc9ff649b5569746007d535fb2e9edfc4cd002afbc	gs://doss-objectkv-dev-okv-evals/runs/rfc0044-t27-admission-r0-20260829/evidence-v1/objectkv-t27a1-r0-machine.json
+1788021223783807	1252	c11ee3b383edafce2c73ec68c49ee1559636a46d26e519ce7d4a1b682b64f4cb	gs://doss-objectkv-dev-okv-evals/runs/rfc0044-t27-admission-r0-20260829/evidence-v1/objectkv-t27a1-r0-fixture-locator.json
+1788021226205925	343794	f024e4b5649c1f1245939d224a3ac9657ada831ef0fb9deee58df2d4a820ddbc	gs://doss-objectkv-dev-okv-evals/runs/rfc0044-t27-admission-r0-20260829/evidence-v1/objectkv-t27a1-r0-plan.json

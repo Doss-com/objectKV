@@ -124,7 +124,10 @@ sealing their six outcomes into the admission receipt; collector inspection
 found the run ID in every required signal. Failed comparison or exporter
 completion persists a sealed failure receipt before exit. The five isolated
 plan, position-inventory, and missing-locator poisons are `[VERIFIED]` against
-that exact evidence. The complete 1 GiB curve remains open.
+that exact evidence. The immutable 1 GiB fixture and 540-position plan are also
+`[VERIFIED]`: 266 objects, 1,101,701,925 physical bytes, 27 strata, and exact
+native/direct treatment parity. The complete 1 GiB performance curve remains
+open.
 
 ```text
 immutable plan + independent oracle + machine envelope
@@ -174,12 +177,13 @@ layer receipt.
 - [Proof-status contract](../STATUS-TAXONOMY.md)
 - [T27 fresh-process 64 MiB preflight](../artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md)
 - [T27 preflight poison replay](../artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md)
+- [T27 1 GiB fixture and frozen plan](../artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md)
 - [T27 GCS placement-boundary receipt](../artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md)
 - [Native matched single-range receipt](../artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md)
 - [Native concurrent-read receipt](../artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md)
 - [Corrected cache calibration](../artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md)
 - [Direct-read attribution preflight](../artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md)
 
-The current implementation slice adds verified negative controls to the 64 MiB
-preflight. Master-matrix row 1 remains `[EVALUATING]` until the complete 1 GiB
-sweep.
+The current implementation slice adds the verified 1 GiB fixture and frozen
+plan. Master-matrix row 1 remains `[EVALUATING]` until the complete 1 GiB sweep
+executes and passes.

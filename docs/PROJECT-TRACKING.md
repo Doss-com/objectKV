@@ -239,6 +239,18 @@ totaling 22,153 bytes are immutable in GCS. No new performance point was
 produced. Only the 1 GiB sweep remains `[EVALUATING]` for T27. Evidence is in
 [`docs/artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md).
 
+`[VERIFIED]` Source `9cf5014` then built the exact RocksDB-enabled Linux
+binary, published the immutable 1 GiB fixture, revoked writer authority, and
+derived the complete admission plan under `roles/storage.objectViewer`. The
+fixture contains 266 objects totaling 1,101,701,925 physical bytes. Plan
+`b76be02a` binds 540 fresh-process positions, 27 strata, three cache levels,
+three Zipf skews, three trace seeds, five ABBA blocks, and exact native/direct
+treatment parity. The source archive, machine receipt, locator, and plan are
+immutable in versioned GCS. The viewer binding and all nine leased resources
+were removed after capture. No performance point was produced; execution of
+the frozen sweep remains `[EVALUATING]`. Evidence is in
+[`docs/artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
@@ -325,8 +337,9 @@ the owning `okv-serving-rocksdb` crate passes all nine tests locally. No new
 performance point is admitted beyond the bounded preflight. Fable's bounded
 rereview closed all six runner-admission findings. The plan-order,
 hidden-provider, and missing-locator poisons are `[VERIFIED]` against the exact
-GCP preflight evidence. The next experiment prepares one immutable 1 GiB
-fixture and executes the frozen sweep. The corrected 64 MiB calibration remains the buffered
+GCP preflight evidence. The immutable 1 GiB fixture and exact 540-position plan
+are also `[VERIFIED]`. The next experiment executes that frozen sweep. The
+corrected 64 MiB calibration remains the buffered
 regression anchor, and the direct-NVMe preflight is its physical-media control.
 
 ## Current checkpoint

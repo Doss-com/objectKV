@@ -620,8 +620,9 @@ become one GitHub issue.
   consumer invocations, read-only GCS consumption, exact descriptor
   generation, and independent fixture and trace seeds; `[VERIFIED]` the
   immutable four-position, direct-NVMe, fresh-process ABBA preflight and
-  collector-side logs, metrics, and traces; `[EVALUATING]` the remaining
-  capability and schedule poisons before the 1 GiB GCP admission.
+  collector-side logs, metrics, and traces; `[VERIFIED]` five isolated plan,
+  position-inventory, and missing-locator poisons; `[VERIFIED]` the immutable
+  1 GiB fixture and exact 540-position plan; `[EVALUATING]` plan execution.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
@@ -651,8 +652,12 @@ become one GitHub issue.
   provider in an otherwise unchanged direct-position receipt; 25 focused
   library tests pass locally. All four structured poisons passed against the
   exact GCP plan and direct-position receipt. The missing-locator process
-  produced no plan and left the versioned fixture manifest unchanged. T27
-  remains `[EVALUATING]` for the 1 GiB sweep.
+  produced no plan and left the versioned fixture manifest unchanged. Source
+  `9cf5014` then published a 1 GiB logical fixture as 266 objects totaling
+  1,101,701,925 bytes. After writer revocation, an object-viewer exact-open
+  froze plan `b76be02a` with 540 fresh positions and 27 strata. The viewer
+  binding and all nine leased resources were removed after capture. T27
+  remains `[EVALUATING]` for execution of that plan.
   The phase-0
   bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the
@@ -666,6 +671,8 @@ become one GitHub issue.
   `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/`;
   the fresh-process preflight receipt is under
   `docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/`;
+  the 1 GiB fixture and frozen plan are under
+  `docs/artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/`;
   and the accepted phase-5 review is under
   `docs/research/reviews/fable-rfc0044-phase5-review-2026-08-28.md`.
 

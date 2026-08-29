@@ -81,7 +81,12 @@ reads. Native retained 86.52\% and 97.39\% of direct RocksDB throughput; p99
 was 1.005x and 0.988x, CPU/read was 1.072x and 0.980x, and physical bytes/read
 were 1.065x and 1.064x. Every paired gate passed, and collector-side logs,
 metrics, and traces contained the run identity. This admits the fresh-process
-preflight, not the 1 GiB curve. A
+preflight, not the 1 GiB curve. A subsequent setup-only R0 lease published one
+1 GiB logical fixture as 266 immutable GCS objects totaling 1,101,701,925
+bytes, revoked writer authority, exact-opened the pinned descriptor under
+object-viewer credentials, and froze the 540-position plan across 27 strata.
+All leased resources and temporary storage roles were removed after capture.
+This verifies the fixture and plan boundary, not their performance curve. A
 live semantic eliminator rejected TiKV as the strict-serializability control
 because both transactions in the frozen write-skew history committed.
 FoundationDB rejected the same write skew and remains the semantic oracle and
@@ -475,7 +480,13 @@ direct-position receipt and requires the runtime-inventory gate to reject it.
 All four structured controls passed against the exact preflight evidence. A
 missing-locator process produced no plan and left the 20-object fixture
 manifest unchanged. These controls do not admit a performance point. The
-540-position 1 GiB workload remains \evaluating{}.
+next R0 lease then published the 1 GiB logical fixture as 266 objects totaling
+1,101,701,925 bytes. After writer revocation, the object-viewer exact-open
+froze plan \texttt{b76be02a} with exactly 540 positions, 27 strata, 270 native
+subjects, and 270 direct subjects. The source, machine receipt, locator, and
+plan are versioned in GCS; every temporary storage grant and all nine leased
+resources were removed. The setup boundary is \verified{}, while execution of
+the 540-position workload remains \evaluating{}.
 
 \subsection{Objectification and publication}
 
@@ -685,6 +696,7 @@ complete but has not executed.
     Durable snapshot and frontiered compaction & \evaluating{} & Six local processes, release build, synchronized files, dirty source & G4.11a and G4.11a.1 runs & Journals fell to 879 bytes; exact restart; frontiered growth 1.091759x; 19.692719x media failed 8x \\
     Native cache calibration & \verified{} & Private GCP R0 runner, 64 MiB values, 32 MiB cache, Zipf 1.4, eight clients, 15 samples per subject and order & Batches \texttt{gp312opt-r0-ab} and \texttt{gp312opt-r0-ba} & Throughput 0.9432x and 0.9735x control; p99 1.0441x and 0.9949x; CPU/read 1.0586x and 1.0298x; 84 workload and eight comparison gates passed \\
     Fresh-process T27 preflight & \verified{} & Private GCP R0 runner, 64 MiB generation-pinned GCS fixture, 20\% cache, Zipf 1.4, eight clients, direct NVMe, read-only GCS, OTel & Run \texttt{f7209e3e} & Throughput 0.8652x and 0.9739x control; p99 1.0048x and 0.9882x; CPU/read, physical bytes/read, and every telemetry gate passed \\
+    T27 1 GiB plan boundary & \verified{} & Private GCP R0 runner, generation-pinned GCS fixture, read-only plan derivation, exact NVMe and machine envelope & Plan \texttt{b76be02a} & 266 objects, 1,101,701,925 physical bytes, 540 positions, 27 strata; performance execution remains open \\
     Provider media loss & \verified{} & Sequential private source and restore VMs, distinct 100 GiB provider SSDs, regional GCS, OTel & Runs \texttt{3093a364} and \texttt{865c06d8} & Exact 950-record reconstruction after source VM and disk deletion; 16 positive gates passed; hidden-media control discarded \\
     \bottomrule
   \end{tabularx}
@@ -1336,9 +1348,9 @@ The dependency order is evidence driven:
   bound in both process orders. Removing a forced tail SST then brought the
   repeated calibration inside every explicit bound. The persisted-GCS
   preflight then reused one fixture across four fresh ABBA subjects and held
-  transaction-authority scratch to 0.001623x. Freeze the 1 GiB suite and
-  run the sealed plan and runtime-inventory poisons before executing the
-  coverage and skew admission. FoundationDB remains the semantic oracle.
+  transaction-authority scratch to 0.001623x. The sealed poisons, 1 GiB
+  fixture, and exact 540-position plan are now verified. Execute that plan as
+  the coverage and skew admission. FoundationDB remains the semantic oracle.
   \item The GCS closure passed empty logical-generation reconstruction and
   fresh-provider reconstruction after source VM and disk deletion. The local
   external incarnation authority is verified and the real-provider harness is
@@ -1422,7 +1434,9 @@ object requests, and a passing reuse-bypass poison. The subsequent immutable
 fresh-process preflight retained 0.8652x and 0.9739x
 control throughput while clearing p99, CPU/read, physical-read, amplification,
 pressure, and three-signal telemetry gates in both orders. It therefore
-continues to the full coverage and skew curve and replicated-commit gates.
+continues to the full coverage and skew curve and replicated-commit gates. The
+1 GiB fixture and 540-position plan are now frozen and preserved; only their
+performance execution remains open.
 TiKV failed the strict-serializable
 write-skew control; FoundationDB passed and remains the semantic oracle and
 fallback profile. Its logical-generation and media-loss probes verify exact

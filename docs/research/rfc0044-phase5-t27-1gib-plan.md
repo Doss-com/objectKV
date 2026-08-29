@@ -1,8 +1,8 @@
 # RFC-0044 phase 5: T27 1 GiB admission plan
 
 Status: `[EVALUATING]`, with the cross-invocation fixture, read-only consumer,
-standalone control, independent-seed boundaries, and four-position 64 MiB
-preflight `[VERIFIED]`
+standalone control, independent-seed boundaries, four-position 64 MiB
+preflight, 1 GiB fixture, and immutable 540-position plan `[VERIFIED]`
 
 ## Decision
 
@@ -289,8 +289,15 @@ treatment is not reused.
    from the frozen GCP plan and direct-position receipt. The missing-locator
    process exited before plan creation, and the versioned 20-object fixture
    manifest was unchanged. Eight structured artifacts are immutable in GCS.
-7. `[PROPOSED]` Prepare the 1 GiB fixture, commit its locator, and freeze the
-   suite hash.
+7. `[VERIFIED]` Source `9cf5014` prepared one 1,073,741,824-byte logical
+   fixture as 266 objects totaling 1,101,701,925 bytes. It revoked writer
+   authority, exact-opened descriptor generation `1788020925446068` under
+   object-viewer credentials, and froze plan
+   `b76be02aa012ce3646104e56c1b9c2c6118ee046b33a419103ae7bfdba433de2`.
+   The independent inventory found exactly 540 positions, 27 strata, 270
+   native subjects, and 270 direct subjects. Versioned GCS retains the source,
+   machine receipt, locator, and plan. The viewer binding and all nine leased
+   resources were removed after capture.
 8. `[PROPOSED]` Execute the 27 admitting strata and two buffered sentinels,
    preserve every partial failure, update the master matrix, and remove the
    leased infrastructure.
@@ -308,10 +315,13 @@ preparation and read-only consumption, and the base-seed boundary are
 `[VERIFIED]`. The preflight retained 0.8652x and 0.9739x direct RocksDB
 throughput while clearing p99, CPU/read, physical-read, amplification,
 pressure, and telemetry gates in both process orders. The negative controls
-are now `[VERIFIED]`; the next experiment is the frozen 1 GiB sweep. Prior
+and the 1 GiB preparation boundary are now `[VERIFIED]`; the next experiment
+is execution of the frozen sweep. Prior
 cross-invocation evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
 The preflight evidence is in
 `docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`.
 The five negative-control results are in
 `docs/artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md`.
+The 1 GiB fixture and plan receipt is in
+`docs/artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md`.
