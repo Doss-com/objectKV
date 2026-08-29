@@ -3315,9 +3315,18 @@ fn openraft_serving_recovery_execution(
             report.process.concurrent_records_applied == 4
         }
     });
+    let standalone_direct_control = mode
+        == OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate
+        && !reports.is_empty()
+        && reports.iter().all(|report| {
+            report.process.hot_read.as_ref().is_some_and(|hot_read| {
+                hot_read.subject == OpenRaftHotReadSubject::DirectOwnedRocksdb
+            })
+        });
+    let minimum_txlog_reads = if standalone_direct_control { 2 } else { 4 };
     let journal_independent = reports.iter().all(|report| {
         report.process.physical_wal_path_accesses == 0
-            && report.process.txlog_read_requests >= 4
+            && report.process.txlog_read_requests >= minimum_txlog_reads
             && report.process.txlog_response_payload_bytes > 0
     });
     let authority_stable = reports.iter().all(|report| {
@@ -3369,15 +3378,28 @@ fn openraft_serving_recovery_execution(
     let resident_engine_exact = mode
         != OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate
         || reports.iter().all(|report| {
-            report.process.resident_engine_provider.as_deref()
-                == Some("rocksdb-11.8.1-native-resident-v1")
-                && report.process.resident_engine_records > 0
-                && report.process.resident_engine_local_bytes > 0
-                && report.process.hot_read.as_ref().is_some_and(|hot_read| {
-                    report.process.resident_engine_local_bytes <= hot_read.max_local_bytes
+            report
+                .process
+                .hot_read
+                .as_ref()
+                .is_some_and(|hot_read| match hot_read.subject {
+                    OpenRaftHotReadSubject::NativeSnapshot => {
+                        report.process.resident_engine_provider.as_deref()
+                            == Some("rocksdb-11.8.1-native-resident-v1")
+                            && report.process.resident_engine_records > 0
+                            && report.process.resident_engine_local_bytes > 0
+                            && report.process.resident_engine_local_bytes
+                                <= hot_read.max_local_bytes
+                            && report.process.resident_engine_applied_version
+                                == report.process.activation_target_version
+                    }
+                    OpenRaftHotReadSubject::DirectOwnedRocksdb => {
+                        report.process.resident_engine_provider.is_none()
+                            && report.process.resident_engine_records == 0
+                            && report.process.resident_engine_local_bytes == 0
+                            && report.process.resident_engine_applied_version == 0
+                    }
                 })
-                && report.process.resident_engine_applied_version
-                    == report.process.activation_target_version
         });
     let resident_hot_mode = matches!(
         mode,
@@ -3675,8 +3697,16 @@ fn openraft_serving_recovery_execution(
                 "DB::get -> Option<Vec<u8>>",
             ),
         };
+        let resident_topology_gate = match hot_read_subject {
+            OpenRaftHotReadSubject::NativeSnapshot => {
+                "native_resident_engine_activated_and_advanced"
+            }
+            OpenRaftHotReadSubject::DirectOwnedRocksdb => {
+                "direct_control_has_zero_native_resident_engines"
+            }
+        };
         hard_gates.push(HardGateResult {
-            id: "native_resident_engine_activated_and_advanced".to_owned(),
+            id: resident_topology_gate.to_owned(),
             status: gate_status(resident_engine_exact),
             detail: first.map(|report| {
                 format!(

@@ -819,6 +819,16 @@ async fn run_integrated_kernel_node(
     scratch_was_empty: bool,
 ) -> Result<OpenRaftServingProcessReport, String> {
     let backend = config.object_backend.open(&config.object_store_root)?;
+    if config.mode == OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate
+        && config.object_fixture.is_some()
+        && config
+            .hot_read
+            .as_ref()
+            .is_some_and(|profile| profile.subject == OpenRaftHotReadSubject::DirectOwnedRocksdb)
+    {
+        return run_standalone_direct_control_node(config, started, scratch_was_empty, backend)
+            .await;
+    }
     if let Some(fixture) = config.object_fixture.as_ref() {
         let records = verify_fixture_records(
             &backend,
@@ -937,36 +947,14 @@ async fn run_integrated_kernel_node(
                     (Some(report), image)
                 }
                 OpenRaftHotReadSubject::DirectOwnedRocksdb => {
-                    let snapshot = if config.object_fixture.is_some() {
-                        Some(
-                            range
-                                .resident_snapshot(concurrent.target_version)
-                                .map_err(|error| error.to_string())?,
-                        )
-                    } else {
-                        None
-                    };
-                    let fixture_context = match (
-                        snapshot.as_deref(),
-                        config.object_fixture.as_ref(),
-                        fixture_tail.as_ref(),
-                    ) {
-                        (Some(snapshot), Some(fixture), Some((tail_sha256, _))) => {
-                            Some(DirectFixtureContext {
-                                snapshot,
-                                fixture,
-                                tail_sha256,
-                                applied_through: concurrent.target_version,
-                                scratch_was_empty,
-                            })
-                        }
-                        _ => None,
-                    };
-                    let (report, image) = run_matched_direct_hot_reads(
-                        &matched_control_root,
-                        profile,
-                        fixture_context,
-                    )?;
+                    if config.object_fixture.is_some() {
+                        return Err(
+                            "persisted fixture direct control did not use its standalone path"
+                                .to_owned(),
+                        );
+                    }
+                    let (report, image) =
+                        run_matched_direct_hot_reads(&matched_control_root, profile, None)?;
                     (Some(report), image)
                 }
             }
@@ -1045,6 +1033,176 @@ async fn run_integrated_kernel_node(
         hot_read,
         object_fixture_image,
     })
+}
+
+#[allow(clippy::too_many_lines)]
+async fn run_standalone_direct_control_node(
+    config: OpenRaftServingProcessConfig,
+    started: Instant,
+    scratch_was_empty: bool,
+    backend: Arc<dyn Backend>,
+) -> Result<OpenRaftServingProcessReport, String> {
+    let fixture = config
+        .object_fixture
+        .clone()
+        .ok_or_else(|| "standalone direct control requires an object fixture".to_owned())?;
+    let profile = config
+        .hot_read
+        .as_ref()
+        .ok_or_else(|| "standalone direct control requires a hot-read profile".to_owned())?;
+    if profile.subject != OpenRaftHotReadSubject::DirectOwnedRocksdb {
+        return Err("standalone direct control received the wrong subject".to_owned());
+    }
+    let observed = Arc::new(ObservedBackend::new(backend));
+    let opened_backend: Arc<dyn Backend> = observed.clone();
+    let locator = ObjectFixtureLocatorV1 {
+        fixture_id: fixture.fixture_id.clone(),
+        descriptor_length: fixture.descriptor_length,
+        descriptor_sha256: fixture.descriptor_sha256.clone(),
+    };
+    let (built, base_records, _) =
+        open_existing_fixture(&opened_backend, &locator, fixture.base_version).await?;
+    if u64::try_from(base_records.len()).unwrap_or(u64::MAX) != fixture.key_count {
+        return Err("standalone direct control opened the wrong base record count".to_owned());
+    }
+    let client = ObjectClient::new(opened_backend);
+    let (manifest_bytes, _) = client
+        .read_full_verified(
+            &built.descriptor.manifest.key,
+            None,
+            built.descriptor.manifest.length,
+            &built.descriptor.manifest.sha256,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    let manifest = RowObjectManifestV1::decode(&manifest_bytes)?;
+
+    let txlog = TransactionLogClient::new(config.transaction_endpoints.clone())?;
+    let initial = txlog
+        .read(RetainedTransactionReadRequest {
+            after_version_exclusive: fixture.base_version,
+            after_batch_order_exclusive: None,
+            through_version_inclusive: None,
+            max_records: 16,
+        })
+        .await?;
+    if !initial.complete || initial.target_version != initial.high_watermark {
+        return Err("standalone direct control did not read a complete initial tail".to_owned());
+    }
+    create_barrier(&config.initial_catchup_barrier, "initial_catchup_complete")?;
+    wait_for_continue(&config.continue_barrier)?;
+    let activated = txlog
+        .read(RetainedTransactionReadRequest {
+            after_version_exclusive: fixture.base_version,
+            after_batch_order_exclusive: None,
+            through_version_inclusive: None,
+            max_records: 16,
+        })
+        .await?;
+    if !activated.complete || activated.target_version != activated.high_watermark {
+        return Err("standalone direct control did not read a complete activated tail".to_owned());
+    }
+    let tail_sha256 = object_fixture_tail_sha256(&activated.records)?;
+    validate_object_fixture_tail(&tail_sha256, &activated.records)?;
+    if activated.records.len() < initial.records.len()
+        || activated.records[..initial.records.len()] != initial.records[..]
+    {
+        return Err("standalone direct control observed a non-prefix txLog tail".to_owned());
+    }
+    let logical = direct_logical_image(&base_records, &activated.records, fixture.key_count)?;
+    let reads = config
+        .read_keys
+        .iter()
+        .map(|key| OpenRaftServingRead {
+            key: key.clone(),
+            outcome: logical
+                .get(key)
+                .map_or(ServingReadOutcome::Absent, serving_read_outcome),
+        })
+        .collect::<Vec<_>>();
+    let first_read_seconds = started.elapsed().as_secs_f64();
+    drop(base_records);
+    let direct_root = config.scratch_root.join("matched-direct-rocksdb");
+    let (hot_read, object_fixture_image) = run_matched_direct_hot_reads(
+        &direct_root,
+        profile,
+        Some(DirectFixtureContext {
+            logical,
+            fixture: fixture.clone(),
+            tail_sha256,
+            applied_through: activated.target_version,
+            scratch_was_empty,
+        }),
+    )?;
+    let object_stats = observed.stats();
+    let concurrent_records = activated
+        .records
+        .len()
+        .saturating_sub(initial.records.len());
+    let txlog_response_payload_bytes = serde_json::to_vec(&initial.records)
+        .map_err(|error| error.to_string())?
+        .len()
+        .saturating_add(
+            serde_json::to_vec(&activated.records)
+                .map_err(|error| error.to_string())?
+                .len(),
+        );
+    Ok(OpenRaftServingProcessReport {
+        mode: config.mode,
+        scratch_was_empty,
+        generation_sandwich_stable: true,
+        generation: manifest.generation,
+        logical_txlog_root: LOGICAL_TXLOG_ROOT.to_owned(),
+        manifest_authoritative: true,
+        object_durable_version: fixture.base_version,
+        initial_target_version: initial.target_version,
+        activation_target_version: activated.target_version,
+        catchup_rounds: 2,
+        txlog_read_requests: 2,
+        txlog_response_payload_bytes: u64::try_from(txlog_response_payload_bytes)
+            .unwrap_or(u64::MAX),
+        batch_cursor_resumes: 2,
+        initial_records_applied: u64::try_from(initial.records.len()).unwrap_or(u64::MAX),
+        concurrent_records_observed: u64::try_from(concurrent_records).unwrap_or(u64::MAX),
+        concurrent_records_applied: u64::try_from(concurrent_records).unwrap_or(u64::MAX),
+        physical_wal_path_accesses: 0,
+        manifest_requests: 1,
+        index_requests: u64::try_from(manifest.segments.len()).unwrap_or(u64::MAX),
+        data_range_requests: 0,
+        data_full_requests: u64::try_from(manifest.segments.len()).unwrap_or(u64::MAX),
+        list_requests: request_count(&object_stats, "list"),
+        total_object_response_bytes: response_bytes(&object_stats),
+        row_segment_count: u64::try_from(manifest.segments.len()).unwrap_or(u64::MAX),
+        row_index_closure_bytes: manifest
+            .segments
+            .iter()
+            .map(|segment| segment.index_bytes)
+            .sum(),
+        row_data_closure_bytes: manifest
+            .segments
+            .iter()
+            .map(|segment| segment.data_bytes)
+            .sum(),
+        serving_image_provider: None,
+        serving_image_records: 0,
+        serving_image_local_bytes: 0,
+        resident_engine_provider: None,
+        resident_engine_records: 0,
+        resident_engine_local_bytes: 0,
+        resident_engine_applied_version: 0,
+        first_read_seconds,
+        reads,
+        hot_read: Some(hot_read),
+        object_fixture_image,
+    })
+}
+
+fn serving_read_outcome(outcome: &ReadOutcome) -> ServingReadOutcome {
+    match outcome {
+        ReadOutcome::Value(value) => value_outcome(value),
+        ReadOutcome::Tombstone => ServingReadOutcome::Tombstone,
+        ReadOutcome::Absent => ServingReadOutcome::Absent,
+    }
 }
 
 async fn run_integrated_hot_reads(
@@ -1242,6 +1400,59 @@ fn object_fixture_image_keys(key_count: u64) -> Vec<Vec<u8>> {
     keys
 }
 
+fn direct_logical_image(
+    base_records: &[RowRecord],
+    tail: &[RetainedTransactionRecord],
+    key_count: u64,
+) -> Result<BTreeMap<Vec<u8>, ReadOutcome>, String> {
+    let mut logical = object_fixture_image_keys(key_count)
+        .into_iter()
+        .map(|key| (key, ReadOutcome::Absent))
+        .collect::<BTreeMap<_, _>>();
+    for record in base_records {
+        if !logical.contains_key(&record.key) {
+            return Err("object fixture base contains an out-of-profile key".to_owned());
+        }
+        let outcome = record
+            .value
+            .clone()
+            .map_or(ReadOutcome::Tombstone, ReadOutcome::Value);
+        logical.insert(record.key.clone(), outcome);
+    }
+    for record in tail {
+        for mutation in &record.command.mutations {
+            match mutation {
+                TransactionMutation::Set { key, value } => {
+                    if !logical.contains_key(key) {
+                        return Err(
+                            "object fixture tail set contains an out-of-profile key".to_owned()
+                        );
+                    }
+                    logical.insert(key.clone(), ReadOutcome::Value(value.clone()));
+                }
+                TransactionMutation::Clear { key } => {
+                    if !logical.contains_key(key) {
+                        return Err(
+                            "object fixture tail clear contains an out-of-profile key".to_owned()
+                        );
+                    }
+                    logical.insert(key.clone(), ReadOutcome::Tombstone);
+                }
+                TransactionMutation::ClearRange { range } => {
+                    let keys = logical
+                        .range(range.start.clone()..range.end.clone())
+                        .map(|(key, _)| key.clone())
+                        .collect::<Vec<_>>();
+                    for key in keys {
+                        logical.insert(key, ReadOutcome::Tombstone);
+                    }
+                }
+            }
+        }
+    }
+    Ok(logical)
+}
+
 fn logical_outcome(outcome: ReadOutcome) -> LogicalOutcome {
     match outcome {
         ReadOutcome::Value(value) => LogicalOutcome::Value(value),
@@ -1361,19 +1572,27 @@ fn read_direct_outcome(database: &DB, key: &[u8]) -> Result<ReadOutcome, String>
 }
 
 #[cfg_attr(not(feature = "resident-rocksdb"), allow(dead_code))]
-struct DirectFixtureContext<'a> {
-    snapshot: &'a dyn okv::ResidentSnapshot,
-    fixture: &'a OpenRaftObjectFixtureProcessConfig,
-    tail_sha256: &'a str,
+struct DirectFixtureContext {
+    logical: BTreeMap<Vec<u8>, ReadOutcome>,
+    fixture: OpenRaftObjectFixtureProcessConfig,
+    tail_sha256: String,
     applied_through: u64,
     scratch_was_empty: bool,
+}
+
+struct DirectFixtureImageContext {
+    fixture: OpenRaftObjectFixtureProcessConfig,
+    tail_sha256: String,
+    applied_through: u64,
+    scratch_was_empty: bool,
+    source_sha256: String,
 }
 
 #[cfg(feature = "resident-rocksdb")]
 fn run_matched_direct_hot_reads(
     root: &Path,
     profile: &OpenRaftHotReadProfile,
-    fixture_context: Option<DirectFixtureContext<'_>>,
+    fixture_context: Option<DirectFixtureContext>,
 ) -> Result<
     (
         OpenRaftHotReadReport,
@@ -1398,16 +1617,27 @@ fn run_matched_direct_hot_reads(
     options.set_block_based_table_factory(&table);
     let database = DB::open(&options, root)
         .map_err(|error| format!("open matched direct RocksDB control: {error}"))?;
+    let fixture_image_context = fixture_context.as_ref().map(|context| {
+        let logical: BTreeMap<Vec<u8>, LogicalOutcome> = context
+            .logical
+            .iter()
+            .map(|(key, outcome)| (key.clone(), logical_outcome(outcome.clone())))
+            .collect();
+        DirectFixtureImageContext {
+            fixture: context.fixture.clone(),
+            tail_sha256: context.tail_sha256.clone(),
+            applied_through: context.applied_through,
+            scratch_was_empty: context.scratch_was_empty,
+            source_sha256: logical_image_sha256(&logical),
+        }
+    });
+    let encoded_outcomes = fixture_context.is_some();
     let mut write_options = WriteOptions::default();
     write_options.disable_wal(true);
     let mut batch = WriteBatch::default();
     if let Some(context) = fixture_context.as_ref() {
-        for key in object_fixture_image_keys(context.fixture.key_count) {
-            let outcome = context
-                .snapshot
-                .get(&key)
-                .map_err(|error| format!("read native fixture source for control: {error}"))?;
-            batch.put(key, encode_direct_outcome(&outcome));
+        for (key, outcome) in &context.logical {
+            batch.put(key, encode_direct_outcome(outcome));
         }
     } else {
         for key_id in 16..profile.key_count {
@@ -1438,7 +1668,7 @@ fn run_matched_direct_hot_reads(
 
     let mut correctness_failures = 0_u64;
     for key_id in 16..profile.key_count {
-        let actual = if fixture_context.is_some() {
+        let actual = if encoded_outcomes {
             read_direct_outcome(&database, &key_bytes(key_id))?
         } else {
             database
@@ -1448,9 +1678,10 @@ fn run_matched_direct_hot_reads(
         };
         let expected = if let Some(context) = fixture_context.as_ref() {
             context
-                .snapshot
+                .logical
                 .get(&key_bytes(key_id))
-                .map_err(|error| format!("verify native fixture source for control: {error}"))?
+                .cloned()
+                .unwrap_or(ReadOutcome::Absent)
         } else {
             ReadOutcome::Value(base_value(profile.seed, key_id, profile.value_bytes))
         };
@@ -1459,6 +1690,7 @@ fn run_matched_direct_hot_reads(
         }
     }
 
+    drop(fixture_context);
     let operation_count = profile.warmup_operations.max(profile.measured_operations);
     let keys = hot_operation_keys(
         profile.key_count,
@@ -1477,7 +1709,7 @@ fn run_matched_direct_hot_reads(
             &keys,
             profile,
             &|key| {
-                if fixture_context.is_some() {
+                if encoded_outcomes {
                     read_direct_outcome(&database, key)
                 } else {
                     database
@@ -1504,7 +1736,7 @@ fn run_matched_direct_hot_reads(
         correctness_failures,
         samples,
     )?;
-    let image = if let Some(context) = fixture_context {
+    let image = if let Some(context) = fixture_image_context {
         let mut logical = BTreeMap::new();
         for key in object_fixture_image_keys(context.fixture.key_count) {
             logical.insert(
@@ -1514,25 +1746,15 @@ fn run_matched_direct_hot_reads(
         }
         let image = build_object_fixture_image_report_from_logical(
             logical,
-            context.fixture,
-            context.tail_sha256,
+            &context.fixture,
+            &context.tail_sha256,
             OpenRaftHotReadSubject::DirectOwnedRocksdb,
             "rocksdb-11.8.1-direct-owned-v1",
             context.applied_through,
             directory_bytes(root)?,
             context.scratch_was_empty,
         );
-        let source = build_object_fixture_image_report(
-            context.snapshot,
-            context.fixture,
-            context.tail_sha256,
-            OpenRaftHotReadSubject::NativeSnapshot,
-            "rocksdb-11.8.1-native-resident-v1",
-            context.applied_through,
-            0,
-            context.scratch_was_empty,
-        )?;
-        if image.resident_logical_sha256 != source.resident_logical_sha256 {
+        if image.resident_logical_sha256 != context.source_sha256 {
             return Err("regenerated control diverges from verified object fixture".to_owned());
         }
         Some(image)
@@ -2179,7 +2401,7 @@ fn partition_operations(total: usize, clients: usize, client: usize) -> (usize, 
 fn run_matched_direct_hot_reads(
     _root: &Path,
     _profile: &OpenRaftHotReadProfile,
-    _fixture_context: Option<DirectFixtureContext<'_>>,
+    _fixture_context: Option<DirectFixtureContext>,
 ) -> Result<
     (
         OpenRaftHotReadReport,
@@ -3694,8 +3916,8 @@ fn count_as_f64(value: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        hot_operation_keys, hot_trace_sha256, key_bytes, OpenRaftHotReadAccessPattern,
-        OpenRaftServingRecoveryMode, TailOverlay,
+        direct_logical_image, hot_operation_keys, hot_trace_sha256, key_bytes,
+        OpenRaftHotReadAccessPattern, OpenRaftServingRecoveryMode, TailOverlay,
     };
     #[cfg(feature = "resident-rocksdb")]
     use super::{
@@ -3703,7 +3925,9 @@ mod tests {
         OpenRaftHotReadProfile, OpenRaftHotReadSubject,
     };
     use crate::serving_recovery::ServingReadOutcome;
+    use okv::ReadOutcome;
     use okv_consensus::{RetainedTransactionRecord, TransactionMutation};
+    use okv_object::RowRecord;
     use okv_transaction::{KeyRange, TransactionCommand};
 
     #[test]
@@ -3732,6 +3956,76 @@ mod tests {
             Some(ServingReadOutcome::Tombstone)
         );
         assert_eq!(OpenRaftServingRecoveryMode::Candidate.id(), "candidate");
+    }
+
+    #[test]
+    fn standalone_direct_image_applies_the_exact_verified_delta_tail() {
+        let base = (0..4)
+            .map(|key_id| RowRecord::value(key_bytes(key_id), 7, [key_id as u8]))
+            .collect::<Vec<_>>();
+        let tail = vec![RetainedTransactionRecord {
+            commit_version: 8,
+            batch_order: 0,
+            command: TransactionCommand {
+                read_version: 7,
+                read_conflicts: Vec::new(),
+                write_conflicts: Vec::new(),
+                mutations: vec![
+                    TransactionMutation::Set {
+                        key: key_bytes(0),
+                        value: b"updated".to_vec(),
+                    },
+                    TransactionMutation::Clear { key: key_bytes(1) },
+                    TransactionMutation::ClearRange {
+                        range: KeyRange {
+                            start: key_bytes(2),
+                            end: key_bytes(4),
+                        },
+                    },
+                    TransactionMutation::Set {
+                        key: key_bytes(5),
+                        value: b"inserted".to_vec(),
+                    },
+                ],
+            },
+        }];
+
+        let logical = direct_logical_image(&base, &tail, 4).expect("apply verified delta tail");
+        assert_eq!(
+            logical.get(&key_bytes(0)),
+            Some(&ReadOutcome::Value(b"updated".to_vec()))
+        );
+        assert_eq!(logical.get(&key_bytes(1)), Some(&ReadOutcome::Tombstone));
+        assert_eq!(logical.get(&key_bytes(2)), Some(&ReadOutcome::Tombstone));
+        assert_eq!(logical.get(&key_bytes(3)), Some(&ReadOutcome::Tombstone));
+        assert_eq!(
+            logical.get(&key_bytes(5)),
+            Some(&ReadOutcome::Value(b"inserted".to_vec()))
+        );
+        assert_eq!(logical.get(&key_bytes(6)), Some(&ReadOutcome::Absent));
+        assert_eq!(logical.get(&key_bytes(7)), Some(&ReadOutcome::Absent));
+    }
+
+    #[test]
+    fn standalone_direct_image_rejects_an_unbound_tail_key() {
+        let base = vec![RowRecord::value(key_bytes(0), 7, b"base")];
+        let tail = vec![RetainedTransactionRecord {
+            commit_version: 8,
+            batch_order: 0,
+            command: TransactionCommand {
+                read_version: 7,
+                read_conflicts: Vec::new(),
+                write_conflicts: Vec::new(),
+                mutations: vec![TransactionMutation::Set {
+                    key: key_bytes(4),
+                    value: b"outside-profile".to_vec(),
+                }],
+            },
+        }];
+
+        let error = direct_logical_image(&base, &tail, 4)
+            .expect_err("unbound fixture tail key must fail closed");
+        assert!(error.contains("out-of-profile key"));
     }
 
     #[cfg(feature = "resident-rocksdb")]
