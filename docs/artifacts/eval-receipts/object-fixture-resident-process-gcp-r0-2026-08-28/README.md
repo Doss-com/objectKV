@@ -57,9 +57,18 @@ The 1,024-read windows are semantic diagnostics only. They are too short and
 do not have the frozen T27 cache-coverage, sample-count, telemetry, process
 order, or comparison contract. No throughput or latency point is admitted.
 
-The disposable VM was powered off after evidence capture. Local gcloud
-credentials expired before the stopped VM, boot disk, external address,
-firewall rule, and temporary project SSH key could be deleted, or this receipt
-set could be copied to GCS. Those cleanup and durable-upload actions remain
-open. The local receipt set is about 17 KiB; the clean source is pushed to the
-repository.
+The six-file receipt set is durably copied to:
+
+```text
+gs://doss-objectkv-dev-okv-evals/runs/rfc0044-resident-process-r0-20260828/
+```
+
+The initial upload contains 19,503 bytes. The pair receipt is GCS generation
+`1787969788019294`; the poison receipt is generation `1787969798052762`.
+Their repository SHA-256 values above bind the exact payloads.
+
+The disposable VM, boot disk, ephemeral external address, firewall rule, and
+temporary project SSH key were removed after evidence capture. Exact-name GCP
+queries returned no remaining benchmark resource. The original project SSH key
+remains installed. The local receipt set is about 17 KiB; the clean source is
+pushed to the repository.
