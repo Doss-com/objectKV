@@ -1160,6 +1160,7 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                     negative_control: None,
                 },
                 false,
+                true,
             )?;
             println!("{}", serde_json::to_string(&report)?);
         }
@@ -6483,6 +6484,7 @@ fn run_t27_plan_position(
             sample_count: 1,
             negative_control: None,
         },
+        false,
         false,
     )?;
     let hot_read = report

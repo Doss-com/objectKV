@@ -696,6 +696,7 @@ pub fn run_openraft_serving_recovery_contract_with_hot_reads(
         None,
         None,
         None,
+        true,
     ))
 }
 
@@ -766,6 +767,7 @@ pub fn run_openraft_serving_recovery_contract_from_object_fixture_locator(
         existing_fixture,
         None,
         None,
+        true,
     ))
 }
 
@@ -784,6 +786,7 @@ pub fn run_openraft_serving_recovery_contract_from_fixture_placement(
     placement: &FixturePlacementLocatorV1,
     hot_read: OpenRaftHotReadProfile,
     regenerate_control_poison: bool,
+    exercise_restart: bool,
 ) -> Result<OpenRaftServingRecoveryReport, String> {
     placement.validate()?;
     let configured_bucket = std::env::var("OKV_GCS_BUCKET")
@@ -842,6 +845,7 @@ pub fn run_openraft_serving_recovery_contract_from_fixture_placement(
         Some(placement.fixture.clone()),
         Some(placement.descriptor_generation.clone()),
         Some(placement.fixture_seed),
+        exercise_restart,
     ))?;
     let hot_read = report
         .process
@@ -2879,6 +2883,7 @@ async fn run_contract(
     existing_fixture: Option<ObjectFixtureLocatorV1>,
     existing_descriptor_generation: Option<String>,
     existing_fixture_seed: Option<u64>,
+    exercise_restart: bool,
 ) -> Result<OpenRaftServingRecoveryReport, String> {
     let contract_started = Instant::now();
     validate_profile(profile)?;
@@ -3099,10 +3104,15 @@ async fn run_contract(
         object_fixture,
     };
     let process_barrier_timeout = first_config.process_barrier_timeout()?;
-    let mut first = spawn_worker(executable, &first_config, false)?;
-    wait_for_barrier(&mut first, &first_initial, process_barrier_timeout)?;
-    first.kill().map_err(|error| error.to_string())?;
-    first.wait().map_err(|error| error.to_string())?;
+    let (worker_process_starts, worker_process_kills) = if exercise_restart {
+        let mut first = spawn_worker(executable, &first_config, false)?;
+        wait_for_barrier(&mut first, &first_initial, process_barrier_timeout)?;
+        first.kill().map_err(|error| error.to_string())?;
+        first.wait().map_err(|error| error.to_string())?;
+        (2, 1)
+    } else {
+        (1, 0)
+    };
 
     let replacement_initial = root.path().join("replacement-initial.json");
     let replacement_continue = root.path().join("replacement-continue.json");
@@ -3253,9 +3263,9 @@ async fn run_contract(
             publication.process_count() + transaction.process_count(),
         )
         .unwrap_or(u64::MAX),
-        worker_process_starts: 2,
-        worker_process_kills: 1,
-        empty_scratch_restarts: u64::from(process.scratch_was_empty),
+        worker_process_starts,
+        worker_process_kills,
+        empty_scratch_restarts: u64::from(exercise_restart && process.scratch_was_empty),
         concurrent_commits: u64::try_from(history.concurrent_commands.len()).unwrap_or(u64::MAX),
         correctness_anomalies,
         exact_replay,
