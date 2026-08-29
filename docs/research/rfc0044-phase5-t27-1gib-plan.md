@@ -3,27 +3,32 @@
 Status: `[EVALUATING]`, with the cross-invocation fixture, read-only consumer,
 standalone control, independent-seed boundaries, four-position 64 MiB
 preflight, 1 GiB fixture, immutable 540-position plan, retained runtime, and
-first complete 20-position stratum `[VERIFIED]`
+first two complete 20-position strata `[VERIFIED]`
 
 ## Current execution readout
 
-`[VERIFIED]` Stratum `c50-z08-s1103` completed against live plan `40d4559a`
-and workload `7019d0e1`. It covers 50 percent block-cache coverage, Zipf 0.8,
-trace seed 1103, eight concurrent readers, five fresh-process ABBA blocks, and
-one million measured reads per position.
+`[VERIFIED]` Strata `c50-z08-s1103` and `c50-z08-s2207` completed against live
+plan `40d4559a` and workload `7019d0e1`. Both cover 50 percent block-cache
+coverage, Zipf 0.8, eight concurrent readers, five fresh-process ABBA blocks,
+and one million measured reads per position. Their independent trace seeds are
+1103 and 2207.
 
-| Metric | AB native/control | BA native/control | Gate |
-| --- | ---: | ---: | ---: |
-| Throughput | 0.994982x | 0.997260x | at least 0.80x |
-| P99 latency | 0.999051x | 1.000304x | at most 1.20x |
-| CPU/read | 1.017306x | 1.011997x | at most 1.25x |
-| Physical bytes/read | 0.997738x | 0.997837x | at most 1.25x |
-| Read amplification | 1.000000x | 1.000000x | at most 1.25x |
+| Stratum | Metric | AB native/control | BA native/control | Gate |
+| --- | --- | ---: | ---: | ---: |
+| seed 1103 | Throughput | 0.994982x | 0.997260x | at least 0.80x |
+| seed 1103 | P99 latency | 0.999051x | 1.000304x | at most 1.20x |
+| seed 1103 | CPU/read | 1.017306x | 1.011997x | at most 1.25x |
+| seed 1103 | Physical bytes/read | 0.997738x | 0.997837x | at most 1.25x |
+| seed 2207 | Throughput | 1.012558x | 0.998886x | at least 0.80x |
+| seed 2207 | P99 latency | 0.989567x | 0.998296x | at most 1.20x |
+| seed 2207 | CPU/read | 1.015743x | 1.006168x | at most 1.25x |
+| seed 2207 | Physical bytes/read | 0.999567x | 0.999454x | at most 1.25x |
+| both | Read amplification | 1.000000x | 1.000000x | at most 1.25x |
 
-All 20 process identities, raw reports, correctness and pressure gates, and
-logs, metrics, and traces passed. The run lasted 1 hour 6 minutes and returned
-subject scratch to 4,096 bytes. T27 remains `[EVALUATING]`: one of 27
-direct-NVMe strata and zero of two buffered sentinels are complete.
+All 40 process identities, raw reports, correctness and pressure gates, and
+logs, metrics, and traces passed. Each stratum ran for about 1 hour 6 minutes.
+T27 remains `[EVALUATING]`: two of 27 direct-NVMe strata and zero of two
+buffered sentinels are complete.
 
 ## Decision
 
@@ -527,21 +532,22 @@ treatment is not reused.
    tests pass.
 9. `[EVALUATING]` Execute the 27 admitting strata and two buffered sentinels,
    preserve every partial failure, update the master matrix, and remove the
-   leased infrastructure. Stratum `c50-z08-s1103` is `[VERIFIED]`; 26
-   direct-NVMe strata and both buffered sentinels remain.
+   leased infrastructure. Strata `c50-z08-s1103` and `c50-z08-s2207` are
+   `[VERIFIED]`; 25 direct-NVMe strata and both buffered sentinels remain.
 
 ## Review disposition
 
 The adversarial review's six blocking findings are closed. The corrected
 phase-5 fresh-process runner, 64 MiB preflight, exact runtime retention,
-authenticated per-stratum boundary, and first complete 1 GiB stratum are
+authenticated per-stratum boundary, and first two complete 1 GiB strata are
 `[VERIFIED]`, while the full T27 curve remains `[EVALUATING]`. The live plan
 binds the measured nested worker, executable, source, lockfile, machine receipt,
 boot, NVMe device, host-global lease, independently derived oracle,
 subject-specific RocksDB topology, raw report, cache pressure, OTLP emission,
-and exporter completion. Stratum `c50-z08-s1103` passed every AB and BA gate.
-The next experiment executes the remaining 26 authenticated strata against the
-same execution envelope, then aggregates only if all 27 exist. Prior
+and exporter completion. Strata `c50-z08-s1103` and `c50-z08-s2207` passed
+every AB and BA gate. The queued experiment executes the remaining 25
+authenticated strata against the same execution envelope, then aggregates
+only if all 27 exist. Prior
 cross-invocation evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
 The preflight evidence is in
@@ -552,3 +558,5 @@ The 1 GiB fixture and plan receipt is in
 `docs/artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md`.
 The first complete stratum is in
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md`.
+The second complete stratum is in
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s2207-gcp-r0-2026-08-29/README.md`.

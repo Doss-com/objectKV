@@ -339,9 +339,25 @@ direct RocksDB; p99 was 0.999051x and 1.000304x; CPU/read was 1.017306x and
 1.011997x; physical bytes/read were 0.997738x and 0.997837x. Every comparison,
 pressure, identity, correctness, and telemetry gate passed. The 1 hour 6 minute
 run returned subject scratch to 4,096 bytes. The complete evidence archive and
-standalone receipt are immutable in GCS. Infrastructure remains leased for the
-other 26 strata, so T27 remains `[EVALUATING]`. See
+standalone receipt are immutable in GCS. Infrastructure remained leased for
+the other 26 strata at that checkpoint, so T27 stayed `[EVALUATING]`. See
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md`.
+
+`[VERIFIED]` The same R0 execution then completed `c50-z08-s2207` against the
+unchanged source, executable, plan, fixture, machine incarnation, NVMe device,
+and lease. Its 20 fresh processes produced AB and BA throughput ratios of
+1.012558x and 0.998886x direct RocksDB, p99 ratios of 0.989567x and 0.998296x,
+CPU/read ratios of 1.015743x and 1.006168x, physical-read ratios of 0.999567x
+and 0.999454x, and read amplification of 1.000000x. All pressure, identity,
+correctness, comparison, and telemetry gates passed. Independent collector
+inspection found the run ID in logs, metrics, and traces. A first invocation
+with a missing bucket environment failed before measurement and remains an
+immutable failure artifact. The corrected 1 hour 5 minute run and standalone
+receipt are generation-pinned in GCS. The queued driver began the third
+stratum only after the second receipt passed and released its host lease. T27
+remains `[EVALUATING]` with 25 direct-NVMe strata and two buffered sentinels
+open. See
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s2207-gcp-r0-2026-08-29/README.md`.
 
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen

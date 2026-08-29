@@ -124,13 +124,14 @@ all nine leased resources were removed after immutable evidence capture. This
 is setup evidence, not a new performance point.
 `[VERIFIED]` Source `95dedb0` then retained its exact executable and source in
 versioned GCS, bound a live private runner and NVMe filesystem into plan
-`40d4559a`, and executed the first complete 1 GiB stratum. At 50 percent cache,
-Zipf 0.8, seed 1103, and eight readers, native/control throughput was 0.994982x
-and 0.997260x in AB and BA order. P99 was 0.999051x and 1.000304x; CPU/read was
-1.017306x and 1.011997x; physical bytes/read were 0.997738x and 0.997837x; read
-amplification was 1.000000x. All 20 fresh-process positions, cache-pressure
-gates, runtime identities, and logs, metrics, and traces passed. T27 remains
-`[EVALUATING]` until the other 26 strata and two buffered sentinels complete.
+`40d4559a`, and executed the first two complete 1 GiB strata. Both use 50
+percent cache, Zipf 0.8, and eight readers. Seed 1103 produced AB and BA
+throughput ratios of 0.994982x and 0.997260x and p99 ratios of 0.999051x and
+1.000304x. Seed 2207 produced throughput ratios of 1.012558x and 0.998886x and
+p99 ratios of 0.989567x and 0.998296x. CPU/read, physical bytes/read, read
+amplification, all 40 fresh-process positions, cache pressure, runtime
+identities, and logs, metrics, and traces passed. T27 remains `[EVALUATING]`
+until the other 25 strata and two buffered sentinels complete.
 Three-node replicated commit, RAM, multi-range, PostgreSQL, and HTAP remain
 blocked on the complete T27 gate.
 FoundationDB remains the semantic oracle and fallback profile. The immutable
@@ -156,7 +157,7 @@ the status authority.
 | # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` The 64 MiB preflight, plan poisons, and 1 GiB fixture and plan boundary passed. `[VERIFIED]` First complete 1 GiB stratum `c50-z08-s1103`: AB and BA throughput 0.994982x and 0.997260x, p99 0.999051x and 1.000304x, CPU/read 1.017306x and 1.011997x, physical bytes/read 0.997738x and 0.997837x, and read amplification 1.000000x. All 20 fresh processes, correctness, cache-pressure, runtime identity, and OTel gates passed. One of 27 direct-NVMe strata is complete; buffered sentinels remain open. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Execute the remaining 26 strata against plan `40d4559a`, then run the two buffered sentinels and aggregate |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` The 64 MiB preflight, plan poisons, and 1 GiB fixture and plan boundary passed. `[VERIFIED]` Two complete 1 GiB strata at 50 percent cache and Zipf 0.8 passed. Seed 1103 AB and BA throughput was 0.994982x and 0.997260x control, with p99 0.999051x and 1.000304x. Seed 2207 throughput was 1.012558x and 0.998886x, with p99 0.989567x and 0.998296x. CPU/read, physical bytes/read, read amplification, all 40 fresh processes, correctness, cache pressure, runtime identity, and OTel gates passed. Two of 27 direct-NVMe strata are complete; buffered sentinels remain open. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Execute the remaining 25 strata against plan `40d4559a`, then run the two buffered sentinels and aggregate |
 | 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Clean GCS dataset-size sweep after row 1 passes |
 | 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Local projected scan reaches 2.544M source rows/s and 4.718x indexed-row scan; clean cloud composition is unmeasured | Preserve row-class point cost, materially improve projected scans, bound resident index and compaction amplification, recover one authenticated closure | Matched row versus column object layout on the same GCS closure |
 | 4 | Native three-node replicated commit | `[EVALUATING]` | One-host G4.10b reaches 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x its one-entry control; independent-media latency is unmeasured | One-range p99 within 1.25x matched-durability control, exact retries and conflicts, zero normal-path object operations, quorum acknowledgement on independent media | Three independent GCP machines and media after rows 1 through 3 |
@@ -220,12 +221,14 @@ txLog, and all reproduced one complete logical image with zero measured-window
 object requests. The candidate and reuse-bypass poison returned `keep`; both
 run IDs occur in OTel traces, metrics, and logs. Evidence is under
 `docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/`.
-This turn added the first complete 1 GiB admission point. Row 1 remains
-`[EVALUATING]` because one of 27 direct-NVMe strata and zero of two buffered
-sentinels are complete. The passing stratum is under
-`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/`.
-Its immutable GCS evidence binds plan `40d4559a`, workload `7019d0e1`, exact
-runtime executable `aac675c7`, machine instance `141366064138072137`, 20
+This execution has produced the first two complete 1 GiB admission points. Row
+1 remains `[EVALUATING]` because two of 27 direct-NVMe strata and zero of two
+buffered sentinels are complete. The passing strata are under
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/`
+and
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s2207-gcp-r0-2026-08-29/`.
+Their immutable GCS evidence binds plan `40d4559a`, workload `7019d0e1`, exact
+runtime executable `aac675c7`, machine instance `141366064138072137`, 40
 position receipts, and all three OTel signals. The phase-5 cross-invocation
 correctness receipt remains under
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/`.

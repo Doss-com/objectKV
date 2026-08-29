@@ -265,6 +265,21 @@ T27 remains `[EVALUATING]` with 26 direct-NVMe strata and two buffered
 sentinels open. Evidence is in
 [`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md).
 
+`[VERIFIED]` The same source, plan, execution envelope, machine incarnation,
+and lease then completed stratum `c50-z08-s2207`. Its 20 fresh processes cover
+five ABBA blocks at the same 50 percent cache, Zipf 0.8, eight-reader profile
+with independent trace seed 2207. AB and BA throughput were 1.012558x and
+0.998886x direct RocksDB; p99 was 0.989567x and 0.998296x; CPU/read was
+1.015743x and 1.006168x; physical bytes/read were 0.999567x and 0.999454x.
+Read amplification was 1.000000x. All comparison, pressure, correctness,
+runtime, process, and OTel gates passed. Collector-side evidence contains 21
+logs, 63 metrics, and 20 traces for run
+`bde16597-8fe7-434b-95b4-dfdc7c58d267`. The initial invocation failed closed
+before measurement because its service omitted the GCS bucket environment;
+that failure is retained separately. T27 remains `[EVALUATING]` with 25
+direct-NVMe strata and two buffered sentinels open. Evidence is in
+[`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s2207-gcp-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s2207-gcp-r0-2026-08-29/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
