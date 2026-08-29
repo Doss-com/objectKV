@@ -242,19 +242,19 @@ The stratum passes only when all 20 positions validate against the full plan,
 worker identities are unique and nonoverlapping, both AB and BA comparisons
 pass, and all required telemetry exporters flush and shut down successfully.
 
-The final aggregate accepts exactly one passing receipt for every planned
-stratum. Every input must have the same portable workload digest and the same
-runtime source, executable, and Cargo.lock digests. Execution-envelope digests
-may differ only because an exact retained runtime was incarnated on replacement
-infrastructure. Each replacement must retain the same machine type, CPU
-platform, NVMe profile, regional GCS fixture generation, and evaluator options.
-Comparisons remain within one stratum and one machine, so no candidate/control
-ratio crosses an infrastructure incarnation.
+The version 1 final aggregate accepts exactly one passing receipt for every
+planned stratum. Every input must have the same plan, portable workload,
+execution envelope, runtime source, executable, and Cargo.lock digests. This
+fails closed across a machine restart or replacement. `[FUTURE]` replacement
+aggregation requires explicit execution-incarnation receipts plus matched
+machine type, CPU platform, NVMe profile, regional GCS fixture generation, and
+evaluator options. Comparisons remain within one stratum and one machine, so no
+candidate/control ratio crosses an infrastructure incarnation.
 
 This optimizes for bounded leases, recoverable progress, and immutable evidence.
-It gives up one controller ID and one machine identity across the entire sweep.
-The complete T27 result remains `[EVALUATING]` until all 27 strata and the final
-aggregate validate.
+It uses one controller and host lease per stratum while requiring one exact
+execution envelope across the version 1 sweep. The complete T27 result remains
+`[EVALUATING]` until all 27 strata and the final aggregate validate.
 
 `[CODE-COMPLETE]` `okv-eval t27-stratum-run-gcs` selects one named stratum from
 the full sealed plan, executes only its canonical positions, and emits
@@ -262,6 +262,15 @@ the full sealed plan, executes only its canonical positions, and emits
 `evals/schema/t27-stratum-run-receipt-v1.schema.json`. Unit coverage rejects a
 partial stratum and validates the authenticated receipt against that schema.
 Real 1 GiB execution and aggregation remain `[EVALUATING]`.
+
+`[CODE-COMPLETE]` `okv-eval t27-aggregate-run` consumes an explicit 27-bundle
+manifest. Every bundle names the sealed plan, external plan digest, stratum
+receipt, and its 20 position receipts. The aggregate rejects missing strata,
+cross-workload evidence, runtime drift, execution-envelope drift, and reused
+controller, lease, worker, process, or position evidence. Its configuration and
+output contracts are `evals/schema/t27-aggregate-manifest-v1.schema.json` and
+`evals/schema/t27-aggregate-run-receipt-v1.schema.json`. Real aggregation remains
+`[EVALUATING]` until the full sweep completes.
 
 ## D2. Candidate and control each own exactly one database and cache
 

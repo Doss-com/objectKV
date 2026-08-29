@@ -21,6 +21,7 @@ const OPTIONS_MAGIC: &[u8] = b"OKVT27O1";
 const RECEIPT_MAGIC: &[u8] = b"OKVT27R1";
 const RUN_RECEIPT_MAGIC: &[u8] = b"OKVT27C1";
 const STRATUM_RECEIPT_MAGIC: &[u8] = b"OKVT27S1";
+const AGGREGATE_RECEIPT_MAGIC: &[u8] = b"OKVT27A1";
 const WORKLOAD_MAGIC: &[u8] = b"OKVT27W1";
 const INCARNATION_RECEIPT_MAGIC: &[u8] = b"OKVT27I1";
 const POISON_RECEIPT_MAGIC: &[u8] = b"OKVT27X1";
@@ -920,6 +921,34 @@ pub struct T27StratumRunReceiptV1 {
     pub receipt_sha256: String,
 }
 
+/// One stratum receipt and the plan and position evidence needed to validate it.
+pub struct T27StratumEvidenceV1<'a> {
+    pub plan: &'a T27ExecutionPlanV1,
+    pub receipt: &'a T27StratumRunReceiptV1,
+    pub positions: &'a [T27PositionReceiptV1],
+}
+
+/// Final authenticated boundary over every independently executed T27 stratum.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T27AggregateRunReceiptV1 {
+    pub schema_version: u32,
+    pub workload_sha256: String,
+    pub runtime_source_sha256: String,
+    pub runtime_executable_sha256: String,
+    pub runtime_cargo_lock_sha256: String,
+    pub plan_sha256s: Vec<String>,
+    pub stratum_ids: Vec<String>,
+    pub stratum_plan_sha256s: Vec<String>,
+    pub stratum_execution_sha256s: Vec<String>,
+    pub stratum_receipt_sha256s: Vec<String>,
+    pub total_positions: u64,
+    pub started_at: String,
+    pub finished_at: String,
+    pub passed: bool,
+    pub receipt_sha256: String,
+}
+
 /// Immutable completion evidence for one sequential fresh-process plan run.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -1181,6 +1210,257 @@ impl T27StratumRunReceiptV1 {
             && self.telemetry_traces_shutdown_succeeded
             && self.telemetry_logs_shutdown_succeeded
     }
+}
+
+impl T27AggregateRunReceiptV1 {
+    /// Build the final receipt over all 27 independently sealed admission strata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing, duplicated, reordered, cross-workload, or
+    /// runtime-drifted evidence.
+    pub fn new(evidence: &[T27StratumEvidenceV1<'_>]) -> Result<Self, String> {
+        let inputs = validate_t27_aggregate_evidence(evidence)?;
+        let mut receipt = Self {
+            schema_version: RECEIPT_SCHEMA_VERSION,
+            workload_sha256: inputs.workload_sha256,
+            runtime_source_sha256: inputs.runtime_source_sha256,
+            runtime_executable_sha256: inputs.runtime_executable_sha256,
+            runtime_cargo_lock_sha256: inputs.runtime_cargo_lock_sha256,
+            plan_sha256s: inputs.plan_sha256s,
+            stratum_ids: inputs.stratum_ids,
+            stratum_plan_sha256s: inputs.stratum_plan_sha256s,
+            stratum_execution_sha256s: inputs.stratum_execution_sha256s,
+            stratum_receipt_sha256s: inputs.stratum_receipt_sha256s,
+            total_positions: inputs.total_positions,
+            started_at: inputs.started_at,
+            finished_at: inputs.finished_at,
+            passed: inputs.passed,
+            receipt_sha256: String::new(),
+        };
+        receipt.receipt_sha256 = receipt.calculated_receipt_sha256();
+        receipt.validate(evidence)?;
+        Ok(receipt)
+    }
+
+    /// Return the digest of the canonical aggregate receipt fields.
+    #[must_use]
+    pub fn calculated_receipt_sha256(&self) -> String {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(AGGREGATE_RECEIPT_MAGIC);
+        bytes.extend_from_slice(&self.schema_version.to_be_bytes());
+        for value in [
+            &self.workload_sha256,
+            &self.runtime_source_sha256,
+            &self.runtime_executable_sha256,
+            &self.runtime_cargo_lock_sha256,
+        ] {
+            push_string(&mut bytes, value);
+        }
+        for values in [
+            &self.plan_sha256s,
+            &self.stratum_ids,
+            &self.stratum_plan_sha256s,
+            &self.stratum_execution_sha256s,
+            &self.stratum_receipt_sha256s,
+        ] {
+            bytes.extend_from_slice(
+                &u64::try_from(values.len())
+                    .unwrap_or(u64::MAX)
+                    .to_be_bytes(),
+            );
+            for value in values {
+                push_string(&mut bytes, value);
+            }
+        }
+        bytes.extend_from_slice(&self.total_positions.to_be_bytes());
+        push_string(&mut bytes, &self.started_at);
+        push_string(&mut bytes, &self.finished_at);
+        bytes.push(u8::from(self.passed));
+        sha256(&bytes)
+    }
+
+    /// Validate the final receipt against all source evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any source evidence or aggregate field differs.
+    pub fn validate(&self, evidence: &[T27StratumEvidenceV1<'_>]) -> Result<(), String> {
+        let inputs = validate_t27_aggregate_evidence(evidence)?;
+        if self.schema_version != RECEIPT_SCHEMA_VERSION
+            || self.workload_sha256 != inputs.workload_sha256
+            || self.runtime_source_sha256 != inputs.runtime_source_sha256
+            || self.runtime_executable_sha256 != inputs.runtime_executable_sha256
+            || self.runtime_cargo_lock_sha256 != inputs.runtime_cargo_lock_sha256
+            || self.plan_sha256s != inputs.plan_sha256s
+            || self.stratum_ids != inputs.stratum_ids
+            || self.stratum_plan_sha256s != inputs.stratum_plan_sha256s
+            || self.stratum_execution_sha256s != inputs.stratum_execution_sha256s
+            || self.stratum_receipt_sha256s != inputs.stratum_receipt_sha256s
+            || self.total_positions != inputs.total_positions
+            || self.started_at != inputs.started_at
+            || self.finished_at != inputs.finished_at
+            || self.passed != inputs.passed
+            || self.receipt_sha256 != self.calculated_receipt_sha256()
+        {
+            return Err("T27 aggregate run receipt identity mismatch".to_owned());
+        }
+        Ok(())
+    }
+}
+
+struct T27AggregateInputs {
+    workload_sha256: String,
+    runtime_source_sha256: String,
+    runtime_executable_sha256: String,
+    runtime_cargo_lock_sha256: String,
+    plan_sha256s: Vec<String>,
+    stratum_ids: Vec<String>,
+    stratum_plan_sha256s: Vec<String>,
+    stratum_execution_sha256s: Vec<String>,
+    stratum_receipt_sha256s: Vec<String>,
+    total_positions: u64,
+    started_at: String,
+    finished_at: String,
+    passed: bool,
+}
+
+#[allow(clippy::too_many_lines)]
+fn validate_t27_aggregate_evidence(
+    evidence: &[T27StratumEvidenceV1<'_>],
+) -> Result<T27AggregateInputs, String> {
+    let baseline = evidence
+        .first()
+        .ok_or_else(|| "T27 aggregate has no stratum evidence".to_owned())?
+        .plan;
+    baseline.validate()?;
+    if baseline.profile != T27PlanProfileV1::Admission1Gib || baseline.positions.len() != 540 {
+        return Err("T27 aggregate requires the full 1 GiB admission workload".to_owned());
+    }
+    let mut expected_ids = Vec::new();
+    let mut expected_set = BTreeSet::new();
+    for position in &baseline.positions {
+        if expected_set.insert(position.stratum_id.clone()) {
+            expected_ids.push(position.stratum_id.clone());
+        }
+    }
+    if expected_ids.len() != 27 || evidence.len() != expected_ids.len() {
+        return Err("T27 aggregate stratum count mismatch".to_owned());
+    }
+
+    let workload_sha256 = baseline.calculated_workload_sha256();
+    let runtime_source_sha256 = baseline.execution.runtime_source_sha256.clone();
+    let runtime_executable_sha256 = baseline.execution.runtime_executable_sha256.clone();
+    let runtime_cargo_lock_sha256 = baseline.execution.runtime_cargo_lock_sha256.clone();
+    let mut by_stratum = BTreeMap::new();
+    for item in evidence {
+        item.plan.validate()?;
+        if item.plan.profile != baseline.profile
+            || item.plan.fixture != baseline.fixture
+            || item.plan.expected != baseline.expected
+            || item.plan.positions != baseline.positions
+            || item.plan.calculated_workload_sha256() != workload_sha256
+        {
+            return Err("T27 aggregate contains cross-workload evidence".to_owned());
+        }
+        if item.plan.execution.runtime_source_sha256 != runtime_source_sha256
+            || item.plan.execution.runtime_executable_sha256 != runtime_executable_sha256
+            || item.plan.execution.runtime_cargo_lock_sha256 != runtime_cargo_lock_sha256
+        {
+            return Err("T27 aggregate contains runtime drift".to_owned());
+        }
+        if item.plan.execution != baseline.execution {
+            return Err("T27 aggregate contains cross-execution evidence".to_owned());
+        }
+        item.receipt.validate(item.plan, item.positions)?;
+        if by_stratum
+            .insert(item.receipt.stratum_id.clone(), item)
+            .is_some()
+        {
+            return Err("T27 aggregate contains a duplicate stratum".to_owned());
+        }
+    }
+    if by_stratum.keys().cloned().collect::<BTreeSet<_>>() != expected_set {
+        return Err("T27 aggregate stratum identities differ from the plan".to_owned());
+    }
+
+    let mut plan_sha256s = BTreeSet::new();
+    let mut stratum_plan_sha256s = Vec::with_capacity(expected_ids.len());
+    let mut stratum_execution_sha256s = Vec::with_capacity(expected_ids.len());
+    let mut stratum_receipt_sha256s = Vec::with_capacity(expected_ids.len());
+    let mut controller_ids = BTreeSet::new();
+    let mut lease_ids = BTreeSet::new();
+    let mut worker_ids = BTreeSet::new();
+    let mut measured_process_ids = BTreeSet::new();
+    let mut position_receipt_sha256s = BTreeSet::new();
+    let mut total_positions = 0_u64;
+    let mut started: Option<(DateTime<_>, String)> = None;
+    let mut finished: Option<(DateTime<_>, String)> = None;
+    let mut passed = true;
+    for stratum_id in &expected_ids {
+        let item = by_stratum[stratum_id];
+        if !controller_ids.insert(item.receipt.controller_id.clone())
+            || !lease_ids.insert(item.receipt.lease_id.clone())
+        {
+            return Err("T27 aggregate reused a controller or host lease".to_owned());
+        }
+        for position in item.positions {
+            if !worker_ids.insert(position.worker_id.clone())
+                || !measured_process_ids.insert((
+                    position.measured_worker_linux_boot_id.clone(),
+                    position.measured_worker_process_id,
+                    position.measured_worker_start_ticks,
+                ))
+                || !position_receipt_sha256s.insert(position.receipt_sha256.clone())
+            {
+                return Err("T27 aggregate reused position evidence".to_owned());
+            }
+        }
+        plan_sha256s.insert(item.plan.plan_sha256.clone());
+        stratum_plan_sha256s.push(item.plan.plan_sha256.clone());
+        stratum_execution_sha256s.push(item.plan.execution.calculated_execution_sha256());
+        stratum_receipt_sha256s.push(item.receipt.receipt_sha256.clone());
+        total_positions = total_positions
+            .checked_add(u64::try_from(item.positions.len()).map_err(|error| error.to_string())?)
+            .ok_or_else(|| "T27 aggregate position count overflow".to_owned())?;
+        passed &= item.receipt.passed;
+
+        let start = DateTime::parse_from_rfc3339(&item.receipt.started_at)
+            .map_err(|_| "T27 aggregate stratum start timestamp is invalid".to_owned())?;
+        if started.as_ref().is_none_or(|(current, _)| start < *current) {
+            started = Some((start, item.receipt.started_at.clone()));
+        }
+        let finish = DateTime::parse_from_rfc3339(&item.receipt.finished_at)
+            .map_err(|_| "T27 aggregate stratum finish timestamp is invalid".to_owned())?;
+        if finished
+            .as_ref()
+            .is_none_or(|(current, _)| finish > *current)
+        {
+            finished = Some((finish, item.receipt.finished_at.clone()));
+        }
+    }
+    if total_positions != 540 {
+        return Err("T27 aggregate position count mismatch".to_owned());
+    }
+    Ok(T27AggregateInputs {
+        workload_sha256,
+        runtime_source_sha256,
+        runtime_executable_sha256,
+        runtime_cargo_lock_sha256,
+        plan_sha256s: plan_sha256s.into_iter().collect(),
+        stratum_ids: expected_ids,
+        stratum_plan_sha256s,
+        stratum_execution_sha256s,
+        stratum_receipt_sha256s,
+        total_positions,
+        started_at: started
+            .map(|(_, value)| value)
+            .ok_or_else(|| "T27 aggregate has no start timestamp".to_owned())?,
+        finished_at: finished
+            .map(|(_, value)| value)
+            .ok_or_else(|| "T27 aggregate has no finish timestamp".to_owned())?,
+        passed,
+    })
 }
 
 impl T27PlanRunReceiptV1 {
@@ -2383,12 +2663,14 @@ mod tests {
         build_positions, build_t27_execution_incarnation, build_t27_execution_plan,
         decode_t27_execution_plan, validate_t27_position_receipts,
         validate_t27_stratum_position_receipts, verify_t27_plan_poison, verify_t27_position_poison,
-        T27ExecutionEnvelopeV1, T27ExecutionPlanV1, T27ExpectedIdentityV1, T27PlanPoisonV1,
-        T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
-        T27PositionPoisonV1, T27PositionReceiptV1, T27StratumRunReceiptV1,
+        T27AggregateRunReceiptV1, T27ExecutionEnvelopeV1, T27ExecutionPlanV1,
+        T27ExpectedIdentityV1, T27PlanPoisonV1, T27PlanProfileV1, T27PlanRunReceiptV1,
+        T27PlanSubjectV1, T27PositionObservationV1, T27PositionPoisonV1, T27PositionReceiptV1,
+        T27StratumEvidenceV1, T27StratumRunReceiptV1,
     };
     use crate::object_fixture::{FixturePlacementLocatorV1, ObjectFixtureLocatorV1};
     use crate::telemetry::TelemetryFlushReport;
+    use std::collections::BTreeSet;
 
     #[test]
     fn admission_plan_freezes_all_540_abba_positions() {
@@ -2718,6 +3000,90 @@ mod tests {
             &receipts[..receipts.len() - 1],
         )
         .expect_err("partial stratum must fail closed");
+        assert!(error.contains("count mismatch"));
+    }
+
+    #[test]
+    fn aggregate_requires_all_27_authenticated_strata() {
+        let fixture = locator(1_048_576);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Admission1Gib);
+        let stratum_ids = plan
+            .positions
+            .iter()
+            .map(|position| position.stratum_id.clone())
+            .collect::<BTreeSet<_>>();
+        let mut strata = Vec::new();
+        for (stratum_index, stratum_id) in stratum_ids.iter().enumerate() {
+            let indices = plan
+                .positions
+                .iter()
+                .enumerate()
+                .filter(|(_, position)| position.stratum_id == *stratum_id)
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            let controller_id = format!("10000000-0000-4000-8000-{:012}", stratum_index + 1);
+            let lease_id = format!("30000000-0000-4000-8000-{:012}", stratum_index + 1);
+            let positions = indices
+                .iter()
+                .enumerate()
+                .map(|(local_index, index)| {
+                    let mut value = receipt(&plan, *index, plan.positions[*index].subject);
+                    value.controller_id.clone_from(&controller_id);
+                    value.lease_id.clone_from(&lease_id);
+                    value.started_at =
+                        format!("2026-08-29T01:{stratum_index:02}:{:02}Z", local_index * 2);
+                    value.finished_at = format!(
+                        "2026-08-29T01:{stratum_index:02}:{:02}Z",
+                        local_index * 2 + 1
+                    );
+                    value.receipt_sha256 = value.calculated_receipt_sha256();
+                    value.validate(&plan).expect("validate aggregate position");
+                    value
+                })
+                .collect::<Vec<_>>();
+            let run = T27StratumRunReceiptV1::new(
+                &plan,
+                stratum_id.clone(),
+                &positions,
+                format!("2026-08-29T01:{stratum_index:02}:00Z"),
+                format!("2026-08-29T01:{stratum_index:02}:40Z"),
+                lease_id,
+                "2026-08-29T00:59:59Z".to_owned(),
+                "2026-08-29T02:00:00Z".to_owned(),
+                "d".repeat(64),
+                TelemetryFlushReport::succeeded(),
+            )
+            .expect("build admission stratum receipt");
+            strata.push((positions, run));
+        }
+        let evidence = strata
+            .iter()
+            .map(|(positions, receipt)| T27StratumEvidenceV1 {
+                plan: &plan,
+                receipt,
+                positions,
+            })
+            .collect::<Vec<_>>();
+        let aggregate = T27AggregateRunReceiptV1::new(&evidence).expect("aggregate all strata");
+
+        assert!(aggregate.passed);
+        assert_eq!(aggregate.stratum_ids.len(), 27);
+        assert_eq!(aggregate.total_positions, 540);
+        assert_eq!(aggregate.plan_sha256s, vec![plan.plan_sha256.clone()]);
+        aggregate
+            .validate(&evidence)
+            .expect("validate aggregate receipt");
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../evals/schema/t27-aggregate-run-receipt-v1.schema.json"
+        ))
+        .expect("decode aggregate schema");
+        let validator = jsonschema::validator_for(&schema).expect("compile aggregate schema");
+        validator
+            .validate(&serde_json::to_value(&aggregate).expect("encode aggregate receipt"))
+            .expect("aggregate receipt must satisfy its schema");
+
+        let error = T27AggregateRunReceiptV1::new(&evidence[..26])
+            .expect_err("missing stratum must fail closed");
         assert!(error.contains("count mismatch"));
     }
 

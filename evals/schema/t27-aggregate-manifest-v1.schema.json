@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/t27-aggregate-manifest-v1.schema.json",
+  "title": "objectKV T27 aggregate input manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "bundles"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "bundles": {
+      "type": "array",
+      "minItems": 27,
+      "maxItems": 27,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plan",
+          "expected_plan_sha256",
+          "stratum_receipt",
+          "position_receipts"
+        ],
+        "properties": {
+          "plan": { "type": "string", "minLength": 1 },
+          "expected_plan_sha256": { "$ref": "#/$defs/sha256" },
+          "stratum_receipt": { "type": "string", "minLength": 1 },
+          "position_receipts": {
+            "type": "array",
+            "minItems": 20,
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

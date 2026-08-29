@@ -82,9 +82,9 @@ use okv_eval::storage_layout::{
 use okv_eval::t27_plan::{
     build_t27_execution_incarnation, build_t27_execution_plan, decode_t27_execution_plan,
     derive_t27_expected_identity, verify_t27_plan_poison, verify_t27_position_poison,
-    T27AccessPatternV1, T27ExecutionEnvelopeV1, T27PlanPoisonV1, T27PlanProfileV1,
-    T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1, T27PositionPoisonV1,
-    T27PositionReceiptV1, T27StratumRunReceiptV1,
+    T27AccessPatternV1, T27AggregateRunReceiptV1, T27ExecutionEnvelopeV1, T27PlanPoisonV1,
+    T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
+    T27PositionPoisonV1, T27PositionReceiptV1, T27StratumEvidenceV1, T27StratumRunReceiptV1,
 };
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
@@ -185,6 +185,28 @@ struct T27ControllerRunOutcome {
     lease_released_at: String,
     telemetry_endpoint_sha256: String,
     telemetry_flush: TelemetryFlushReport,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct T27AggregateManifestV1 {
+    schema_version: u32,
+    bundles: Vec<T27AggregateBundleV1>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct T27AggregateBundleV1 {
+    plan: PathBuf,
+    expected_plan_sha256: String,
+    stratum_receipt: PathBuf,
+    position_receipts: Vec<PathBuf>,
+}
+
+struct T27LoadedAggregateBundleV1 {
+    plan: okv_eval::t27_plan::T27ExecutionPlanV1,
+    receipt: T27StratumRunReceiptV1,
+    positions: Vec<T27PositionReceiptV1>,
 }
 
 impl WorkloadExecution {
@@ -600,6 +622,13 @@ enum Commands {
         scratch_root: PathBuf,
         #[arg(long)]
         output_dir: PathBuf,
+    },
+    /// Validate every sealed T27 stratum and emit the final aggregate receipt.
+    T27AggregateRun {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
     },
     /// Execute one T27 position. Only the plan controller should invoke this.
     #[command(hide = true)]
@@ -1339,6 +1368,10 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 &scratch_root,
                 &output_dir,
             )?;
+            println!("{}", serde_json::to_string(&receipt)?);
+        }
+        Commands::T27AggregateRun { manifest, output } => {
+            let receipt = run_t27_aggregate(&manifest, &output)?;
             println!("{}", serde_json::to_string(&receipt)?);
         }
         Commands::T27PlanPositionGcs {
@@ -6909,6 +6942,64 @@ fn run_t27_stratum_controller(
         .into());
     }
     Ok(run_receipt)
+}
+
+fn run_t27_aggregate(
+    manifest_path: &Path,
+    output: &Path,
+) -> Result<T27AggregateRunReceiptV1, Box<dyn Error>> {
+    let manifest: T27AggregateManifestV1 = serde_json::from_slice(&fs::read(manifest_path)?)?;
+    if manifest.schema_version != 1 {
+        return Err(std::io::Error::other("unsupported T27 aggregate manifest version").into());
+    }
+    let base = manifest_path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("T27 aggregate manifest has no parent directory"))?;
+    let resolve = |path: &Path| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            base.join(path)
+        }
+    };
+    let mut bundles = Vec::with_capacity(manifest.bundles.len());
+    for bundle in manifest.bundles {
+        let plan = decode_t27_execution_plan(
+            &fs::read(resolve(&bundle.plan))?,
+            &bundle.expected_plan_sha256,
+        )?;
+        let receipt: T27StratumRunReceiptV1 =
+            serde_json::from_slice(&fs::read(resolve(&bundle.stratum_receipt))?)?;
+        let mut positions = Vec::with_capacity(bundle.position_receipts.len());
+        for path in &bundle.position_receipts {
+            positions.push(serde_json::from_slice::<T27PositionReceiptV1>(&fs::read(
+                resolve(path),
+            )?)?);
+        }
+        bundles.push(T27LoadedAggregateBundleV1 {
+            plan,
+            receipt,
+            positions,
+        });
+    }
+    let evidence = bundles
+        .iter()
+        .map(|bundle| T27StratumEvidenceV1 {
+            plan: &bundle.plan,
+            receipt: &bundle.receipt,
+            positions: &bundle.positions,
+        })
+        .collect::<Vec<_>>();
+    let receipt = T27AggregateRunReceiptV1::new(&evidence)?;
+    write_new_file(output, &serde_json::to_vec_pretty(&receipt)?)?;
+    if !receipt.passed {
+        return Err(std::io::Error::other(format!(
+            "T27 aggregate contains a failed stratum; sealed evidence is at {}",
+            output.display()
+        ))
+        .into());
+    }
+    Ok(receipt)
 }
 
 #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
