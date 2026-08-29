@@ -183,14 +183,37 @@ maximum RSS. At that observed rate, 540 positions would spend about 88 hours on
 three repeated opens per position before hot-read time. Do not launch that run
 under the current 24-hour lease.
 
-The next execution design review must preserve one fresh measured process and
-one fresh mutable database per position while removing non-measured redundant
-object reconstruction. Candidate corrections are a content-verified read-only
-local closure staged once per controller, parallel generation-pinned object
-reads, or separating restart correctness from every statistical repetition.
-Whichever path is selected must retain the same fixture ID, descriptor
-generation, semantic oracle, trace, subject order, cache budget, and hot-read
-measurement boundaries.
+T27 statistical positions will not repeat the deliberate kill. Restart and
+empty-scratch recovery remain separate required correctness probes under the
+same retained runtime, fixture generation, and storage profile. Each T27
+position still creates one fresh measured child, one empty mutable directory,
+one database, and one measured cache. The parent still exact-opens the fixture
+before the child exact-opens it and constructs its own resident state.
+
+```text
+same-runtime recovery probe
+  -> first child reconstructs and reaches barrier
+  -> first child is killed
+  -> replacement child reconstructs from empty scratch
+  -> exact replay required
+
+each T27 statistical position
+  -> parent exact-opens generation-pinned fixture
+  -> one fresh measured child reconstructs from empty scratch
+  -> hot-read window
+```
+
+This separates a correctness axis from repeated performance sampling. It gives
+up proving a deliberate restart in every one of 540 positions. It retains the
+same fixture ID, descriptor generation, semantic oracle, trace, subject order,
+cache budget, and hot-read measurement boundaries, while removing one complete
+non-measured reconstruction per position.
+
+Run one full 20-position stratum after this correction. If its measured wall
+time still projects beyond one 24-hour lease, add authenticated per-stratum
+resumption before expanding the run. Parallel generation-pinned object reads
+and a content-verified local closure remain later setup-cost optimizations; they
+must not be used to relabel setup time as hot-read performance.
 
 ## D2. Candidate and control each own exactly one database and cache
 
