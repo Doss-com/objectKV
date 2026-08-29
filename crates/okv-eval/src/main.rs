@@ -6620,7 +6620,6 @@ fn run_t27_plan_controller(
         &serde_json::to_vec_pretty(&run_receipt)?,
     )?;
     let passed = run_receipt.passed;
-    info!(passed, "T27 fresh-process plan completed");
     if !passed {
         return Err(std::io::Error::other(format!(
             "T27 plan failed one or more ABBA or telemetry admission gates; sealed evidence is at {}",

@@ -618,9 +618,10 @@ become one GitHub issue.
   tests and one actual two-worker kill/replacement trace with no native
   resident engine; `[VERIFIED]` separate preparation and required-existing
   consumer invocations, read-only GCS consumption, exact descriptor
-  generation, and independent fixture and trace seeds; `[EVALUATING]` the
-  immutable fresh-process ABBA plan and its poisons before the 1 GiB GCP
-  admission.
+  generation, and independent fixture and trace seeds; `[VERIFIED]` the
+  immutable four-position, direct-NVMe, fresh-process ABBA preflight and
+  collector-side logs, metrics, and traces; `[EVALUATING]` the remaining
+  capability and schedule poisons before the 1 GiB GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
@@ -638,8 +639,14 @@ become one GitHub issue.
   are now verified. The corrected real GCS replay used fixture seed `4244` and
   trace seed `1103`; native and control returned equal fixture, tail, trace,
   and logical-image identities with zero correctness failures and zero
-  measured object requests. T27 remains `[EVALUATING]`; phase 5 has produced
-  no new performance point.
+  measured object requests. The fresh-process 64 MiB preflight then passed
+  both order comparisons under object-viewer credentials and direct NVMe
+  reads. Native throughput was 0.8652x and 0.9739x control; p99 was 1.0048x
+  and 0.9882x; CPU/read was 1.0718x and 0.9797x; physical bytes/read were
+  1.0647x and 1.0638x; read amplification was 1.0000x. All six OTel
+  flush/shutdown outcomes passed, and the collector held the run ID in logs,
+  metrics, and traces. T27 remains `[EVALUATING]` for the remaining poisons
+  and 1 GiB sweep.
   The phase-0
   bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the
@@ -651,6 +658,8 @@ become one GitHub issue.
   `docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/`;
   the phase-5 command-boundary receipt is under
   `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/`;
+  the fresh-process preflight receipt is under
+  `docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/`;
   and the accepted phase-5 review is under
   `docs/research/reviews/fable-rfc0044-phase5-review-2026-08-28.md`.
 

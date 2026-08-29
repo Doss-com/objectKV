@@ -1,7 +1,8 @@
 # RFC-0044 phase 5: T27 1 GiB admission plan
 
 Status: `[EVALUATING]`, with the cross-invocation fixture, read-only consumer,
-standalone control, and independent-seed boundaries `[VERIFIED]`
+standalone control, independent-seed boundaries, and four-position 64 MiB
+preflight `[VERIFIED]`
 
 ## Decision
 
@@ -253,16 +254,17 @@ treatment is not reused.
    object requests, and one directly owned RocksDB image.
 4. `[VERIFIED]` Split fixture seed from trace seed at the resident validator.
    Commit `1cfad27` reduced the reproduced native aggregate failure from 4,080
-   to zero without changing the native/control trace digest. `[CODE-COMPLETE]`
-   The plan runner now also derives the canonical tail from fixture seed 4244,
-   rather than from any of the three independent read-trace seeds. The
-   cross-seed GCS receipt remains open.
-5. `[CODE-COMPLETE]` Build and validate the immutable ABBA plan controller.
+   to zero without changing the native/control trace digest. The plan runner
+   derives the canonical tail from fixture seed 4244 rather than from any of
+   the three independent read-trace seeds. The cross-seed GCS replay is now
+   `[VERIFIED]`.
+5. `[VERIFIED]` Build and validate the immutable ABBA plan controller at the
+   64 MiB preflight profile. The 1 GiB profile is `[CODE-COMPLETE]`.
    The runner freezes either four 64 MiB preflight positions or 540 1 GiB
    admission positions, starts one sequential evaluator process per position,
    and seals one receipt with the plan, locator, tail, trace, options, process,
    executable, machine, boot, NVMe device, cache, CPU, I/O, and timing
-   identities. Twenty-four focused plan and controller tests reject AABB, missing,
+   identities. Twenty-five focused plan and controller tests reject AABB, missing,
    altered-option, execution-drift, wrapper-substitution, reused-process,
    overlapping, cross-lease, systematic tail or trace, hidden-provider,
    implicit-cache, malformed-raw-evidence, zero-pressure, telemetry-drift,
@@ -272,8 +274,9 @@ treatment is not reused.
    single lock path from machine and NVMe identity, requires an OTLP endpoint,
    then flushes and shuts down logs, metrics, and traces before binding all six
    outcomes into the receipt.
-6. `[PROPOSED]` Pass 64 MiB versions of the missing-locator, read-only-GCS,
-   hidden-cache, and AABB poisons.
+6. `[VERIFIED]` A valid fixture preparation under object-viewer credentials
+   failed with permission denied and created zero objects. `[PROPOSED]` Pass
+   the remaining 64 MiB missing-locator, hidden-cache, and AABB poisons.
 7. `[PROPOSED]` Prepare the 1 GiB fixture, commit its locator, and freeze the
    suite hash.
 8. `[PROPOSED]` Execute the 27 admitting strata and two buffered sentinels,
@@ -283,14 +286,18 @@ treatment is not reused.
 ## Review disposition
 
 The adversarial review's six blocking findings are closed. The corrected
-phase-5 fresh-process runner is `[CODE-COMPLETE]`, while phase 5 and T27 remain
-`[EVALUATING]`. It binds the measured nested worker, executable, lockfile,
+phase-5 fresh-process runner and its 64 MiB preflight are `[VERIFIED]`, while
+the full T27 curve remains `[EVALUATING]`. It binds the measured nested worker, executable, lockfile,
 machine receipt, boot, NVMe device, host-global lease, independently derived
 oracle, subject-specific RocksDB topology, raw report, cache pressure, OTLP
 emission and exporter completion, and AB/BA gates. Locator
 serialization, the clean direct-control construction boundary, separate
 preparation and read-only consumption, and the base-seed boundary are
-`[VERIFIED]`. The next experiment is the four-position 64 MiB GCS preflight,
-followed by its negative controls. No 1 GiB performance claim will be made
-before those controls pass. Prior cross-invocation evidence is in
+`[VERIFIED]`. The preflight retained 0.8652x and 0.9739x direct RocksDB
+throughput while clearing p99, CPU/read, physical-read, amplification,
+pressure, and telemetry gates in both process orders. The next experiment is
+the remaining negative controls, followed by the frozen 1 GiB sweep. Prior
+cross-invocation evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
+The preflight evidence is in
+`docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`.

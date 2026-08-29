@@ -6,10 +6,11 @@ GP2.5.3 physical provider-media-loss reconstruction. `[VERIFIED]` GP3.1 and
 GP3.1.1 admit the topology-matched native resident read boundary through 32
 clients. `[VERIFIED]` GP3.1.2 executed both a clean negative 64 MiB
 cache-pressure calibration and a corrected rerun that clears the throughput,
-p99, CPU/read, and zero physical-read bounds. `[EVALUATING]` the complete T27
-coverage and skew curve, same-durability replicated commit, and the complete
-transaction plane. No full-cell or cross-stack performance claim is
-`[VERIFIED]`.
+p99, CPU/read, and zero physical-read bounds. `[VERIFIED]` the immutable
+fresh-process 64 MiB direct-NVMe preflight clears every paired and telemetry
+gate in both process orders. `[EVALUATING]` the complete 1 GiB T27 coverage and
+skew curve, same-durability replicated commit, and the complete transaction
+plane. No full-cell or cross-stack performance claim is `[VERIFIED]`.
 
 ## The answer we are trying to earn
 
@@ -309,6 +310,22 @@ and firewall were removed. This is correctness and credential-boundary
 evidence, not a T27 performance point. See
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
 
+`[VERIFIED]` A fourteenth bounded R0 execution ran the immutable 64 MiB T27
+preflight from source `578c6a919cbd2e0e6969eaa134fdfae7d6112446`. One
+generation-pinned fixture fed four sequential fresh processes under
+`roles/storage.objectViewer`, a 13,421,772-byte RocksDB cache, Zipf 1.4, eight
+clients, and direct NVMe table reads. In AB order, native throughput, p99,
+CPU/read, and physical bytes/read were 0.8652x, 1.0048x, 1.0718x, and 1.0647x
+control. In BA order they were 0.9739x, 0.9882x, 0.9797x, and 1.0638x. Read
+amplification was 1.0000x and pressure was observed in both comparisons. Every
+gate passed. The sealed receipt records successful flush and shutdown of logs,
+metrics, and traces; independent collector inspection found the run ID in all
+three. A wrong version-1 anchor and a read-only fixture write were rejected.
+The rejected 68,857,626-byte fixture and all nine leased resources were
+removed. The canonical version-2 fixture remains for the 1 GiB progression.
+See
+`docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7
@@ -437,14 +454,16 @@ schedules are frozen during an optimization campaign.
 reach versioned regional GCS, export required OTel signals, and persist a
 schema-valid machine-bound result. The completed lease destroyed nine resources;
 zero matching instances, disks, firewall rules, subnetworks, or routers remain.
-`[EVALUATING]` the same smoke from one clean, digest-addressed experiment bundle.
+`[VERIFIED]` one clean digest-addressed 64 MiB ABBA experiment now composes
+that infrastructure with read-only fixture consumption and direct NVMe
+measurement. `[EVALUATING]` the remaining poisons and 1 GiB workload envelope.
 
 The next receipt sequence remains incremental:
 
-1. persist the verified fresh-process fixture contract in GCS at 64 MiB;
-2. add CPU time, physical bytes, block-cache hits, read amplification, and
-   object-fetch attribution;
-3. run warm, mixed, and eviction-heavy points in both process orders;
+1. run the remaining locator, schedule, and telemetry poisons;
+2. execute the frozen 1 GiB cache-coverage and skew sweep in both process
+   orders;
+3. run the GCS cold-point and object-layout geometry curve;
 4. build the native three-node replicated commit path;
 5. compare it with a same-durability control under normal operation, leader
    loss, and recovery;

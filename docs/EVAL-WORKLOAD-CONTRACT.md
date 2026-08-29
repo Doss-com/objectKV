@@ -133,4 +133,10 @@ fixture is reused across subjects and the operating-system page cache is
 explicitly controlled. The matched `direct_reads=true` smoke is `[VERIFIED]`
 for that control mechanism: native and control reported 2,960.75 and 2,966.00
 Linux physical bytes per read and passed 22 hard gates each. One repeat cannot
-enter a performance comparison.
+enter a performance comparison. The immutable fresh-process 64 MiB preflight
+is now `[VERIFIED]`: one generation-pinned fixture crossed four ABBA positions
+under object-viewer credentials and direct NVMe reads. Native throughput was
+0.8652x and 0.9739x control; p99, CPU/read, physical bytes/read, cache pressure,
+read amplification, and all three collector-side OTel signals passed. Its
+1,024-read windows validate the admission mechanism, not the complete T27
+workload envelope.

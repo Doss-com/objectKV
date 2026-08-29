@@ -1480,7 +1480,8 @@ Evidence:
 
 ## D62. Bootstrap evaluation authorities at the object frontier
 
-Status: `[EVALUATING]`, with phases 0 through 2 `[VERIFIED]`, 2026-08-28.
+Status: `[EVALUATING]`, with phases 0 through 5 and the 64 MiB preflight
+`[VERIFIED]`, 2026-08-29.
 
 Decision: build one content-addressed logical object fixture, establish its
 covered-through version with one canonical empty transaction on each fresh
@@ -1525,6 +1526,46 @@ source. Its receipt is in
 Phase 2 started independent empty native and direct-control processes from that
 fixture and tail. Their actual physical image IDs differ, their complete
 logical digest is equal, and both formal receipts passed, including the
-regenerated-control poison. Persisted GCS reuse and the 1 GiB performance curve
-remain open. Evidence is in
+regenerated-control poison. Phases 4 and 5 then verified persisted GCS reuse,
+generation-pinned cross-invocation locators, standalone direct construction,
+read-only consumption, and independent fixture and trace seeds. The 64 MiB
+fresh-process preflight passed both order comparisons with direct NVMe reads
+and collector-side telemetry. The remaining poisons and 1 GiB performance
+curve remain open. Evidence is in
 `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md`.
+
+## D63. Admit the 64 MiB fresh-process preflight without promoting T27
+
+Status: `[VERIFIED]` decision, 2026-08-29.
+
+Decision: accept the immutable 64 MiB direct-NVMe ABBA result as the T27
+preflight. Keep T27 and master-matrix row 1 `[EVALUATING]` until the remaining
+capability and schedule poisons pass and the frozen 1 GiB coverage plus skew
+sweep executes.
+
+Native retained 0.8652x and 0.9739x matched direct RocksDB throughput in the
+two process orders. P99 was 1.0048x and 0.9882x; CPU/read was 1.0718x and
+0.9797x; physical bytes/read were 1.0647x and 1.0638x; read amplification was
+1.0000x. Every position used a fresh process, an empty NVMe scratch directory,
+one explicit RocksDB cache, one exact generation-pinned fixture, and
+object-viewer credentials. All comparison and cache-pressure gates passed.
+The sealed run records successful flush and shutdown for logs, metrics, and
+traces, and the collector independently contains the run ID in all three.
+
+The first fixture used base version 1 and reached the independent oracle before
+failing its required version-2 anchor. The plan boundary now rejects that
+locator before oracle construction. A valid write attempt under the measured
+object-viewer principal also failed with permission denied and created no
+objects. The rejected fixture was removed after preserving its locator and
+failure.
+
+Optimizes for: proving the complete measurement chain on a bounded dataset
+before paying for 540 one-GiB positions, while preserving fresh-process,
+credential, machine, NVMe, and telemetry identities.
+
+Gives up: treating four short 1,024-read windows as a stable performance curve.
+This result does not admit cache coverage, skew, sustained tail latency, or
+the broader RangeEngine claim.
+
+Evidence:
+`docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`.

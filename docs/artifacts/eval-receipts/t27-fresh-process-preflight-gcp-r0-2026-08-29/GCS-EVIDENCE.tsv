@@ -1,0 +1,4 @@
+object	generation	bytes	sha256
+runs/rfc0044-t27-fresh-preflight-r0-20260829/evidence-v2/objectkv-t27p64-r0-runner-evidence-v2.tgz	1787989387360965	8515	17305822c5e13be3499faac620cd269b64ceb8ff3d21a685c6c0cb764964197c
+runs/rfc0044-t27-fresh-preflight-r0-20260829/evidence-v2/objectkv-t27p64-r0-collector-evidence-v2.tgz	1787989389715470	4320	20cc9d203f9802048832062fa15a282bc3c900315cb94dc76f1bfaef6715a023
+runs/rfc0044-t27-fresh-preflight-r0-20260829/evidence-v2/objectkv-t27p64-r0-machine-v2.json	1787989392074573	2247	1d4ad0a414c85a7267c5059d4751dd197d6197a6e74cabc4a277dc1bd224ecde

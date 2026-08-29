@@ -75,7 +75,13 @@ ABBA workers shared one fixture and tail identity; three reopened the exact
 descriptor, maximum setup was 11.696 seconds, and transaction-authority
 scratch was 0.001623x logical bytes. All 19 gates and the reuse-bypass poison
 passed with correlated OTel signals. This verifies setup mechanics, not the
-1 GiB performance curve. A
+1 GiB performance curve. An immutable four-position preflight then consumed a
+generation-pinned 64 MiB fixture under read-only credentials and direct NVMe
+reads. Native retained 86.52\% and 97.39\% of direct RocksDB throughput; p99
+was 1.005x and 0.988x, CPU/read was 1.072x and 0.980x, and physical bytes/read
+were 1.065x and 1.064x. Every paired gate passed, and collector-side logs,
+metrics, and traces contained the run identity. This admits the fresh-process
+preflight, not the 1 GiB curve. A
 live semantic eliminator rejected TiKV as the strict-serializability control
 because both transactions in the frozen write-skew history committed.
 FoundationDB rejected the same write skew and remains the semantic oracle and
@@ -448,6 +454,21 @@ not admit a performance point because it has one seed, one repeat, no AB/BA
 order, and no required OTel correlation. Buffered reads remain the portable
 default; direct reads are an explicit evaluation treatment.
 
+The next R0 run composed those mechanisms in one immutable four-position ABBA
+plan. One canonical version-2 fixture supplied every fresh native and direct
+worker under object-viewer credentials. With 64 MiB of logical values, a
+13,421,772-byte cache, Zipf 1.4, eight clients, and direct table reads, native
+throughput was 0.8652x and 0.9739x control in the two orders. P99 was 1.0048x
+and 0.9882x; CPU/read was 1.0718x and 0.9797x; physical bytes/read were 1.0647x
+and 1.0638x; read amplification was 1.0000x. All gates passed. The sealed
+receipt records successful flush and shutdown for logs, metrics, and traces,
+and independent collector inspection found the run identity in all three.
+The first fixture used the wrong empty-anchor version and was rejected before
+measurement after the plan boundary was tightened. A valid preparation under
+the measured read-only principal also failed and created no objects. This
+short 1,024-read-per-position run verifies the complete preflight chain. The
+540-position 1 GiB workload remains \evaluating{}.
+
 \subsection{Objectification and publication}
 
 Objectification packs many committed mutations into immutable indexed row
@@ -634,7 +655,7 @@ routing, and publication decisions. A dual-provider GCP harness is code
 complete but has not executed.
 
 \begin{table*}[t]
-  \caption{Selected implementation evidence as of 2026-08-28. A zero-anomaly
+  \caption{Selected implementation evidence as of 2026-08-29. A zero-anomaly
   result is scoped to the listed backend and topology.}
   \label{tab:evidence}
   \small
@@ -652,16 +673,11 @@ complete but has not executed.
     Direct DataFusion range source & \evaluating{} & Release local filesystem, bounded 256 KiB scan fetch, three seeds and three repeats, dirty source & Runs \texttt{a7d4f3bf}, \texttt{d788c75f}, \texttt{b4fe7c11} & 2.544M rows/s; 2.040x one-stripe control; 54 versus 1,761 projection GETs; zero payload reads \\
     Application history & \verified{} & GP-G0--G6 bounded local profiles & Paired ladder receipt & Exact replay, failover, RAM rebuild, object reopen, fork and GC; 427.6x Tetris and 25.0x Chess logical-size ratios \\
     Serving-process recovery & \evaluating{} & Three OpenRaft authority processes, two worker processes, local quorum files & G4.3 receipts & 6.542 ms p99 and 35,811 object bytes; full hydration 1.68x slower and 29.96x larger \\
-    Authenticated object frontier & \evaluating{} & Three publication plus three data OpenRaft processes, local files, dirty debug build & G4.7 runs \texttt{f314d6e1}, \texttt{e3467af2}, \texttt{7bbf3d7e}, and \texttt{5bfbd653} & 16 records physically popped, exact object recovery, 160.331 ms protocol p99; three unsafe controls rejected \\
     Independent-request commit proxy & \evaluating{} & Three OpenRaft data processes, release build, local stable journals, dirty source & G4.10a.1 runs \texttt{be37cc6b}, \texttt{cbe29754}, and five policy controls & 1,157.369 tx/s, 76.101 ms maximum p99, 6.356x one-entry control, 32 transactions per leader append \\
     Durable snapshot and frontiered compaction & \evaluating{} & Six local processes, release build, synchronized files, dirty source & G4.11a and G4.11a.1 runs & Journals fell to 879 bytes; exact restart; frontiered growth 1.091759x; 19.692719x media failed 8x \\
-    GCP single-range mechanism & \verified{} & Private n2-standard-8 runner, regional GCS, 200 GiB persistent SSD, 375 GiB local NVMe, OTel & Runs \texttt{662481a8} and \texttt{c571ff45} & Exact recovery, zero hot object operations, zero anomalies, full lease teardown \\
     Native cache calibration & \verified{} & Private GCP R0 runner, 64 MiB values, 32 MiB cache, Zipf 1.4, eight clients, 15 samples per subject and order & Batches \texttt{gp312opt-r0-ab} and \texttt{gp312opt-r0-ba} & Throughput 0.9432x and 0.9735x control; p99 1.0441x and 0.9949x; CPU/read 1.0586x and 1.0298x; 84 workload and eight comparison gates passed \\
-    Direct-read attribution & \verified{} & Private GCP R0 runner, 16 MiB values, 4 MiB cache, Zipf 0.8, one smoke sample per subject & Runs \texttt{df97815c} and \texttt{e9f8e82b} & 2,960.75 versus 2,966.00 physical B/read; 0.9982x ratio; 44 hard gates passed; no performance admission \\
-    Persisted GCS fixture & \verified{} & Private GCP R0 runner, 64 MiB values, regional GCS, fresh ABBA workers, OTel & Runs \texttt{ffe07640} and \texttt{84674b28} & Three exact descriptor reopens; 11.696 s maximum setup; 0.001623x authority scratch; 19 candidate gates and reuse-bypass poison passed \\
+    Fresh-process T27 preflight & \verified{} & Private GCP R0 runner, 64 MiB generation-pinned GCS fixture, 20\% cache, Zipf 1.4, eight clients, direct NVMe, read-only GCS, OTel & Run \texttt{f7209e3e} & Throughput 0.8652x and 0.9739x control; p99 1.0048x and 0.9882x; CPU/read, physical bytes/read, and every telemetry gate passed \\
     Provider media loss & \verified{} & Sequential private source and restore VMs, distinct 100 GiB provider SSDs, regional GCS, OTel & Runs \texttt{3093a364} and \texttt{865c06d8} & Exact 950-record reconstruction after source VM and disk deletion; 16 positive gates passed; hidden-media control discarded \\
-    Provider incarnation authority & \evaluating{} & Three-process generation and publication authorities on one host; dual-provider GCP resurrection harness pending & Runs \texttt{15260d66} and \texttt{b05dd054} & Local positive kept with zero anomalies; stale commit, route, and publication poison discarded with three anomalies \\
-    Independent hosts and zones & \evaluating{} & Not yet executed & No admitted receipt & Single-runner evidence does not establish distributed durability \\
     \bottomrule
   \end{tabularx}
 \end{table*}
@@ -1394,8 +1410,12 @@ table reads then made physical NVMe work observable and matched native to
 control within 0.2 percent on bytes per read in one smoke sample. The native
 plane then reopened one persisted 64 MiB GCS fixture across fresh ABBA workers,
 with three exact descriptor reopens, 0.001623x authority scratch, zero hot
-object requests, and a passing reuse-bypass poison. It therefore continues to
-the full coverage and skew curve and replicated-commit gates. TiKV failed the strict-serializable
+object requests, and a passing reuse-bypass poison. The subsequent immutable
+fresh-process preflight retained 0.8652x and 0.9739x
+control throughput while clearing p99, CPU/read, physical-read, amplification,
+pressure, and three-signal telemetry gates in both orders. It therefore
+continues to the full coverage and skew curve and replicated-commit gates.
+TiKV failed the strict-serializable
 write-skew control; FoundationDB passed and remains the semantic oracle and
 fallback profile. Its logical-generation and media-loss probes verify exact
 object reconstruction in their bounded scopes, while the local compound-fence

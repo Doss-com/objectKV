@@ -207,6 +207,20 @@ object requests. The temporary viewer grant, VM, and firewall were removed;
 boundary, not performance. Evidence is in
 [`docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md).
 
+`[VERIFIED]` The immutable fresh-process 64 MiB preflight ran on one private
+R0 runner with local NVMe and a separate private OTel collector. One
+generation-pinned GCS fixture crossed all four ABBA positions under
+object-viewer credentials. Native retained 0.8652x and 0.9739x direct RocksDB
+throughput; p99 was 1.0048x and 0.9882x; CPU/read was 1.0718x and 0.9797x;
+physical bytes/read were 1.0647x and 1.0638x; read amplification was 1.0000x.
+Every comparison, correctness, cache-pressure, process-identity, and telemetry
+gate passed. Collector inspection found the run ID in five log, two metric,
+and four trace payloads. The wrong version-1 anchor and a read-only fixture
+write were rejected. All nine resources were destroyed and Terraform state is
+empty. T27 remains `[EVALUATING]` for the remaining poisons and frozen 1 GiB
+sweep. Evidence is in
+[`docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
@@ -278,8 +292,8 @@ stop decision for objectKV. The immediate owned task remains T27. Fable's
 phase-5 review found six evidence blockers in the prior runner. The canonical
 locator, separate writer and read-only consumers, standalone direct subject,
 and base-seed separation are `[VERIFIED]`. The immutable ABBA controller and
-one sealed receipt per fresh sequential process are `[CODE-COMPLETE]`.
-Twenty-four focused plan and controller tests reject malformed schedules, changed treatments,
+one sealed receipt per fresh sequential process are `[VERIFIED]` at the 64 MiB
+preflight profile. Twenty-five focused plan and controller tests reject malformed schedules, changed treatments,
 execution-envelope drift, wrapper substitution, process reuse, overlap,
 cross-lease evidence, systematic oracle errors, hidden providers, implicit
 caches, malformed raw evidence, absent cache pressure, telemetry drift, host
@@ -288,13 +302,13 @@ regressions. Completed plans require an OTLP endpoint, emit all position
 metrics under one run identity, and bind the endpoint digest, required logs,
 metrics, and traces, plus per-signal flush and shutdown outcomes into the run
 receipt before it seals. Exporter failure preserves evidence with
-`passed=false`. The full RocksDB-featured `okv-eval` suite passes 104 tests, and
+`passed=false`. The full RocksDB-featured `okv-eval` suite passes 105 tests, and
 the owning `okv-serving-rocksdb` crate passes all nine tests locally. No new
-performance point was produced. Fable's bounded rereview closed all six
-runner-admission findings. The next experiment is the four-position 64
-MiB GCS replay, followed by the missing-locator, read-only-GCS, telemetry, and
-plan-order poisons. The corrected 64 MiB calibration remains the buffered
-regression anchor.
+performance point is admitted beyond the bounded preflight. Fable's bounded
+rereview closed all six runner-admission findings. The next experiment is the
+remaining missing-locator, plan-order, and telemetry poisons, followed by the
+frozen 1 GiB sweep. The corrected 64 MiB calibration remains the buffered
+regression anchor, and the direct-NVMe preflight is its physical-media control.
 
 ## Current checkpoint
 
