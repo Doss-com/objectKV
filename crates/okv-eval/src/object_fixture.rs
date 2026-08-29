@@ -28,6 +28,7 @@ const FIXTURE_GENERATOR_VERSION: u32 = 1;
 const ROW_OBJECT_FORMAT_VERSION: u32 = 1;
 const RESIDENT_IMAGE_SCHEMA_VERSION: u32 = 1;
 const FIXTURE_MAGIC: &[u8] = b"OKVF1";
+const FIXTURE_PLACEMENT_MAGIC: &[u8] = b"OKVFP1";
 const TAIL_MAGIC: &[u8] = b"OKVFT1";
 const LOGICAL_IMAGE_MAGIC: &[u8] = b"OKVLI1";
 const RESIDENT_IMAGE_MAGIC: &[u8] = b"OKVRI1";
@@ -204,10 +205,111 @@ pub(crate) struct BuiltFixture {
 /// Exact descriptor identity used to reopen one persisted fixture without
 /// regenerating or rewriting its logical base.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectFixtureLocatorV1 {
     pub fixture_id: String,
     pub descriptor_length: u64,
     pub descriptor_sha256: String,
+}
+
+/// Cross-invocation identity and placement of one immutable object fixture.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FixturePlacementLocatorV1 {
+    pub schema_version: u32,
+    pub fixture: ObjectFixtureLocatorV1,
+    pub base_version: u64,
+    pub provider: String,
+    pub bucket: String,
+    pub prefix: String,
+    pub descriptor_key: String,
+    pub descriptor_generation: String,
+    pub fixture_seed: u64,
+    pub key_count: u64,
+    pub value_bytes: u64,
+    pub logical_bytes: u64,
+    pub generator_version: u32,
+    pub row_object_format_version: u32,
+    pub target_object_bytes: u64,
+    pub target_block_bytes: u64,
+    pub source_sha256: String,
+    pub suite_sha256: String,
+    pub binary_sha256: String,
+    pub cargo_lock_sha256: String,
+    pub envelope_sha256: String,
+}
+
+impl FixturePlacementLocatorV1 {
+    /// Calculate the canonical locator-envelope digest without trusting its
+    /// serialized `envelope_sha256` field.
+    #[must_use]
+    pub fn calculated_envelope_sha256(&self) -> String {
+        content_sha256(&encode_fixture_placement_identity(self))
+    }
+
+    /// Validate semantic identity, GCS placement, frozen profile, and build
+    /// envelope fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any identity field is absent, malformed, or
+    /// internally inconsistent.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != FIXTURE_SCHEMA_VERSION
+            || self.base_version == 0
+            || self.provider != "gcs"
+            || !valid_bucket(&self.bucket)
+            || !valid_prefix(&self.prefix)
+            || self.fixture_seed == 0
+            || self.key_count == 0
+            || self.value_bytes == 0
+            || self.logical_bytes != self.key_count.saturating_mul(self.value_bytes)
+            || self.generator_version != FIXTURE_GENERATOR_VERSION
+            || self.row_object_format_version != ROW_OBJECT_FORMAT_VERSION
+            || self.target_block_bytes < 4_096
+            || self.target_object_bytes < self.target_block_bytes
+            || self.fixture.descriptor_length == 0
+            || !valid_sha256(&self.fixture.fixture_id)
+            || !valid_sha256(&self.fixture.descriptor_sha256)
+            || self.descriptor_key != descriptor_key(&self.fixture.fixture_id)
+            || self.descriptor_generation.is_empty()
+            || !self
+                .descriptor_generation
+                .bytes()
+                .all(|byte| byte.is_ascii_digit())
+            || !valid_sha256(&self.source_sha256)
+            || !valid_sha256(&self.suite_sha256)
+            || !valid_sha256(&self.binary_sha256)
+            || !valid_sha256(&self.cargo_lock_sha256)
+            || !valid_sha256(&self.envelope_sha256)
+            || self.envelope_sha256 != self.calculated_envelope_sha256()
+        {
+            return Err("invalid RFC-0044 fixture placement locator".to_owned());
+        }
+        Ok(())
+    }
+}
+
+/// Decode one locator and require an independently supplied envelope digest.
+///
+/// # Errors
+///
+/// Returns an error for malformed JSON, an invalid locator, or a mismatch with
+/// the expected envelope identity.
+pub fn decode_fixture_placement_locator(
+    bytes: &[u8],
+    expected_envelope_sha256: &str,
+) -> Result<FixturePlacementLocatorV1, String> {
+    if !valid_sha256(expected_envelope_sha256) {
+        return Err("expected fixture locator envelope SHA-256 is invalid".to_owned());
+    }
+    let locator: FixturePlacementLocatorV1 =
+        serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+    locator.validate()?;
+    if locator.envelope_sha256 != expected_envelope_sha256 {
+        return Err("fixture locator envelope identity mismatch".to_owned());
+    }
+    Ok(locator)
 }
 
 impl BuiltFixture {
@@ -1224,6 +1326,33 @@ fn encode_fixture_identity(descriptor: &ObjectFixtureDescriptorV1) -> Vec<u8> {
     bytes
 }
 
+fn encode_fixture_placement_identity(locator: &FixturePlacementLocatorV1) -> Vec<u8> {
+    let mut bytes = FIXTURE_PLACEMENT_MAGIC.to_vec();
+    bytes.extend_from_slice(&locator.schema_version.to_be_bytes());
+    push_string(&mut bytes, &locator.fixture.fixture_id);
+    push_u64(&mut bytes, locator.fixture.descriptor_length);
+    push_string(&mut bytes, &locator.fixture.descriptor_sha256);
+    push_u64(&mut bytes, locator.base_version);
+    push_string(&mut bytes, &locator.provider);
+    push_string(&mut bytes, &locator.bucket);
+    push_string(&mut bytes, &locator.prefix);
+    push_string(&mut bytes, &locator.descriptor_key);
+    push_string(&mut bytes, &locator.descriptor_generation);
+    push_u64(&mut bytes, locator.fixture_seed);
+    push_u64(&mut bytes, locator.key_count);
+    push_u64(&mut bytes, locator.value_bytes);
+    push_u64(&mut bytes, locator.logical_bytes);
+    bytes.extend_from_slice(&locator.generator_version.to_be_bytes());
+    bytes.extend_from_slice(&locator.row_object_format_version.to_be_bytes());
+    push_u64(&mut bytes, locator.target_object_bytes);
+    push_u64(&mut bytes, locator.target_block_bytes);
+    push_string(&mut bytes, &locator.source_sha256);
+    push_string(&mut bytes, &locator.suite_sha256);
+    push_string(&mut bytes, &locator.binary_sha256);
+    push_string(&mut bytes, &locator.cargo_lock_sha256);
+    bytes
+}
+
 fn encode_resident_identity(descriptor: &ResidentImageDescriptorV1) -> Vec<u8> {
     let mut bytes = RESIDENT_IMAGE_MAGIC.to_vec();
     bytes.extend_from_slice(&descriptor.schema_version.to_be_bytes());
@@ -1265,6 +1394,25 @@ fn valid_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn valid_bucket(value: &str) -> bool {
+    (3..=222).contains(&value.len())
+        && !value.starts_with('.')
+        && !value.ends_with('.')
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.')
+        })
+}
+
+fn valid_prefix(value: &str) -> bool {
+    !value.is_empty()
+        && !value.starts_with('/')
+        && !value.ends_with('/')
+        && !value.contains("://")
+        && value
+            .split('/')
+            .all(|component| !component.is_empty() && component != "." && component != "..")
 }
 
 fn validate_subject_roots(native: &Path, control: &Path) -> Result<(), String> {
@@ -1340,8 +1488,10 @@ fn deterministic_value(seed: u64, domain: &[u8], length: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        base_records, build_fixture, content_sha256, logical_image_sha256, open_existing_fixture,
-        FixtureManifestIdentityV1, LogicalOutcome, ObjectFixtureDescriptorV1, ObjectFixtureProfile,
+        base_records, build_fixture, content_sha256, decode_fixture_placement_locator,
+        logical_image_sha256, open_existing_fixture, FixtureManifestIdentityV1,
+        FixturePlacementLocatorV1, LogicalOutcome, ObjectFixtureDescriptorV1,
+        ObjectFixtureLocatorV1, ObjectFixtureProfile,
     };
     use okv_object::{memory_backend, ObjectClient};
     use std::collections::BTreeMap;
@@ -1373,6 +1523,43 @@ mod tests {
         }
     }
 
+    fn placement_locator() -> FixturePlacementLocatorV1 {
+        let descriptor = descriptor();
+        let mut locator = FixturePlacementLocatorV1 {
+            schema_version: 1,
+            fixture: ObjectFixtureLocatorV1 {
+                fixture_id: descriptor.fixture_id(),
+                descriptor_length: 777,
+                descriptor_sha256: content_sha256(b"descriptor"),
+            },
+            base_version: 2,
+            provider: "gcs".to_owned(),
+            bucket: "doss-objectkv-dev-okv-evals".to_owned(),
+            prefix: "runs/rfc0044-t27-fixture-v1".to_owned(),
+            descriptor_key: String::new(),
+            descriptor_generation: "1788000691000000".to_owned(),
+            fixture_seed: 4244,
+            key_count: 1_048_576,
+            value_bytes: 1_024,
+            logical_bytes: 1_073_741_824,
+            generator_version: 1,
+            row_object_format_version: 1,
+            target_object_bytes: 8_388_608,
+            target_block_bytes: 65_536,
+            source_sha256: content_sha256(b"source"),
+            suite_sha256: content_sha256(b"suite"),
+            binary_sha256: content_sha256(b"binary"),
+            cargo_lock_sha256: content_sha256(b"lockfile"),
+            envelope_sha256: String::new(),
+        };
+        locator.descriptor_key = format!(
+            "fixtures/single-range/v1/descriptors/{}.json",
+            locator.fixture.fixture_id
+        );
+        locator.envelope_sha256 = locator.calculated_envelope_sha256();
+        locator
+    }
+
     #[test]
     fn fixture_identity_is_deterministic_and_field_sensitive() {
         let first = descriptor();
@@ -1380,6 +1567,50 @@ mod tests {
         changed.target_block_bytes = changed.target_block_bytes.saturating_mul(2);
         assert_eq!(first.fixture_id(), first.fixture_id());
         assert_ne!(first.fixture_id(), changed.fixture_id());
+    }
+
+    #[test]
+    fn placement_locator_round_trips_with_independent_envelope_identity() {
+        let locator = placement_locator();
+        let encoded = serde_json::to_vec(&locator).expect("encode locator");
+        let decoded = decode_fixture_placement_locator(&encoded, &locator.envelope_sha256)
+            .expect("decode exact locator");
+        assert_eq!(decoded, locator);
+    }
+
+    #[test]
+    fn placement_locator_rejects_corrupt_identity_and_profile_fields() {
+        let locator = placement_locator();
+        let expected = locator.envelope_sha256.clone();
+
+        let mut changed_generation = locator.clone();
+        changed_generation.descriptor_generation = "1788000691000001".to_owned();
+        assert!(changed_generation.validate().is_err());
+
+        let mut changed_profile = locator.clone();
+        changed_profile.logical_bytes = changed_profile.logical_bytes.saturating_sub(1);
+        changed_profile.envelope_sha256 = changed_profile.calculated_envelope_sha256();
+        assert!(changed_profile.validate().is_err());
+
+        let encoded = serde_json::to_vec(&locator).expect("encode locator");
+        assert!(decode_fixture_placement_locator(&encoded, &content_sha256(b"wrong")).is_err());
+        assert!(decode_fixture_placement_locator(&encoded, &expected).is_ok());
+    }
+
+    #[test]
+    fn placement_locator_rejects_unsafe_or_unbound_placement() {
+        let locator = placement_locator();
+        let mutators: [fn(&mut FixturePlacementLocatorV1); 4] = [
+            |value: &mut FixturePlacementLocatorV1| value.prefix = "../escape".to_owned(),
+            |value: &mut FixturePlacementLocatorV1| value.bucket = "Bad Bucket".to_owned(),
+            |value: &mut FixturePlacementLocatorV1| value.descriptor_generation.clear(),
+            |value: &mut FixturePlacementLocatorV1| value.envelope_sha256.clear(),
+        ];
+        for mutate in mutators {
+            let mut changed = locator.clone();
+            mutate(&mut changed);
+            assert!(changed.validate().is_err());
+        }
     }
 
     #[test]

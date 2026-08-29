@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/fixture-placement-locator-v1.schema.json",
+  "title": "objectKV immutable fixture placement locator",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fixture",
+    "base_version",
+    "provider",
+    "bucket",
+    "prefix",
+    "descriptor_key",
+    "descriptor_generation",
+    "fixture_seed",
+    "key_count",
+    "value_bytes",
+    "logical_bytes",
+    "generator_version",
+    "row_object_format_version",
+    "target_object_bytes",
+    "target_block_bytes",
+    "source_sha256",
+    "suite_sha256",
+    "binary_sha256",
+    "cargo_lock_sha256",
+    "envelope_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixture_id", "descriptor_length", "descriptor_sha256"],
+      "properties": {
+        "fixture_id": { "$ref": "#/$defs/sha256" },
+        "descriptor_length": { "type": "integer", "minimum": 1 },
+        "descriptor_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "base_version": { "type": "integer", "minimum": 1 },
+    "provider": { "const": "gcs" },
+    "bucket": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 222,
+      "pattern": "^[a-z0-9][a-z0-9._-]*[a-z0-9]$"
+    },
+    "prefix": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/]+(?:/[^/]+)*$"
+    },
+    "descriptor_key": {
+      "type": "string",
+      "pattern": "^fixtures/single-range/v1/descriptors/[0-9a-f]{64}\\.json$"
+    },
+    "descriptor_generation": { "type": "string", "pattern": "^[0-9]+$" },
+    "fixture_seed": { "type": "integer", "minimum": 1 },
+    "key_count": { "type": "integer", "minimum": 1 },
+    "value_bytes": { "type": "integer", "minimum": 1 },
+    "logical_bytes": { "type": "integer", "minimum": 1 },
+    "generator_version": { "const": 1 },
+    "row_object_format_version": { "const": 1 },
+    "target_object_bytes": { "type": "integer", "minimum": 4096 },
+    "target_block_bytes": { "type": "integer", "minimum": 4096 },
+    "source_sha256": { "$ref": "#/$defs/sha256" },
+    "suite_sha256": { "$ref": "#/$defs/sha256" },
+    "binary_sha256": { "$ref": "#/$defs/sha256" },
+    "cargo_lock_sha256": { "$ref": "#/$defs/sha256" },
+    "envelope_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
