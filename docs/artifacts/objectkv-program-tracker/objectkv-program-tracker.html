@@ -189,10 +189,10 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
       <span>objectKV</span>
       <span>Technical program tracker</span>
       <span>Branch research/native-matched-topology-r0</span>
-      <span>Base fcb93f1</span>
+      <span>Base 9ca447d</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
-    <p class="lede">The native resident boundary and fresh-process direct-NVMe preflight now pass their bounded gates. One generation-pinned 64 MiB fixture crossed a four-position ABBA plan under object-viewer credentials. Native retained 0.8652x and 0.9739x direct RocksDB throughput while p99, CPU/read, physical bytes/read, read amplification, and all three OTel signals passed. T27 remains Evaluating until the remaining poisons and 1 GiB coverage plus skew curve pass.</p>
+    <p class="lede">The native resident boundary, fresh-process direct-NVMe preflight, and five isolated negative controls pass their bounded gates. One generation-pinned 64 MiB fixture crossed a four-position ABBA plan under object-viewer credentials. Native retained 0.8652x and 0.9739x direct RocksDB throughput while p99, CPU/read, physical bytes/read, read amplification, and all three OTel signals passed. T27 remains Evaluating only for the 1 GiB coverage and skew curve.</p>
     <div class="hero-actions">
       <a class="button primary" href="../../../papers/objectkv-vldb/objectkv-vldb.pdf">Open PVLDB paper</a>
       <a class="button" href="../../../papers/objectkv-vldb/main.tex">Paper source</a>
@@ -208,7 +208,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
     <article class="summary-card"><span class="label">Highest verified rung</span><span class="value">T27 64 MiB preflight</span><p>Private GCP, read-only regional GCS, direct NVMe, fresh ABBA workers, paired admission, and collector-side OTel.</p></article>
     <article class="summary-card"><span class="label">Cache-pressure reads</span><span class="value">60M</span><p>Four clean workload receipts, both process orders, required OTel, exact semantics, zero measured object operations, and complete teardown.</p></article>
     <article class="summary-card"><span class="label">Working paper</span><span class="value">16 pp.</span><p>PVLDB Vol. 20 format, architecture, evidence, curves, and limitations.</p></article>
-    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">T27 1 GiB curve</span><p>Pass the remaining poisons, then run the native versus direct-control coverage and skew sweep from one persisted fixture.</p></article>
+    <article class="summary-card"><span class="label">Critical next gate</span><span class="value">T27 1 GiB curve</span><p>Prepare one immutable fixture, then run the native versus direct-control coverage and skew sweep.</p></article>
     <article class="summary-card"><span class="label">Golden-path checkpoints</span><span class="value">2 / 16 verified</span><p>One frozen artifact DAG across kernel, storage, distribution, consumers, PostgreSQL, HTAP, and economics.</p></article>
   </div>
 
@@ -227,7 +227,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
 <a href="#decisions"><span>10</span>Active decisions</a>
 <a href="#work-log"><span>11</span>Work in progress log</a>
 <a href="#next-review"><span>12</span>Next architecture review</a></nav>
-      <p class="side-note">Generated 2026-08-29 15:41 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
+      <p class="side-note">Generated 2026-08-29 15:58 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
     </aside>
 
     <article class="content">
@@ -235,7 +235,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
         <h2 id="program-call"><span class="section-id">[01]</span>Program call</h2>
         <div class="callout">
           <div><span class="label">Current decision</span><h3>Retain the native read plane and complete the T27 cache curve</h3></div>
-          <p>The corrected 64 MiB calibration cleared throughput, p99, CPU/read, semantic, and telemetry bounds in both orders. D61 verifies matched direct reads as the physical-media evaluation treatment. D63 admits a fresh-process 64 MiB ABBA preflight with every paired and telemetry gate passing. T27 remains Evaluating until the remaining poisons and 1 GiB coverage plus skew sweep complete. FoundationDB remains the correctness oracle and fallback.</p>
+          <p>The corrected 64 MiB calibration cleared throughput, p99, CPU/read, semantic, and telemetry bounds in both orders. D61 verifies matched direct reads as the physical-media evaluation treatment. D63 admits a fresh-process 64 MiB ABBA preflight with every paired and telemetry gate passing. D64 verifies five isolated negative controls against that exact evidence. T27 remains Evaluating until the 1 GiB coverage and skew sweep completes. FoundationDB remains the correctness oracle and fallback.</p>
         </div>
         <h3>What has changed</h3>
         <p>The project separates execution, transaction durability, and permanent object state. The R0 mechanism reconstructs a complete resident image from regional GCS plus retained history, survives worker replacement, and performs zero object operations in measured reads. Keeping the disposable tail mutable brought the worst buffered throughput, p99, and CPU/read gaps to 5.7%, 4.4%, and 5.9%. The direct-NVMe preflight then retained at least 86.5% of control throughput, kept p99 within 0.5%, and limited physical-read overhead to 6.5% in both process orders. The remaining question is whether those bounds hold across the frozen 1 GiB coverage and skew sweep.</p>
@@ -354,7 +354,7 @@ Arrow batches at T</pre></article>
         <h2 id="performance"><span class="section-id">[06]</span>Performance curves and stop conditions</h2>
         <div class="curve-grid">
           <article class="curve"><div class="curve-head"><h3>SSD resident read</h3><span class="status verified">VERIFIED</span></div><dl><dt>Observed</dt><dd>At 8 and 32 clients in both orders, native retained 0.873x through 0.891x control throughput; p99 was 1.107x through 1.184x control.</dd><dt>Result</dt><dd>All four concurrency comparisons passed; 24 million measured reads and zero measured object operations.</dd><dt>Next</dt><dd>Freeze cache pressure, CPU per read, physical bytes, and read amplification.</dd></dl></article>
-          <article class="curve"><div class="curve-head"><h3>Resident cache pressure</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Verified preflight</dt><dd>One read-only 64 MiB fixture crossed fresh native/direct ABBA processes with direct NVMe reads and all paired plus OTel gates passing.</dd><dt>Observed</dt><dd>Native throughput 0.8652x and 0.9739x control; p99 1.0048x and 0.9882x; physical bytes/read 1.0647x and 1.0638x.</dd><dt>Next</dt><dd>Pass remaining poisons, then run the 1 GiB coverage and skew sweep.</dd></dl></article>
+          <article class="curve"><div class="curve-head"><h3>Resident cache pressure</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Verified preflight</dt><dd>One read-only 64 MiB fixture crossed fresh native/direct ABBA processes with direct NVMe reads and all paired, OTel, and negative-control gates passing.</dd><dt>Observed</dt><dd>Native throughput 0.8652x and 0.9739x control; p99 1.0048x and 0.9882x; physical bytes/read 1.0647x and 1.0638x.</dd><dt>Next</dt><dd>Prepare and run the 1 GiB coverage and skew sweep.</dd></dl></article>
           <article class="curve"><div class="curve-head"><h3>RAM resident read</h3><span class="status proposed">PROPOSED</span></div><dl><dt>Control</dt><dd>Admitted SSD, with RAM-backed RocksDB as mechanism control</dd><dt>Target</dt><dd>At least 20% better on one predeclared end-to-end metric without breaking resource gates</dd><dt>Stop</dt><dd class="stop">The advantage disappears after RPC, concurrency, memory cost, or rebuild risk</dd></dl></article>
           <article class="curve"><div class="curve-head"><h3>Cold point read</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Indexed local block and direct object range GET</dd><dt>Target</dt><dd>Bounded GETs, bytes, metadata, and decode independent of total bytes</dd><dt>Current</dt><dd>One 64 KiB-class block GET through a 64 MiB assigned range</dd></dl></article>
           <article class="curve"><div class="curve-head"><h3>Durable commit plus objectification</h3><span class="status evaluating">EVALUATING</span></div><dl><dt>Control</dt><dd>Same-durability one-entry path at 37.369 outcomes/s and 2,169.209 ms maximum p99</dd><dt>Current</dt><dd>G4.10b at 1,075.343 outcomes/s, 104.274 ms maximum p99, 28.776x paired gain, exact ObjectState(O) plus txLog(O,C] recovery</dd><dt>Open</dt><dd>Fairness, clean source, OTel, independent media, remote objects, repeated-frontier convergence, and physical journal bytes</dd></dl></article>
@@ -371,7 +371,7 @@ Arrow batches at T</pre></article>
           <thead><tr><th>Order</th><th>Metric surface</th><th>Status</th><th>Current measured position</th><th>Admission target</th><th>Next experiment</th></tr></thead>
           <tbody>
             <tr><td>0</td><td>Resident NVMe reads</td><td><span class="status verified">VERIFIED</span></td><td>0.873x to 0.920x RocksDB throughput; 0.913x to 1.184x p99; zero measured object operations</td><td>At least 0.80x throughput; at most 1.20x p99</td><td>Remain the regression control for row 1</td></tr>
-            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status evaluating">EVALUATING</span></td><td>Fresh-process 64 MiB direct-NVMe ABBA preflight passes. Throughput is 0.8652x and 0.9739x control; p99, CPU/read, physical bytes/read, amplification, pressure, and collector-side OTel pass in both orders.</td><td>At least 0.80x throughput; at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep</td><td>Pass remaining poisons, then run the 1 GiB persisted-fixture curve</td></tr>
+            <tr><td>1</td><td>Cache coverage, skew, and eviction</td><td><span class="status evaluating">EVALUATING</span></td><td>Fresh-process 64 MiB direct-NVMe ABBA preflight and five isolated negative controls pass. Throughput is 0.8652x and 0.9739x control; p99, CPU/read, physical bytes/read, amplification, pressure, and collector-side OTel pass in both orders.</td><td>At least 0.80x throughput; at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep</td><td>Prepare and run the 1 GiB persisted-fixture curve</td></tr>
             <tr><td>2</td><td>GCS cold point and refill</td><td><span class="status evaluating">EVALUATING</span></td><td>Local mechanism reaches one 64 KiB-class block through 64 MiB; no admitted cloud curve</td><td>One bounded metadata path plus one to three named data requests, independent of database size</td><td>Clean GCS dataset-size sweep after row 1</td></tr>
             <tr><td>3</td><td>Point and projected-scan object geometry</td><td><span class="status evaluating">EVALUATING</span></td><td>2.544M source rows/s and 4.718x indexed-row projected scan locally</td><td>Row-class point cost, material scan gain, bounded index and compaction amplification</td><td>Matched row versus column layout on one GCS closure</td></tr>
             <tr><td>4</td><td>Independent-media replicated commit</td><td><span class="status evaluating">EVALUATING</span></td><td>One-host G4.10b: 1,075.343 outcomes/s, 104.274 ms max p99, 28.776x one-entry control</td><td>One-range p99 within 1.25x matched durability control; exact quorum acknowledgement</td><td>Three independent GCP machines after rows 1 through 3</td></tr>
@@ -459,7 +459,7 @@ Arrow batches at T</pre></article>
       <section>
         <h2 id="work-log"><span class="section-id">[11]</span>Work in progress log</h2>
         <div class="log">
-          <article class="log-entry"><time>2026-08-29</time><h3>Fresh-process direct-NVMe preflight passes</h3><p>One generation-pinned 64 MiB fixture crossed four fresh ABBA positions under object-viewer credentials. Native throughput was 0.8652x and 0.9739x control; every p99, CPU/read, physical-read, amplification, pressure, correctness, process-identity, and three-signal OTel gate passed. All nine leased resources were destroyed. The 1 GiB curve remains Evaluating.</p></article>
+          <article class="log-entry"><time>2026-08-29</time><h3>T27 preflight and negative controls pass</h3><p>One generation-pinned 64 MiB fixture crossed four fresh ABBA positions under object-viewer credentials. Native throughput was 0.8652x and 0.9739x control; every p99, CPU/read, physical-read, amplification, pressure, correctness, process-identity, and three-signal OTel gate passed. Five exact plan, inventory, and missing-locator poisons then failed closed. All nine leased resources were already destroyed. The 1 GiB curve remains Evaluating.</p></article>
           <article class="log-entry"><time>2026-08-28</time><h3>Persisted GCS fixture clears the T27 setup gate</h3><p>Four fresh ABBA workers shared one 64 MiB fixture and tail identity; three reopened the exact descriptor. All 19 gates passed in 55.91 seconds, authority scratch was 0.001623x, hot reads issued zero object requests, and the reuse-bypass poison was detected. This verifies setup mechanics, not the 1 GiB performance curve.</p></article>
           <article class="log-entry"><time>2026-08-28</time><h3>Matched direct reads expose physical NVMe work</h3><p>Native and control passed 22 of 22 gates and reported 2,960.75 and 2,966.00 physical bytes per read. Their physical-byte ratio was 0.9982x. This verifies the Linux measurement treatment, not performance. Eight evidence objects are durable, all nine cloud resources were destroyed, and the next T27 slice is the shared fixture.</p></article>
           <article class="log-entry"><time>2026-08-28</time><h3>Matched direct-read treatment enters Linux verification</h3><p>Candidate and control now receive the same explicit RocksDB direct-table-read setting, every sample records it, and profile mismatch fails closed. A bounded 16 MiB, 4 MiB-cache, Zipf 0.8 preflight is defined. Local verification is not admitted because the Mac C++ toolchain cannot find its standard headers; the 1.7 GiB partial Cargo target was removed.</p></article>
@@ -492,12 +492,12 @@ Arrow batches at T</pre></article>
 
       <section>
         <h2 id="next-review"><span class="section-id">[12]</span>Next architecture review</h2>
-        <p>The next review closes the remaining T27 poisons, then executes the 1 GiB cache-coverage and skew sweep with matched direct reads from one persisted fixture. The verified 64 MiB buffered, GCS setup, and fresh-process direct-NVMe results remain regression anchors. Do not start replicated commit performance, PostgreSQL, or HTAP performance until the full local serving curve passes.</p>
+        <p>The next review prepares and executes the 1 GiB cache-coverage and skew sweep with matched direct reads from one persisted fixture. The verified 64 MiB buffered, GCS setup, fresh-process direct-NVMe, and poison results remain regression anchors. Do not start replicated commit performance, PostgreSQL, or HTAP performance until the full local serving curve passes.</p>
       </section>
     </article>
   </div>
 
-  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-29 15:41 UTC</span></footer>
+  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-29 15:58 UTC</span></footer>
 </main>
 
 </body>

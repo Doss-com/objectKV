@@ -645,12 +645,14 @@ become one GitHub issue.
   and 0.9882x; CPU/read was 1.0718x and 0.9797x; physical bytes/read were
   1.0647x and 1.0638x; read amplification was 1.0000x. All six OTel
   flush/shutdown outcomes passed, and the collector held the run ID in logs,
-  metrics, and traces. `[CODE-COMPLETE]` the plan-poison command now seals and
+  metrics, and traces. `[VERIFIED]` the plan-poison command seals and
   rejects exact AABB, missing-position, and option-mismatch artifacts through
   the production decoder. A second command seals and rejects one hidden native
   provider in an otherwise unchanged direct-position receipt; 25 focused
-  library tests pass locally. T27 remains `[EVALUATING]` for immutable poison
-  receipts and the 1 GiB sweep.
+  library tests pass locally. All four structured poisons passed against the
+  exact GCP plan and direct-position receipt. The missing-locator process
+  produced no plan and left the versioned fixture manifest unchanged. T27
+  remains `[EVALUATING]` for the 1 GiB sweep.
   The phase-0
   bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the

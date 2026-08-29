@@ -217,24 +217,27 @@ Every comparison, correctness, cache-pressure, process-identity, and telemetry
 gate passed. Collector inspection found the run ID in five log, two metric,
 and four trace payloads. The wrong version-1 anchor and a read-only fixture
 write were rejected. All nine resources were destroyed and Terraform state is
-empty. T27 remains `[EVALUATING]` for the remaining poisons and frozen 1 GiB
-sweep. Evidence is in
+empty. T27 remains `[EVALUATING]` for the frozen 1 GiB sweep. Evidence is in
 [`docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md).
 
-`[CODE-COMPLETE]` `t27-plan-poison-check` converts three plan-integrity
+`[VERIFIED]` `t27-plan-poison-check` converts three plan-integrity
 negative controls into portable immutable artifacts. It first authenticates
 the source plan, applies exactly one AABB schedule, missing-position, or
 effective-option corruption, recomputes the poisoned plan digest, invokes the
 production decoder, and seals the source digest, poisoned bytes, expected
 rejection, observed rejection, and receipt digest. Twenty-four focused T27
 library tests pass locally, including schema validation and artifact-tampering
-rejection. `[CODE-COMPLETE]` `t27-position-poison-check` also authenticates a
+rejection. `t27-position-poison-check` also authenticates a
 real direct-position receipt, injects exactly one hidden native provider, and
 passes only when the production receipt validator returns the intended
 runtime-inventory rejection. Twenty-five focused T27 library tests pass
-locally, including both receipt schemas and artifact-tampering rejection. No
-new performance point was produced. Immutable replay receipts, the
-missing-locator control, and the 1 GiB sweep remain `[EVALUATING]`.
+locally, including both receipt schemas and artifact-tampering rejection. The
+commands passed against the exact GCP preflight plan and one direct-position
+receipt. A missing locator exited before plan creation, and the versioned
+fixture manifest was identical before and after. Eight structured artifacts
+totaling 22,153 bytes are immutable in GCS. No new performance point was
+produced. Only the 1 GiB sweep remains `[EVALUATING]` for T27. Evidence is in
+[`docs/artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md).
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
@@ -320,10 +323,10 @@ receipt before it seals. Exporter failure preserves evidence with
 `passed=false`. The full RocksDB-featured `okv-eval` suite passes 105 tests, and
 the owning `okv-serving-rocksdb` crate passes all nine tests locally. No new
 performance point is admitted beyond the bounded preflight. Fable's bounded
-rereview closed all six runner-admission findings. The plan-order poisons now
-have a sealed `[CODE-COMPLETE]` command and receipt schema. The next experiment
-executes those receipts with the missing-locator and hidden-cache controls,
-followed by the frozen 1 GiB sweep. The corrected 64 MiB calibration remains the buffered
+rereview closed all six runner-admission findings. The plan-order,
+hidden-provider, and missing-locator poisons are `[VERIFIED]` against the exact
+GCP preflight evidence. The next experiment prepares one immutable 1 GiB
+fixture and executes the frozen sweep. The corrected 64 MiB calibration remains the buffered
 regression anchor, and the direct-NVMe preflight is its physical-media control.
 
 ## Current checkpoint

@@ -470,8 +470,12 @@ short 1,024-read-per-position run verifies the complete preflight chain. The
 evaluator now has a code-complete sealed poison command for exact AABB,
 missing-position, and effective-option mutations. Each mutation recomputes its
 plan digest and must still fail the production decoder's frozen-contract gate.
-The command has not yet run on the real plan. The 540-position 1 GiB workload
-remains \evaluating{}.
+A second command changes only the hidden-provider field of an authenticated
+direct-position receipt and requires the runtime-inventory gate to reject it.
+All four structured controls passed against the exact preflight evidence. A
+missing-locator process produced no plan and left the 20-object fixture
+manifest unchanged. These controls do not admit a performance point. The
+540-position 1 GiB workload remains \evaluating{}.
 
 \subsection{Objectification and publication}
 

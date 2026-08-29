@@ -284,9 +284,11 @@ treatment is not reused.
    authenticates a real direct-position receipt, adds one hidden native
    provider without changing its measurements, recomputes the position digest,
    and passes only on the intended runtime-inventory rejection. Twenty-five
-   focused library tests pass locally. `[PROPOSED]` Preserve immutable receipts
-   for those poisons and the remaining missing-locator control against the real
-   64 MiB fixture.
+   focused library tests pass locally. The commands then rejected the exact
+   AABB, missing-position, option-mismatch, and hidden-provider artifacts built
+   from the frozen GCP plan and direct-position receipt. The missing-locator
+   process exited before plan creation, and the versioned 20-object fixture
+   manifest was unchanged. Eight structured artifacts are immutable in GCS.
 7. `[PROPOSED]` Prepare the 1 GiB fixture, commit its locator, and freeze the
    suite hash.
 8. `[PROPOSED]` Execute the 27 admitting strata and two buffered sentinels,
@@ -305,9 +307,11 @@ serialization, the clean direct-control construction boundary, separate
 preparation and read-only consumption, and the base-seed boundary are
 `[VERIFIED]`. The preflight retained 0.8652x and 0.9739x direct RocksDB
 throughput while clearing p99, CPU/read, physical-read, amplification,
-pressure, and telemetry gates in both process orders. The next experiment is
-the remaining negative controls, followed by the frozen 1 GiB sweep. Prior
+pressure, and telemetry gates in both process orders. The negative controls
+are now `[VERIFIED]`; the next experiment is the frozen 1 GiB sweep. Prior
 cross-invocation evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
 The preflight evidence is in
 `docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`.
+The five negative-control results are in
+`docs/artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md`.

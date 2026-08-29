@@ -1530,8 +1530,9 @@ regenerated-control poison. Phases 4 and 5 then verified persisted GCS reuse,
 generation-pinned cross-invocation locators, standalone direct construction,
 read-only consumption, and independent fixture and trace seeds. The 64 MiB
 fresh-process preflight passed both order comparisons with direct NVMe reads
-and collector-side telemetry. The remaining poisons and 1 GiB performance
-curve remain open. Evidence is in
+and collector-side telemetry. The exact preflight plan and position evidence
+then passed the five required negative controls. The 1 GiB performance curve
+remains open. Evidence is in
 `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/README.md`.
 
 ## D63. Admit the 64 MiB fresh-process preflight without promoting T27
@@ -1572,7 +1573,7 @@ Evidence:
 
 ## D64. Seal plan poisons as portable decoder receipts
 
-Status: `[CODE-COMPLETE]` mechanism, 2026-08-29.
+Status: `[VERIFIED]` mechanism and exact preflight replay, 2026-08-29.
 
 Decision: negative controls for AABB ordering, missing positions, effective
 option drift, and hidden direct-position providers are first-class T27
@@ -1589,7 +1590,11 @@ Optimizes for: replayable negative evidence that crosses machines and evaluator
 invocations, while proving the rejection is structural rather than a stale or
 obviously invalid digest.
 
-Gives up: treating unit tests as sufficient infrastructure evidence. The
-commands and schemas are `[CODE-COMPLETE]`; the receipts remain `[EVALUATING]`
-until the exact command runs against the frozen GCP plan alongside the
-missing-locator and hidden-cache controls.
+Gives up: treating unit tests as sufficient evidence. The commands passed
+against the frozen GCP plan and one real direct-position receipt at source
+`9ca447d`. The missing-locator process produced no output plan and left the
+versioned fixture manifest unchanged. This admits the negative-control
+mechanism, not T27's 1 GiB performance curve.
+
+Evidence:
+`docs/artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md`.

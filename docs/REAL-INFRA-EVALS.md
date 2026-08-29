@@ -456,17 +456,18 @@ schema-valid machine-bound result. The completed lease destroyed nine resources;
 zero matching instances, disks, firewall rules, subnetworks, or routers remain.
 `[VERIFIED]` one clean digest-addressed 64 MiB ABBA experiment now composes
 that infrastructure with read-only fixture consumption and direct NVMe
-measurement. `[CODE-COMPLETE]` a sealed plan-poison command and schema now bind
+measurement. `[VERIFIED]` a sealed plan-poison command and schema bind
 and reject AABB, missing-position, and option-mismatch artifacts through the
 production decoder. A second sealed command binds one real direct-position
 receipt and rejects an otherwise isolated hidden native provider through the
-production receipt validator. `[EVALUATING]` their immutable replay receipts,
-the missing-locator poison, and the 1 GiB workload envelope.
+production receipt validator. All four structured controls passed against the
+exact preflight evidence. The missing-locator process also exited before plan
+creation while the versioned GCS fixture manifest remained unchanged.
+`[EVALUATING]` the 1 GiB workload envelope.
 
 The next receipt sequence remains incremental:
 
-1. run the sealed plan poisons plus the remaining locator, runtime-inventory,
-   and telemetry poisons;
+1. prepare one immutable 1 GiB fixture and freeze its exact plan;
 2. execute the frozen 1 GiB cache-coverage and skew sweep in both process
    orders;
 3. run the GCS cold-point and object-layout geometry curve;

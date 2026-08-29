@@ -122,8 +122,9 @@ p99, CPU/read, physical bytes/read, and read amplification passed in both
 orders. The controller flushed and shut down logs, metrics, and traces before
 sealing their six outcomes into the admission receipt; collector inspection
 found the run ID in every required signal. Failed comparison or exporter
-completion persists a sealed failure receipt before exit. The remaining
-capability poisons and complete 1 GiB curve remain open.
+completion persists a sealed failure receipt before exit. The five isolated
+plan, position-inventory, and missing-locator poisons are `[VERIFIED]` against
+that exact evidence. The complete 1 GiB curve remains open.
 
 ```text
 immutable plan + independent oracle + machine envelope
@@ -172,11 +173,13 @@ layer receipt.
 - [Real-infrastructure contract](../REAL-INFRA-EVALS.md)
 - [Proof-status contract](../STATUS-TAXONOMY.md)
 - [T27 fresh-process 64 MiB preflight](../artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md)
+- [T27 preflight poison replay](../artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md)
 - [T27 GCS placement-boundary receipt](../artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md)
 - [Native matched single-range receipt](../artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md)
 - [Native concurrent-read receipt](../artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md)
 - [Corrected cache calibration](../artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md)
 - [Direct-read attribution preflight](../artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md)
 
-The current implementation slice adds a verified 64 MiB preflight measurement.
-Master-matrix row 1 remains `[EVALUATING]` until the complete 1 GiB sweep.
+The current implementation slice adds verified negative controls to the 64 MiB
+preflight. Master-matrix row 1 remains `[EVALUATING]` until the complete 1 GiB
+sweep.
