@@ -242,12 +242,15 @@ must receive `discard` before the clean GCP run.
    the receipt distinguishes OS page-cache behavior from NVMe reads. Both
    subjects passed 22 of 22 hard gates and reported about 2.96 KiB of physical
    reads per logical read. This is mechanism evidence from one smoke sample.
-8. `[PROPOSED]` Implement RFC-0044: establish one empty transaction anchor,
-   persist one content-addressed object closure across all four subjects, bind
-   separate native and control resident images to it, then freeze the suite
-   hash, source revision, and 1 GiB fixture.
-9. `[PROPOSED]` Execute both process orders for the 1 GiB coverage and skew
-   admission on clean GCP R0 with required OTel.
+8. `[VERIFIED]` Implement RFC-0044 phases 0 through 4: establish one empty
+   transaction anchor, keep base values out of txLog, bind separate native and
+   control images to one complete logical digest, and reopen one persisted
+   64 MiB GCS descriptor three times across fresh ABBA subjects. The phase-4
+   candidate and reuse-bypass poison passed all 19 gates.
+9. `[EVALUATING]` Prepare and commit one exact 1 GiB fixture placement locator,
+   separate fixture seed from three trace seeds, remove the direct control's
+   hidden native database, then freeze and execute the fresh-process ABBA plan
+   on clean GCP R0 with required OTel.
 
 No three-machine topology is needed for T27. T27 isolates one local serving
 engine and its cache hierarchy. Independent media first becomes load-bearing

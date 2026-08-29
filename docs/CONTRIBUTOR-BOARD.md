@@ -587,9 +587,9 @@ become one GitHub issue.
   CPU time, cache hit ratio, physical bytes read, read amplification,
   throughput, and p99.
 - Done when: cache configuration is part of resident activation and the direct
-  control, the fixture is content-addressed and reused across samples, and the
-  suite separates warm, mixed, and eviction-heavy points without rebuilding
-  fixture state for every measurement.
+  control, one committed fixture locator crosses every invocation, each subject
+  owns exactly one database and cache, and the suite separates warm, mixed,
+  and eviction-heavy points without regenerating base values through txLog.
 - Dependency: T26 clean receipt. Do not combine this with the first concurrency
   gate.
 - Frozen contract: RFC-0043 starts with a 64 MiB calibration and a 1 GiB GCP R0
@@ -613,7 +613,8 @@ become one GitHub issue.
   fixture and exact tail, plus regenerated-control poison detection;
   `[VERIFIED]` one 64 MiB regional GCS fixture reused through three exact
   descriptor reopens across fresh ABBA subjects, plus reuse-bypass poison;
-  `[EVALUATING]` frozen 1 GiB paired GCP admission.
+  `[EVALUATING]` placement-locator, standalone-direct-control, and immutable
+  fresh-process ABBA plan implementation before the 1 GiB GCP admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
@@ -622,16 +623,22 @@ become one GitHub issue.
   reads per logical read for both subjects, with a 0.9982x physical-byte ratio.
   The persisted-fixture preflight then passed 19 gates in 55.906526 seconds,
   with maximum setup at 11.696264 seconds and transaction-authority scratch at
-  0.001623x logical data. T27 remains `[EVALUATING]` because neither smoke
-  result admits the 1 GiB coverage and skew performance curve. The phase-0
+  0.001623x logical data. The phase-5 adversarial review then blocked the 1 GiB
+  spend because locator identity does not yet cross CLI invocations, the direct
+  control opens a hidden native database, repeats share process state, buffered
+  page cache can mask NVMe pressure, and fixture and trace seeds are coupled.
+  T27 remains `[EVALUATING]`; this review produced no new performance point.
+  The phase-0
   bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the
   phase-1 identity and closure receipt is under
   `docs/artifacts/eval-receipts/object-fixture-contract-gcp-r0-2026-08-28/`;
   the phase-2 process receipt is under
   `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/`;
-  and the phase-4 persisted GCS receipt is under
-  `docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/`.
+  the phase-4 persisted GCS receipt is under
+  `docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/`;
+  and the accepted phase-5 review is under
+  `docs/research/reviews/fable-rfc0044-phase5-review-2026-08-28.md`.
 
 ### T28. Verify GCS cold-point and object-layout geometry `[EVALUATING]`
 

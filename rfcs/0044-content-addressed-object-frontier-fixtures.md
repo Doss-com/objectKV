@@ -327,10 +327,13 @@ authority scratch from about 19 times logical values to at most 0.25 times and
 finish base setup in at most 300 seconds. Those are mechanism gates, not T27
 performance admission.
 
-The 1 GiB admission proceeds only when four subject receipts share one fixture
-ID and one tail ID, at least three report persisted reuse, every receipt reports
-one empty anchor plus zero base-value txLog records, and the unchanged RFC-0043
-correctness, telemetry, throughput, p99, CPU, and physical-I/O gates pass.
+The 1 GiB admission proceeds only through the revised phase-5 contract in
+`docs/research/rfc0044-phase5-t27-1gib-plan.md`. One committed placement
+locator binds the fixture across invocations. The direct control must not open
+a native resident database, fixture and trace seeds are independent, and every
+fresh-process ABBA position receives its own receipt. The unchanged RFC-0043
+correctness, telemetry, throughput, p99, CPU, and physical-I/O limits still
+apply independently to every cache, skew, and trace stratum.
 
 ## Compatibility and migration
 
@@ -350,7 +353,7 @@ The minimum implementation sequence is:
    identity, and poison contracts;
 3. 4 MiB local process recovery with fresh subject directories;
 4. 64 MiB persisted GCS reuse and setup-bound preflight;
-5. frozen 1 GiB T27 suite.
+5. frozen 1 GiB T27 fixture locator and fresh-process ABBA suite.
 
 `[VERIFIED]` Steps 1 through 4 passed on clean GCP release builds. Step 3 used
 independent empty native and direct-control processes, one exact fixture and
@@ -359,8 +362,12 @@ digest, and a regenerated-control poison. Step 4 persisted a 64 MiB fixture as
 20 GCS objects totaling 68,857,626 bytes, reopened its exact descriptor three
 times across the ABBA subjects, completed in 55.906526 seconds, and held
 transaction-authority scratch to 0.001623x logical bytes. The reuse-bypass
-poison was detected. Step 5, the frozen 1 GiB T27 curve, is the current
-boundary.
+poison was detected. Step 5 is the current boundary. Fable's preimplementation
+review found that the current direct control opens a hidden native database,
+persisted locator identity does not cross CLI invocations, repeats share
+process state, buffered I/O cannot prove the requested cache curve, and
+fixture and trace randomness are coupled. These are implementation blockers,
+not performance results.
 
 The frozen `native-resident-cache-pressure-rerun-v2` suite and its result
 schema remain byte-identical. RFC-0044 receives a new versioned contract suite
@@ -372,11 +379,9 @@ compatibility fixtures, and generation-fenced authorization.
 
 ## Unresolved questions
 
-- Whether A/B and B/A should reopen one subject image or use RocksDB checkpoints
-  with reflinked files on filesystems that support them.
-- Whether the 1 GiB fixture descriptor should live in GCS only or also be
-  cached on the persistent runner volume.
+- Whether fresh-process setup cost requires an immutable local staging cache
+  after the first full read-only GCS verification.
 - Whether object closure verification should read every byte on every subject
-  or use one full verification plus immutable provider revision evidence.
+  or use one full verification plus immutable provider generation evidence.
 - Which production restore authority validates an object frontier without a
   preceding local commit history.

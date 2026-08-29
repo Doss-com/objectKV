@@ -255,11 +255,15 @@ cache pressure
 
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
-stop decision for objectKV. The immediate owned task remains T27. Its next
-slice persists one content-addressed fixture, proves reuse across native,
-control, A/B, and B/A, then executes the 1 GiB cache-coverage and skew sweep
-with the verified direct-read treatment. The corrected 64 MiB calibration
-remains the buffered regression anchor.
+stop decision for objectKV. The immediate owned task remains T27. Fable's
+phase-5 review found five blockers in the current runner: the locator does not
+cross CLI invocations, the direct control opens a hidden native database,
+repeats share process state, buffered I/O masks the 1 GiB cache curve, and one
+seed drives both fixture bytes and read traces. The next slice implements one
+committed placement locator and a direct subject with exactly one database and
+cache. The 1 GiB run begins only after fresh-process, read-only-GCS, hidden-
+cache, and plan-order poisons pass. The corrected 64 MiB calibration remains
+the buffered regression anchor.
 
 ## Current checkpoint
 
