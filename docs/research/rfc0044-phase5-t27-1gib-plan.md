@@ -107,11 +107,90 @@ field is byte-for-byte equivalent. A no-op incarnation, changed fixture,
 changed oracle, changed position, changed treatment, changed threshold, or
 changed runtime digest fails closed.
 
+The first replacement-runner attempt exposed one additional artifact rule.
+The original executable had been hashed into the plan but had not been retained
+as a content-addressed object. A rebuild on the same Debian image and CPU class,
+with the exact source archive, Cargo.lock, Rust 1.88.0 toolchain, and release
+feature set produced executable SHA-256 `28addf68...`, not the frozen
+`f3471d07...`. Absolute source paths are present in the unstripped ELF, and the
+original build path and linker manifest were not captured. Source and lockfile
+identity are therefore insufficient to reconstruct byte-identical executable
+identity.
+
+Two paths are valid:
+
+```text
+exact executable retained
+  -> execution incarnation
+  -> runtime digest remains identical
+
+exact executable absent
+  -> do not call it an incarnation
+  -> rebuild and seal a new full plan on the live runner
+  -> require equal portable workload digest and equal non-execution fields
+  -> execute only the new plan with its newly bound executable
+```
+
+Future admitted plans must publish the executable by content digest beside the
+source archive, Cargo.lock, machine receipt, and plan. A plan without that
+executable remains valid historical evidence but is not restartable as an exact
+runtime incarnation.
+
 This separation is required by the teardown gate. Immutable workload intent
 must survive ephemeral infrastructure, while every measured receipt still
 binds one exact live machine and device. It optimizes for resumable, auditable
 experiments. It gives up treating one full plan digest as portable across
 machines.
+
+## D1.2. Large-fixture process barriers and repeated setup must be bounded
+
+The first live 1 GiB setup probe failed before measurement. The serving parent
+waited for a fixed 1,000 polls at 10 ms each, so a child had only 10 seconds to
+exact-open the object fixture and create its initial catch-up barrier. The child
+was still active when the parent rejected it. The failed invocation ended after
+54.68 seconds with 2.39 GiB maximum RSS and no resident-image file written.
+
+This is a workload-size bug, not a performance result. The 64 MiB preflight
+completed inside the fixed deadline; the 1 GiB admission cannot.
+
+Replace the fixed barrier with a deterministic bounded deadline derived from
+the frozen fixture logical bytes. The first implementation uses a 60-second
+minimum, 30 seconds of fixed overhead, a conservative 2 MiB/s reconstruction
+floor, and a 30-minute maximum. The same deadline is serialized into both the
+parent and child process configuration. A child exit still fails immediately.
+A deadline expiration still fails closed.
+
+The barrier correction is necessary but not sufficient. The current position
+path exact-opens the same fixture three times:
+
+```text
+position parent
+  -> exact-open full generation-pinned closure
+
+first disposable worker
+  -> exact-open full closure
+  -> reach catch-up barrier
+  -> killed intentionally
+
+measured replacement worker
+  -> exact-open full closure
+  -> construct fresh resident database
+  -> measure hot reads
+```
+
+The replacement runner exact-opened and derived the plan in 3m17s with 4.63 GiB
+maximum RSS. At that observed rate, 540 positions would spend about 88 hours on
+three repeated opens per position before hot-read time. Do not launch that run
+under the current 24-hour lease.
+
+The next execution design review must preserve one fresh measured process and
+one fresh mutable database per position while removing non-measured redundant
+object reconstruction. Candidate corrections are a content-verified read-only
+local closure staged once per controller, parallel generation-pinned object
+reads, or separating restart correctness from every statistical repetition.
+Whichever path is selected must retain the same fixture ID, descriptor
+generation, semantic oracle, trace, subject order, cache budget, and hot-read
+measurement boundaries.
 
 ## D2. Candidate and control each own exactly one database and cache
 
