@@ -9,7 +9,7 @@ use okv_consensus::{
 };
 use okv_object::{
     content_sha256, decode_full_row_object, encode_row_object_set, filesystem_backend, Backend,
-    FaultBackend, ObjectClient, ObservedBackend, PutOutcome, RowObjectManifestV1,
+    FaultBackend, ObjectClient, ObservedBackend, PutOutcome, RevisionToken, RowObjectManifestV1,
     RowObjectReference, RowRecord, RowSegmentIndex,
 };
 use okv_transaction::{KeyRange, TransactionCommand, TransactionStatus};
@@ -199,6 +199,7 @@ pub(crate) struct BuiltFixture {
     pub fixture_id: String,
     pub descriptor_sha256: String,
     pub descriptor_bytes: Vec<u8>,
+    pub descriptor_revision: RevisionToken,
     pub reused: bool,
 }
 
@@ -237,6 +238,18 @@ pub struct FixturePlacementLocatorV1 {
     pub binary_sha256: String,
     pub cargo_lock_sha256: String,
     pub envelope_sha256: String,
+}
+
+/// Frozen source and build identities bound into one persisted fixture locator.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FixturePlacementBuildEnvelopeV1 {
+    pub bucket: String,
+    pub prefix: String,
+    pub source_sha256: String,
+    pub suite_sha256: String,
+    pub binary_sha256: String,
+    pub cargo_lock_sha256: String,
 }
 
 impl FixturePlacementLocatorV1 {
@@ -312,6 +325,73 @@ pub fn decode_fixture_placement_locator(
     Ok(locator)
 }
 
+/// Create or reuse one immutable fixture and return its exact provider placement.
+///
+/// # Errors
+///
+/// Returns an error for an invalid profile or build envelope, failed immutable
+/// publication, or a backend that does not expose a numeric object generation.
+pub async fn prepare_fixture_placement(
+    seed: u64,
+    profile: &ObjectFixtureProfile,
+    base_version: u64,
+    backend: Arc<dyn Backend>,
+    envelope: &FixturePlacementBuildEnvelopeV1,
+) -> Result<FixturePlacementLocatorV1, String> {
+    profile.validate()?;
+    if seed == 0
+        || base_version == 0
+        || !valid_bucket(&envelope.bucket)
+        || !valid_prefix(&envelope.prefix)
+        || !valid_sha256(&envelope.source_sha256)
+        || !valid_sha256(&envelope.suite_sha256)
+        || !valid_sha256(&envelope.binary_sha256)
+        || !valid_sha256(&envelope.cargo_lock_sha256)
+    {
+        return Err("invalid RFC-0044 fixture placement build envelope".to_owned());
+    }
+    let records = base_records(seed, profile, base_version)?;
+    let built = build_fixture(
+        seed,
+        profile,
+        base_version,
+        &records,
+        &ObjectClient::new(backend),
+    )
+    .await?;
+    let generation = built
+        .descriptor_revision
+        .version
+        .clone()
+        .ok_or_else(|| "fixture descriptor backend omitted object generation".to_owned())?;
+    let mut locator = FixturePlacementLocatorV1 {
+        schema_version: FIXTURE_SCHEMA_VERSION,
+        fixture: built.locator(),
+        base_version,
+        provider: "gcs".to_owned(),
+        bucket: envelope.bucket.clone(),
+        prefix: envelope.prefix.clone(),
+        descriptor_key: descriptor_key(&built.fixture_id),
+        descriptor_generation: generation,
+        fixture_seed: seed,
+        key_count: profile.key_count,
+        value_bytes: u64::try_from(profile.value_bytes).unwrap_or(u64::MAX),
+        logical_bytes: built.descriptor.logical_bytes,
+        generator_version: FIXTURE_GENERATOR_VERSION,
+        row_object_format_version: ROW_OBJECT_FORMAT_VERSION,
+        target_object_bytes: u64::try_from(profile.target_object_bytes).unwrap_or(u64::MAX),
+        target_block_bytes: u64::try_from(profile.target_block_bytes).unwrap_or(u64::MAX),
+        source_sha256: envelope.source_sha256.clone(),
+        suite_sha256: envelope.suite_sha256.clone(),
+        binary_sha256: envelope.binary_sha256.clone(),
+        cargo_lock_sha256: envelope.cargo_lock_sha256.clone(),
+        envelope_sha256: String::new(),
+    };
+    locator.envelope_sha256 = locator.calculated_envelope_sha256();
+    locator.validate()?;
+    Ok(locator)
+}
+
 impl BuiltFixture {
     #[must_use]
     pub(crate) fn locator(&self) -> ObjectFixtureLocatorV1 {
@@ -326,6 +406,7 @@ impl BuiltFixture {
 struct VerifiedFixture {
     descriptor: ObjectFixtureDescriptorV1,
     records: Vec<RowRecord>,
+    descriptor_revision: RevisionToken,
     segment_versions_at_anchor: bool,
     verification_seconds: f64,
 }
@@ -395,6 +476,7 @@ async fn run_contract(
         first.descriptor_bytes.len(),
         &first.descriptor_sha256,
         anchor.version,
+        None,
     )
     .await?;
     if verified.descriptor != first.descriptor || verified.records != base_records {
@@ -483,6 +565,7 @@ async fn run_contract(
                 first.descriptor_bytes.len(),
                 &first.descriptor_sha256,
                 anchor.version,
+                None,
             )
             .await
             .is_err()
@@ -693,7 +776,7 @@ pub(crate) async fn build_fixture(
     let descriptor_bytes = serde_json::to_vec(&descriptor).map_err(|error| error.to_string())?;
     let descriptor_sha256 = content_sha256(&descriptor_bytes);
     let descriptor_key = descriptor_key(&fixture_id);
-    let (descriptor_outcome, _) = client
+    let (descriptor_outcome, descriptor_identity) = client
         .put_if_absent(&descriptor_key, Bytes::from(descriptor_bytes.clone()))
         .await
         .map_err(|error| error.to_string())?;
@@ -702,6 +785,7 @@ pub(crate) async fn build_fixture(
         fixture_id,
         descriptor_sha256,
         descriptor_bytes,
+        descriptor_revision: descriptor_identity.revision,
         reused: all_existing && descriptor_outcome == PutOutcome::ExistingIdentical,
     })
 }
@@ -712,10 +796,15 @@ async fn verify_fixture(
     descriptor_length: usize,
     descriptor_sha256: &str,
     anchor_version: u64,
+    expected_descriptor_revision: Option<&RevisionToken>,
 ) -> Result<VerifiedFixture, String> {
     let started = Instant::now();
     let descriptor_read = backend
-        .get(&descriptor_key(fixture_id), None, None)
+        .get(
+            &descriptor_key(fixture_id),
+            None,
+            expected_descriptor_revision,
+        )
         .await
         .map_err(|error| error.to_string())?;
     if descriptor_read.returned_range != (0..u64::try_from(descriptor_length).unwrap_or(u64::MAX))
@@ -735,6 +824,7 @@ async fn verify_fixture(
     Ok(VerifiedFixture {
         descriptor,
         records,
+        descriptor_revision: descriptor_read.revision,
         segment_versions_at_anchor,
         verification_seconds: started.elapsed().as_secs_f64(),
     })
@@ -753,15 +843,26 @@ pub(crate) async fn verify_fixture_records(
         descriptor_length,
         descriptor_sha256,
         anchor_version,
+        None,
     )
     .await?
     .records)
 }
 
+#[cfg(test)]
 pub(crate) async fn open_existing_fixture(
     backend: &Arc<dyn Backend>,
     locator: &ObjectFixtureLocatorV1,
     anchor_version: u64,
+) -> Result<(BuiltFixture, Vec<RowRecord>, f64), String> {
+    open_existing_fixture_at_revision(backend, locator, anchor_version, None).await
+}
+
+pub(crate) async fn open_existing_fixture_at_revision(
+    backend: &Arc<dyn Backend>,
+    locator: &ObjectFixtureLocatorV1,
+    anchor_version: u64,
+    expected_descriptor_revision: Option<&RevisionToken>,
 ) -> Result<(BuiltFixture, Vec<RowRecord>, f64), String> {
     let descriptor_length = usize::try_from(locator.descriptor_length)
         .map_err(|_| "object fixture descriptor length exceeds usize".to_owned())?;
@@ -771,6 +872,7 @@ pub(crate) async fn open_existing_fixture(
         descriptor_length,
         &locator.descriptor_sha256,
         anchor_version,
+        expected_descriptor_revision,
     )
     .await?;
     let descriptor_bytes =
@@ -785,6 +887,7 @@ pub(crate) async fn open_existing_fixture(
         fixture_id: locator.fixture_id.clone(),
         descriptor_sha256: locator.descriptor_sha256.clone(),
         descriptor_bytes,
+        descriptor_revision: verified.descriptor_revision,
         reused: true,
     };
     Ok((fixture, verified.records, verified.verification_seconds))
@@ -1489,11 +1592,11 @@ fn deterministic_value(seed: u64, domain: &[u8], length: usize) -> Vec<u8> {
 mod tests {
     use super::{
         base_records, build_fixture, content_sha256, decode_fixture_placement_locator,
-        logical_image_sha256, open_existing_fixture, FixtureManifestIdentityV1,
-        FixturePlacementLocatorV1, LogicalOutcome, ObjectFixtureDescriptorV1,
-        ObjectFixtureLocatorV1, ObjectFixtureProfile,
+        logical_image_sha256, open_existing_fixture, open_existing_fixture_at_revision,
+        FixtureManifestIdentityV1, FixturePlacementLocatorV1, LogicalOutcome,
+        ObjectFixtureDescriptorV1, ObjectFixtureLocatorV1, ObjectFixtureProfile,
     };
-    use okv_object::{memory_backend, ObjectClient};
+    use okv_object::{memory_backend, ObjectClient, RevisionToken};
     use std::collections::BTreeMap;
 
     fn descriptor() -> ObjectFixtureDescriptorV1 {
@@ -1645,12 +1748,25 @@ mod tests {
         .await
         .expect("build fixture");
         let locator = built.locator();
+        let descriptor_revision = built.descriptor_revision.clone();
         let (reopened, reopened_records, _) = open_existing_fixture(&backend, &locator, 2)
             .await
             .expect("open exact fixture");
         assert!(reopened.reused);
         assert_eq!(reopened.locator(), locator);
         assert_eq!(reopened_records, records);
+        open_existing_fixture_at_revision(&backend, &locator, 2, Some(&descriptor_revision))
+            .await
+            .expect("open generation-pinned fixture");
+        let wrong_revision = RevisionToken {
+            e_tag: Some("wrong-descriptor-revision".to_owned()),
+            version: None,
+        };
+        assert!(
+            open_existing_fixture_at_revision(&backend, &locator, 2, Some(&wrong_revision),)
+                .await
+                .is_err()
+        );
 
         let mut wrong = locator;
         wrong.descriptor_sha256 = content_sha256(b"wrong descriptor");

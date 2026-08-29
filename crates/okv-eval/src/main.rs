@@ -39,7 +39,8 @@ use okv_eval::frontiered_process_snapshot::{
     FrontieredProcessSnapshotProfile, FrontieredProcessSnapshotReport,
 };
 use okv_eval::object_fixture::{
-    run_object_fixture_contract, ObjectFixtureMode, ObjectFixtureProfile, ObjectFixtureReport,
+    decode_fixture_placement_locator, prepare_fixture_placement, run_object_fixture_contract,
+    FixturePlacementBuildEnvelopeV1, ObjectFixtureMode, ObjectFixtureProfile, ObjectFixtureReport,
 };
 use okv_eval::object_frontier::{
     run_object_frontier_contract, ObjectFrontierMode, ObjectFrontierReport,
@@ -61,6 +62,7 @@ use okv_eval::serving_recovery::{
 };
 use okv_eval::serving_recovery_openraft::{
     run_openraft_serving_recovery_contract,
+    run_openraft_serving_recovery_contract_from_fixture_placement,
     run_openraft_serving_recovery_contract_from_object_fixture,
     run_openraft_serving_recovery_contract_from_object_fixture_locator,
     run_openraft_serving_recovery_contract_with_hot_reads, run_openraft_serving_recovery_node,
@@ -98,7 +100,7 @@ use okv_model::{
 };
 use okv_object::{
     filesystem_backend, gcs_backend_from_env, memory_backend, minio_backend_from_env,
-    run_conformance, run_publication_adapter_contract,
+    prefixed_backend, run_conformance, run_publication_adapter_contract,
     run_publication_publisher_manifest_recovery_contract,
     run_publication_publisher_manifest_recovery_node, run_publication_publisher_process_contract,
     run_publication_publisher_process_node, run_publication_publisher_publish_recovery_contract,
@@ -415,6 +417,56 @@ enum Commands {
         target_object_bytes: usize,
         #[arg(long, default_value_t = 65_536)]
         target_block_bytes: usize,
+    },
+    /// Prepare one immutable, generation-pinned GCS fixture in its own invocation.
+    ObjectFixturePrepareGcs {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value_t = 1)]
+        base_version: u64,
+        #[arg(long)]
+        prefix: String,
+        #[arg(long)]
+        source_sha256: String,
+        #[arg(long)]
+        suite_sha256: String,
+        #[arg(long)]
+        binary_sha256: String,
+        #[arg(long)]
+        cargo_lock_sha256: String,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 1_048_576)]
+        key_count: u64,
+        #[arg(long, default_value_t = 1_024)]
+        value_bytes: usize,
+        #[arg(long, default_value_t = 8_388_608)]
+        target_object_bytes: usize,
+        #[arg(long, default_value_t = 65_536)]
+        target_block_bytes: usize,
+    },
+    /// Consume one required-existing GCS fixture from a fresh process tree.
+    ObjectFixtureConsumeGcs {
+        #[arg(long)]
+        trace_seed: u64,
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long, default_value = "native_snapshot")]
+        subject: String,
+        #[arg(long, default_value_t = 256)]
+        warmup_operations: usize,
+        #[arg(long, default_value_t = 1_024)]
+        measured_operations: usize,
+        #[arg(long, default_value_t = 1)]
+        concurrent_clients: usize,
+        #[arg(long, default_value_t = 134_217_728)]
+        max_local_bytes: u64,
+        #[arg(long, default_value_t = 16_777_216)]
+        block_cache_bytes: u64,
+        #[arg(long, default_value_t = false)]
+        direct_reads: bool,
     },
     /// Build one actual resident process from the RFC-0044 object fixture.
     ObjectFixtureResidentTrace {
@@ -884,6 +936,104 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                     target_block_bytes,
                 },
                 &executable,
+            )?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::ObjectFixturePrepareGcs {
+            seed,
+            base_version,
+            prefix,
+            source_sha256,
+            suite_sha256,
+            binary_sha256,
+            cargo_lock_sha256,
+            output,
+            key_count,
+            value_bytes,
+            target_object_bytes,
+            target_block_bytes,
+        } => {
+            let bucket = std::env::var("OKV_GCS_BUCKET")?;
+            let backend = prefixed_backend(gcs_backend_from_env()?, prefix.clone())?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let locator = runtime.block_on(prepare_fixture_placement(
+                seed,
+                &ObjectFixtureProfile {
+                    key_count,
+                    value_bytes,
+                    target_object_bytes,
+                    target_block_bytes,
+                },
+                base_version,
+                backend,
+                &FixturePlacementBuildEnvelopeV1 {
+                    bucket,
+                    prefix,
+                    source_sha256,
+                    suite_sha256,
+                    binary_sha256,
+                    cargo_lock_sha256,
+                },
+            ))?;
+            let bytes = serde_json::to_vec_pretty(&locator)?;
+            fs::write(output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::ObjectFixtureConsumeGcs {
+            trace_seed,
+            locator,
+            expected_envelope_sha256,
+            subject,
+            warmup_operations,
+            measured_operations,
+            concurrent_clients,
+            max_local_bytes,
+            block_cache_bytes,
+            direct_reads,
+        } => {
+            let placement =
+                decode_fixture_placement_locator(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let subject = match subject.as_str() {
+                "native_snapshot" => OpenRaftHotReadSubject::NativeSnapshot,
+                "direct_owned_rocksdb" => OpenRaftHotReadSubject::DirectOwnedRocksdb,
+                other => {
+                    return Err(std::io::Error::other(format!(
+                        "unknown object-fixture resident subject {other}"
+                    ))
+                    .into());
+                }
+            };
+            let profile = ServingRecoveryProfile {
+                key_count: placement.key_count,
+                value_bytes: usize::try_from(placement.value_bytes)?,
+                target_object_bytes: usize::try_from(placement.target_object_bytes)?,
+                target_block_bytes: usize::try_from(placement.target_block_bytes)?,
+            };
+            let executable = std::env::current_exe()?;
+            let report = run_openraft_serving_recovery_contract_from_fixture_placement(
+                trace_seed,
+                &profile,
+                2,
+                &executable,
+                &placement,
+                OpenRaftHotReadProfile {
+                    subject,
+                    seed: trace_seed,
+                    key_count: placement.key_count,
+                    value_bytes: profile.value_bytes,
+                    warmup_operations,
+                    measured_operations,
+                    concurrent_clients,
+                    access_pattern: OpenRaftHotReadAccessPattern::Hotset80_20,
+                    max_local_bytes,
+                    block_cache_bytes,
+                    direct_reads,
+                    sample_count: 1,
+                    negative_control: None,
+                },
+                false,
             )?;
             println!("{}", serde_json::to_string(&report)?);
         }

@@ -4,10 +4,10 @@
 use crate::fixture_anchor::establish_fixture_anchor;
 use crate::object_fixture::{
     base_records as object_fixture_base_records, base_value_txlog_accounting,
-    build_fixture as build_object_fixture, logical_image_sha256, open_existing_fixture,
+    build_fixture as build_object_fixture, logical_image_sha256, open_existing_fixture_at_revision,
     tail_sha256 as object_fixture_tail_sha256, validate_tail as validate_object_fixture_tail,
-    verify_fixture_records, BuiltFixture, LogicalOutcome, ObjectFixtureLocatorV1,
-    ObjectFixtureProfile, ResidentImageDescriptorV1,
+    verify_fixture_records, BuiltFixture, FixturePlacementLocatorV1, LogicalOutcome,
+    ObjectFixtureLocatorV1, ObjectFixtureProfile, ResidentImageDescriptorV1,
 };
 use crate::serving_recovery::{ServingReadOutcome, ServingRecoveryProfile};
 use nix::sys::resource::{getrusage, UsageWho};
@@ -23,8 +23,8 @@ use okv_consensus::{
 use okv_object::{
     content_sha256, encode_row_object_set, filesystem_backend, gcs_backend_from_env,
     prefixed_backend, read_indexed_point, read_point_from_full_object, Backend, ObjectClient,
-    ObservedBackend, PointReadOutcome, RowObjectManifestV1, RowObjectReference, RowRecord,
-    RowSegmentIndex, WriteCondition,
+    ObservedBackend, PointReadOutcome, RevisionToken, RowObjectManifestV1, RowObjectReference,
+    RowRecord, RowSegmentIndex, WriteCondition,
 };
 use okv_transaction::{KeyRange, TransactionCommand, TransactionStatus};
 use serde::{Deserialize, Serialize};
@@ -130,6 +130,8 @@ pub struct OpenRaftObjectFixtureProcessConfig {
     pub fixture_id: String,
     pub descriptor_length: u64,
     pub descriptor_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descriptor_generation: Option<String>,
     pub base_version: u64,
     pub key_count: u64,
     pub value_bytes: usize,
@@ -647,6 +649,7 @@ pub fn run_openraft_serving_recovery_contract_with_hot_reads(
         BaseBootstrap::Transactional,
         false,
         None,
+        None,
     ))
 }
 
@@ -715,6 +718,82 @@ pub fn run_openraft_serving_recovery_contract_from_object_fixture_locator(
         BaseBootstrap::ObjectFixture,
         regenerate_control_poison,
         existing_fixture,
+        None,
+    ))
+}
+
+/// Run one fresh consumer from a separately prepared, generation-pinned GCS fixture.
+///
+/// # Errors
+///
+/// Returns an error before any authority or resident process starts when the
+/// placement, bucket, profile, or descriptor generation does not match.
+#[allow(clippy::too_many_arguments)]
+pub fn run_openraft_serving_recovery_contract_from_fixture_placement(
+    seed: u64,
+    profile: &ServingRecoveryProfile,
+    max_page_records: u32,
+    executable: &Path,
+    placement: &FixturePlacementLocatorV1,
+    hot_read: OpenRaftHotReadProfile,
+    regenerate_control_poison: bool,
+) -> Result<OpenRaftServingRecoveryReport, String> {
+    placement.validate()?;
+    let configured_bucket = std::env::var("OKV_GCS_BUCKET")
+        .map_err(|_| "OKV_GCS_BUCKET is required for fixture placement consumption".to_owned())?;
+    if configured_bucket != placement.bucket {
+        return Err("configured GCS bucket differs from fixture placement".to_owned());
+    }
+    if placement.key_count != profile.key_count
+        || placement.value_bytes != u64::try_from(profile.value_bytes).unwrap_or(u64::MAX)
+        || placement.target_object_bytes
+            != u64::try_from(profile.target_object_bytes).unwrap_or(u64::MAX)
+        || placement.target_block_bytes
+            != u64::try_from(profile.target_block_bytes).unwrap_or(u64::MAX)
+    {
+        return Err("fixture placement differs from the requested serving profile".to_owned());
+    }
+    if max_page_records == 0 || max_page_records > 4_096 {
+        return Err("retained stream page bound must be in 1..=4096".to_owned());
+    }
+    validate_hot_read_profile(&hot_read, profile)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?;
+    let object_backend = OpenRaftServingObjectBackend::Gcs {
+        prefix: placement.prefix.clone(),
+    };
+    let expected_revision = RevisionToken {
+        e_tag: None,
+        version: Some(placement.descriptor_generation.clone()),
+    };
+    runtime.block_on(async {
+        let backend = object_backend.open(Path::new("."))?;
+        let descriptor = backend
+            .get(&placement.descriptor_key, None, Some(&expected_revision))
+            .await
+            .map_err(|error| error.to_string())?;
+        if descriptor.object_length != placement.fixture.descriptor_length
+            || descriptor.returned_range != (0..placement.fixture.descriptor_length)
+            || content_sha256(&descriptor.bytes) != placement.fixture.descriptor_sha256
+        {
+            return Err("fixture placement descriptor identity mismatch".to_owned());
+        }
+        Ok::<_, String>(())
+    })?;
+    runtime.block_on(run_contract(
+        seed,
+        OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate,
+        profile,
+        max_page_records,
+        executable,
+        object_backend,
+        Some(hot_read),
+        BaseBootstrap::ObjectFixture,
+        regenerate_control_poison,
+        Some(placement.fixture.clone()),
+        Some(placement.descriptor_generation.clone()),
     ))
 }
 
@@ -830,13 +909,24 @@ async fn run_integrated_kernel_node(
             .await;
     }
     if let Some(fixture) = config.object_fixture.as_ref() {
-        let records = verify_fixture_records(
+        let locator = ObjectFixtureLocatorV1 {
+            fixture_id: fixture.fixture_id.clone(),
+            descriptor_length: fixture.descriptor_length,
+            descriptor_sha256: fixture.descriptor_sha256.clone(),
+        };
+        let expected_revision =
+            fixture
+                .descriptor_generation
+                .as_ref()
+                .map(|generation| RevisionToken {
+                    e_tag: None,
+                    version: Some(generation.clone()),
+                });
+        let (_, records, _) = open_existing_fixture_at_revision(
             &backend,
-            &fixture.fixture_id,
-            usize::try_from(fixture.descriptor_length)
-                .map_err(|_| "object fixture descriptor length exceeds usize".to_owned())?,
-            &fixture.descriptor_sha256,
+            &locator,
             fixture.base_version,
+            expected_revision.as_ref(),
         )
         .await?;
         if u64::try_from(records.len()).unwrap_or(u64::MAX) != fixture.key_count {
@@ -1060,8 +1150,21 @@ async fn run_standalone_direct_control_node(
         descriptor_length: fixture.descriptor_length,
         descriptor_sha256: fixture.descriptor_sha256.clone(),
     };
-    let (built, base_records, _) =
-        open_existing_fixture(&opened_backend, &locator, fixture.base_version).await?;
+    let expected_revision =
+        fixture
+            .descriptor_generation
+            .as_ref()
+            .map(|generation| RevisionToken {
+                e_tag: None,
+                version: Some(generation.clone()),
+            });
+    let (built, base_records, _) = open_existing_fixture_at_revision(
+        &opened_backend,
+        &locator,
+        fixture.base_version,
+        expected_revision.as_ref(),
+    )
+    .await?;
     if u64::try_from(base_records.len()).unwrap_or(u64::MAX) != fixture.key_count {
         return Err("standalone direct control opened the wrong base record count".to_owned());
     }
@@ -2592,6 +2695,7 @@ async fn run_contract(
     bootstrap: BaseBootstrap,
     regenerate_control_poison: bool,
     existing_fixture: Option<ObjectFixtureLocatorV1>,
+    existing_descriptor_generation: Option<String>,
 ) -> Result<OpenRaftServingRecoveryReport, String> {
     let contract_started = Instant::now();
     validate_profile(profile)?;
@@ -2648,8 +2752,20 @@ async fn run_contract(
             let (fixture, verified, verification_seconds, opened_existing) = if let Some(locator) =
                 existing_fixture.as_ref()
             {
-                let (fixture, records, verification_seconds) =
-                    open_existing_fixture(&opened_backend, locator, anchor.version).await?;
+                let expected_revision =
+                    existing_descriptor_generation
+                        .as_ref()
+                        .map(|generation| RevisionToken {
+                            e_tag: None,
+                            version: Some(generation.clone()),
+                        });
+                let (fixture, records, verification_seconds) = open_existing_fixture_at_revision(
+                    &opened_backend,
+                    locator,
+                    anchor.version,
+                    expected_revision.as_ref(),
+                )
+                .await?;
                 (fixture, records, verification_seconds, true)
             } else {
                 let base_records =
@@ -2727,6 +2843,7 @@ async fn run_contract(
                 descriptor_length: u64::try_from(fixture.descriptor_bytes.len())
                     .unwrap_or(u64::MAX),
                 descriptor_sha256: fixture.descriptor_sha256.clone(),
+                descriptor_generation: existing_descriptor_generation.clone(),
                 base_version: anchor.version,
                 key_count: profile.key_count,
                 value_bytes: profile.value_bytes,
