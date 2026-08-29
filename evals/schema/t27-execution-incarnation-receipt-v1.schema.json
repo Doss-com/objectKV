@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/t27-execution-incarnation-receipt-v1.schema.json",
+  "title": "objectKV T27 execution incarnation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_plan_sha256",
+    "incarnated_plan_sha256",
+    "workload_sha256",
+    "source_execution_sha256",
+    "incarnated_execution_sha256",
+    "runtime_source_sha256",
+    "runtime_executable_sha256",
+    "runtime_cargo_lock_sha256",
+    "source_machine_instance_id",
+    "incarnated_machine_instance_id",
+    "source_linux_boot_id",
+    "incarnated_linux_boot_id",
+    "passed",
+    "receipt_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source_plan_sha256": { "$ref": "#/$defs/sha256" },
+    "incarnated_plan_sha256": { "$ref": "#/$defs/sha256" },
+    "workload_sha256": { "$ref": "#/$defs/sha256" },
+    "source_execution_sha256": { "$ref": "#/$defs/sha256" },
+    "incarnated_execution_sha256": { "$ref": "#/$defs/sha256" },
+    "runtime_source_sha256": { "$ref": "#/$defs/sha256" },
+    "runtime_executable_sha256": { "$ref": "#/$defs/sha256" },
+    "runtime_cargo_lock_sha256": { "$ref": "#/$defs/sha256" },
+    "source_machine_instance_id": { "type": "string", "minLength": 1 },
+    "incarnated_machine_instance_id": { "type": "string", "minLength": 1 },
+    "source_linux_boot_id": { "type": "string", "format": "uuid" },
+    "incarnated_linux_boot_id": { "type": "string", "format": "uuid" },
+    "passed": { "const": true },
+    "receipt_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

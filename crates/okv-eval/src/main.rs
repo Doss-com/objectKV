@@ -80,10 +80,11 @@ use okv_eval::storage_layout::{
     ColumnarDataFusionReport, StorageLayoutMode, StorageLayoutProfile, StorageLayoutReport,
 };
 use okv_eval::t27_plan::{
-    build_t27_execution_plan, decode_t27_execution_plan, derive_t27_expected_identity,
-    verify_t27_plan_poison, verify_t27_position_poison, T27AccessPatternV1, T27ExecutionEnvelopeV1,
-    T27PlanPoisonV1, T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1,
-    T27PositionObservationV1, T27PositionPoisonV1, T27PositionReceiptV1,
+    build_t27_execution_incarnation, build_t27_execution_plan, decode_t27_execution_plan,
+    derive_t27_expected_identity, verify_t27_plan_poison, verify_t27_position_poison,
+    T27AccessPatternV1, T27ExecutionEnvelopeV1, T27PlanPoisonV1, T27PlanProfileV1,
+    T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1, T27PositionPoisonV1,
+    T27PositionReceiptV1,
 };
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry};
 use okv_eval::transaction_batch::{
@@ -508,6 +509,25 @@ enum Commands {
         scratch_root: PathBuf,
         #[arg(long)]
         output: PathBuf,
+    },
+    /// Bind one authenticated T27 workload plan to replacement infrastructure.
+    T27PlanIncarnateGcs {
+        #[arg(long)]
+        source_plan: PathBuf,
+        #[arg(long)]
+        expected_source_plan_sha256: String,
+        #[arg(long)]
+        runtime_executable: PathBuf,
+        #[arg(long)]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long)]
+        machine_receipt: PathBuf,
+        #[arg(long)]
+        scratch_root: PathBuf,
+        #[arg(long)]
+        plan_output: PathBuf,
+        #[arg(long)]
+        receipt_output: PathBuf,
     },
     /// Build and verify one sealed corruption of an authenticated T27 plan.
     T27PlanPoisonCheck {
@@ -1174,6 +1194,45 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let bytes = serde_json::to_vec_pretty(&plan)?;
             write_new_file(&output, &bytes)?;
             println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T27PlanIncarnateGcs {
+            source_plan,
+            expected_source_plan_sha256,
+            runtime_executable,
+            runtime_cargo_lock,
+            machine_receipt,
+            scratch_root,
+            plan_output,
+            receipt_output,
+        } => {
+            let source =
+                decode_t27_execution_plan(&fs::read(source_plan)?, &expected_source_plan_sha256)?;
+            let execution = capture_t27_execution_envelope_for_executable(
+                &source.execution.runtime_source_sha256,
+                &runtime_executable,
+                &runtime_cargo_lock,
+                &machine_receipt,
+                &scratch_root,
+            )?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let expected = runtime.block_on(derive_t27_expected_identity(
+                &source.fixture,
+                source.profile,
+                &runtime_executable,
+            ))?;
+            if expected != source.expected {
+                return Err(std::io::Error::other(
+                    "T27 execution incarnation exact-open changed the semantic oracle",
+                )
+                .into());
+            }
+            let (incarnated, receipt) = build_t27_execution_incarnation(&source, execution)?;
+            write_new_file(&plan_output, &serde_json::to_vec_pretty(&incarnated)?)?;
+            let receipt_bytes = serde_json::to_vec_pretty(&receipt)?;
+            write_new_file(&receipt_output, &receipt_bytes)?;
+            println!("{}", String::from_utf8(receipt_bytes)?);
         }
         Commands::T27PlanPoisonCheck {
             plan,
@@ -6185,6 +6244,22 @@ fn capture_t27_execution_envelope(
     machine_receipt_path: &Path,
     scratch_root: &Path,
 ) -> Result<T27ExecutionEnvelopeV1, Box<dyn Error>> {
+    capture_t27_execution_envelope_for_executable(
+        runtime_source_sha256,
+        &std::env::current_exe()?,
+        runtime_cargo_lock,
+        machine_receipt_path,
+        scratch_root,
+    )
+}
+
+fn capture_t27_execution_envelope_for_executable(
+    runtime_source_sha256: &str,
+    runtime_executable: &Path,
+    runtime_cargo_lock: &Path,
+    machine_receipt_path: &Path,
+    scratch_root: &Path,
+) -> Result<T27ExecutionEnvelopeV1, Box<dyn Error>> {
     fs::create_dir_all(scratch_root)?;
     let scratch_root = scratch_root.canonicalize()?;
     let machine_receipt_bytes = fs::read(machine_receipt_path)?;
@@ -6209,8 +6284,7 @@ fn capture_t27_execution_envelope(
         .ok_or_else(|| std::io::Error::other("T27 machine receipt omits lease expiry"))?
         .parse::<u64>()?;
     require_t27_infrastructure_lease(infrastructure_lease_expires_epoch)?;
-    let executable = std::env::current_exe()?;
-    let runtime_executable_sha256 = sha256(&fs::read(&executable)?);
+    let runtime_executable_sha256 = sha256(&fs::read(runtime_executable)?);
     let declared_binary_sha256 = runner
         .get("binary_sha256")
         .and_then(serde_json::Value::as_str)

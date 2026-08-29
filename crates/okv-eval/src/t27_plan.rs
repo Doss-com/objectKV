@@ -20,6 +20,8 @@ const PLAN_MAGIC: &[u8] = b"OKVT27P1";
 const OPTIONS_MAGIC: &[u8] = b"OKVT27O1";
 const RECEIPT_MAGIC: &[u8] = b"OKVT27R1";
 const RUN_RECEIPT_MAGIC: &[u8] = b"OKVT27C1";
+const WORKLOAD_MAGIC: &[u8] = b"OKVT27W1";
+const INCARNATION_RECEIPT_MAGIC: &[u8] = b"OKVT27I1";
 const POISON_RECEIPT_MAGIC: &[u8] = b"OKVT27X1";
 const POSITION_POISON_RECEIPT_MAGIC: &[u8] = b"OKVT27Y1";
 const PLAN_POSITIONS_REJECTION: &str =
@@ -118,6 +120,14 @@ pub struct T27ExecutionEnvelopeV1 {
 }
 
 impl T27ExecutionEnvelopeV1 {
+    /// Return the digest of the exact runtime, machine, boot, device, and lease identity.
+    #[must_use]
+    pub fn calculated_execution_sha256(&self) -> String {
+        let mut bytes = Vec::new();
+        encode_execution_envelope(&mut bytes, self);
+        sha256(&bytes)
+    }
+
     /// Validate the exact executable, host, boot, and scratch-device identity.
     ///
     /// # Errors
@@ -267,6 +277,109 @@ pub struct T27ExecutionPlanV1 {
     pub expected: T27ExpectedIdentityV1,
     pub positions: Vec<T27PlanPositionV1>,
     pub plan_sha256: String,
+}
+
+/// Authenticated proof that one frozen workload was rebound to replacement infrastructure.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T27ExecutionIncarnationReceiptV1 {
+    pub schema_version: u32,
+    pub source_plan_sha256: String,
+    pub incarnated_plan_sha256: String,
+    pub workload_sha256: String,
+    pub source_execution_sha256: String,
+    pub incarnated_execution_sha256: String,
+    pub runtime_source_sha256: String,
+    pub runtime_executable_sha256: String,
+    pub runtime_cargo_lock_sha256: String,
+    pub source_machine_instance_id: String,
+    pub incarnated_machine_instance_id: String,
+    pub source_linux_boot_id: String,
+    pub incarnated_linux_boot_id: String,
+    pub passed: bool,
+    pub receipt_sha256: String,
+}
+
+impl T27ExecutionIncarnationReceiptV1 {
+    /// Return the digest of the canonical execution-incarnation receipt fields.
+    #[must_use]
+    pub fn calculated_receipt_sha256(&self) -> String {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(INCARNATION_RECEIPT_MAGIC);
+        bytes.extend_from_slice(&self.schema_version.to_be_bytes());
+        push_string(&mut bytes, &self.source_plan_sha256);
+        push_string(&mut bytes, &self.incarnated_plan_sha256);
+        push_string(&mut bytes, &self.workload_sha256);
+        push_string(&mut bytes, &self.source_execution_sha256);
+        push_string(&mut bytes, &self.incarnated_execution_sha256);
+        push_string(&mut bytes, &self.runtime_source_sha256);
+        push_string(&mut bytes, &self.runtime_executable_sha256);
+        push_string(&mut bytes, &self.runtime_cargo_lock_sha256);
+        push_string(&mut bytes, &self.source_machine_instance_id);
+        push_string(&mut bytes, &self.incarnated_machine_instance_id);
+        push_string(&mut bytes, &self.source_linux_boot_id);
+        push_string(&mut bytes, &self.incarnated_linux_boot_id);
+        bytes.push(u8::from(self.passed));
+        sha256(&bytes)
+    }
+
+    /// Validate that only the execution envelope changed and the runtime stayed exact.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for changed workload intent, runtime drift, a no-op machine
+    /// replacement, or an altered receipt.
+    pub fn validate(
+        &self,
+        source: &T27ExecutionPlanV1,
+        incarnated: &T27ExecutionPlanV1,
+    ) -> Result<(), String> {
+        source.validate()?;
+        incarnated.validate()?;
+        let source_workload = source.calculated_workload_sha256();
+        let incarnated_workload = incarnated.calculated_workload_sha256();
+        let workload_equal = source.profile == incarnated.profile
+            && source.fixture == incarnated.fixture
+            && source.expected == incarnated.expected
+            && source.positions == incarnated.positions
+            && source_workload == incarnated_workload;
+        let runtime_equal = source.execution.runtime_source_sha256
+            == incarnated.execution.runtime_source_sha256
+            && source.execution.runtime_executable_sha256
+                == incarnated.execution.runtime_executable_sha256
+            && source.execution.runtime_cargo_lock_sha256
+                == incarnated.execution.runtime_cargo_lock_sha256;
+        if !workload_equal {
+            return Err("T27 execution incarnation changed frozen workload intent".to_owned());
+        }
+        if !runtime_equal {
+            return Err("T27 execution incarnation changed runtime identity".to_owned());
+        }
+        if source.execution.machine_instance_id == incarnated.execution.machine_instance_id {
+            return Err("T27 execution incarnation did not bind a replacement machine".to_owned());
+        }
+        if self.schema_version != RECEIPT_SCHEMA_VERSION
+            || self.source_plan_sha256 != source.plan_sha256
+            || self.incarnated_plan_sha256 != incarnated.plan_sha256
+            || self.workload_sha256 != source_workload
+            || self.source_execution_sha256 != source.execution.calculated_execution_sha256()
+            || self.incarnated_execution_sha256
+                != incarnated.execution.calculated_execution_sha256()
+            || self.source_execution_sha256 == self.incarnated_execution_sha256
+            || self.runtime_source_sha256 != source.execution.runtime_source_sha256
+            || self.runtime_executable_sha256 != source.execution.runtime_executable_sha256
+            || self.runtime_cargo_lock_sha256 != source.execution.runtime_cargo_lock_sha256
+            || self.source_machine_instance_id != source.execution.machine_instance_id
+            || self.incarnated_machine_instance_id != incarnated.execution.machine_instance_id
+            || self.source_linux_boot_id != source.execution.linux_boot_id
+            || self.incarnated_linux_boot_id != incarnated.execution.linux_boot_id
+            || !self.passed
+            || self.receipt_sha256 != self.calculated_receipt_sha256()
+        {
+            return Err("T27 execution incarnation receipt identity mismatch".to_owned());
+        }
+        Ok(())
+    }
 }
 
 /// One controlled corruption of an otherwise authenticated T27 plan.
@@ -1256,6 +1369,12 @@ impl T27ExecutionPlanV1 {
         sha256(&encode_plan_identity(self))
     }
 
+    /// Return the portable workload digest with the ephemeral execution envelope excluded.
+    #[must_use]
+    pub fn calculated_workload_sha256(&self) -> String {
+        sha256(&encode_workload_identity(self))
+    }
+
     /// Validate the complete fixture and regenerate every expected position.
     ///
     /// # Errors
@@ -1305,6 +1424,47 @@ pub fn build_t27_execution_plan(
     let plan = build_plan_unchecked(fixture, profile, execution, expected)?;
     plan.validate()?;
     Ok(plan)
+}
+
+/// Bind one authenticated frozen workload to a replacement execution environment.
+///
+/// # Errors
+///
+/// Returns an error when workload intent or runtime identity changes, when the
+/// replacement machine is unchanged, or when either plan is invalid.
+pub fn build_t27_execution_incarnation(
+    source: &T27ExecutionPlanV1,
+    execution: T27ExecutionEnvelopeV1,
+) -> Result<(T27ExecutionPlanV1, T27ExecutionIncarnationReceiptV1), String> {
+    source.validate()?;
+    execution.validate()?;
+    let incarnated = build_plan_unchecked(
+        &source.fixture,
+        source.profile,
+        execution,
+        source.expected.clone(),
+    )?;
+    incarnated.validate()?;
+    let mut receipt = T27ExecutionIncarnationReceiptV1 {
+        schema_version: RECEIPT_SCHEMA_VERSION,
+        source_plan_sha256: source.plan_sha256.clone(),
+        incarnated_plan_sha256: incarnated.plan_sha256.clone(),
+        workload_sha256: source.calculated_workload_sha256(),
+        source_execution_sha256: source.execution.calculated_execution_sha256(),
+        incarnated_execution_sha256: incarnated.execution.calculated_execution_sha256(),
+        runtime_source_sha256: source.execution.runtime_source_sha256.clone(),
+        runtime_executable_sha256: source.execution.runtime_executable_sha256.clone(),
+        runtime_cargo_lock_sha256: source.execution.runtime_cargo_lock_sha256.clone(),
+        source_machine_instance_id: source.execution.machine_instance_id.clone(),
+        incarnated_machine_instance_id: incarnated.execution.machine_instance_id.clone(),
+        source_linux_boot_id: source.execution.linux_boot_id.clone(),
+        incarnated_linux_boot_id: incarnated.execution.linux_boot_id.clone(),
+        passed: true,
+        receipt_sha256: String::new(),
+    };
+    receipt.receipt_sha256 = receipt.calculated_receipt_sha256();
+    receipt.validate(source, &incarnated)?;
+    Ok((incarnated, receipt))
 }
 
 /// Exact-open the persisted fixture and freeze its semantic oracle before any
@@ -1734,22 +1894,39 @@ fn treatment_sha256(
 fn encode_plan_identity(plan: &T27ExecutionPlanV1) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(PLAN_MAGIC);
+    encode_plan_workload_prefix(&mut bytes, plan);
+    encode_execution_envelope(&mut bytes, &plan.execution);
+    encode_plan_workload_suffix(&mut bytes, plan);
+    bytes
+}
+
+fn encode_workload_identity(plan: &T27ExecutionPlanV1) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(WORKLOAD_MAGIC);
+    encode_plan_workload_prefix(&mut bytes, plan);
+    encode_plan_workload_suffix(&mut bytes, plan);
+    bytes
+}
+
+fn encode_plan_workload_prefix(bytes: &mut Vec<u8>, plan: &T27ExecutionPlanV1) {
     bytes.extend_from_slice(&plan.schema_version.to_be_bytes());
     bytes.push(plan.profile.tag());
-    push_string(&mut bytes, &plan.fixture.envelope_sha256);
-    push_string(&mut bytes, &plan.fixture.fixture.fixture_id);
+    push_string(bytes, &plan.fixture.envelope_sha256);
+    push_string(bytes, &plan.fixture.fixture.fixture_id);
     bytes.extend_from_slice(&plan.fixture.fixture_seed.to_be_bytes());
-    encode_execution_envelope(&mut bytes, &plan.execution);
-    push_string(&mut bytes, &plan.expected.tail_sha256);
-    push_string(&mut bytes, &plan.expected.resident_logical_sha256);
+}
+
+fn encode_plan_workload_suffix(bytes: &mut Vec<u8>, plan: &T27ExecutionPlanV1) {
+    push_string(bytes, &plan.expected.tail_sha256);
+    push_string(bytes, &plan.expected.resident_logical_sha256);
     bytes.extend_from_slice(
         &u64::try_from(plan.expected.trace_sha256_by_stratum.len())
             .unwrap_or(u64::MAX)
             .to_be_bytes(),
     );
     for (stratum, digest) in &plan.expected.trace_sha256_by_stratum {
-        push_string(&mut bytes, stratum);
-        push_string(&mut bytes, digest);
+        push_string(bytes, stratum);
+        push_string(bytes, digest);
     }
     bytes.extend_from_slice(
         &u64::try_from(plan.positions.len())
@@ -1758,7 +1935,7 @@ fn encode_plan_identity(plan: &T27ExecutionPlanV1) -> Vec<u8> {
     );
     for position in &plan.positions {
         bytes.extend_from_slice(&position.ordinal.to_be_bytes());
-        push_string(&mut bytes, &position.stratum_id);
+        push_string(bytes, &position.stratum_id);
         bytes.extend_from_slice(&position.block.to_be_bytes());
         bytes.push(position.position_in_block);
         bytes.push(position.subject.tag());
@@ -1770,10 +1947,9 @@ fn encode_plan_identity(plan: &T27ExecutionPlanV1) -> Vec<u8> {
         bytes.extend_from_slice(&position.measured_operations.to_be_bytes());
         bytes.extend_from_slice(&position.concurrent_clients.to_be_bytes());
         bytes.push(u8::from(position.direct_reads));
-        push_string(&mut bytes, &position.treatment_sha256);
-        push_string(&mut bytes, &position.expected_engine_options_sha256);
+        push_string(bytes, &position.treatment_sha256);
+        push_string(bytes, &position.expected_engine_options_sha256);
     }
-    bytes
 }
 
 fn encode_position_receipt_identity(receipt: &T27PositionReceiptV1) -> Vec<u8> {
@@ -1896,11 +2072,11 @@ fn valid_sha256(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_positions, build_t27_execution_plan, decode_t27_execution_plan,
-        validate_t27_position_receipts, verify_t27_plan_poison, verify_t27_position_poison,
-        T27ExecutionEnvelopeV1, T27ExecutionPlanV1, T27ExpectedIdentityV1, T27PlanPoisonV1,
-        T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
-        T27PositionPoisonV1, T27PositionReceiptV1,
+        build_positions, build_t27_execution_incarnation, build_t27_execution_plan,
+        decode_t27_execution_plan, validate_t27_position_receipts, verify_t27_plan_poison,
+        verify_t27_position_poison, T27ExecutionEnvelopeV1, T27ExecutionPlanV1,
+        T27ExpectedIdentityV1, T27PlanPoisonV1, T27PlanProfileV1, T27PlanRunReceiptV1,
+        T27PlanSubjectV1, T27PositionObservationV1, T27PositionPoisonV1, T27PositionReceiptV1,
     };
     use crate::object_fixture::{FixturePlacementLocatorV1, ObjectFixtureLocatorV1};
     use crate::telemetry::TelemetryFlushReport;
@@ -1949,6 +2125,76 @@ mod tests {
             .iter()
             .all(|position| position.trace_seed != fixture.fixture_seed));
         plan.validate().expect("validate preflight plan");
+    }
+
+    #[test]
+    fn execution_incarnation_preserves_workload_and_runtime_on_replacement_machine() {
+        let fixture = locator(65_536);
+        let source = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let (incarnated, receipt) =
+            build_t27_execution_incarnation(&source, replacement_execution())
+                .expect("bind frozen workload to replacement machine");
+
+        assert_ne!(source.plan_sha256, incarnated.plan_sha256);
+        assert_eq!(
+            source.calculated_workload_sha256(),
+            incarnated.calculated_workload_sha256()
+        );
+        assert_eq!(source.positions, incarnated.positions);
+        assert_eq!(source.expected, incarnated.expected);
+        receipt
+            .validate(&source, &incarnated)
+            .expect("validate execution incarnation receipt");
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../evals/schema/t27-execution-incarnation-receipt-v1.schema.json"
+        ))
+        .expect("decode execution incarnation schema");
+        let validator =
+            jsonschema::validator_for(&schema).expect("compile execution incarnation schema");
+        let instance = serde_json::to_value(&receipt).expect("encode incarnation receipt");
+        validator
+            .validate(&instance)
+            .expect("incarnation receipt must satisfy its schema");
+    }
+
+    #[test]
+    fn execution_incarnation_rejects_runtime_drift() {
+        let fixture = locator(65_536);
+        let source = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let mut replacement = replacement_execution();
+        replacement.runtime_executable_sha256 = "0".repeat(64);
+
+        let error = build_t27_execution_incarnation(&source, replacement)
+            .expect_err("runtime drift must fail");
+        assert!(error.contains("runtime identity"));
+    }
+
+    #[test]
+    fn execution_incarnation_rejects_same_machine_identity() {
+        let fixture = locator(65_536);
+        let source = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let mut replacement = replacement_execution();
+        replacement.machine_instance_id = source.execution.machine_instance_id.clone();
+
+        let error = build_t27_execution_incarnation(&source, replacement)
+            .expect_err("same machine must fail");
+        assert!(error.contains("replacement machine"));
+    }
+
+    #[test]
+    fn execution_incarnation_receipt_rejects_workload_digest_tampering() {
+        let fixture = locator(65_536);
+        let source = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let (incarnated, mut receipt) =
+            build_t27_execution_incarnation(&source, replacement_execution())
+                .expect("build incarnation receipt");
+        receipt.workload_sha256 = "0".repeat(64);
+        receipt.receipt_sha256 = receipt.calculated_receipt_sha256();
+
+        let error = receipt
+            .validate(&source, &incarnated)
+            .expect_err("workload digest tampering must fail");
+        assert!(error.contains("identity mismatch"));
     }
 
     #[test]
@@ -2539,6 +2785,17 @@ mod tests {
             scratch_block_device: "/dev/nvme0n1".to_owned(),
             host_lease_path: "/var/lib/objectkv/t27.lock".to_owned(),
         }
+    }
+
+    fn replacement_execution() -> T27ExecutionEnvelopeV1 {
+        let mut replacement = execution();
+        replacement.machine_receipt_sha256 = "c".repeat(64);
+        replacement.machine_instance_id = "987654321".to_owned();
+        replacement.infrastructure_lease_expires_epoch = 2_100_000_000;
+        replacement.linux_boot_id = "40000000-0000-4000-8000-000000000002".to_owned();
+        replacement.scratch_filesystem_uuid = "50000000-0000-4000-8000-000000000002".to_owned();
+        replacement.host_lease_path = "/var/lib/objectkv/t27-replacement.lock".to_owned();
+        replacement
     }
 
     fn locator(key_count: u64) -> FixturePlacementLocatorV1 {
