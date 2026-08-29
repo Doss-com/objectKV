@@ -201,6 +201,26 @@ pub(crate) struct BuiltFixture {
     pub reused: bool,
 }
 
+/// Exact descriptor identity used to reopen one persisted fixture without
+/// regenerating or rewriting its logical base.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ObjectFixtureLocatorV1 {
+    pub fixture_id: String,
+    pub descriptor_length: u64,
+    pub descriptor_sha256: String,
+}
+
+impl BuiltFixture {
+    #[must_use]
+    pub(crate) fn locator(&self) -> ObjectFixtureLocatorV1 {
+        ObjectFixtureLocatorV1 {
+            fixture_id: self.fixture_id.clone(),
+            descriptor_length: u64::try_from(self.descriptor_bytes.len()).unwrap_or(u64::MAX),
+            descriptor_sha256: self.descriptor_sha256.clone(),
+        }
+    }
+}
+
 struct VerifiedFixture {
     descriptor: ObjectFixtureDescriptorV1,
     records: Vec<RowRecord>,
@@ -636,6 +656,38 @@ pub(crate) async fn verify_fixture_records(
     .records)
 }
 
+pub(crate) async fn open_existing_fixture(
+    backend: &Arc<dyn Backend>,
+    locator: &ObjectFixtureLocatorV1,
+    anchor_version: u64,
+) -> Result<(BuiltFixture, Vec<RowRecord>, f64), String> {
+    let descriptor_length = usize::try_from(locator.descriptor_length)
+        .map_err(|_| "object fixture descriptor length exceeds usize".to_owned())?;
+    let verified = verify_fixture(
+        backend,
+        &locator.fixture_id,
+        descriptor_length,
+        &locator.descriptor_sha256,
+        anchor_version,
+    )
+    .await?;
+    let descriptor_bytes =
+        serde_json::to_vec(&verified.descriptor).map_err(|error| error.to_string())?;
+    if descriptor_bytes.len() != descriptor_length
+        || content_sha256(&descriptor_bytes) != locator.descriptor_sha256
+    {
+        return Err("reopened fixture descriptor identity changed after decoding".to_owned());
+    }
+    let fixture = BuiltFixture {
+        descriptor: verified.descriptor,
+        fixture_id: locator.fixture_id.clone(),
+        descriptor_sha256: locator.descriptor_sha256.clone(),
+        descriptor_bytes,
+        reused: true,
+    };
+    Ok((fixture, verified.records, verified.verification_seconds))
+}
+
 async fn verify_closure(
     client: &ObjectClient,
     descriptor: &ObjectFixtureDescriptorV1,
@@ -917,7 +969,7 @@ pub(crate) fn base_records(
         .collect())
 }
 
-fn base_value_txlog_accounting(
+pub(crate) fn base_value_txlog_accounting(
     retained: &[RetainedTransactionRecord],
     base: &[RowRecord],
 ) -> (u64, u64) {
@@ -1288,9 +1340,10 @@ fn deterministic_value(seed: u64, domain: &[u8], length: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        content_sha256, logical_image_sha256, FixtureManifestIdentityV1, LogicalOutcome,
-        ObjectFixtureDescriptorV1,
+        base_records, build_fixture, content_sha256, logical_image_sha256, open_existing_fixture,
+        FixtureManifestIdentityV1, LogicalOutcome, ObjectFixtureDescriptorV1, ObjectFixtureProfile,
     };
+    use okv_object::{memory_backend, ObjectClient};
     use std::collections::BTreeMap;
 
     fn descriptor() -> ObjectFixtureDescriptorV1 {
@@ -1339,5 +1392,37 @@ mod tests {
         let first = logical_image_sha256(&image);
         image.insert(b"b".to_vec(), LogicalOutcome::Absent);
         assert_ne!(first, logical_image_sha256(&image));
+    }
+
+    #[tokio::test]
+    async fn persisted_fixture_reopens_by_exact_descriptor_identity() {
+        let profile = ObjectFixtureProfile {
+            key_count: 17,
+            value_bytes: 8,
+            target_object_bytes: 4_096,
+            target_block_bytes: 4_096,
+        };
+        let backend = memory_backend();
+        let records = base_records(7, &profile, 2).expect("base records");
+        let built = build_fixture(
+            7,
+            &profile,
+            2,
+            &records,
+            &ObjectClient::new(backend.clone()),
+        )
+        .await
+        .expect("build fixture");
+        let locator = built.locator();
+        let (reopened, reopened_records, _) = open_existing_fixture(&backend, &locator, 2)
+            .await
+            .expect("open exact fixture");
+        assert!(reopened.reused);
+        assert_eq!(reopened.locator(), locator);
+        assert_eq!(reopened_records, records);
+
+        let mut wrong = locator;
+        wrong.descriptor_sha256 = content_sha256(b"wrong descriptor");
+        assert!(open_existing_fixture(&backend, &wrong, 2).await.is_err());
     }
 }

@@ -3,10 +3,11 @@
 
 use crate::fixture_anchor::establish_fixture_anchor;
 use crate::object_fixture::{
-    base_records as object_fixture_base_records, build_fixture as build_object_fixture,
-    logical_image_sha256, tail_sha256 as object_fixture_tail_sha256,
-    validate_tail as validate_object_fixture_tail, verify_fixture_records, BuiltFixture,
-    LogicalOutcome, ObjectFixtureProfile, ResidentImageDescriptorV1,
+    base_records as object_fixture_base_records, base_value_txlog_accounting,
+    build_fixture as build_object_fixture, logical_image_sha256, open_existing_fixture,
+    tail_sha256 as object_fixture_tail_sha256, validate_tail as validate_object_fixture_tail,
+    verify_fixture_records, BuiltFixture, LogicalOutcome, ObjectFixtureLocatorV1,
+    ObjectFixtureProfile, ResidentImageDescriptorV1,
 };
 use crate::serving_recovery::{ServingReadOutcome, ServingRecoveryProfile};
 use nix::sys::resource::{getrusage, UsageWho};
@@ -17,7 +18,7 @@ use okv_consensus::{
     PublicationCommand, PublicationCommandStatus, PublicationIntent, PublicationObjectKind,
     PublicationObjectReference, RequestIdentity, RetainedTransactionReadRequest,
     RetainedTransactionRecord, TransactionAuthorityProcessFixture, TransactionBatchItem,
-    TransactionLogClient, TransactionMutation,
+    TransactionLogClient, TransactionLogStorageStatsRequest, TransactionMutation,
 };
 use okv_object::{
     content_sha256, encode_row_object_set, filesystem_backend, gcs_backend_from_env,
@@ -360,6 +361,30 @@ pub struct OpenRaftObjectFixtureImageReport {
     pub scratch_was_empty: bool,
 }
 
+/// Controller-side setup evidence for one content-addressed object fixture.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct OpenRaftObjectFixtureSetupReport {
+    pub locator: ObjectFixtureLocatorV1,
+    pub fixture_reused: bool,
+    pub fixture_opened_existing: bool,
+    pub fixture_setup_seconds: f64,
+    pub fixture_verification_seconds: f64,
+    pub fixture_object_requests: u64,
+    pub fixture_object_request_bytes: u64,
+    pub fixture_object_response_bytes: u64,
+    pub fixture_object_count: u64,
+    pub fixture_object_bytes: u64,
+    pub decoded_base_records: u64,
+    pub all_base_records_at_anchor: bool,
+    pub base_anchor_version: u64,
+    pub anchor_txlog_records: u64,
+    pub anchor_txlog_mutations: u64,
+    pub base_value_txlog_records: u64,
+    pub base_value_txlog_mutation_bytes: u64,
+    pub transaction_authority_serialized_bytes: u64,
+    pub transaction_authority_physical_bytes: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OpenRaftServingRead {
     pub key: Vec<u8>,
@@ -380,6 +405,8 @@ pub struct OpenRaftServingRecoveryReport {
     pub exact_replay: bool,
     pub semantic_sha256: String,
     pub process: OpenRaftServingProcessReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_fixture_setup: Option<OpenRaftObjectFixtureSetupReport>,
 }
 
 #[derive(Clone, Debug)]
@@ -619,6 +646,7 @@ pub fn run_openraft_serving_recovery_contract_with_hot_reads(
         hot_read,
         BaseBootstrap::Transactional,
         false,
+        None,
     ))
 }
 
@@ -638,6 +666,36 @@ pub fn run_openraft_serving_recovery_contract_from_object_fixture(
     hot_read: OpenRaftHotReadProfile,
     regenerate_control_poison: bool,
 ) -> Result<OpenRaftServingRecoveryReport, String> {
+    run_openraft_serving_recovery_contract_from_object_fixture_locator(
+        seed,
+        profile,
+        max_page_records,
+        executable,
+        object_backend,
+        hot_read,
+        regenerate_control_poison,
+        None,
+    )
+}
+
+/// Run object-fixture recovery, optionally reopening a previously verified
+/// descriptor by exact identity instead of regenerating its logical base.
+///
+/// # Errors
+///
+/// Returns an error when the fixture, authority anchor, exact tail, resident
+/// image, or persisted descriptor identity fails verification.
+#[allow(clippy::too_many_arguments)]
+pub fn run_openraft_serving_recovery_contract_from_object_fixture_locator(
+    seed: u64,
+    profile: &ServingRecoveryProfile,
+    max_page_records: u32,
+    executable: &Path,
+    object_backend: OpenRaftServingObjectBackend,
+    hot_read: OpenRaftHotReadProfile,
+    regenerate_control_poison: bool,
+    existing_fixture: Option<ObjectFixtureLocatorV1>,
+) -> Result<OpenRaftServingRecoveryReport, String> {
     if max_page_records == 0 || max_page_records > 4_096 {
         return Err("retained stream page bound must be in 1..=4096".to_owned());
     }
@@ -656,6 +714,7 @@ pub fn run_openraft_serving_recovery_contract_from_object_fixture(
         Some(hot_read),
         BaseBootstrap::ObjectFixture,
         regenerate_control_poison,
+        existing_fixture,
     ))
 }
 
@@ -2299,7 +2358,7 @@ impl OpenedResidentEngine {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 async fn run_contract(
     seed: u64,
     mode: OpenRaftServingRecoveryMode,
@@ -2310,7 +2369,9 @@ async fn run_contract(
     hot_read: Option<OpenRaftHotReadProfile>,
     bootstrap: BaseBootstrap,
     regenerate_control_poison: bool,
+    existing_fixture: Option<ObjectFixtureLocatorV1>,
 ) -> Result<OpenRaftServingRecoveryReport, String> {
+    let contract_started = Instant::now();
     validate_profile(profile)?;
     let root = TempDir::new().map_err(|error| error.to_string())?;
     let serving_root = serving_scratch_root()?;
@@ -2320,13 +2381,17 @@ async fn run_contract(
     fs::create_dir_all(&object_store_root).map_err(|error| error.to_string())?;
     fs::create_dir_all(&first_scratch).map_err(|error| error.to_string())?;
     fs::create_dir_all(&replacement_scratch).map_err(|error| error.to_string())?;
-    let opened_backend = object_backend.open(&object_store_root)?;
+    let observed_backend = Arc::new(ObservedBackend::new(
+        object_backend.open(&object_store_root)?,
+    ));
+    let opened_backend: Arc<dyn Backend> = observed_backend.clone();
 
     let publication = PublicationAuthorityProcessFixture::start(executable, seed).await?;
     let publication_client = publication.client()?;
     let transaction = TransactionAuthorityProcessFixture::start(executable, seed).await?;
     let transaction_client = transaction.client()?;
     let mut next_request_id = 1_u64;
+    let mut object_fixture_setup = None;
     let (history, object_durable_version, published, object_fixture) = match bootstrap {
         BaseBootstrap::Transactional => {
             let (history, object_durable_version) =
@@ -2358,36 +2423,88 @@ async fn run_contract(
                 target_object_bytes: profile.target_object_bytes,
                 target_block_bytes: profile.target_block_bytes,
             };
-            let base_records = object_fixture_base_records(seed, &fixture_profile, anchor.version)?;
-            let fixture = build_object_fixture(
-                seed,
-                &fixture_profile,
-                anchor.version,
-                &base_records,
-                &ObjectClient::new(opened_backend.clone()),
-            )
-            .await?;
-            let verified = verify_fixture_records(
-                &opened_backend,
-                &fixture.fixture_id,
-                fixture.descriptor_bytes.len(),
-                &fixture.descriptor_sha256,
-                anchor.version,
-            )
-            .await?;
-            if verified != base_records {
-                return Err("fresh-process object fixture differs from its closure".to_owned());
-            }
+            let (fixture, verified, verification_seconds, opened_existing) = if let Some(locator) =
+                existing_fixture.as_ref()
+            {
+                let (fixture, records, verification_seconds) =
+                    open_existing_fixture(&opened_backend, locator, anchor.version).await?;
+                (fixture, records, verification_seconds, true)
+            } else {
+                let base_records =
+                    object_fixture_base_records(seed, &fixture_profile, anchor.version)?;
+                let fixture = build_object_fixture(
+                    seed,
+                    &fixture_profile,
+                    anchor.version,
+                    &base_records,
+                    &ObjectClient::new(opened_backend.clone()),
+                )
+                .await?;
+                let verification_started = Instant::now();
+                let records = verify_fixture_records(
+                    &opened_backend,
+                    &fixture.fixture_id,
+                    fixture.descriptor_bytes.len(),
+                    &fixture.descriptor_sha256,
+                    anchor.version,
+                )
+                .await?;
+                if records != base_records {
+                    return Err("fresh-process object fixture differs from its closure".to_owned());
+                }
+                (
+                    fixture,
+                    records,
+                    verification_started.elapsed().as_secs_f64(),
+                    false,
+                )
+            };
             let published =
                 publish_existing_fixture_root(seed, &fixture, &opened_backend, &publication_client)
                     .await?;
-            let mut history = history_after_base(seed, profile, anchor.version, base_records);
+            let fixture_stats = observed_backend.stats();
+            object_fixture_setup = Some(OpenRaftObjectFixtureSetupReport {
+                locator: fixture.locator(),
+                fixture_reused: fixture.reused,
+                fixture_opened_existing: opened_existing,
+                fixture_setup_seconds: contract_started.elapsed().as_secs_f64(),
+                fixture_verification_seconds: verification_seconds,
+                fixture_object_requests: fixture_stats
+                    .requests
+                    .iter()
+                    .map(|request| request.count)
+                    .sum(),
+                fixture_object_request_bytes: fixture_stats
+                    .requests
+                    .iter()
+                    .map(|request| request.request_bytes)
+                    .sum(),
+                fixture_object_response_bytes: fixture_stats
+                    .requests
+                    .iter()
+                    .map(|request| request.response_bytes)
+                    .sum(),
+                fixture_object_count: fixture.descriptor.object_count,
+                fixture_object_bytes: fixture.descriptor.object_bytes,
+                decoded_base_records: u64::try_from(verified.len()).unwrap_or(u64::MAX),
+                all_base_records_at_anchor: verified
+                    .iter()
+                    .all(|record| record.version == anchor.version),
+                base_anchor_version: anchor.version,
+                anchor_txlog_records: 0,
+                anchor_txlog_mutations: 0,
+                base_value_txlog_records: 0,
+                base_value_txlog_mutation_bytes: 0,
+                transaction_authority_serialized_bytes: 0,
+                transaction_authority_physical_bytes: 0,
+            });
+            let mut history = history_after_base(seed, profile, anchor.version, verified);
             history.expected = evaluate_expected(&history, profile)?;
             let process_fixture = OpenRaftObjectFixtureProcessConfig {
-                fixture_id: fixture.fixture_id,
+                fixture_id: fixture.fixture_id.clone(),
                 descriptor_length: u64::try_from(fixture.descriptor_bytes.len())
                     .unwrap_or(u64::MAX),
-                descriptor_sha256: fixture.descriptor_sha256,
+                descriptor_sha256: fixture.descriptor_sha256.clone(),
                 base_version: anchor.version,
                 key_count: profile.key_count,
                 value_bytes: profile.value_bytes,
@@ -2528,6 +2645,43 @@ async fn run_contract(
             return Err("replacement object-fixture image evidence is inconsistent".to_owned());
         }
     }
+    if let Some(setup) = object_fixture_setup.as_mut() {
+        let retained = transaction_client
+            .read(RetainedTransactionReadRequest {
+                after_version_exclusive: 0,
+                after_batch_order_exclusive: None,
+                through_version_inclusive: Some(read_version),
+                max_records: 16,
+            })
+            .await?;
+        if !retained.complete {
+            return Err("object-fixture setup accounting omitted retained records".to_owned());
+        }
+        let anchor_records = retained
+            .records
+            .iter()
+            .filter(|record| record.commit_version == setup.base_anchor_version)
+            .collect::<Vec<_>>();
+        setup.anchor_txlog_records = u64::try_from(anchor_records.len()).unwrap_or(u64::MAX);
+        setup.anchor_txlog_mutations = anchor_records
+            .iter()
+            .map(|record| u64::try_from(record.command.mutations.len()).unwrap_or(u64::MAX))
+            .sum();
+        (
+            setup.base_value_txlog_records,
+            setup.base_value_txlog_mutation_bytes,
+        ) = base_value_txlog_accounting(&retained.records, &history.base_records);
+        let storage = transaction_client
+            .storage_stats(TransactionLogStorageStatsRequest::default())
+            .await?;
+        if storage.high_watermark != read_version
+            || storage.retained_records != u64::try_from(retained.records.len()).unwrap_or(u64::MAX)
+        {
+            return Err("object-fixture setup storage accounting is inconsistent".to_owned());
+        }
+        setup.transaction_authority_serialized_bytes = storage.snapshot_bytes;
+        setup.transaction_authority_physical_bytes = transaction.physical_storage_bytes()?;
+    }
     let correctness_anomalies = u64::try_from(
         process
             .reads
@@ -2569,6 +2723,7 @@ async fn run_contract(
         exact_replay,
         semantic_sha256,
         process,
+        object_fixture_setup,
     })
 }
 

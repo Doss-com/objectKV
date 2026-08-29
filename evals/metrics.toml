@@ -55,6 +55,16 @@ attributes = ["lane", "workload", "operation", "backend", "sample"]
 required_attributes = ["lane", "workload", "operation", "backend"]
 
 [[metrics]]
+id = "object_fixture.setup_seconds"
+otel_name = "okv.eval.object_fixture.setup_seconds"
+kind = "histogram"
+unit = "s"
+description = "Controller time to establish an empty authority anchor and create or exactly reopen one authenticated object fixture"
+attributes = ["lane", "workload", "operation", "backend", "subject", "ordinal", "result"]
+required_attributes = ["lane", "workload", "operation", "backend", "subject", "ordinal", "result"]
+boundaries = [0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 180.0, 240.0, 300.0]
+
+[[metrics]]
 id = "object_store.requests"
 otel_name = "okv.eval.object_store.requests"
 kind = "counter"

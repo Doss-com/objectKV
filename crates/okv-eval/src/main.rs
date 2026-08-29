@@ -62,6 +62,7 @@ use okv_eval::serving_recovery::{
 use okv_eval::serving_recovery_openraft::{
     run_openraft_serving_recovery_contract,
     run_openraft_serving_recovery_contract_from_object_fixture,
+    run_openraft_serving_recovery_contract_from_object_fixture_locator,
     run_openraft_serving_recovery_contract_with_hot_reads, run_openraft_serving_recovery_node,
     OpenRaftHotReadAccessPattern, OpenRaftHotReadNegativeControl, OpenRaftHotReadProfile,
     OpenRaftHotReadReport, OpenRaftHotReadSampleReport, OpenRaftHotReadStorageReport,
@@ -1617,6 +1618,9 @@ fn execute_workload(
         }
         "object_fixture_resident_process_contract" => {
             run_object_fixture_resident_process(workload, seeds, backend, dataset, profile)
+        }
+        "object_fixture_gcs_preflight_contract" => {
+            run_object_fixture_gcs_preflight(workload, seeds, backend, dataset, profile)
         }
         "frontiered_process_snapshot_contract" => {
             run_frontiered_process_snapshot(workload, seeds, backend, dataset, profile)
@@ -8519,6 +8523,439 @@ fn run_object_fixture_resident_process(
                     .filter_map(|(_, control)| control.process.object_fixture_image.as_ref())
                     .map(|image| resident_count_as_f64(image.local_bytes))
                     .sum(),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_object_fixture_gcs_preflight(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+    dataset: Option<&DatasetConfig>,
+    profile_config: &ProfileConfig,
+) -> WorkloadExecution {
+    const EXPECTED_BACKEND: &str =
+        "object-store-gcs+data-openraft-local-process+rocksdb-resident+persisted-fixture";
+    if backend != EXPECTED_BACKEND {
+        return execution_from_result(Err(format!(
+            "object fixture GCS preflight requires {EXPECTED_BACKEND}, got {backend}"
+        )));
+    }
+    let Some(dataset) = dataset else {
+        return execution_from_result(Err(
+            "object fixture GCS preflight requires a fixed dataset".to_owned()
+        ));
+    };
+    if seeds.is_empty() || dataset.logical_bytes == 0 || dataset.key_count == 0 {
+        return execution_from_result(Err(
+            "object fixture GCS preflight requires fixed seeds and data".to_owned(),
+        ));
+    }
+    let integer = |name: &str| {
+        profile_config
+            .parameters
+            .get(name)
+            .and_then(toml::Value::as_integer)
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| format!("object fixture GCS profile requires integer {name}"))
+    };
+    let value_bytes = match integer("value_bytes")
+        .and_then(|value| usize::try_from(value).map_err(|error| error.to_string()))
+    {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let target_object_bytes = match integer("target_object_bytes")
+        .and_then(|value| usize::try_from(value).map_err(|error| error.to_string()))
+    {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let target_block_bytes = match integer("target_block_bytes")
+        .and_then(|value| usize::try_from(value).map_err(|error| error.to_string()))
+    {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let max_local_bytes = match integer("max_local_bytes") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let block_cache_bytes = match integer("block_cache_bytes") {
+        Ok(value) => value,
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let minimum_reopens = match integer("minimum_exact_descriptor_reopens") {
+        Ok(value) => usize::try_from(value).unwrap_or(usize::MAX),
+        Err(error) => return execution_from_result(Err(error)),
+    };
+    let max_scratch_ratio = match profile_config
+        .parameters
+        .get("max_transaction_authority_scratch_ratio")
+        .and_then(toml::Value::as_float)
+    {
+        Some(value) if value.is_finite() && value > 0.0 => value,
+        _ => {
+            return execution_from_result(Err(
+                "object fixture GCS profile requires a positive scratch ratio".to_owned(),
+            ));
+        }
+    };
+    let prefix_env = match profile_config
+        .parameters
+        .get("gcs_prefix_env")
+        .and_then(toml::Value::as_str)
+    {
+        Some(value) if !value.is_empty() => value,
+        _ => {
+            return execution_from_result(Err(
+                "object fixture GCS profile requires gcs_prefix_env".to_owned(),
+            ));
+        }
+    };
+    let prefix = match std::env::var(prefix_env) {
+        Ok(value)
+            if !value.is_empty()
+                && !value.starts_with('/')
+                && !value.contains("..")
+                && !value.contains("://") =>
+        {
+            value
+        }
+        _ => {
+            return execution_from_result(Err(format!(
+                "{prefix_env} must contain a non-empty provider-relative GCS prefix"
+            )));
+        }
+    };
+    if dataset
+        .key_count
+        .saturating_mul(u64::try_from(value_bytes).unwrap_or(u64::MAX))
+        != dataset.logical_bytes
+    {
+        return execution_from_result(Err(
+            "object fixture GCS profile disagrees with dataset bytes".to_owned(),
+        ));
+    }
+    let poison = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str)
+        == Some("reuse_bypass_poison");
+    let recovery_profile = ServingRecoveryProfile {
+        key_count: dataset.key_count,
+        value_bytes,
+        target_object_bytes,
+        target_block_bytes,
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+    let order = [
+        OpenRaftHotReadSubject::NativeSnapshot,
+        OpenRaftHotReadSubject::DirectOwnedRocksdb,
+        OpenRaftHotReadSubject::DirectOwnedRocksdb,
+        OpenRaftHotReadSubject::NativeSnapshot,
+    ];
+    let mut reports = Vec::with_capacity(seeds.len().saturating_mul(order.len()));
+    for seed in seeds {
+        let mut locator = None;
+        for (ordinal, subject) in order.iter().copied().enumerate() {
+            let existing = if ordinal == 0 || (poison && ordinal == 1) {
+                None
+            } else {
+                locator.clone()
+            };
+            let report = match run_openraft_serving_recovery_contract_from_object_fixture_locator(
+                *seed,
+                &recovery_profile,
+                2,
+                &executable,
+                OpenRaftServingObjectBackend::Gcs {
+                    prefix: prefix.clone(),
+                },
+                OpenRaftHotReadProfile {
+                    subject,
+                    seed: *seed,
+                    key_count: dataset.key_count,
+                    value_bytes,
+                    warmup_operations: 256,
+                    measured_operations: 1_024,
+                    concurrent_clients: 1,
+                    access_pattern: OpenRaftHotReadAccessPattern::Hotset80_20,
+                    max_local_bytes,
+                    block_cache_bytes,
+                    direct_reads: false,
+                    sample_count: 1,
+                    negative_control: None,
+                },
+                false,
+                existing,
+            ) {
+                Ok(report) => report,
+                Err(error) => return execution_from_result(Err(error)),
+            };
+            let Some(setup) = report.object_fixture_setup.as_ref() else {
+                return execution_from_result(Err(
+                    "object fixture GCS run omitted setup evidence".to_owned()
+                ));
+            };
+            if locator.is_none() {
+                locator = Some(setup.locator.clone());
+            }
+            reports.push(report);
+        }
+    }
+
+    let setups = reports
+        .iter()
+        .filter_map(|report| report.object_fixture_setup.as_ref())
+        .collect::<Vec<_>>();
+    let images = reports
+        .iter()
+        .filter_map(|report| report.process.object_fixture_image.as_ref())
+        .collect::<Vec<_>>();
+    let expected_reports = seeds.len().saturating_mul(order.len());
+    let one_fixture_identity = setups.len() == expected_reports
+        && images.len() == expected_reports
+        && setups
+            .first()
+            .is_some_and(|first| setups.iter().all(|setup| setup.locator == first.locator))
+        && setups.first().is_some_and(|first| {
+            images
+                .iter()
+                .all(|image| image.fixture_id == first.locator.fixture_id)
+        });
+    let one_tail_identity = images.first().is_some_and(|first| {
+        images
+            .iter()
+            .all(|image| image.tail_sha256 == first.tail_sha256)
+    });
+    let abba_subject_order = reports.len() == expected_reports
+        && reports.chunks_exact(order.len()).all(|chunk| {
+            chunk.iter().zip(order).all(|(report, expected)| {
+                report
+                    .process
+                    .object_fixture_image
+                    .as_ref()
+                    .is_some_and(|image| image.subject == expected)
+            })
+        });
+    let fresh_subject_processes = reports.iter().all(|report| {
+        report.worker_process_starts == 2
+            && report.worker_process_kills == 1
+            && report.empty_scratch_restarts == 1
+            && report
+                .process
+                .object_fixture_image
+                .as_ref()
+                .is_some_and(|image| image.scratch_was_empty)
+    });
+    let exact_reopens = setups
+        .iter()
+        .filter(|setup| setup.fixture_opened_existing)
+        .count();
+    let minimum_three_exact_descriptor_reopens = exact_reopens >= minimum_reopens
+        && setups
+            .chunks_exact(order.len())
+            .all(|chunk| chunk.iter().skip(1).all(|setup| setup.fixture_reused));
+    let one_empty_anchor_per_authority = setups.iter().all(|setup| {
+        setup.base_anchor_version == 2
+            && setup.anchor_txlog_records == 1
+            && setup.anchor_txlog_mutations == 0
+    });
+    let zero_base_values_in_txlog = setups.iter().all(|setup| {
+        setup.base_value_txlog_records == 0 && setup.base_value_txlog_mutation_bytes == 0
+    });
+    let complete_closure_at_anchor = setups.iter().all(|setup| {
+        setup.decoded_base_records == dataset.key_count
+            && setup.all_base_records_at_anchor
+            && setup.fixture_object_count >= 3
+            && setup.fixture_object_bytes > 0
+    });
+    let max_setup_seconds = setups
+        .iter()
+        .map(|setup| setup.fixture_setup_seconds)
+        .fold(0.0_f64, f64::max);
+    let setup_within_300_seconds = max_setup_seconds <= 300.0;
+    let max_scratch_bytes = setups
+        .iter()
+        .map(|setup| setup.transaction_authority_physical_bytes)
+        .max()
+        .unwrap_or(u64::MAX);
+    let observed_scratch_ratio =
+        resident_count_as_f64(max_scratch_bytes) / resident_count_as_f64(dataset.logical_bytes);
+    let transaction_authority_scratch_at_most_0_25x = observed_scratch_ratio <= max_scratch_ratio;
+    let resident_logical_images_equal = images.first().is_some_and(|first| {
+        images
+            .iter()
+            .all(|image| image.resident_logical_sha256 == first.resident_logical_sha256)
+    });
+    let post_activation_zero_object_requests = reports.iter().all(|report| {
+        report
+            .process
+            .hot_read
+            .as_ref()
+            .is_some_and(|hot| hot.object_requests == 0 && hot.correctness_failures == 0)
+    });
+    let recovery_exact = reports.iter().all(|report| report.exact_replay);
+    let reuse_bypass_poison_detected = !poison || !minimum_three_exact_descriptor_reopens;
+    let release_build = !cfg!(debug_assertions);
+    let candidate_exact = recovery_exact
+        && one_fixture_identity
+        && one_tail_identity
+        && abba_subject_order
+        && fresh_subject_processes
+        && minimum_three_exact_descriptor_reopens
+        && one_empty_anchor_per_authority
+        && zero_base_values_in_txlog
+        && complete_closure_at_anchor
+        && setup_within_300_seconds
+        && transaction_authority_scratch_at_most_0_25x
+        && resident_logical_images_equal
+        && post_activation_zero_object_requests;
+    let exact = release_build
+        && if poison {
+            reuse_bypass_poison_detected
+        } else {
+            candidate_exact
+        };
+    let gate = |id: &str, passed: bool| {
+        HardGateResult {
+        id: id.to_owned(),
+        status: gate_status(passed),
+        detail: Some(format!(
+            "poison={poison},prefix={prefix},reopens={exact_reopens},max_setup_seconds={max_setup_seconds:.6},scratch_ratio={observed_scratch_ratio:.6}"
+        )),
+    }
+    };
+    let mut measurements = reports
+        .iter()
+        .enumerate()
+        .filter_map(|(ordinal, report)| {
+            let setup = report.object_fixture_setup.as_ref()?;
+            let subject = report
+                .process
+                .object_fixture_image
+                .as_ref()
+                .map_or("absent", |image| match image.subject {
+                    OpenRaftHotReadSubject::NativeSnapshot => "native_snapshot",
+                    OpenRaftHotReadSubject::DirectOwnedRocksdb => "direct_owned_rocksdb",
+                });
+            let ordinal = ordinal.to_string();
+            Some(Measurement {
+                metric: "object_fixture.setup_seconds",
+                value: setup.fixture_setup_seconds,
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("operation", "object-fixture-gcs-preflight"),
+                    ("backend", backend),
+                    ("subject", subject),
+                    ("ordinal", &ordinal),
+                    ("result", if exact { "pass" } else { "fail" }),
+                ]),
+            })
+        })
+        .collect::<Vec<_>>();
+    measurements.push(Measurement {
+        metric: "correctness.anomalies",
+        value: if exact { 0.0 } else { 1.0 },
+        attributes: attributes(&[
+            ("lane", &workload.lane),
+            ("workload", &workload.id),
+            ("oracle", "object-fixture-gcs-preflight-v1"),
+            (
+                "anomaly.class",
+                if exact {
+                    "none"
+                } else {
+                    "object-fixture-gcs-preflight"
+                },
+            ),
+        ]),
+    });
+    WorkloadExecution {
+        error: (!exact).then(|| "object fixture GCS preflight gate failed".to_owned()),
+        measurements,
+        hard_gates: vec![
+            gate("gcs_backend_exact", true),
+            gate("one_fixture_identity", poison || one_fixture_identity),
+            gate("one_tail_identity", poison || one_tail_identity),
+            gate("abba_subject_order", poison || abba_subject_order),
+            gate("fresh_subject_processes", poison || fresh_subject_processes),
+            gate(
+                "minimum_three_exact_descriptor_reopens",
+                poison || minimum_three_exact_descriptor_reopens,
+            ),
+            gate(
+                "one_empty_anchor_per_authority",
+                poison || one_empty_anchor_per_authority,
+            ),
+            gate(
+                "zero_base_values_in_txlog",
+                poison || zero_base_values_in_txlog,
+            ),
+            gate(
+                "complete_closure_at_anchor",
+                poison || complete_closure_at_anchor,
+            ),
+            gate(
+                "setup_within_300_seconds",
+                poison || setup_within_300_seconds,
+            ),
+            gate(
+                "transaction_authority_scratch_at_most_0_25x",
+                poison || transaction_authority_scratch_at_most_0_25x,
+            ),
+            gate(
+                "resident_logical_images_equal",
+                poison || resident_logical_images_equal,
+            ),
+            gate(
+                "post_activation_zero_object_requests",
+                poison || post_activation_zero_object_requests,
+            ),
+            gate("reuse_bypass_poison_detected", reuse_bypass_poison_detected),
+            gate("release_build", release_build),
+        ],
+        budget_units: max_setup_seconds,
+        artifact_refs: reports
+            .iter()
+            .map(|report| {
+                format!(
+                    "okv-eval://object-fixture-gcs-preflight-v1/{}",
+                    report.semantic_sha256
+                )
+            })
+            .collect(),
+        secondary_metrics: BTreeMap::from([
+            (
+                "object_fixture.gcs_exact_descriptor_reopens".to_owned(),
+                resident_count_as_f64(u64::try_from(exact_reopens).unwrap_or(u64::MAX)),
+            ),
+            (
+                "object_fixture.transaction_authority_scratch_ratio_max".to_owned(),
+                observed_scratch_ratio,
+            ),
+            (
+                "object_fixture.transaction_authority_physical_bytes_max".to_owned(),
+                resident_count_as_f64(max_scratch_bytes),
+            ),
+            (
+                "object_fixture.fixture_request_bytes_total".to_owned(),
+                setups.iter().fold(0.0, |total, setup| {
+                    total + resident_count_as_f64(setup.fixture_object_request_bytes)
+                }),
+            ),
+            (
+                "object_fixture.fixture_response_bytes_total".to_owned(),
+                setups.iter().fold(0.0, |total, setup| {
+                    total + resident_count_as_f64(setup.fixture_object_response_bytes)
+                }),
             ),
         ]),
     }

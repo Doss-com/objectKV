@@ -188,6 +188,16 @@ impl TransactionAuthorityProcessFixture {
         self.children.len()
     }
 
+    /// Return the aggregate bytes in all three voter scratch directories.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a fixture-owned path cannot be inspected.
+    #[doc(hidden)]
+    pub fn physical_storage_bytes(&self) -> Result<u64, String> {
+        directory_bytes(&self.root)
+    }
+
     /// Read cumulative stable-log observations from every live data voter.
     ///
     /// # Errors
@@ -680,4 +690,19 @@ fn allocate_addresses(node_ids: &[NodeId]) -> Result<BTreeMap<NodeId, String>, S
         );
     }
     Ok(addresses)
+}
+
+fn directory_bytes(root: &Path) -> Result<u64, String> {
+    let mut bytes = 0_u64;
+    for entry in fs::read_dir(root).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
+        if file_type.is_dir() {
+            bytes = bytes.saturating_add(directory_bytes(&entry.path())?);
+        } else if file_type.is_file() {
+            bytes =
+                bytes.saturating_add(entry.metadata().map_err(|error| error.to_string())?.len());
+        }
+    }
+    Ok(bytes)
 }
