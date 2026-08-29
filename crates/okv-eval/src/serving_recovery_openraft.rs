@@ -127,6 +127,7 @@ pub struct OpenRaftServingProcessConfig {
 /// Immutable object-fixture identity supplied to one fresh resident process.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OpenRaftObjectFixtureProcessConfig {
+    pub fixture_seed: u64,
     pub fixture_id: String,
     pub descriptor_length: u64,
     pub descriptor_sha256: String,
@@ -650,6 +651,7 @@ pub fn run_openraft_serving_recovery_contract_with_hot_reads(
         false,
         None,
         None,
+        None,
     ))
 }
 
@@ -719,6 +721,7 @@ pub fn run_openraft_serving_recovery_contract_from_object_fixture_locator(
         regenerate_control_poison,
         existing_fixture,
         None,
+        None,
     ))
 }
 
@@ -782,7 +785,7 @@ pub fn run_openraft_serving_recovery_contract_from_fixture_placement(
         }
         Ok::<_, String>(())
     })?;
-    runtime.block_on(run_contract(
+    let report = runtime.block_on(run_contract(
         seed,
         OpenRaftServingRecoveryMode::IntegratedKernelNativeRocksDbCandidate,
         profile,
@@ -794,7 +797,25 @@ pub fn run_openraft_serving_recovery_contract_from_fixture_placement(
         regenerate_control_poison,
         Some(placement.fixture.clone()),
         Some(placement.descriptor_generation.clone()),
-    ))
+        Some(placement.fixture_seed),
+    ))?;
+    let hot_read = report
+        .process
+        .hot_read
+        .as_ref()
+        .ok_or_else(|| "fixture placement consumer omitted hot-read evidence".to_owned())?;
+    if hot_read.correctness_failures != 0
+        || hot_read.object_requests != 0
+        || hot_read.samples.is_empty()
+        || hot_read.samples.iter().any(|sample| {
+            sample.correctness_failures != 0
+                || sample.object_requests != 0
+                || !sample.counter_delta_valid
+        })
+    {
+        return Err("fixture placement consumer hot-read gates failed".to_owned());
+    }
+    Ok(report)
 }
 
 /// Run one disposable worker process.
@@ -1014,6 +1035,10 @@ async fn run_integrated_kernel_node(
                         concurrent.target_version,
                         profile,
                         resident_engine,
+                        config
+                            .object_fixture
+                            .as_ref()
+                            .map_or(profile.seed, |fixture| fixture.fixture_seed),
                     )?;
                     let image = if let (Some(fixture), Some((tail_sha256, _))) =
                         (config.object_fixture.as_ref(), fixture_tail.as_ref())
@@ -1412,20 +1437,18 @@ fn run_native_hot_reads(
     read_version: u64,
     profile: &OpenRaftHotReadProfile,
     resident_engine: &OpenedResidentEngine,
+    expected_base_seed: u64,
 ) -> Result<OpenRaftHotReadReport, String> {
     let object_requests_before = total_request_count(&range.object_stats());
     let snapshot = range
         .resident_snapshot(read_version)
         .map_err(|error| error.to_string())?;
-    let mut correctness_failures = 0_u64;
-    for key_id in 16..profile.key_count {
-        let actual = snapshot
-            .get(&key_bytes(key_id))
-            .map_err(|error| error.to_string())?;
-        if actual != ReadOutcome::Value(base_value(profile.seed, key_id, profile.value_bytes)) {
-            correctness_failures = correctness_failures.saturating_add(1);
-        }
-    }
+    let correctness_failures = validate_unchanged_base_values(
+        profile.key_count,
+        profile.value_bytes,
+        expected_base_seed,
+        &|key| snapshot.get(key).map_err(|error| error.to_string()),
+    )?;
 
     let operation_count = profile.warmup_operations.max(profile.measured_operations);
     let keys = hot_operation_keys(
@@ -1469,6 +1492,23 @@ fn run_native_hot_reads(
         correctness_failures,
         samples,
     )
+}
+
+fn validate_unchanged_base_values(
+    key_count: u64,
+    value_bytes: usize,
+    expected_base_seed: u64,
+    read: &dyn Fn(&[u8]) -> Result<ReadOutcome, String>,
+) -> Result<u64, String> {
+    let mut failures = 0_u64;
+    for key_id in 16..key_count {
+        if read(&key_bytes(key_id))?
+            != ReadOutcome::Value(base_value(expected_base_seed, key_id, value_bytes))
+        {
+            failures = failures.saturating_add(1);
+        }
+    }
+    Ok(failures)
 }
 
 async fn read_object_fixture_tail(
@@ -2696,6 +2736,7 @@ async fn run_contract(
     regenerate_control_poison: bool,
     existing_fixture: Option<ObjectFixtureLocatorV1>,
     existing_descriptor_generation: Option<String>,
+    existing_fixture_seed: Option<u64>,
 ) -> Result<OpenRaftServingRecoveryReport, String> {
     let contract_started = Instant::now();
     validate_profile(profile)?;
@@ -2749,6 +2790,10 @@ async fn run_contract(
                 target_object_bytes: profile.target_object_bytes,
                 target_block_bytes: profile.target_block_bytes,
             };
+            let fixture_seed = existing_fixture_seed.unwrap_or(seed);
+            if fixture_seed == 0 {
+                return Err("object fixture seed must be nonzero".to_owned());
+            }
             let (fixture, verified, verification_seconds, opened_existing) = if let Some(locator) =
                 existing_fixture.as_ref()
             {
@@ -2769,9 +2814,9 @@ async fn run_contract(
                 (fixture, records, verification_seconds, true)
             } else {
                 let base_records =
-                    object_fixture_base_records(seed, &fixture_profile, anchor.version)?;
+                    object_fixture_base_records(fixture_seed, &fixture_profile, anchor.version)?;
                 let fixture = build_object_fixture(
-                    seed,
+                    fixture_seed,
                     &fixture_profile,
                     anchor.version,
                     &base_records,
@@ -2839,6 +2884,7 @@ async fn run_contract(
             let mut history = history_after_base(seed, profile, anchor.version, verified);
             history.expected = evaluate_expected(&history, profile)?;
             let process_fixture = OpenRaftObjectFixtureProcessConfig {
+                fixture_seed,
                 fixture_id: fixture.fixture_id.clone(),
                 descriptor_length: u64::try_from(fixture.descriptor_bytes.len())
                     .unwrap_or(u64::MAX),
@@ -4033,8 +4079,9 @@ fn count_as_f64(value: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        direct_logical_image, hot_operation_keys, hot_trace_sha256, key_bytes,
-        OpenRaftHotReadAccessPattern, OpenRaftServingRecoveryMode, TailOverlay,
+        base_value, direct_logical_image, hot_operation_keys, hot_trace_sha256, key_bytes,
+        validate_unchanged_base_values, OpenRaftHotReadAccessPattern, OpenRaftServingRecoveryMode,
+        TailOverlay,
     };
     #[cfg(feature = "resident-rocksdb")]
     use super::{
@@ -4143,6 +4190,33 @@ mod tests {
         let error = direct_logical_image(&base, &tail, 4)
             .expect_err("unbound fixture tail key must fail closed");
         assert!(error.contains("out-of-profile key"));
+    }
+
+    #[test]
+    fn base_validation_uses_fixture_seed_independently_of_trace_seed() {
+        const FIXTURE_SEED: u64 = 4_244;
+        const TRACE_SEED: u64 = 1_103;
+        const KEY_COUNT: u64 = 64;
+        const VALUE_BYTES: usize = 128;
+        let read = |key: &[u8]| {
+            let key_id = u64::from_be_bytes(key.try_into().expect("eight-byte fixture key"));
+            Ok(ReadOutcome::Value(base_value(
+                FIXTURE_SEED,
+                key_id,
+                VALUE_BYTES,
+            )))
+        };
+
+        assert_eq!(
+            validate_unchanged_base_values(KEY_COUNT, VALUE_BYTES, FIXTURE_SEED, &read)
+                .expect("fixture-seed validation"),
+            0
+        );
+        assert_eq!(
+            validate_unchanged_base_values(KEY_COUNT, VALUE_BYTES, TRACE_SEED, &read)
+                .expect("trace-seed poison"),
+            KEY_COUNT - 16
+        );
     }
 
     #[cfg(feature = "resident-rocksdb")]
