@@ -251,6 +251,20 @@ were removed after capture. No performance point was produced; execution of
 the frozen sweep remains `[EVALUATING]`. Evidence is in
 [`docs/artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md).
 
+`[VERIFIED]` Source `95dedb0` retained the exact release executable in GCS,
+sealed a live 540-position plan against one private `n2-standard-8` runner and
+375 GiB local NVMe device, and completed stratum `c50-z08-s1103`. Its 20 unique
+fresh-process positions cover five ABBA blocks at 50 percent cache, Zipf 0.8,
+trace seed 1103, eight clients, and one million measured reads per position.
+AB and BA throughput were 0.994982x and 0.997260x direct RocksDB; p99 was
+0.999051x and 1.000304x; CPU/read was 1.017306x and 1.011997x; physical
+bytes/read were 0.997738x and 0.997837x. Read amplification was 1.000000x.
+Every comparison, pressure, correctness, runtime, process, and OTel gate passed.
+The complete 42-file evidence set and standalone receipt are immutable in GCS.
+T27 remains `[EVALUATING]` with 26 direct-NVMe strata and two buffered
+sentinels open. Evidence is in
+[`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
@@ -318,29 +332,17 @@ cache pressure
 
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
-stop decision for objectKV. The immediate owned task remains T27. Fable's
-phase-5 review found six evidence blockers in the prior runner. The canonical
-locator, separate writer and read-only consumers, standalone direct subject,
-and base-seed separation are `[VERIFIED]`. The immutable ABBA controller and
-one sealed receipt per fresh sequential process are `[VERIFIED]` at the 64 MiB
-preflight profile. Twenty-seven focused plan and controller tests reject malformed schedules, changed treatments,
-execution-envelope drift, wrapper substitution, process reuse, overlap,
-cross-lease evidence, systematic oracle errors, hidden providers, implicit
-caches, malformed raw evidence, absent cache pressure, telemetry drift, host
-lease contention, failed exporter completion, and catastrophic performance
-regressions. Completed plans require an OTLP endpoint, emit all position
-metrics under one run identity, and bind the endpoint digest, required logs,
-metrics, and traces, plus per-signal flush and shutdown outcomes into the run
-receipt before it seals. Exporter failure preserves evidence with
-`passed=false`. The full RocksDB-featured `okv-eval` suite passes 105 tests, and
-the owning `okv-serving-rocksdb` crate passes all nine tests locally. No new
-performance point is admitted beyond the bounded preflight. Fable's bounded
-rereview closed all six runner-admission findings. The plan-order,
-hidden-provider, and missing-locator poisons are `[VERIFIED]` against the exact
-GCP preflight evidence. The immutable 1 GiB fixture and exact 540-position plan
-are also `[VERIFIED]`. The next experiment executes that frozen sweep. The
-corrected 64 MiB calibration remains the buffered
-regression anchor, and the direct-NVMe preflight is its physical-media control.
+stop decision for objectKV. The immediate owned task remains T27. Its locator,
+read-only consumer, standalone control, separate seeds, fresh-process runner,
+raw evidence, runtime binding, telemetry completion, and poison boundaries are
+`[VERIFIED]`. The final runner adds one authenticated resumable receipt per
+stratum and rejects cross-execution aggregation. Thirty-two focused T27 tests
+pass in the remote release build. The first of 27 direct-NVMe strata is now
+`[VERIFIED]` at near-RocksDB parity. The next experiment executes the remaining
+26 strata against the same plan, workload, executable, machine incarnation,
+and infrastructure lease, then runs two buffered sentinels. The corrected
+64 MiB calibration remains the buffered regression anchor, and the direct-NVMe
+preflight remains the physical-media control.
 
 ## Current checkpoint
 

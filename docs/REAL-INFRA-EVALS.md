@@ -326,6 +326,23 @@ removed. The canonical version-2 fixture remains for the 1 GiB progression.
 See
 `docs/artifacts/eval-receipts/t27-fresh-process-preflight-gcp-r0-2026-08-29/README.md`.
 
+`[VERIFIED]` A fifteenth R0 execution completed the first full 1 GiB T27
+stratum from source `95dedb0249a69567e7c390f4c191d079f07b6d90`. The exact
+215,947,032-byte release executable and 1,981,628-byte source archive were
+retained by GCS generation before measurement. Live plan `40d4559a` binds one
+private `n2-standard-8` runner, 375 GiB local NVMe, 200 GiB `pd-ssd`, separate
+private OTel collector, 1 GiB logical fixture, and 27-stratum workload.
+Stratum `c50-z08-s1103` ran 20 unique fresh processes over five ABBA blocks,
+200,000 warmup and 1,000,000 measured reads per position, 50 percent cache,
+Zipf 0.8, and eight readers. AB and BA throughput were 0.994982x and 0.997260x
+direct RocksDB; p99 was 0.999051x and 1.000304x; CPU/read was 1.017306x and
+1.011997x; physical bytes/read were 0.997738x and 0.997837x. Every comparison,
+pressure, identity, correctness, and telemetry gate passed. The 1 hour 6 minute
+run returned subject scratch to 4,096 bytes. The complete evidence archive and
+standalone receipt are immutable in GCS. Infrastructure remains leased for the
+other 26 strata, so T27 remains `[EVALUATING]`. See
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7

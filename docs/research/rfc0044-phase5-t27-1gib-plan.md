@@ -2,7 +2,28 @@
 
 Status: `[EVALUATING]`, with the cross-invocation fixture, read-only consumer,
 standalone control, independent-seed boundaries, four-position 64 MiB
-preflight, 1 GiB fixture, and immutable 540-position plan `[VERIFIED]`
+preflight, 1 GiB fixture, immutable 540-position plan, retained runtime, and
+first complete 20-position stratum `[VERIFIED]`
+
+## Current execution readout
+
+`[VERIFIED]` Stratum `c50-z08-s1103` completed against live plan `40d4559a`
+and workload `7019d0e1`. It covers 50 percent block-cache coverage, Zipf 0.8,
+trace seed 1103, eight concurrent readers, five fresh-process ABBA blocks, and
+one million measured reads per position.
+
+| Metric | AB native/control | BA native/control | Gate |
+| --- | ---: | ---: | ---: |
+| Throughput | 0.994982x | 0.997260x | at least 0.80x |
+| P99 latency | 0.999051x | 1.000304x | at most 1.20x |
+| CPU/read | 1.017306x | 1.011997x | at most 1.25x |
+| Physical bytes/read | 0.997738x | 0.997837x | at most 1.25x |
+| Read amplification | 1.000000x | 1.000000x | at most 1.25x |
+
+All 20 process identities, raw reports, correctness and pressure gates, and
+logs, metrics, and traces passed. The run lasted 1 hour 6 minutes and returned
+subject scratch to 4,096 bytes. T27 remains `[EVALUATING]`: one of 27
+direct-NVMe strata and zero of two buffered sentinels are complete.
 
 ## Decision
 
@@ -495,32 +516,32 @@ treatment is not reused.
    native subjects, and 270 direct subjects. Versioned GCS retains the source,
    machine receipt, locator, and plan. The viewer binding and all nine leased
    resources were removed after capture.
-8. `[PROPOSED]` Add and poison an authenticated execution-incarnation command.
-   Preserve the exact runtime source, executable, lockfile, fixture, semantic
-   oracle, and 540 positions while rebinding only the live machine, boot, NVMe,
-   receipt, scratch, and lease fields. Rebuild the source archive at the same
-   path and require the target executable to retain digest `f3471d07`.
-9. `[PROPOSED]` Execute the 27 admitting strata and two buffered sentinels,
+8. `[VERIFIED]` Retain exact runtime artifacts and make execution resumable
+   only within one authenticated execution envelope. The original executable
+   was absent and could not be reproduced byte-for-byte, so source `95dedb0`
+   built and retained executable `aac675c7`, source archive `060a2dee`, machine
+   receipt `530ed01a`, and live plan `40d4559a`. The per-stratum runner seals
+   one independently authenticated 20-position receipt. The aggregate requires
+   all 27 receipts to share the exact plan, workload, executable, source,
+   lockfile, machine, and execution digests. Thirty-two focused remote release
+   tests pass.
+9. `[EVALUATING]` Execute the 27 admitting strata and two buffered sentinels,
    preserve every partial failure, update the master matrix, and remove the
-   leased infrastructure.
+   leased infrastructure. Stratum `c50-z08-s1103` is `[VERIFIED]`; 26
+   direct-NVMe strata and both buffered sentinels remain.
 
 ## Review disposition
 
 The adversarial review's six blocking findings are closed. The corrected
-phase-5 fresh-process runner and its 64 MiB preflight are `[VERIFIED]`, while
-the full T27 curve remains `[EVALUATING]`. It binds the measured nested worker, executable, lockfile,
-machine receipt, boot, NVMe device, host-global lease, independently derived
-oracle, subject-specific RocksDB topology, raw report, cache pressure, OTLP
-emission and exporter completion, and AB/BA gates. Locator
-serialization, the clean direct-control construction boundary, separate
-preparation and read-only consumption, and the base-seed boundary are
-`[VERIFIED]`. The preflight retained 0.8652x and 0.9739x direct RocksDB
-throughput while clearing p99, CPU/read, physical-read, amplification,
-pressure, and telemetry gates in both process orders. The negative controls
-and the 1 GiB preparation boundary are now `[VERIFIED]`. The machine-bound plan
-became historical when its runner was destroyed. The next experiment adds an
-authenticated execution incarnation, proves that the workload digest is
-unchanged, and executes the newly bound plan before teardown. Prior
+phase-5 fresh-process runner, 64 MiB preflight, exact runtime retention,
+authenticated per-stratum boundary, and first complete 1 GiB stratum are
+`[VERIFIED]`, while the full T27 curve remains `[EVALUATING]`. The live plan
+binds the measured nested worker, executable, source, lockfile, machine receipt,
+boot, NVMe device, host-global lease, independently derived oracle,
+subject-specific RocksDB topology, raw report, cache pressure, OTLP emission,
+and exporter completion. Stratum `c50-z08-s1103` passed every AB and BA gate.
+The next experiment executes the remaining 26 authenticated strata against the
+same execution envelope, then aggregates only if all 27 exist. Prior
 cross-invocation evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
 The preflight evidence is in
@@ -529,3 +550,5 @@ The five negative-control results are in
 `docs/artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md`.
 The 1 GiB fixture and plan receipt is in
 `docs/artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md`.
+The first complete stratum is in
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md`.
