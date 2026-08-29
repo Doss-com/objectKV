@@ -188,6 +188,20 @@ and both run IDs occur in all three OTel signals. This verifies setup mechanics,
 not T27 performance admission. Evidence is in
 [`docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/README.md).
 
+`[VERIFIED]` The RFC-0044 phase-5 cross-invocation boundary prepared one
+generation-pinned 4 MiB fixture under writer credentials, then consumed it in
+separate native and direct-control invocations under object-viewer credentials.
+The first native run reproduced 4,080 aggregate correctness failures because
+its validator substituted trace seed `1103` for fixture seed `4244`. Commit
+`1cfad27` separated those inputs and made the command fail closed on aggregate
+or per-sample correctness, object-I/O, and counter failures. The fixed release
+replay returned the same fixture, tail, trace, and complete logical-image
+digests across both subjects, with zero correctness failures and zero measured
+object requests. The temporary viewer grant, VM, and firewall were removed;
+12 immutable fixture objects remain. This verifies the command and credential
+boundary, not performance. Evidence is in
+[`docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process

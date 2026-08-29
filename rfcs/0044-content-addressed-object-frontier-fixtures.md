@@ -1,6 +1,7 @@
 # RFC-0044: Content-addressed object-frontier fixtures
 
-- Status: `[EVALUATING]`, with phases 0 through 4 `[VERIFIED]`
+- Status: `[EVALUATING]`, with phases 0 through 4 and the phase-5
+  cross-invocation boundary `[VERIFIED]`
 - Authors: DOSS
 - Created: 2026-08-28
 - Scope: T27 fixture construction, reuse, and transaction-plane isolation
@@ -362,12 +363,17 @@ digest, and a regenerated-control poison. Step 4 persisted a 64 MiB fixture as
 20 GCS objects totaling 68,857,626 bytes, reopened its exact descriptor three
 times across the ABBA subjects, completed in 55.906526 seconds, and held
 transaction-authority scratch to 0.001623x logical bytes. The reuse-bypass
-poison was detected. Step 5 is the current boundary. Fable's preimplementation
-review found that the current direct control opens a hidden native database,
-persisted locator identity does not cross CLI invocations, repeats share
-process state, buffered I/O cannot prove the requested cache curve, and
-fixture and trace randomness are coupled. These are implementation blockers,
-not performance results.
+poison was detected. Step 5 remains the current boundary. Fable's
+preimplementation review found that the prior direct control opened a hidden
+native database, persisted locator identity did not cross CLI invocations,
+repeats shared process state, buffered I/O could not prove the requested cache
+curve, and fixture and trace randomness were coupled. The standalone control,
+generation-pinned placement locator, separate preparation and read-only
+consumer invocations, and independent fixture and trace seeds are now
+`[VERIFIED]` on real GCS. The immutable 540-position plan, its negative
+controls, matched direct-I/O admission, and complete 1 GiB curve remain
+implementation blockers, not performance results. Evidence is in
+`docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
 
 The frozen `native-resident-cache-pressure-rerun-v2` suite and its result
 schema remain byte-identical. RFC-0044 receives a new versioned contract suite

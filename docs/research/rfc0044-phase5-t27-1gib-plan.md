@@ -1,6 +1,7 @@
 # RFC-0044 phase 5: T27 1 GiB admission plan
 
-Status: `[PROPOSED]`, revised after adversarial preimplementation review
+Status: `[EVALUATING]`, with the cross-invocation fixture, read-only consumer,
+standalone control, and independent-seed boundaries `[VERIFIED]`
 
 ## Decision
 
@@ -241,15 +242,19 @@ treatment is not reused.
 1. `[VERIFIED]` Add canonical `FixturePlacementLocatorV1` encoding,
    validation, envelope hashing, and corrupt-field unit tests. Commit `d5018bc`
    passed the focused remote suite with the RocksDB feature enabled.
-2. `[PROPOSED]` Add separate fixture preparation and required-existing
-   consumer commands. Split durable fixture placement from run scratch.
+2. `[VERIFIED]` Add separate fixture preparation and required-existing
+   consumer commands. Commit `28a732f` prepared one fixture under writer
+   credentials, then native and direct consumers exact-opened its generation
+   under object-viewer credentials in separate invocations.
 3. `[VERIFIED]` Build a standalone direct subject that never opens the native
    resident engine. Commit `19b4e11` passed seven focused remote tests and one
    actual two-worker kill/replacement controller trace. The trace reported no
    native resident provider, exact base-plus-tail identity, zero hot-window
    object requests, and one directly owned RocksDB image.
-4. `[PROPOSED]` Split fixture seed from trace seed and emit one receipt per
-   fresh process.
+4. `[VERIFIED]` Split fixture seed from trace seed at the resident validator.
+   Commit `1cfad27` reduced the reproduced native aggregate failure from 4,080
+   to zero without changing the native/control trace digest. Emitting one
+   receipt per immutable-plan process remains `[PROPOSED]`.
 5. `[PROPOSED]` Build and validate the immutable ABBA plan controller.
 6. `[PROPOSED]` Pass 64 MiB versions of the missing-locator, read-only-GCS,
    hidden-cache, and AABB poisons.
@@ -262,8 +267,10 @@ treatment is not reused.
 ## Review disposition
 
 The adversarial review's five blocking findings are accepted. Phase 5 is not
-`[CODE-COMPLETE]` on the current runner. Locator serialization and the clean
-direct-control construction boundary are verified. The next code slice is the
-separate preparation/required-existing command boundary, followed by one fresh
-process per immutable plan position. No 1 GiB performance claim will be made
-before their negative controls pass.
+`[CODE-COMPLETE]` on the current runner. Locator serialization, the clean
+direct-control construction boundary, separate preparation and read-only
+consumption, and independent fixture and trace seeds are verified. The next
+code slice is one fresh invocation and one receipt per immutable ABBA plan
+position, followed by the 64 MiB negative controls. No 1 GiB performance claim
+will be made before their negative controls pass. Evidence is in
+`docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.

@@ -616,8 +616,11 @@ become one GitHub issue.
   `[VERIFIED]` canonical placement-locator encoding and corruption tests;
   `[VERIFIED]` a standalone direct control that passed seven focused remote
   tests and one actual two-worker kill/replacement trace with no native
-  resident engine; `[EVALUATING]` separate required-existing commands and the
-  immutable fresh-process ABBA plan before the 1 GiB GCP admission.
+  resident engine; `[VERIFIED]` separate preparation and required-existing
+  consumer invocations, read-only GCS consumption, exact descriptor
+  generation, and independent fixture and trace seeds; `[EVALUATING]` the
+  immutable fresh-process ABBA plan and its poisons before the 1 GiB GCP
+  admission.
 - Current result: after removing a forced tail SST, native retained 0.9432x and
   0.9735x direct RocksDB throughput, p99 was 1.0441x and 0.9949x control, and
   CPU/read was 1.0586x and 1.0298x. All 84 workload gates and eight comparison
@@ -630,9 +633,13 @@ become one GitHub issue.
   spend because locator identity does not yet cross CLI invocations, the direct
   control opened a hidden native database, repeats shared process state,
   buffered page cache could mask NVMe pressure, and fixture and trace seeds
-  were coupled. The locator envelope and standalone direct construction are
-  now verified, but their full command and poison boundary is not. T27 remains
-  `[EVALUATING]`; phase 5 has produced no new performance point.
+  were coupled. The locator envelope, standalone direct construction,
+  cross-invocation command boundary, read-only consumer, and independent seeds
+  are now verified. The corrected real GCS replay used fixture seed `4244` and
+  trace seed `1103`; native and control returned equal fixture, tail, trace,
+  and logical-image identities with zero correctness failures and zero
+  measured object requests. T27 remains `[EVALUATING]`; phase 5 has produced
+  no new performance point.
   The phase-0
   bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the
@@ -642,6 +649,8 @@ become one GitHub issue.
   `docs/artifacts/eval-receipts/object-fixture-resident-process-gcp-r0-2026-08-28/`;
   the phase-4 persisted GCS receipt is under
   `docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/`;
+  the phase-5 command-boundary receipt is under
+  `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/`;
   and the accepted phase-5 review is under
   `docs/research/reviews/fable-rfc0044-phase5-review-2026-08-28.md`.
 

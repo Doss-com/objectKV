@@ -294,6 +294,21 @@ poison run IDs occur in OTel traces, metrics, and logs. This is setup evidence,
 not T27 performance admission. See
 `docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/README.md`.
 
+`[VERIFIED]` A thirteenth bounded R0 execution verified the RFC-0044 phase-5
+cross-invocation boundary on real GCS. One writer invocation persisted a 4 MiB
+fixture and a locator pinned to descriptor generation `1787976513990982`.
+Separate native and direct-control invocations then exact-opened the same
+closure under `roles/storage.objectViewer`. The first native diagnostic
+reported 4,080 aggregate mismatches because its validator used the trace seed
+instead of fixture seed `4244`. Commit `1cfad27` corrected that seam and added
+a fail-closed command gate. The fixed release replay used trace seed `1103`
+for both subjects and returned one equal trace, tail, and complete logical
+digest, zero aggregate and per-sample correctness failures, zero measured
+object requests, and valid counter deltas. The temporary viewer binding, VM,
+and firewall were removed. This is correctness and credential-boundary
+evidence, not a T27 performance point. See
+`docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7
