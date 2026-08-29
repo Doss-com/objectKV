@@ -21,6 +21,7 @@ const OPTIONS_MAGIC: &[u8] = b"OKVT27O1";
 const RECEIPT_MAGIC: &[u8] = b"OKVT27R1";
 const RUN_RECEIPT_MAGIC: &[u8] = b"OKVT27C1";
 const FIXTURE_SEED: u64 = 4_244;
+const FIXTURE_BASE_VERSION: u64 = 2;
 const VALUE_BYTES: u64 = 1_024;
 const TARGET_BLOCK_BYTES: u64 = 65_536;
 const TARGET_OBJECT_BYTES: u64 = 8_388_608;
@@ -1338,6 +1339,9 @@ fn validate_fixture_shape(
         T27PlanProfileV1::Preflight64Mib => PREVIEW_KEY_COUNT,
         T27PlanProfileV1::Admission1Gib => ADMISSION_KEY_COUNT,
     };
+    if fixture.base_version != FIXTURE_BASE_VERSION {
+        return Err("fixture placement has the wrong T27 empty-anchor version".to_owned());
+    }
     if fixture.key_count != expected_keys
         || fixture.value_bytes != VALUE_BYTES
         || fixture.logical_bytes != expected_keys.saturating_mul(VALUE_BYTES)
@@ -1587,6 +1591,17 @@ mod tests {
             .iter()
             .all(|position| position.trace_seed != fixture.fixture_seed));
         plan.validate().expect("validate preflight plan");
+    }
+
+    #[test]
+    fn fixture_with_wrong_anchor_version_fails_before_oracle_construction() {
+        let mut fixture = locator(65_536);
+        fixture.base_version = 1;
+        fixture.envelope_sha256 = fixture.calculated_envelope_sha256();
+
+        let error = build_positions(&fixture, T27PlanProfileV1::Preflight64Mib)
+            .expect_err("T27 requires the canonical empty-anchor version");
+        assert!(error.contains("anchor version"));
     }
 
     #[test]
