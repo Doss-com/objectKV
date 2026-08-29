@@ -241,6 +241,8 @@ start and finish timestamps
 The stratum passes only when all 20 positions validate against the full plan,
 worker identities are unique and nonoverlapping, both AB and BA comparisons
 pass, and all required telemetry exporters flush and shut down successfully.
+Each order-controlled comparison is the median of five within-block
+native/control ratios. It is not a ratio of independently aggregated medians.
 
 The version 1 final aggregate accepts exactly one passing receipt for every
 planned stratum. Every input must have the same plan, portable workload,

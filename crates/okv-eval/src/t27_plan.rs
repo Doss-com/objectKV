@@ -1810,42 +1810,6 @@ fn build_t27_comparisons(
                 .chunks_exact(4)
                 .map(|block| (block[native_position], block[control_position]))
                 .collect::<Vec<_>>();
-            let native_throughput = median_f64(
-                &pairs
-                    .iter()
-                    .map(|(native, _)| native.operations_per_second)
-                    .collect::<Vec<_>>(),
-            );
-            let control_throughput = median_f64(
-                &pairs
-                    .iter()
-                    .map(|(_, control)| control.operations_per_second)
-                    .collect::<Vec<_>>(),
-            );
-            let native_p99 = median_f64(
-                &pairs
-                    .iter()
-                    .map(|(native, _)| native.latency_ns_p99 as f64)
-                    .collect::<Vec<_>>(),
-            );
-            let control_p99 = median_f64(
-                &pairs
-                    .iter()
-                    .map(|(_, control)| control.latency_ns_p99 as f64)
-                    .collect::<Vec<_>>(),
-            );
-            let native_cpu = median_f64(
-                &pairs
-                    .iter()
-                    .map(|(native, _)| native.cpu_nanoseconds_per_read)
-                    .collect::<Vec<_>>(),
-            );
-            let control_cpu = median_f64(
-                &pairs
-                    .iter()
-                    .map(|(_, control)| control.cpu_nanoseconds_per_read)
-                    .collect::<Vec<_>>(),
-            );
             let native_physical = median_f64(
                 &pairs
                     .iter()
@@ -1856,18 +1820,6 @@ fn build_t27_comparisons(
                 &pairs
                     .iter()
                     .map(|(_, control)| physical_bytes_per_read(control))
-                    .collect::<Vec<_>>(),
-            );
-            let native_read_amp = median_f64(
-                &pairs
-                    .iter()
-                    .map(|(native, _)| native.read_amplification_ratio)
-                    .collect::<Vec<_>>(),
-            );
-            let control_read_amp = median_f64(
-                &pairs
-                    .iter()
-                    .map(|(_, control)| control.read_amplification_ratio)
                     .collect::<Vec<_>>(),
             );
             let native_cache_misses_per_read = median_f64(
@@ -1882,12 +1834,16 @@ fn build_t27_comparisons(
                     .map(|(_, control)| block_cache_misses_per_read(control))
                     .collect::<Vec<_>>(),
             );
-            let native_throughput_ratio = bounded_ratio(native_throughput, control_throughput);
-            let native_p99_ratio = bounded_ratio(native_p99, control_p99);
-            let native_cpu_per_read_ratio = bounded_ratio(native_cpu, control_cpu);
+            let native_throughput_ratio =
+                median_pair_ratio(&pairs, |receipt| receipt.operations_per_second);
+            let native_p99_ratio =
+                median_pair_ratio(&pairs, |receipt| receipt.latency_ns_p99 as f64);
+            let native_cpu_per_read_ratio =
+                median_pair_ratio(&pairs, |receipt| receipt.cpu_nanoseconds_per_read);
             let native_physical_bytes_per_read_ratio =
-                bounded_ratio(native_physical, control_physical);
-            let native_read_amplification_ratio = bounded_ratio(native_read_amp, control_read_amp);
+                median_pair_ratio(&pairs, physical_bytes_per_read);
+            let native_read_amplification_ratio =
+                median_pair_ratio(&pairs, |receipt| receipt.read_amplification_ratio);
             let pressure_passed = (native_cache_misses_per_read > 0.0 || native_physical > 0.0)
                 && (control_cache_misses_per_read > 0.0 || control_physical > 0.0);
             let passed = pressure_passed
@@ -1915,6 +1871,18 @@ fn build_t27_comparisons(
         }
     }
     Ok(comparisons)
+}
+
+fn median_pair_ratio<F>(pairs: &[(&T27PositionReceiptV1, &T27PositionReceiptV1)], metric: F) -> f64
+where
+    F: Fn(&T27PositionReceiptV1) -> f64,
+{
+    median_f64(
+        &pairs
+            .iter()
+            .map(|(native, control)| bounded_ratio(metric(native), metric(control)))
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn median_f64(values: &[f64]) -> f64 {
@@ -2660,8 +2628,8 @@ fn valid_sha256(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_positions, build_t27_execution_incarnation, build_t27_execution_plan,
-        decode_t27_execution_plan, validate_t27_position_receipts,
+        build_positions, build_t27_comparisons, build_t27_execution_incarnation,
+        build_t27_execution_plan, decode_t27_execution_plan, validate_t27_position_receipts,
         validate_t27_stratum_position_receipts, verify_t27_plan_poison, verify_t27_position_poison,
         T27AggregateRunReceiptV1, T27ExecutionEnvelopeV1, T27ExecutionPlanV1,
         T27ExpectedIdentityV1, T27PlanPoisonV1, T27PlanProfileV1, T27PlanRunReceiptV1,
@@ -3085,6 +3053,37 @@ mod tests {
         let error = T27AggregateRunReceiptV1::new(&evidence[..26])
             .expect_err("missing stratum must fail closed");
         assert!(error.contains("count mismatch"));
+    }
+
+    #[test]
+    fn abba_comparison_uses_within_block_paired_ratios() {
+        let fixture = locator(1_048_576);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Admission1Gib);
+        let first_stratum = plan.positions[0].stratum_id.clone();
+        let mut receipts = plan
+            .positions
+            .iter()
+            .take_while(|position| position.stratum_id == first_stratum)
+            .enumerate()
+            .map(|(index, position)| receipt(&plan, index, position.subject))
+            .collect::<Vec<_>>();
+        let native = [1.0, 1.0, 1.0, 100.0, 100.0];
+        let control = [1.0, 100.0, 100.0, 100.0, 100.0];
+        for block in 0..5 {
+            receipts[block * 4].operations_per_second = native[block];
+            receipts[block * 4 + 1].operations_per_second = control[block];
+            receipts[block * 4].receipt_sha256 = receipts[block * 4].calculated_receipt_sha256();
+            receipts[block * 4 + 1].receipt_sha256 =
+                receipts[block * 4 + 1].calculated_receipt_sha256();
+        }
+
+        let comparisons = build_t27_comparisons(&receipts).expect("compare paired positions");
+        let ab = comparisons
+            .iter()
+            .find(|comparison| comparison.order == super::T27ComparisonOrderV1::Ab)
+            .expect("AB comparison");
+        assert_eq!(ab.native_throughput_ratio, 1.0);
+        assert!(ab.passed);
     }
 
     #[test]
