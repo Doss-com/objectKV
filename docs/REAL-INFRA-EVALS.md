@@ -458,8 +458,10 @@ zero matching instances, disks, firewall rules, subnetworks, or routers remain.
 that infrastructure with read-only fixture consumption and direct NVMe
 measurement. `[CODE-COMPLETE]` a sealed plan-poison command and schema now bind
 and reject AABB, missing-position, and option-mismatch artifacts through the
-production decoder. `[EVALUATING]` their real-infrastructure receipts, the
-missing-locator and hidden-cache poisons, and the 1 GiB workload envelope.
+production decoder. A second sealed command binds one real direct-position
+receipt and rejects an otherwise isolated hidden native provider through the
+production receipt validator. `[EVALUATING]` their immutable replay receipts,
+the missing-locator poison, and the 1 GiB workload envelope.
 
 The next receipt sequence remains incremental:
 

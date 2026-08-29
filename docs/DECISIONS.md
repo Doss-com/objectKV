@@ -1574,19 +1574,22 @@ Evidence:
 
 Status: `[CODE-COMPLETE]` mechanism, 2026-08-29.
 
-Decision: negative controls for AABB ordering, missing positions, and effective
-option drift are first-class T27 artifacts. `t27-plan-poison-check`
+Decision: negative controls for AABB ordering, missing positions, effective
+option drift, and hidden direct-position providers are first-class T27
+artifacts. `t27-plan-poison-check`
 authenticates a valid source plan, applies exactly one controlled corruption,
 recomputes the poisoned plan digest, and invokes the same production decoder
 used by the controller. It seals both plan digests, the exact poisoned file
 digest, the expected rejection, the observed rejection, and its own receipt
-digest under a JSON schema.
+digest under a JSON schema. `t27-position-poison-check` does the same for one
+authenticated direct-position receipt while changing only its hidden-provider
+inventory field.
 
 Optimizes for: replayable negative evidence that crosses machines and evaluator
 invocations, while proving the rejection is structural rather than a stale or
 obviously invalid digest.
 
 Gives up: treating unit tests as sufficient infrastructure evidence. The
-command and schema are `[CODE-COMPLETE]`; the receipts remain `[EVALUATING]`
+commands and schemas are `[CODE-COMPLETE]`; the receipts remain `[EVALUATING]`
 until the exact command runs against the frozen GCP plan alongside the
 missing-locator and hidden-cache controls.

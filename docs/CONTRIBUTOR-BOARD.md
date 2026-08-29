@@ -647,8 +647,10 @@ become one GitHub issue.
   flush/shutdown outcomes passed, and the collector held the run ID in logs,
   metrics, and traces. `[CODE-COMPLETE]` the plan-poison command now seals and
   rejects exact AABB, missing-position, and option-mismatch artifacts through
-  the production decoder; 24 focused library tests pass locally. T27 remains
-  `[EVALUATING]` for real-infrastructure poison receipts and the 1 GiB sweep.
+  the production decoder. A second command seals and rejects one hidden native
+  provider in an otherwise unchanged direct-position receipt; 25 focused
+  library tests pass locally. T27 remains `[EVALUATING]` for immutable poison
+  receipts and the 1 GiB sweep.
   The phase-0
   bootstrap receipt is under
   `docs/artifacts/eval-receipts/object-fixture-anchor-gcp-r0-2026-08-28/`; the

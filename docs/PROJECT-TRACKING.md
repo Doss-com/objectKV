@@ -228,9 +228,13 @@ effective-option corruption, recomputes the poisoned plan digest, invokes the
 production decoder, and seals the source digest, poisoned bytes, expected
 rejection, observed rejection, and receipt digest. Twenty-four focused T27
 library tests pass locally, including schema validation and artifact-tampering
-rejection. No new performance point was produced. Real-infrastructure poison
-receipts, missing-locator and hidden-cache controls, and the 1 GiB sweep remain
-`[EVALUATING]`.
+rejection. `[CODE-COMPLETE]` `t27-position-poison-check` also authenticates a
+real direct-position receipt, injects exactly one hidden native provider, and
+passes only when the production receipt validator returns the intended
+runtime-inventory rejection. Twenty-five focused T27 library tests pass
+locally, including both receipt schemas and artifact-tampering rejection. No
+new performance point was produced. Immutable replay receipts, the
+missing-locator control, and the 1 GiB sweep remain `[EVALUATING]`.
 
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
@@ -304,7 +308,7 @@ phase-5 review found six evidence blockers in the prior runner. The canonical
 locator, separate writer and read-only consumers, standalone direct subject,
 and base-seed separation are `[VERIFIED]`. The immutable ABBA controller and
 one sealed receipt per fresh sequential process are `[VERIFIED]` at the 64 MiB
-preflight profile. Twenty-six focused plan and controller tests reject malformed schedules, changed treatments,
+preflight profile. Twenty-seven focused plan and controller tests reject malformed schedules, changed treatments,
 execution-envelope drift, wrapper substitution, process reuse, overlap,
 cross-lease evidence, systematic oracle errors, hidden providers, implicit
 caches, malformed raw evidence, absent cache pressure, telemetry drift, host

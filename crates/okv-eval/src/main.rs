@@ -81,9 +81,9 @@ use okv_eval::storage_layout::{
 };
 use okv_eval::t27_plan::{
     build_t27_execution_plan, decode_t27_execution_plan, derive_t27_expected_identity,
-    verify_t27_plan_poison, T27AccessPatternV1, T27ExecutionEnvelopeV1, T27PlanPoisonV1,
-    T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
-    T27PositionReceiptV1,
+    verify_t27_plan_poison, verify_t27_position_poison, T27AccessPatternV1, T27ExecutionEnvelopeV1,
+    T27PlanPoisonV1, T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1,
+    T27PositionObservationV1, T27PositionPoisonV1, T27PositionReceiptV1,
 };
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry};
 use okv_eval::transaction_batch::{
@@ -519,6 +519,21 @@ enum Commands {
         poison: String,
         #[arg(long)]
         poisoned_plan_output: PathBuf,
+        #[arg(long)]
+        receipt_output: PathBuf,
+    },
+    /// Build and verify one sealed corruption of a T27 position receipt.
+    T27PositionPoisonCheck {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long)]
+        position_receipt: PathBuf,
+        #[arg(long)]
+        poison: String,
+        #[arg(long)]
+        poisoned_receipt_output: PathBuf,
         #[arg(long)]
         receipt_output: PathBuf,
     },
@@ -1173,6 +1188,28 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 .map_err(std::io::Error::other)?;
             let (poisoned_plan_bytes, receipt) = verify_t27_plan_poison(&plan, poison)?;
             write_new_file(&poisoned_plan_output, &poisoned_plan_bytes)?;
+            let receipt_bytes = serde_json::to_vec_pretty(&receipt)?;
+            write_new_file(&receipt_output, &receipt_bytes)?;
+            println!("{}", String::from_utf8(receipt_bytes)?);
+        }
+        Commands::T27PositionPoisonCheck {
+            plan,
+            expected_plan_sha256,
+            position_receipt,
+            poison,
+            poisoned_receipt_output,
+            receipt_output,
+        } => {
+            let plan = decode_t27_execution_plan(&fs::read(plan)?, &expected_plan_sha256)?;
+            let source: T27PositionReceiptV1 =
+                serde_json::from_slice(&fs::read(position_receipt)?)?;
+            source.validate(&plan).map_err(std::io::Error::other)?;
+            let poison = poison
+                .parse::<T27PositionPoisonV1>()
+                .map_err(std::io::Error::other)?;
+            let (poisoned_receipt_bytes, receipt) =
+                verify_t27_position_poison(&plan, &source, poison)?;
+            write_new_file(&poisoned_receipt_output, &poisoned_receipt_bytes)?;
             let receipt_bytes = serde_json::to_vec_pretty(&receipt)?;
             write_new_file(&receipt_output, &receipt_bytes)?;
             println!("{}", String::from_utf8(receipt_bytes)?);

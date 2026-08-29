@@ -21,8 +21,10 @@ const OPTIONS_MAGIC: &[u8] = b"OKVT27O1";
 const RECEIPT_MAGIC: &[u8] = b"OKVT27R1";
 const RUN_RECEIPT_MAGIC: &[u8] = b"OKVT27C1";
 const POISON_RECEIPT_MAGIC: &[u8] = b"OKVT27X1";
+const POSITION_POISON_RECEIPT_MAGIC: &[u8] = b"OKVT27Y1";
 const PLAN_POSITIONS_REJECTION: &str =
     "T27 execution plan positions differ from the frozen contract";
+const HIDDEN_PROVIDER_REJECTION: &str = "T27 direct position opened a hidden runtime provider";
 const FIXTURE_SEED: u64 = 4_244;
 const FIXTURE_BASE_VERSION: u64 = 2;
 const VALUE_BYTES: u64 = 1_024;
@@ -363,6 +365,105 @@ impl T27PlanPoisonReceiptV1 {
             || self.receipt_sha256 != self.calculated_receipt_sha256()
         {
             return Err("T27 plan poison receipt identity mismatch".to_owned());
+        }
+        Ok(())
+    }
+}
+
+/// One controlled corruption of an authenticated T27 position receipt.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum T27PositionPoisonV1 {
+    HiddenNativeProvider,
+}
+
+impl T27PositionPoisonV1 {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::HiddenNativeProvider => 1,
+        }
+    }
+}
+
+impl std::str::FromStr for T27PositionPoisonV1 {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "hidden_native_provider" => Ok(Self::HiddenNativeProvider),
+            other => Err(format!("unknown T27 position poison {other}")),
+        }
+    }
+}
+
+/// Sealed evidence that one exact poisoned position receipt failed closed.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T27PositionPoisonReceiptV1 {
+    pub schema_version: u32,
+    pub source_plan_sha256: String,
+    pub source_position_receipt_sha256: String,
+    pub poison: T27PositionPoisonV1,
+    pub poisoned_position_receipt_sha256: String,
+    pub poisoned_position_receipt_file_sha256: String,
+    pub expected_rejection: String,
+    pub observed_rejection: String,
+    pub passed: bool,
+    pub receipt_sha256: String,
+}
+
+impl T27PositionPoisonReceiptV1 {
+    /// Return the digest of the canonical position-poison receipt fields.
+    #[must_use]
+    pub fn calculated_receipt_sha256(&self) -> String {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(POSITION_POISON_RECEIPT_MAGIC);
+        bytes.extend_from_slice(&self.schema_version.to_be_bytes());
+        push_string(&mut bytes, &self.source_plan_sha256);
+        push_string(&mut bytes, &self.source_position_receipt_sha256);
+        bytes.push(self.poison.tag());
+        push_string(&mut bytes, &self.poisoned_position_receipt_sha256);
+        push_string(&mut bytes, &self.poisoned_position_receipt_file_sha256);
+        push_string(&mut bytes, &self.expected_rejection);
+        push_string(&mut bytes, &self.observed_rejection);
+        bytes.push(u8::from(self.passed));
+        sha256(&bytes)
+    }
+
+    /// Reconstruct and validate the controlled position-receipt corruption.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the plan, source receipt, poison bytes, rejection,
+    /// or receipt was altered.
+    pub fn validate(
+        &self,
+        plan: &T27ExecutionPlanV1,
+        source: &T27PositionReceiptV1,
+        poisoned_receipt_bytes: &[u8],
+    ) -> Result<(), String> {
+        plan.validate()?;
+        source.validate(plan)?;
+        let expected_poison = build_poisoned_t27_position_receipt(plan, source, self.poison)?;
+        let expected_bytes =
+            serde_json::to_vec_pretty(&expected_poison).map_err(|error| error.to_string())?;
+        let observed_rejection = match expected_poison.validate(plan) {
+            Ok(()) => return Err("T27 poisoned position receipt was accepted".to_owned()),
+            Err(error) => error,
+        };
+        if self.schema_version != RECEIPT_SCHEMA_VERSION
+            || self.source_plan_sha256 != plan.plan_sha256
+            || self.source_position_receipt_sha256 != source.receipt_sha256
+            || poisoned_receipt_bytes != expected_bytes
+            || self.poisoned_position_receipt_sha256 != expected_poison.receipt_sha256
+            || self.poisoned_position_receipt_file_sha256 != sha256(poisoned_receipt_bytes)
+            || self.expected_rejection != HIDDEN_PROVIDER_REJECTION
+            || self.observed_rejection != observed_rejection
+            || self.observed_rejection != self.expected_rejection
+            || !self.passed
+            || self.receipt_sha256 != self.calculated_receipt_sha256()
+        {
+            return Err("T27 position poison receipt identity mismatch".to_owned());
         }
         Ok(())
     }
@@ -1350,6 +1451,51 @@ pub fn verify_t27_plan_poison(
     Ok((poisoned_plan_bytes, receipt))
 }
 
+/// Build and independently reject one exact controlled position-receipt
+/// corruption.
+///
+/// # Errors
+///
+/// Returns an error when the plan or source receipt is invalid, the poison
+/// cannot be constructed, or the validator does not reject the intended
+/// runtime-inventory breach.
+pub fn verify_t27_position_poison(
+    plan: &T27ExecutionPlanV1,
+    source: &T27PositionReceiptV1,
+    poison: T27PositionPoisonV1,
+) -> Result<(Vec<u8>, T27PositionPoisonReceiptV1), String> {
+    plan.validate()?;
+    source.validate(plan)?;
+    let poisoned = build_poisoned_t27_position_receipt(plan, source, poison)?;
+    let poisoned_receipt_bytes =
+        serde_json::to_vec_pretty(&poisoned).map_err(|error| error.to_string())?;
+    let observed_rejection = poisoned.validate(plan).map_or_else(
+        |error| error,
+        |()| "T27 poisoned position receipt was accepted".to_owned(),
+    );
+    let expected_rejection = HIDDEN_PROVIDER_REJECTION.to_owned();
+    if observed_rejection != expected_rejection {
+        return Err(format!(
+            "T27 position poison reached the wrong rejection: {observed_rejection}"
+        ));
+    }
+    let mut receipt = T27PositionPoisonReceiptV1 {
+        schema_version: RECEIPT_SCHEMA_VERSION,
+        source_plan_sha256: plan.plan_sha256.clone(),
+        source_position_receipt_sha256: source.receipt_sha256.clone(),
+        poison,
+        poisoned_position_receipt_sha256: poisoned.receipt_sha256,
+        poisoned_position_receipt_file_sha256: sha256(&poisoned_receipt_bytes),
+        expected_rejection,
+        observed_rejection,
+        passed: true,
+        receipt_sha256: String::new(),
+    };
+    receipt.receipt_sha256 = receipt.calculated_receipt_sha256();
+    receipt.validate(plan, source, &poisoned_receipt_bytes)?;
+    Ok((poisoned_receipt_bytes, receipt))
+}
+
 fn build_poisoned_t27_plan(
     source: &T27ExecutionPlanV1,
     poison: T27PlanPoisonV1,
@@ -1391,6 +1537,25 @@ fn build_poisoned_t27_plan(
     }
     plan.plan_sha256 = plan.calculated_plan_sha256();
     Ok(plan)
+}
+
+fn build_poisoned_t27_position_receipt(
+    plan: &T27ExecutionPlanV1,
+    source: &T27PositionReceiptV1,
+    poison: T27PositionPoisonV1,
+) -> Result<T27PositionReceiptV1, String> {
+    source.validate(plan)?;
+    if source.position.subject != T27PlanSubjectV1::DirectOwnedRocksdb {
+        return Err("T27 hidden-provider poison requires a direct position".to_owned());
+    }
+    let mut receipt = source.clone();
+    match poison {
+        T27PositionPoisonV1::HiddenNativeProvider => {
+            receipt.runtime_resident_provider = Some("poison://hidden-native-provider".to_owned());
+        }
+    }
+    receipt.receipt_sha256 = receipt.calculated_receipt_sha256();
+    Ok(receipt)
 }
 
 fn build_plan_unchecked(
@@ -1732,9 +1897,10 @@ fn valid_sha256(value: &str) -> bool {
 mod tests {
     use super::{
         build_positions, build_t27_execution_plan, decode_t27_execution_plan,
-        validate_t27_position_receipts, verify_t27_plan_poison, T27ExecutionEnvelopeV1,
-        T27ExecutionPlanV1, T27ExpectedIdentityV1, T27PlanPoisonV1, T27PlanProfileV1,
-        T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1, T27PositionReceiptV1,
+        validate_t27_position_receipts, verify_t27_plan_poison, verify_t27_position_poison,
+        T27ExecutionEnvelopeV1, T27ExecutionPlanV1, T27ExpectedIdentityV1, T27PlanPoisonV1,
+        T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
+        T27PositionPoisonV1, T27PositionReceiptV1,
     };
     use crate::object_fixture::{FixturePlacementLocatorV1, ObjectFixtureLocatorV1};
     use crate::telemetry::TelemetryFlushReport;
@@ -1868,6 +2034,39 @@ mod tests {
             .validate(&plan, &bytes)
             .expect_err("tampered poison bytes must fail");
         assert!(error.contains("identity mismatch"));
+    }
+
+    #[test]
+    fn hidden_native_provider_position_poison_is_rejected_and_sealed() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let source = receipt(&plan, 1, T27PlanSubjectV1::DirectOwnedRocksdb);
+        let (bytes, poison_receipt) =
+            verify_t27_position_poison(&plan, &source, T27PositionPoisonV1::HiddenNativeProvider)
+                .expect("hidden-provider poison must be rejected and sealed");
+        let poisoned: T27PositionReceiptV1 =
+            serde_json::from_slice(&bytes).expect("decode poisoned position receipt");
+
+        assert_eq!(
+            poisoned.runtime_resident_provider.as_deref(),
+            Some("poison://hidden-native-provider")
+        );
+        assert_eq!(poisoned.database_count, source.database_count);
+        assert_eq!(poisoned.block_cache_count, source.block_cache_count);
+        poison_receipt
+            .validate(&plan, &source, &bytes)
+            .expect("validate hidden-provider poison receipt");
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../evals/schema/t27-position-poison-receipt-v1.schema.json"
+        ))
+        .expect("decode position poison receipt schema");
+        let validator =
+            jsonschema::validator_for(&schema).expect("compile position poison receipt schema");
+        let instance =
+            serde_json::to_value(&poison_receipt).expect("encode position poison receipt");
+        validator
+            .validate(&instance)
+            .expect("position poison receipt must satisfy its schema");
     }
 
     #[test]

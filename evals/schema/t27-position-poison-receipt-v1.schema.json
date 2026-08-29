@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/t27-position-poison-receipt-v1.schema.json",
+  "title": "objectKV T27 position poison receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_plan_sha256",
+    "source_position_receipt_sha256",
+    "poison",
+    "poisoned_position_receipt_sha256",
+    "poisoned_position_receipt_file_sha256",
+    "expected_rejection",
+    "observed_rejection",
+    "passed",
+    "receipt_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source_plan_sha256": { "$ref": "#/$defs/sha256" },
+    "source_position_receipt_sha256": { "$ref": "#/$defs/sha256" },
+    "poison": { "const": "hidden_native_provider" },
+    "poisoned_position_receipt_sha256": { "$ref": "#/$defs/sha256" },
+    "poisoned_position_receipt_file_sha256": { "$ref": "#/$defs/sha256" },
+    "expected_rejection": {
+      "const": "T27 direct position opened a hidden runtime provider"
+    },
+    "observed_rejection": {
+      "const": "T27 direct position opened a hidden runtime provider"
+    },
+    "passed": { "const": true },
+    "receipt_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
