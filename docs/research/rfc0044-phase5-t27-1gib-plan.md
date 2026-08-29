@@ -77,6 +77,42 @@ The preparation result is setup evidence, not a T27 performance result. It
 must exact-open the descriptor and full closure after publication using
 read-only credentials before the locator can be committed.
 
+## D1.1. A persisted workload plan needs a live execution incarnation
+
+The first 1 GiB plan correctly bound the runner instance, boot, NVMe
+filesystem, executable, machine receipt, and six-hour infrastructure lease.
+The runner was then destroyed after setup evidence capture. That full plan is
+therefore an authenticated historical setup artifact, but it cannot execute on
+a replacement runner. Reusing it would fail the controller's execution-envelope
+check, as intended.
+
+Do not weaken that check and do not mutate the persisted plan in place. Add one
+authenticated execution-incarnation step:
+
+```text
+historical authenticated plan
+  -> derive workload digest excluding the execution envelope
+  -> exact-open the same generation-pinned fixture
+  -> preserve profile, fixture, oracle, positions, treatments, and thresholds
+  -> preserve source, executable, and Cargo.lock digests
+  -> bind a live machine receipt, instance, boot, NVMe filesystem, and lease
+  -> emit a new immutable execution plan plus incarnation receipt
+  -> execute that plan before its lease expires
+```
+
+The incarnation receipt must bind both full plan digests, both execution
+envelope digests, and one equal workload digest. It passes only if the runtime
+source, executable, and lockfile digests are unchanged and every non-execution
+field is byte-for-byte equivalent. A no-op incarnation, changed fixture,
+changed oracle, changed position, changed treatment, changed threshold, or
+changed runtime digest fails closed.
+
+This separation is required by the teardown gate. Immutable workload intent
+must survive ephemeral infrastructure, while every measured receipt still
+binds one exact live machine and device. It optimizes for resumable, auditable
+experiments. It gives up treating one full plan digest as portable across
+machines.
+
 ## D2. Candidate and control each own exactly one database and cache
 
 The current direct-control branch is not admission-worthy. It opens and
@@ -298,7 +334,12 @@ treatment is not reused.
    native subjects, and 270 direct subjects. Versioned GCS retains the source,
    machine receipt, locator, and plan. The viewer binding and all nine leased
    resources were removed after capture.
-8. `[PROPOSED]` Execute the 27 admitting strata and two buffered sentinels,
+8. `[PROPOSED]` Add and poison an authenticated execution-incarnation command.
+   Preserve the exact runtime source, executable, lockfile, fixture, semantic
+   oracle, and 540 positions while rebinding only the live machine, boot, NVMe,
+   receipt, scratch, and lease fields. Rebuild the source archive at the same
+   path and require the target executable to retain digest `f3471d07`.
+9. `[PROPOSED]` Execute the 27 admitting strata and two buffered sentinels,
    preserve every partial failure, update the master matrix, and remove the
    leased infrastructure.
 
@@ -315,8 +356,10 @@ preparation and read-only consumption, and the base-seed boundary are
 `[VERIFIED]`. The preflight retained 0.8652x and 0.9739x direct RocksDB
 throughput while clearing p99, CPU/read, physical-read, amplification,
 pressure, and telemetry gates in both process orders. The negative controls
-and the 1 GiB preparation boundary are now `[VERIFIED]`; the next experiment
-is execution of the frozen sweep. Prior
+and the 1 GiB preparation boundary are now `[VERIFIED]`. The machine-bound plan
+became historical when its runner was destroyed. The next experiment adds an
+authenticated execution incarnation, proves that the workload digest is
+unchanged, and executes the newly bound plan before teardown. Prior
 cross-invocation evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
 The preflight evidence is in
