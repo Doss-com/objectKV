@@ -215,6 +215,45 @@ resumption before expanding the run. Parallel generation-pinned object reads
 and a content-verified local closure remain later setup-cost optimizations; they
 must not be used to relabel setup time as hot-read performance.
 
+## D1.3. One stratum is the atomic resumable execution unit
+
+The full plan has 27 independent cache, skew, and trace strata. Each stratum
+contains five complete ABBA blocks, or 20 fresh positions. Execute and seal one
+complete stratum at a time. Do not admit a partial stratum and do not resume in
+the middle of a failed ABBA sequence. A failed stratum retains its evidence and
+is rerun in full with a new controller and host lease.
+
+One authenticated stratum receipt binds:
+
+```text
+portable workload digest
+full plan and execution-envelope digests
+stratum ID and its exact 20 plan ordinals
+20 position receipt digests in canonical order
+two order-controlled comparison receipts
+controller and host-lease identities
+OTel endpoint and logs, metrics, and traces flush results
+start and finish timestamps
+```
+
+The stratum passes only when all 20 positions validate against the full plan,
+worker identities are unique and nonoverlapping, both AB and BA comparisons
+pass, and all required telemetry exporters flush and shut down successfully.
+
+The final aggregate accepts exactly one passing receipt for every planned
+stratum. Every input must have the same portable workload digest and the same
+runtime source, executable, and Cargo.lock digests. Execution-envelope digests
+may differ only because an exact retained runtime was incarnated on replacement
+infrastructure. Each replacement must retain the same machine type, CPU
+platform, NVMe profile, regional GCS fixture generation, and evaluator options.
+Comparisons remain within one stratum and one machine, so no candidate/control
+ratio crosses an infrastructure incarnation.
+
+This optimizes for bounded leases, recoverable progress, and immutable evidence.
+It gives up one controller ID and one machine identity across the entire sweep.
+The complete T27 result remains `[EVALUATING]` until all 27 strata and the final
+aggregate validate.
+
 ## D2. Candidate and control each own exactly one database and cache
 
 The current direct-control branch is not admission-worthy. It opens and
