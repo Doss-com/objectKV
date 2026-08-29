@@ -287,7 +287,10 @@ not complete-query memory, a `T - W_p` cost curve, manifests, leases, or Vortex.
 - OLTP and OLAP may use different physical layouts but share one logical history.
 - objectKV is not ZebraDB.
 
-Start with [the living architecture tracker](docs/artifacts/objectkv-architecture/objectkv-architecture.html),
+Start with [the layered architecture index](docs/architecture/README.md),
+[the RangeEngine serving profiles](docs/architecture/RANGE-ENGINE.md),
+[the architecture evidence map](docs/architecture/EVIDENCE.md),
+[the living architecture tracker](docs/artifacts/objectkv-architecture/objectkv-architecture.html),
 [the product specification](docs/PRODUCT-SPEC.md),
 [the system shape](docs/SYSTEM-SHAPE.md),
 [the compact architecture maps](docs/ARCHITECTURE-MAPS.md), and

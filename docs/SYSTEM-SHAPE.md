@@ -3,6 +3,10 @@
 Status: `[EVALUATING]` architecture thesis for expert review. The executable
 surfaces are enumerated below; the complete distributed cell remains proposed.
 
+The compact canonical review map is
+[`docs/architecture/README.md`](architecture/README.md). This document retains
+the detailed constraint and bottleneck record.
+
 Architecture decision in review: the
 [product specification](PRODUCT-SPEC.md) recommends range-local Raft groups
 plus a cell transaction coordinator as the target data plane. This document's

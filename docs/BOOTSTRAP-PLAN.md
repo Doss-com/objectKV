@@ -110,6 +110,10 @@ fact rather than changing status. Each row owns a separate comparison lane and
 receipt. Later rows may reuse artifacts from earlier rows, but they cannot
 substitute an upper-layer result for a missing kernel result.
 
+A layer-oriented view of the same evidence lives in
+[`docs/architecture/EVIDENCE.md`](architecture/EVIDENCE.md); this table remains
+the status authority.
+
 | # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |

@@ -85,6 +85,14 @@ This file defines vocabulary and current facts. Behavioral policy lives in
   point-read boundary for complete disposable range-local state. Apply,
   eviction, and partial admission remain `[PROPOSED]`. A serving image is never
   the only permanent database copy.
+- **RangeEngine**: `[EVALUATING]` the disposable runtime that owns assigned
+  ranges, recent MVCC state, exact reads, local budgets, catch-up, and serving
+  telemetry. The target composer is `[PROPOSED]` with independently configured
+  RAM base image, direct NVMe object-block cache, and RocksDB resident image
+  mechanisms; a routable production profile enables at least one. NVMe is a
+  medium, while RocksDB is an ordered engine usually hosted on that medium.
+  The current public kernel admits at most one resident provider and retains an
+  object-direct recovery path.
 - **serving profile**: the selected hot-state implementation for a range.
   `ssd_resident` is `[CODE-COMPLETE]` as a bounded RocksDB image on disposable
   local media and `[VERIFIED]` for the topology-matched single-range named-NVMe

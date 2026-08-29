@@ -2,6 +2,11 @@
 
 Status: `[EVALUATING]` active technical program.
 
+The canonical fabric-to-storage map, RangeEngine profiles, decision-review
+split, and layer-to-matrix evidence index live under
+[`docs/architecture/`](architecture/README.md). That documentation slice adds
+no performance measurement and changes no matrix status.
+
 The canonical living program tracker is
 [`docs/artifacts/objectkv-program-tracker/objectkv-program-tracker.html`](artifacts/objectkv-program-tracker/objectkv-program-tracker.html).
 It assembles the architecture, dependency frontier, target curves,

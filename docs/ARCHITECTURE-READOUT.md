@@ -4,6 +4,11 @@ Status: `[EVALUATING]`
 
 Updated: 2026-08-27
 
+Canonical layered review set:
+[`docs/architecture/README.md`](architecture/README.md). It owns the compact
+fabric-to-storage map, layer contracts, RangeEngine profiles, and evidence
+index. This file retains the detailed narrative and historical measurements.
+
 Canonical living visual:
 [`docs/artifacts/objectkv-architecture/objectkv-architecture.html`](artifacts/objectkv-architecture/objectkv-architecture.html).
 This Markdown file retains the detailed prose record. The HTML artifact owns

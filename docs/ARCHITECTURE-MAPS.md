@@ -2,6 +2,12 @@
 
 Status: `[EVALUATING]` working visual index.
 
+Canonical layered review set:
+[`docs/architecture/README.md`](architecture/README.md). It maps every layer
+from `okv-fabric` through GCS/S3, separates decision posture from proof status,
+and links each claim to the performance matrix. The RangeEngine tier model is
+in [`docs/architecture/RANGE-ENGINE.md`](architecture/RANGE-ENGINE.md).
+
 Canonical living visual:
 [`docs/artifacts/objectkv-architecture/objectkv-architecture.html`](artifacts/objectkv-architecture/objectkv-architecture.html).
 These text maps remain the diff-friendly source for focused subsystem reviews.
