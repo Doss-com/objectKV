@@ -4,13 +4,16 @@ use crate::provider_attempt::{
     ProviderAttemptBackend, ProviderAttemptEventV1, ProviderAttemptPhase,
 };
 use crate::storage_layout::{
-    t28_typed_point_outcome_sha256, T28ColumnarLayoutReader, T28OpenedTypedLayout,
+    t28_typed_point_outcome_sha256, T28ColumnarLayoutReader, T28ColumnarScan, T28OpenedTypedLayout,
     T28RowLayoutReader, T28TypedLayoutExecutionPlanV1,
 };
 use crate::t28_layout::{T28LayoutOracleV1, TypedLayoutPlacementLocatorV1};
+use arrow::array::{Int64Array, UInt16Array, UInt32Array, UInt64Array};
+use datafusion::prelude::SessionContext;
 use futures_util::{stream, StreamExt};
 use okv_object::{content_sha256, Backend, PointReadOutcome};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -23,6 +26,23 @@ const RECEIPT_SCHEMA_VERSION: u32 = 1;
 pub enum T28TypedPointSubjectV1 {
     C0IndexedRow,
     C5ColumnarMain,
+}
+
+/// One subject in the matched projected-scan lane.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum T28TypedScanSubjectV1 {
+    C0IndexedRow,
+    C5ColumnarMain,
+}
+
+impl T28TypedScanSubjectV1 {
+    fn id(self) -> &'static str {
+        match self {
+            Self::C0IndexedRow => "c0_indexed_row_scan",
+            Self::C5ColumnarMain => "c5_columnar_main_scan",
+        }
+    }
 }
 
 impl T28TypedPointSubjectV1 {
@@ -103,6 +123,132 @@ pub struct T28TypedPointPositionReceiptV1 {
     pub measured_started_unix_nanos: u64,
     pub measured_finished_unix_nanos: u64,
     pub receipt_sha256: String,
+}
+
+/// Immutable output from one fresh C0 or C5 projected-scan process.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28TypedScanPositionReceiptV1 {
+    pub schema_version: u32,
+    pub execution_plan_sha256: String,
+    pub fixture_id: String,
+    pub root_sha256: String,
+    pub subject: T28TypedScanSubjectV1,
+    pub trace_seed: u64,
+    pub query: String,
+    pub configured_range_fetch_concurrency: u64,
+    pub observed_peak_range_fetch_concurrency: u64,
+    pub resident_metadata_bytes: u64,
+    pub rows: u64,
+    pub ordered_projection_sha256: String,
+    pub quantity_sum: String,
+    pub query_elapsed_nanos: u64,
+    pub rows_per_second: f64,
+    pub provider_attempts: u64,
+    pub response_bytes: u64,
+    pub full_object_requests: u64,
+    pub list_requests: u64,
+    pub put_requests: u64,
+    pub delete_requests: u64,
+    pub missing_expected_generation_requests: u64,
+    pub returned_generation_mismatches: u64,
+    pub provider_errors: u64,
+    pub source_scan_plans: u64,
+    pub source_projection_pushdown_plans: u64,
+    pub source_stripes: u64,
+    pub source_batches: u64,
+    pub source_rows: u64,
+    pub peak_arrow_batch_rows: u64,
+    pub peak_arrow_batch_bytes: u64,
+    pub projection_fetch_requests: u64,
+    pub peak_fetch_bytes: u64,
+    pub opaque_payload_requests: u64,
+    pub opaque_payload_response_bytes: u64,
+    pub correctness_anomalies: u64,
+    pub process_id: u32,
+    pub measured_started_unix_nanos: u64,
+    pub measured_finished_unix_nanos: u64,
+    pub receipt_sha256: String,
+}
+
+impl T28TypedScanPositionReceiptV1 {
+    /// Decode and authenticate one projected-scan receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed JSON or any identity, result, work,
+    /// memory, concurrency, or digest drift.
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let receipt: Self = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Recompute and validate every derived projected-scan field.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the receipt proves one exact, bounded,
+    /// generation-pinned scan.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != RECEIPT_SCHEMA_VERSION
+            || !valid_sha256(&self.execution_plan_sha256)
+            || !valid_sha256(&self.fixture_id)
+            || !valid_sha256(&self.root_sha256)
+            || self.trace_seed == 0
+            || self.query.is_empty()
+            || self.configured_range_fetch_concurrency != 1
+            || self.observed_peak_range_fetch_concurrency != 1
+            || self.resident_metadata_bytes == 0
+            || self.rows == 0
+            || !valid_sha256(&self.ordered_projection_sha256)
+            || self.quantity_sum.is_empty()
+            || self.query_elapsed_nanos == 0
+            || !self.rows_per_second.is_finite()
+            || self.rows_per_second <= 0.0
+            || self.provider_attempts == 0
+            || self.response_bytes == 0
+            || self.full_object_requests != 0
+            || self.list_requests != 0
+            || self.put_requests != 0
+            || self.delete_requests != 0
+            || self.missing_expected_generation_requests != 0
+            || self.returned_generation_mismatches != 0
+            || self.provider_errors != 0
+            || self.source_scan_plans != 1
+            || self.source_stripes == 0
+            || self.source_batches != self.source_stripes
+            || self.source_rows != self.rows
+            || self.peak_arrow_batch_rows == 0
+            || self.peak_arrow_batch_rows > 128
+            || self.peak_arrow_batch_bytes == 0
+            || self.peak_fetch_bytes == 0
+            || self.peak_fetch_bytes > 256 * 1_024
+            || self.opaque_payload_requests != 0
+            || self.opaque_payload_response_bytes != 0
+            || self.correctness_anomalies != 0
+            || self.process_id == 0
+            || self.measured_started_unix_nanos == 0
+            || self.measured_finished_unix_nanos <= self.measured_started_unix_nanos
+            || self.receipt_sha256 != self.calculated_sha256()?
+        {
+            return Err("invalid RFC-0048 scan-position receipt".to_owned());
+        }
+        Ok(())
+    }
+
+    /// Calculate the receipt digest without trusting its stored digest field.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when serialization fails.
+    pub fn calculated_sha256(&self) -> Result<String, String> {
+        let mut unsigned = self.clone();
+        unsigned.receipt_sha256.clear();
+        serde_json::to_vec(&unsigned)
+            .map(|bytes| content_sha256(&bytes))
+            .map_err(|error| error.to_string())
+    }
 }
 
 impl T28TypedPointPositionReceiptV1 {
@@ -333,6 +479,229 @@ pub async fn run_t28_typed_point_position(
     Ok(receipt)
 }
 
+/// Run one complete projected scan in the current fresh process.
+///
+/// # Errors
+///
+/// Returns an error for plan drift, a wrong ordered projection or aggregate,
+/// opaque-payload access, unbounded fetches or batches, concurrent provider
+/// calls, generation drift, or a malformed receipt.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub async fn run_t28_typed_scan_position(
+    backend: Arc<dyn Backend>,
+    locator: &TypedLayoutPlacementLocatorV1,
+    oracle: &T28LayoutOracleV1,
+    plan_bytes: &[u8],
+    expected_plan_sha256: &str,
+    subject: T28TypedScanSubjectV1,
+    trace_seed: u64,
+) -> Result<T28TypedScanPositionReceiptV1, String> {
+    let attempts = Arc::new(ProviderAttemptBackend::new(backend, subject.id())?);
+    let observed_backend: Arc<dyn Backend> = attempts.clone();
+    let opened = T28OpenedTypedLayout::open(Arc::clone(&observed_backend), locator).await?;
+    let plan = T28TypedLayoutExecutionPlanV1::decode(
+        plan_bytes,
+        expected_plan_sha256,
+        locator,
+        opened.fixture(),
+        oracle,
+    )?;
+    if plan.trace(trace_seed).is_none() || plan.scan_concurrent_fetches != 1 {
+        return Err("invalid RFC-0048 scan-position seed or concurrency".to_owned());
+    }
+
+    let (provider, source_stats, columnar_scan, resident_metadata_bytes) = match subject {
+        T28TypedScanSubjectV1::C0IndexedRow => {
+            let reader = opened.c0().await?;
+            let resident = reader.resident_metadata_bytes();
+            let provider = reader.table_provider();
+            let stats = provider.stats();
+            let provider: Arc<dyn datafusion::catalog::TableProvider> = provider;
+            (provider, stats, None, resident)
+        }
+        T28TypedScanSubjectV1::C5ColumnarMain => {
+            let reader = opened.c5().await?;
+            let resident = reader.resident_metadata_bytes();
+            let scan = reader.table_provider(
+                usize::try_from(plan.scan_fetch_target_bytes).unwrap_or(usize::MAX),
+            );
+            let provider = scan.provider();
+            let stats = provider.stats();
+            let provider: Arc<dyn datafusion::catalog::TableProvider> = provider;
+            (provider, stats, Some(scan), resident)
+        }
+    };
+
+    for _ in 0..plan.point_warmup_canary_reads {
+        observed_backend
+            .get(&locator.root_key, None, Some(&locator.root_revision()))
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    attempts.clear_events();
+
+    let context = SessionContext::new();
+    context
+        .register_table("okv_layout", provider)
+        .map_err(|error| error.to_string())?;
+    let measured_started_unix_nanos = unix_nanos();
+    let started = Instant::now();
+    let batches = context
+        .sql(&plan.scan_query)
+        .await
+        .map_err(|error| error.to_string())?
+        .collect()
+        .await
+        .map_err(|error| error.to_string())?;
+    let rows = batches.iter().fold(0_usize, |total, batch| {
+        total.saturating_add(batch.num_rows())
+    });
+    let expected_rows = usize::try_from(oracle.fixture.live_row_count).unwrap_or(usize::MAX);
+    let expected_quantity_sum = oracle
+        .fixture
+        .aggregate
+        .quantity_sum
+        .parse::<i64>()
+        .map_err(|error| error.to_string())?;
+    let mut projection = Sha256::new();
+    projection.update(b"okv-t28-ordered-projection-v1\0");
+    projection.update(u64::try_from(rows).unwrap_or(u64::MAX).to_be_bytes());
+    let mut anomalies = u64::from(rows != expected_rows);
+    let mut previous_key = None;
+    for batch in &batches {
+        let keys = batch
+            .column_by_name("key")
+            .and_then(|array| array.as_any().downcast_ref::<UInt64Array>())
+            .ok_or_else(|| "RFC-0048 scan key column is absent".to_owned())?;
+        let tenants = batch
+            .column_by_name("tenant")
+            .and_then(|array| array.as_any().downcast_ref::<UInt32Array>())
+            .ok_or_else(|| "RFC-0048 scan tenant column is absent".to_owned())?;
+        let categories = batch
+            .column_by_name("category")
+            .and_then(|array| array.as_any().downcast_ref::<UInt16Array>())
+            .ok_or_else(|| "RFC-0048 scan category column is absent".to_owned())?;
+        let quantities = batch
+            .column_by_name("quantity")
+            .and_then(|array| array.as_any().downcast_ref::<Int64Array>())
+            .ok_or_else(|| "RFC-0048 scan quantity column is absent".to_owned())?;
+        let counts = batch
+            .column_by_name("row_count")
+            .ok_or_else(|| "RFC-0048 scan row-count column is absent".to_owned())?;
+        let sums = batch
+            .column_by_name("quantity_sum")
+            .ok_or_else(|| "RFC-0048 scan quantity-sum column is absent".to_owned())?;
+        for row in 0..batch.num_rows() {
+            let key = keys.value(row);
+            anomalies = anomalies.saturating_add(u64::from(
+                previous_key.is_some_and(|previous| previous >= key),
+            ));
+            previous_key = Some(key);
+            projection.update(key.to_be_bytes());
+            projection.update(tenants.value(row).to_be_bytes());
+            projection.update(categories.value(row).to_be_bytes());
+            projection.update(quantities.value(row).to_be_bytes());
+            anomalies = anomalies.saturating_add(u64::from(
+                array_u64(counts.as_ref(), row)?
+                    != u64::try_from(expected_rows).unwrap_or(u64::MAX),
+            ));
+            anomalies = anomalies.saturating_add(u64::from(
+                array_i64(sums.as_ref(), row)? != expected_quantity_sum,
+            ));
+        }
+    }
+    let ordered_projection_sha256 = format!("{:x}", projection.finalize());
+    anomalies = anomalies.saturating_add(u64::from(
+        ordered_projection_sha256 != oracle.fixture.ordered_projection_sha256,
+    ));
+    let query_elapsed_nanos = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+    let measured_finished_unix_nanos = unix_nanos();
+    let provider = evaluate_provider_events(
+        &attempts.events(),
+        match subject {
+            T28TypedScanSubjectV1::C0IndexedRow => T28TypedPointSubjectV1::C0IndexedRow,
+            T28TypedScanSubjectV1::C5ColumnarMain => T28TypedPointSubjectV1::C5ColumnarMain,
+        },
+    )?;
+    let source = source_stats.snapshot();
+    let columnar = columnar_scan
+        .as_ref()
+        .map(T28ColumnarScan::source_snapshot)
+        .unwrap_or_default();
+    let projection_fetch_requests = match subject {
+        T28TypedScanSubjectV1::C0IndexedRow => provider.attempts,
+        T28TypedScanSubjectV1::C5ColumnarMain => columnar.projection_fetch_requests,
+    };
+    let peak_fetch_bytes = match subject {
+        T28TypedScanSubjectV1::C0IndexedRow => provider.maximum_response_bytes,
+        T28TypedScanSubjectV1::C5ColumnarMain => columnar.peak_fetch_bytes,
+    };
+    let rows_u64 = u64::try_from(rows).unwrap_or(u64::MAX);
+    let mut receipt = T28TypedScanPositionReceiptV1 {
+        schema_version: RECEIPT_SCHEMA_VERSION,
+        execution_plan_sha256: plan.execution_plan_sha256,
+        fixture_id: opened.fixture().fixture_id.clone(),
+        root_sha256: opened.fixture().root_sha256.clone(),
+        subject,
+        trace_seed,
+        query: plan.scan_query,
+        configured_range_fetch_concurrency: 1,
+        observed_peak_range_fetch_concurrency: provider.peak_inflight,
+        resident_metadata_bytes,
+        rows: rows_u64,
+        ordered_projection_sha256,
+        quantity_sum: expected_quantity_sum.to_string(),
+        query_elapsed_nanos,
+        rows_per_second: rows_u64 as f64 / (query_elapsed_nanos as f64 / 1_000_000_000.0),
+        provider_attempts: provider.attempts,
+        response_bytes: provider.response_bytes,
+        full_object_requests: provider.full_object_requests,
+        list_requests: provider.list_requests,
+        put_requests: provider.put_requests,
+        delete_requests: provider.delete_requests,
+        missing_expected_generation_requests: provider.missing_expected_generation_requests,
+        returned_generation_mismatches: provider.returned_generation_mismatches,
+        provider_errors: provider.errors,
+        source_scan_plans: source.scan_plans,
+        source_projection_pushdown_plans: source.projection_pushdown_plans,
+        source_stripes: source.stripes_read,
+        source_batches: source.batches_emitted,
+        source_rows: source.rows_emitted,
+        peak_arrow_batch_rows: source.peak_batch_rows,
+        peak_arrow_batch_bytes: source.peak_batch_bytes,
+        projection_fetch_requests,
+        peak_fetch_bytes,
+        opaque_payload_requests: columnar.payload_requests,
+        opaque_payload_response_bytes: columnar.payload_response_bytes,
+        correctness_anomalies: anomalies,
+        process_id: std::process::id(),
+        measured_started_unix_nanos,
+        measured_finished_unix_nanos,
+        receipt_sha256: String::new(),
+    };
+    receipt.receipt_sha256 = receipt.calculated_sha256()?;
+    receipt.validate()?;
+    Ok(receipt)
+}
+
+fn array_u64(array: &dyn arrow::array::Array, row: usize) -> Result<u64, String> {
+    if let Some(values) = array.as_any().downcast_ref::<UInt64Array>() {
+        Ok(values.value(row))
+    } else if let Some(values) = array.as_any().downcast_ref::<Int64Array>() {
+        u64::try_from(values.value(row)).map_err(|error| error.to_string())
+    } else {
+        Err("RFC-0048 scan count has the wrong type".to_owned())
+    }
+}
+
+fn array_i64(array: &dyn arrow::array::Array, row: usize) -> Result<i64, String> {
+    array
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .map(|values| values.value(row))
+        .ok_or_else(|| "RFC-0048 scan sum has the wrong type".to_owned())
+}
+
 struct ProviderEvaluation {
     attempts: u64,
     response_bytes: u64,
@@ -345,6 +714,8 @@ struct ProviderEvaluation {
     returned_generation_mismatches: u64,
     errors: u64,
     latencies: Vec<u64>,
+    maximum_response_bytes: u64,
+    peak_inflight: u64,
 }
 
 fn evaluate_provider_events(
@@ -370,7 +741,10 @@ fn evaluate_provider_events(
         returned_generation_mismatches: 0,
         errors: 0,
         latencies: Vec::new(),
+        maximum_response_bytes: 0,
+        peak_inflight: 0,
     };
+    let mut intervals = Vec::new();
     let mut maximum_projection = 0_u64;
     let mut maximum_payload = 0_u64;
     let mut maximum_other = 0_u64;
@@ -391,7 +765,16 @@ fn evaluate_provider_events(
         evaluation.response_bytes = evaluation
             .response_bytes
             .saturating_add(completed.response_payload_bytes);
+        evaluation.maximum_response_bytes = evaluation
+            .maximum_response_bytes
+            .max(completed.response_payload_bytes);
         evaluation.latencies.push(completed.elapsed_nanos);
+        intervals.push((
+            completed.started_unix_nanos,
+            completed
+                .started_unix_nanos
+                .saturating_add(completed.elapsed_nanos),
+        ));
         evaluation.full_object_requests = evaluation.full_object_requests.saturating_add(
             u64::from(started.api == "get" && started.requested_range.is_none()),
         );
@@ -443,7 +826,23 @@ fn evaluate_provider_events(
             maximum_projection.saturating_add(maximum_payload)
         }
     };
+    evaluation.peak_inflight = peak_inflight(&intervals);
     Ok(evaluation)
+}
+
+fn peak_inflight(intervals: &[(u64, u64)]) -> u64 {
+    let mut events = intervals
+        .iter()
+        .flat_map(|(start, end)| [(*start, 1_i8), (*end, -1_i8)])
+        .collect::<Vec<_>>();
+    events.sort_unstable_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    let mut active = 0_i64;
+    let mut peak = 0_i64;
+    for (_, delta) in events {
+        active = active.saturating_add(i64::from(delta)).max(0);
+        peak = peak.max(active);
+    }
+    u64::try_from(peak).unwrap_or(u64::MAX)
 }
 
 fn nearest_rank(values: &[u64], numerator: usize, denominator: usize) -> Result<u64, String> {

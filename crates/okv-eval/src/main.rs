@@ -101,7 +101,10 @@ use okv_eval::t28_cold_point::{
 use okv_eval::t28_curve::{T28CurvePlanV1, T28CurveRunReceiptV1};
 use okv_eval::t28_iam::T28ReaderIamReceiptV1;
 use okv_eval::t28_layout::{decode_t28_layout_oracle, decode_typed_layout_placement};
-use okv_eval::t28_layout_position::{run_t28_typed_point_position, T28TypedPointSubjectV1};
+use okv_eval::t28_layout_position::{
+    run_t28_typed_point_position, run_t28_typed_scan_position, T28TypedPointSubjectV1,
+    T28TypedScanSubjectV1,
+};
 use okv_eval::t28_position::{run_t28_point_position, T28PointPositionReceiptV2};
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
@@ -612,6 +615,30 @@ enum Commands {
         trace_seed: u64,
         #[arg(long, default_value_t = 1_024)]
         measured_operations: usize,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Execute one fresh-process RFC-0048 projected-scan position.
+    T28TypedLayoutScanPositionGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(
+            long,
+            default_value = "evals/oracles/t28-layout-geometry-v1-oracle.json"
+        )]
+        oracle: PathBuf,
+        #[arg(long)]
+        expected_oracle_sha256: String,
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long)]
+        subject: String,
+        #[arg(long)]
+        trace_seed: u64,
         #[arg(long)]
         output: PathBuf,
     },
@@ -1536,6 +1563,46 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 subject,
                 trace_seed,
                 measured_operations,
+            ))?;
+            let bytes = serde_json::to_vec_pretty(&receipt)?;
+            fs::write(output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28TypedLayoutScanPositionGcs {
+            locator,
+            expected_envelope_sha256,
+            oracle,
+            expected_oracle_sha256,
+            plan,
+            expected_plan_sha256,
+            subject,
+            trace_seed,
+            output,
+        } => {
+            let locator =
+                decode_typed_layout_placement(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let oracle = decode_t28_layout_oracle(&fs::read(oracle)?, &expected_oracle_sha256)?;
+            let subject = match subject.as_str() {
+                "c0_indexed_row" => T28TypedScanSubjectV1::C0IndexedRow,
+                "c5_columnar_main" => T28TypedScanSubjectV1::C5ColumnarMain,
+                other => {
+                    return Err(std::io::Error::other(format!(
+                        "unknown RFC-0048 scan subject {other}"
+                    ))
+                    .into());
+                }
+            };
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let receipt = runtime.block_on(run_t28_typed_scan_position(
+                gcs_backend_from_env_no_retries()?,
+                &locator,
+                &oracle,
+                &fs::read(plan)?,
+                &expected_plan_sha256,
+                subject,
+                trace_seed,
             ))?;
             let bytes = serde_json::to_vec_pretty(&receipt)?;
             fs::write(output, &bytes)?;
