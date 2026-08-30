@@ -1633,3 +1633,30 @@ retries, restart and torn-tail recovery, stale-writer fencing, and deterministic
 segment bytes across three seeds and three process poisons. Independent media,
 object publication, transaction integration, and performance rungs remain
 `[PROPOSED]`.
+
+## D66. Separate generation-pinned GCS cold reads from fixture publication
+
+Status: `[PROPOSED]`, 2026-08-30.
+
+Decision: T28 reuses an existing RFC-0044 content-addressed fixture through its
+exact placement locator and descriptor generation. A fresh consumer runs under
+read-only object credentials, performs no publication or enumeration, and
+separately counts descriptor, manifest, index, and data requests. The indexed
+point lane compares one bounded `OKVB` range GET with the same raw GCS range;
+the C5 DataFusion scan remains a separate lane.
+
+Optimizes for: a valid disposable-reader cloud curve whose object work and
+local state are visible and whose durable input is identical across subjects.
+
+Gives up: calling the current self-publishing local-filesystem runner a cloud
+benchmark or blending point and scan economics into one score.
+
+Evidence contract: RFC-0046. Fable blocked the first draft because it left read
+version, principal authority, lazy opening, physical request attempts,
+metadata growth, ABBA isolation, and the typed DataFusion closure underfrozen.
+The revised smallest slice fixes `T = O` and point reads only. A first
+re-review then required state-specific warmup, provider-SDK-attempt terminology
+instead of unverifiable physical-request claims, and one frozen 15-block p99
+aggregation. Fable returned `SHIP` on the second re-review. No GCS cold-point
+performance receipt exists yet, so T28 remains `[EVALUATING]` and
+implementation remains `[PROPOSED]` pending completion of T27.

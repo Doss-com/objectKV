@@ -687,6 +687,18 @@ become one GitHub issue.
 - Dependency: T27 freezes the cache budget, fixture identity, and physical-read
   treatment. The two
   performance lanes remain separate even when they share provisioning.
+- Pre-implementation contract: RFC-0046 requires a generation-pinned existing
+  fixture and a fresh read-only consumer. The current local-filesystem cold-read
+  runner cannot be relabeled as GCS evidence because it republishes its fixture
+  inside the measured invocation. Fable blocked the first draft and reduced the
+  safe implementation slice to exact reads at `T = O`, one sealed paired point
+  plan, a lazy opener, attested read-only identity, retries disabled with
+  provider-SDK-attempt accounting, and separate metadata and data budgets. A
+  first re-review also required state-specific warmup and a frozen 15-block p99
+  aggregation. Refill, dataset-size independence, and C5 remain `[PROPOSED]`.
+  Fable returned `SHIP` on the second re-review. Implementation starts after
+  T27 admission completes. Review:
+  `docs/research/reviews/fable-rfc0046-preimplementation-review-2026-08-30.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
 
