@@ -25,7 +25,7 @@ iam_receipt_sha256 = "f383977a0f13ddf791ebc6ac97381ffc903268f45416689fe7eb23db22
 [original_end_to_end_gate]
 percentile_numerator = 99
 percentile_denominator = 100
-max_candidate_to_control_ratio = 1.25
+max_candidate_to_control_ratio_millionths = 1250000
 require_every_block = true
 result_authority = "unchanged_rfc0046_gate"
 
@@ -33,7 +33,7 @@ result_authority = "unchanged_rfc0046_gate"
 definition = "operation_end_to_end_nanos_minus_same_operation_provider_nanos"
 percentile_numerator = 99
 percentile_denominator = 100
-max_candidate_to_control_ratio = 1.25
+max_candidate_to_control_ratio_millionths = 1250000
 max_candidate_minus_control_nanos = 250000
 require_every_block = true
 claim_if_passed = "candidate_local_cold_point_overhead_is_bounded"
@@ -41,7 +41,7 @@ forbidden_claim = "end_to_end_gcs_point_latency_is_admitted"
 
 [[seeds]]
 trace_seed = 1103
-plan_sha256 = "f1e3612a8480b852a82ade64f030f7b7b4e347ae56e130f865e62544594ba3b1d"
+plan_sha256 = "f1e3612a8480b852a82ade64f030f7b7b4e347ae56e130f865e62544594ba3b1"
 orders = ["candidate,raw,raw,candidate", "raw,candidate,candidate,raw", "candidate,raw,raw,candidate", "raw,candidate,candidate,raw", "candidate,raw,raw,candidate"]
 
 [[seeds]]

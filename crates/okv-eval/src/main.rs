@@ -96,8 +96,9 @@ use okv_eval::t28_cold_point::{
     T28CacheState, T28PointExecutionReceiptV1, T28PointPlanV2, T28PointSubject,
     T28ReaderPlanIdentityV1,
 };
+use okv_eval::t28_curve::{T28CurvePlanV1, T28CurveRunReceiptV1};
 use okv_eval::t28_iam::T28ReaderIamReceiptV1;
-use okv_eval::t28_position::run_t28_point_position;
+use okv_eval::t28_position::{run_t28_point_position, T28PointPositionReceiptV2};
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
     run_transaction_batch_contract, TransactionBatchMode, TransactionBatchProfile,
@@ -603,6 +604,29 @@ enum Commands {
         concurrent_clients: usize,
         #[arg(long)]
         output: PathBuf,
+    },
+    /// Execute the frozen corrected T28 curve with controller-side OTel.
+    T28CurveRunGcs {
+        #[arg(long)]
+        curve_plan: PathBuf,
+        #[arg(long)]
+        expected_curve_plan_sha256: String,
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long)]
+        iam_receipt: PathBuf,
+        #[arg(long)]
+        expected_iam_receipt_sha256: String,
+        #[arg(long = "point-plan", num_args = 3)]
+        point_plans: Vec<PathBuf>,
+        #[arg(long)]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long)]
+        candidate_commit: String,
+        #[arg(long)]
+        output_dir: PathBuf,
     },
     /// Build one immutable T27 ABBA plan from a verified fixture placement.
     T27PlanBuild {
@@ -1544,6 +1568,39 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let bytes = serde_json::to_vec_pretty(&receipt)?;
             write_new_file(&output, &bytes)?;
             println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28CurveRunGcs {
+            curve_plan,
+            expected_curve_plan_sha256,
+            locator,
+            expected_envelope_sha256,
+            iam_receipt,
+            expected_iam_receipt_sha256,
+            point_plans,
+            runtime_cargo_lock,
+            candidate_commit,
+            output_dir,
+        } => {
+            let receipt = run_t28_curve_controller(
+                &curve_plan,
+                &expected_curve_plan_sha256,
+                &locator,
+                &expected_envelope_sha256,
+                &iam_receipt,
+                &expected_iam_receipt_sha256,
+                &point_plans,
+                &runtime_cargo_lock,
+                &candidate_commit,
+                &output_dir,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
+            if !receipt.eligible_pending_collector_confirmation {
+                return Err(std::io::Error::other(format!(
+                    "T28 corrected curve failed an original, local-residual, or telemetry gate; evidence is at {}",
+                    output_dir.join("curve-run.json").display()
+                ))
+                .into());
+            }
         }
         Commands::T27PlanBuild {
             locator,
@@ -6989,6 +7046,285 @@ fn run_t27_plan_position(
         receipt,
         raw_report: report,
     })
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn run_t28_curve_controller(
+    curve_plan_path: &Path,
+    expected_curve_plan_sha256: &str,
+    locator_path: &Path,
+    expected_envelope_sha256: &str,
+    iam_receipt_path: &Path,
+    expected_iam_receipt_sha256: &str,
+    point_plan_paths: &[PathBuf],
+    runtime_cargo_lock: &Path,
+    candidate_commit: &str,
+    output_dir: &Path,
+) -> Result<T28CurveRunReceiptV1, Box<dyn Error>> {
+    let loaded = T28CurvePlanV1::decode(&fs::read(curve_plan_path)?, expected_curve_plan_sha256)?;
+    let placement =
+        decode_fixture_placement_locator(&fs::read(locator_path)?, expected_envelope_sha256)?;
+    let iam =
+        T28ReaderIamReceiptV1::decode(&fs::read(iam_receipt_path)?, expected_iam_receipt_sha256)?;
+    let reader_identity = T28ReaderPlanIdentityV1::from_receipt(&iam, expected_iam_receipt_sha256)?;
+    if loaded.plan.fixture.project != iam.project
+        || loaded.plan.fixture.bucket != placement.bucket
+        || loaded.plan.fixture.bucket != iam.bucket
+        || loaded.plan.fixture.region != iam.region
+        || loaded.plan.fixture.placement_envelope_sha256 != expected_envelope_sha256
+        || loaded.plan.reader.principal_email != iam.principal.email
+        || loaded.plan.reader.credential_source != iam.principal.credential_source
+        || loaded.plan.reader.iam_receipt_sha256 != expected_iam_receipt_sha256
+        || point_plan_paths.len() != loaded.plan.seeds.len()
+    {
+        return Err(std::io::Error::other(
+            "T28 curve fixture, reader, or point-plan boundary mismatch",
+        )
+        .into());
+    }
+    let mut point_plan_by_seed = BTreeMap::new();
+    for (seed, path) in loaded.plan.seeds.iter().zip(point_plan_paths) {
+        let point_plan = T28PointPlanV2::decode(
+            &fs::read(path)?,
+            &seed.plan_sha256,
+            &placement,
+            &reader_identity,
+        )?;
+        if point_plan.operations.len()
+            != usize::try_from(loaded.plan.measured_operations_per_position)?
+            || point_plan.cache_state != T28CacheState::MetadataWarmDataCold
+        {
+            return Err(std::io::Error::other(
+                "T28 point plan operation count or cache state mismatch",
+            )
+            .into());
+        }
+        point_plan_by_seed.insert(seed.trace_seed, path.clone());
+    }
+
+    let telemetry_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            std::io::Error::other(
+                "T28 curve requires OTEL_EXPORTER_OTLP_ENDPOINT for logs, metrics, and traces",
+            )
+        })?;
+    let telemetry_endpoint_sha256 = sha256(telemetry_endpoint.as_bytes());
+    let executable = std::env::current_exe()?;
+    let executable_sha256 = sha256(&fs::read(&executable)?);
+    let cargo_lock_sha256 = sha256(&fs::read(runtime_cargo_lock)?);
+    let controller_run_id = Uuid::new_v4().to_string();
+    let telemetry_config = TelemetryConfig {
+        protocol: "otlp-http".to_owned(),
+        endpoint_env: "OTEL_EXPORTER_OTLP_ENDPOINT".to_owned(),
+        required_signals: vec!["logs".to_owned(), "metrics".to_owned(), "traces".to_owned()],
+        required_for_profiles: vec!["t28".to_owned()],
+    };
+    let metric_registry: MetricRegistry =
+        toml::from_str(include_str!("../../../evals/metrics.toml"))?;
+    let telemetry_resource = RunResource {
+        service_version: env!("CARGO_PKG_VERSION").to_owned(),
+        environment: "objectkv-dev-gcs".to_owned(),
+        run_id: controller_run_id.clone(),
+        batch_id: controller_run_id.clone(),
+        suite_id: loaded.plan.plan_id.clone(),
+        suite_hash: loaded.raw_sha256.clone(),
+        profile_id: "t28".to_owned(),
+        profile_hash: loaded.raw_sha256.clone(),
+        candidate_commit: candidate_commit.to_owned(),
+        backend: "gcs".to_owned(),
+    };
+    let telemetry = Telemetry::init(&telemetry_config, "t28", &telemetry_resource)?;
+    let mut telemetry_recorder = telemetry.recorder(&metric_registry);
+    fs::create_dir(output_dir)?;
+    write_new_file(
+        &output_dir.join("curve-plan.toml"),
+        &fs::read(curve_plan_path)?,
+    )?;
+    let lock_path = output_dir
+        .parent()
+        .ok_or_else(|| std::io::Error::other("T28 output directory has no parent"))?
+        .join(format!(
+            "t28-host-{}.lock",
+            &expected_curve_plan_sha256[..16]
+        ));
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(lock_path)?;
+    let _host_lease = Flock::lock(lock_file, FlockArg::LockExclusiveNonblock)
+        .map_err(|(_, error)| std::io::Error::other(format!("T28 host lease is busy: {error}")))?;
+
+    let run_span = info_span!(
+        "okv.eval.t28.curve",
+        run.id = %controller_run_id,
+        plan.id = %loaded.plan.plan_id,
+        plan.sha256 = %loaded.raw_sha256
+    );
+    let run_guard = run_span.enter();
+    info!("T28 corrected point curve started");
+    let expected_positions = loaded.plan.expected_positions()?;
+    let mut positions = Vec::with_capacity(expected_positions.len());
+    for (ordinal, expected) in expected_positions.iter().enumerate() {
+        let point_plan_path = point_plan_by_seed
+            .get(&expected.trace_seed)
+            .ok_or_else(|| std::io::Error::other("T28 expected point plan is absent"))?;
+        let position_path = output_dir.join(format!("position-{ordinal:03}.json"));
+        let position_span = info_span!(
+            "okv.eval.t28.position",
+            ordinal,
+            trace.seed = expected.trace_seed,
+            block.ordinal = expected.block_ordinal,
+            position.ordinal = expected.position_in_block,
+            subject = expected.subject.id()
+        );
+        let _position_guard = position_span.enter();
+        let output = Command::new(&executable)
+            .arg("t28-position-read-gcs")
+            .arg("--locator")
+            .arg(locator_path)
+            .arg("--expected-envelope-sha256")
+            .arg(expected_envelope_sha256)
+            .arg("--plan")
+            .arg(point_plan_path)
+            .arg("--expected-plan-sha256")
+            .arg(&expected.point_plan_sha256)
+            .arg("--iam-receipt")
+            .arg(iam_receipt_path)
+            .arg("--expected-iam-receipt-sha256")
+            .arg(expected_iam_receipt_sha256)
+            .arg("--trace-seed")
+            .arg(expected.trace_seed.to_string())
+            .arg("--block-ordinal")
+            .arg(expected.block_ordinal.to_string())
+            .arg("--position-in-block")
+            .arg(expected.position_in_block.to_string())
+            .arg("--subject")
+            .arg(expected.subject.id())
+            .arg("--concurrent-clients")
+            .arg(loaded.plan.concurrent_clients.to_string())
+            .arg("--output")
+            .arg(&position_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+            .wait_with_output()?;
+        if !output.status.success() {
+            let failure_path = output_dir.join(format!("position-{ordinal:03}-failure.txt"));
+            let mut failure = output.stdout;
+            failure.extend_from_slice(&output.stderr);
+            write_new_file(&failure_path, &failure)?;
+            return Err(std::io::Error::other(format!(
+                "T28 position {ordinal} failed; evidence is at {}",
+                failure_path.display()
+            ))
+            .into());
+        }
+        let receipt = T28PointPositionReceiptV2::decode(&output.stdout)?;
+        if receipt.trace_seed != expected.trace_seed
+            || receipt.block_ordinal != expected.block_ordinal
+            || receipt.position_in_block != expected.position_in_block
+            || receipt.subject != expected.subject
+            || receipt.plan_sha256 != expected.point_plan_sha256
+        {
+            return Err(std::io::Error::other(format!(
+                "T28 position {ordinal} output differs from its plan"
+            ))
+            .into());
+        }
+        record_t28_position_telemetry(&mut telemetry_recorder, &receipt)?;
+        info!(
+            p99.end_to_end_nanos = receipt.p99_latency_nanos,
+            p99.provider_nanos = receipt.provider_p99_latency_nanos,
+            p99.local_residual_nanos = receipt.local_residual_p99_nanos,
+            "T28 corrected position recorded"
+        );
+        positions.push(receipt);
+    }
+    info!("T28 corrected point measurements completed; flushing telemetry exporters");
+    drop(telemetry_recorder);
+    drop(run_guard);
+    let telemetry_flush = telemetry.shutdown();
+    let receipt = T28CurveRunReceiptV1::new(
+        &loaded,
+        controller_run_id,
+        candidate_commit.to_owned(),
+        executable_sha256,
+        cargo_lock_sha256,
+        telemetry_endpoint_sha256,
+        telemetry_flush,
+        &positions,
+    )?;
+    write_new_file(
+        &output_dir.join("curve-run.json"),
+        &serde_json::to_vec_pretty(&receipt)?,
+    )?;
+    Ok(receipt)
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn record_t28_position_telemetry(
+    recorder: &mut MetricRecorder,
+    receipt: &T28PointPositionReceiptV2,
+) -> Result<(), Box<dyn Error>> {
+    let backend = receipt.subject.id();
+    for sample in &receipt.operation_latency_samples {
+        for (operation, nanos) in [
+            ("point-read-end-to-end", sample.end_to_end_nanos),
+            ("point-read-provider", sample.provider_nanos),
+            ("point-read-local-residual", sample.local_residual_nanos),
+        ] {
+            recorder.record(
+                "operation.duration",
+                nanos as f64 / 1_000_000_000.0,
+                attributes(&[
+                    ("lane", "cold-point"),
+                    ("workload", "t28-point-curve"),
+                    ("operation", operation),
+                    ("backend", backend),
+                    ("cache.state", "metadata-warm-data-cold"),
+                    ("result", "success"),
+                ]),
+            )?;
+        }
+    }
+    recorder.record(
+        "object_store.requests",
+        receipt.measured_provider_attempts as f64,
+        attributes(&[
+            ("lane", "cold-point"),
+            ("workload", "t28-point-curve"),
+            ("backend", backend),
+            ("store", "gcs"),
+            ("api", "get-range"),
+            ("result", "success"),
+        ]),
+    )?;
+    recorder.record(
+        "object_store.bytes",
+        receipt.measured_response_bytes as f64,
+        attributes(&[
+            ("lane", "cold-point"),
+            ("workload", "t28-point-curve"),
+            ("backend", backend),
+            ("store", "gcs"),
+            ("direction", "read"),
+            ("api", "get-range"),
+        ]),
+    )?;
+    recorder.record(
+        "correctness.failures",
+        receipt.correctness_anomalies as f64,
+        attributes(&[
+            ("lane", "cold-point"),
+            ("workload", "t28-point-curve"),
+            ("failure.class", "point-read"),
+        ]),
+    )?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]

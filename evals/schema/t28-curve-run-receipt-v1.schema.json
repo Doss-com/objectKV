@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://objectkv.dev/evals/schema/t28-curve-run-receipt-v1.schema.json",
+  "title": "objectKV RFC-0046 T28 corrected curve run receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "plan_id", "plan_sha256", "controller_run_id",
+    "candidate_commit", "executable_sha256", "cargo_lock_sha256",
+    "telemetry_endpoint_sha256", "position_receipt_sha256s", "machine_id",
+    "linux_boot_id", "blocks", "original_passed_blocks",
+    "local_addendum_passed_blocks", "original_gate_passed",
+    "local_addendum_passed", "candidate_end_to_end",
+    "raw_control_end_to_end", "candidate_provider", "raw_control_provider",
+    "candidate_local_residual", "raw_control_local_residual",
+    "telemetry_metrics_flush_succeeded", "telemetry_traces_flush_succeeded",
+    "telemetry_logs_flush_succeeded", "telemetry_metrics_shutdown_succeeded",
+    "telemetry_traces_shutdown_succeeded", "telemetry_logs_shutdown_succeeded",
+    "telemetry_flush_passed", "collector_confirmation_required",
+    "eligible_pending_collector_confirmation", "receipt_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "plan_id": { "const": "t28-point-curve-addendum-v1" },
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "controller_run_id": { "type": "string", "minLength": 1 },
+    "candidate_commit": { "type": "string", "minLength": 1 },
+    "executable_sha256": { "$ref": "#/$defs/sha256" },
+    "cargo_lock_sha256": { "$ref": "#/$defs/sha256" },
+    "telemetry_endpoint_sha256": { "$ref": "#/$defs/sha256" },
+    "position_receipt_sha256s": {
+      "type": "array", "minItems": 60, "maxItems": 60,
+      "items": { "$ref": "#/$defs/sha256" }
+    },
+    "machine_id": { "type": "string", "minLength": 1 },
+    "linux_boot_id": { "type": "string", "minLength": 1 },
+    "blocks": {
+      "type": "array", "minItems": 15, "maxItems": 15,
+      "items": { "$ref": "#/$defs/block" }
+    },
+    "original_passed_blocks": { "type": "integer", "minimum": 0, "maximum": 15 },
+    "local_addendum_passed_blocks": { "type": "integer", "minimum": 0, "maximum": 15 },
+    "original_gate_passed": { "type": "boolean" },
+    "local_addendum_passed": { "type": "boolean" },
+    "candidate_end_to_end": { "$ref": "#/$defs/percentiles" },
+    "raw_control_end_to_end": { "$ref": "#/$defs/percentiles" },
+    "candidate_provider": { "$ref": "#/$defs/percentiles" },
+    "raw_control_provider": { "$ref": "#/$defs/percentiles" },
+    "candidate_local_residual": { "$ref": "#/$defs/percentiles" },
+    "raw_control_local_residual": { "$ref": "#/$defs/percentiles" },
+    "telemetry_metrics_flush_succeeded": { "type": "boolean" },
+    "telemetry_traces_flush_succeeded": { "type": "boolean" },
+    "telemetry_logs_flush_succeeded": { "type": "boolean" },
+    "telemetry_metrics_shutdown_succeeded": { "type": "boolean" },
+    "telemetry_traces_shutdown_succeeded": { "type": "boolean" },
+    "telemetry_logs_shutdown_succeeded": { "type": "boolean" },
+    "telemetry_flush_passed": { "type": "boolean" },
+    "collector_confirmation_required": { "const": true },
+    "eligible_pending_collector_confirmation": { "type": "boolean" },
+    "receipt_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "positive": { "type": "integer", "minimum": 1 },
+    "subject": { "enum": ["candidate", "raw_range_control"] },
+    "percentiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["samples", "p50_nanos", "p95_nanos", "p99_nanos", "p999_nanos"],
+      "properties": {
+        "samples": { "$ref": "#/$defs/positive" },
+        "p50_nanos": { "type": "integer", "minimum": 0 },
+        "p95_nanos": { "type": "integer", "minimum": 0 },
+        "p99_nanos": { "type": "integer", "minimum": 0 },
+        "p999_nanos": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trace_seed", "block_ordinal", "order", "candidate_samples",
+        "raw_control_samples", "candidate_end_to_end_p99_nanos",
+        "raw_control_end_to_end_p99_nanos", "end_to_end_ratio_millionths",
+        "original_gate_passed", "candidate_provider_p99_nanos",
+        "raw_control_provider_p99_nanos", "provider_ratio_millionths",
+        "candidate_local_residual_p99_nanos",
+        "raw_control_local_residual_p99_nanos",
+        "local_residual_ratio_millionths", "local_residual_difference_nanos",
+        "local_ratio_gate_passed", "local_additive_gate_passed",
+        "local_addendum_passed"
+      ],
+      "properties": {
+        "trace_seed": { "enum": [1103, 2207, 3301] },
+        "block_ordinal": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "order": {
+          "type": "array", "minItems": 4, "maxItems": 4,
+          "items": { "$ref": "#/$defs/subject" }
+        },
+        "candidate_samples": { "const": 2048 },
+        "raw_control_samples": { "const": 2048 },
+        "candidate_end_to_end_p99_nanos": { "$ref": "#/$defs/positive" },
+        "raw_control_end_to_end_p99_nanos": { "$ref": "#/$defs/positive" },
+        "end_to_end_ratio_millionths": { "$ref": "#/$defs/positive" },
+        "original_gate_passed": { "type": "boolean" },
+        "candidate_provider_p99_nanos": { "$ref": "#/$defs/positive" },
+        "raw_control_provider_p99_nanos": { "$ref": "#/$defs/positive" },
+        "provider_ratio_millionths": { "$ref": "#/$defs/positive" },
+        "candidate_local_residual_p99_nanos": { "type": "integer", "minimum": 0 },
+        "raw_control_local_residual_p99_nanos": { "type": "integer", "minimum": 0 },
+        "local_residual_ratio_millionths": { "$ref": "#/$defs/positive" },
+        "local_residual_difference_nanos": { "type": "integer" },
+        "local_ratio_gate_passed": { "type": "boolean" },
+        "local_additive_gate_passed": { "type": "boolean" },
+        "local_addendum_passed": { "type": "boolean" }
+      }
+    }
+  }
+}

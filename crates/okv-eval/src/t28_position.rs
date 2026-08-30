@@ -13,7 +13,7 @@ use std::fs;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-const POSITION_SCHEMA_VERSION: u32 = 1;
+const POSITION_SCHEMA_VERSION: u32 = 2;
 
 /// One measured read completed inside a concurrent position.
 struct MeasuredPoint {
@@ -23,6 +23,16 @@ struct MeasuredPoint {
     local_residual_nanos: u64,
     read: PointRead,
     provider_events: Vec<ProviderAttemptEventV1>,
+}
+
+/// One ordinal-preserving latency decomposition from a measured point read.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28PointLatencySampleV2 {
+    pub ordinal: u64,
+    pub end_to_end_nanos: u64,
+    pub provider_nanos: u64,
+    pub local_residual_nanos: u64,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -37,7 +47,7 @@ struct AttemptIdentity {
 /// Immutable output from one fresh T28 candidate or raw-control process.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct T28PointPositionReceiptV1 {
+pub struct T28PointPositionReceiptV2 {
     pub schema_version: u32,
     pub plan_sha256: String,
     pub subject: T28PointSubject,
@@ -56,6 +66,7 @@ pub struct T28PointPositionReceiptV1 {
     pub put_requests: u64,
     pub delete_requests: u64,
     pub correctness_anomalies: u64,
+    pub operation_latency_samples: Vec<T28PointLatencySampleV2>,
     pub latency_nanos: Vec<u64>,
     pub p50_latency_nanos: u64,
     pub p95_latency_nanos: u64,
@@ -81,7 +92,115 @@ pub struct T28PointPositionReceiptV1 {
     pub receipt_sha256: String,
 }
 
-impl T28PointPositionReceiptV1 {
+impl T28PointPositionReceiptV2 {
+    /// Decode and validate one immutable position receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when JSON decoding, the digest, the physical counters,
+    /// the ordinal-preserving latency decomposition, or any percentile differs
+    /// from the receipt contract.
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let receipt: Self = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Validate the receipt and recompute every derived latency field.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for identity, physical-work, latency, percentile, or
+    /// digest drift.
+    pub fn validate(&self) -> Result<(), String> {
+        let operations =
+            usize::try_from(self.measured_operations).map_err(|error| error.to_string())?;
+        if self.schema_version != POSITION_SCHEMA_VERSION
+            || self.plan_sha256.len() != 64
+            || !self
+                .plan_sha256
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+            || self.trace_seed == 0
+            || self.position_in_block > 3
+            || self.concurrent_clients == 0
+            || operations == 0
+            || self.warm_index_objects == 0
+            || self.warm_provider_attempts < self.warm_index_objects.saturating_add(2)
+            || self.warm_response_bytes == 0
+            || self.measured_provider_attempts != self.measured_operations
+            || self.measured_response_bytes == 0
+            || self.full_data_requests != 0
+            || self.list_requests != 0
+            || self.put_requests != 0
+            || self.delete_requests != 0
+            || self.correctness_anomalies != 0
+            || self.operation_latency_samples.len() != operations
+            || self.latency_nanos.len() != operations
+            || self.provider_latency_nanos.len() != operations
+            || self.local_residual_nanos.len() != operations
+            || self.wall_elapsed_nanos == 0
+            || self.machine_id.is_empty()
+            || self.linux_boot_id.is_empty()
+            || self.process_id == 0
+            || self.linux_process_start_ticks == 0
+            || self.measured_started_unix_nanos == 0
+            || self.measured_finished_unix_nanos <= self.measured_started_unix_nanos
+        {
+            return Err("invalid T28 point position receipt boundary".to_owned());
+        }
+        for (ordinal, sample) in self.operation_latency_samples.iter().enumerate() {
+            if sample.ordinal != u64::try_from(ordinal).unwrap_or(u64::MAX)
+                || sample.provider_nanos == 0
+                || sample.end_to_end_nanos < sample.provider_nanos
+                || sample.local_residual_nanos
+                    != sample
+                        .end_to_end_nanos
+                        .saturating_sub(sample.provider_nanos)
+            {
+                return Err("invalid T28 ordinal-preserving latency sample".to_owned());
+            }
+        }
+        let mut end_to_end = self
+            .operation_latency_samples
+            .iter()
+            .map(|sample| sample.end_to_end_nanos)
+            .collect::<Vec<_>>();
+        let mut provider = self
+            .operation_latency_samples
+            .iter()
+            .map(|sample| sample.provider_nanos)
+            .collect::<Vec<_>>();
+        let mut local = self
+            .operation_latency_samples
+            .iter()
+            .map(|sample| sample.local_residual_nanos)
+            .collect::<Vec<_>>();
+        end_to_end.sort_unstable();
+        provider.sort_unstable();
+        local.sort_unstable();
+        if self.latency_nanos != end_to_end
+            || self.provider_latency_nanos != provider
+            || self.local_residual_nanos != local
+            || self.p50_latency_nanos != nearest_rank(&end_to_end, 50, 100)?
+            || self.p95_latency_nanos != nearest_rank(&end_to_end, 95, 100)?
+            || self.p99_latency_nanos != nearest_rank(&end_to_end, 99, 100)?
+            || self.p999_latency_nanos != nearest_rank(&end_to_end, 999, 1_000)?
+            || self.provider_p50_latency_nanos != nearest_rank(&provider, 50, 100)?
+            || self.provider_p95_latency_nanos != nearest_rank(&provider, 95, 100)?
+            || self.provider_p99_latency_nanos != nearest_rank(&provider, 99, 100)?
+            || self.provider_p999_latency_nanos != nearest_rank(&provider, 999, 1_000)?
+            || self.local_residual_p50_nanos != nearest_rank(&local, 50, 100)?
+            || self.local_residual_p95_nanos != nearest_rank(&local, 95, 100)?
+            || self.local_residual_p99_nanos != nearest_rank(&local, 99, 100)?
+            || self.local_residual_p999_nanos != nearest_rank(&local, 999, 1_000)?
+            || self.receipt_sha256 != self.calculated_sha256()?
+        {
+            return Err("T28 point position derived field or digest mismatch".to_owned());
+        }
+        Ok(())
+    }
+
     /// Return the canonical SHA-256 with the digest field excluded.
     ///
     /// # Errors
@@ -114,7 +233,7 @@ pub async fn run_t28_point_position(
     block_ordinal: u64,
     position_in_block: u64,
     concurrent_clients: usize,
-) -> Result<T28PointPositionReceiptV1, String> {
+) -> Result<T28PointPositionReceiptV2, String> {
     plan.validate(placement)?;
     if trace_seed == 0
         || position_in_block > 3
@@ -212,6 +331,17 @@ pub async fn run_t28_point_position(
     let measured_finished_unix_nanos = unix_nanos();
     validate_position(plan, subject, &results)?;
 
+    let mut ordered_results = results.iter().collect::<Vec<_>>();
+    ordered_results.sort_by_key(|result| result.ordinal);
+    let operation_latency_samples = ordered_results
+        .iter()
+        .map(|result| T28PointLatencySampleV2 {
+            ordinal: result.ordinal,
+            end_to_end_nanos: result.latency_nanos,
+            provider_nanos: result.provider_latency_nanos,
+            local_residual_nanos: result.local_residual_nanos,
+        })
+        .collect::<Vec<_>>();
     let mut latency_nanos = results
         .iter()
         .map(|result| result.latency_nanos)
@@ -232,7 +362,7 @@ pub async fn run_t28_point_position(
             .checked_add(result.read.data_bytes)
             .ok_or_else(|| "T28 position response-byte total overflow".to_owned())
     })?;
-    let mut receipt = T28PointPositionReceiptV1 {
+    let mut receipt = T28PointPositionReceiptV2 {
         schema_version: POSITION_SCHEMA_VERSION,
         plan_sha256: plan.plan_sha256.clone(),
         subject,
@@ -251,6 +381,7 @@ pub async fn run_t28_point_position(
         put_requests: 0,
         delete_requests: 0,
         correctness_anomalies: 0,
+        operation_latency_samples,
         p50_latency_nanos: nearest_rank(&latency_nanos, 50, 100)?,
         p95_latency_nanos: nearest_rank(&latency_nanos, 95, 100)?,
         p99_latency_nanos: nearest_rank(&latency_nanos, 99, 100)?,
@@ -276,6 +407,7 @@ pub async fn run_t28_point_position(
         receipt_sha256: String::new(),
     };
     receipt.receipt_sha256 = receipt.calculated_sha256()?;
+    receipt.validate()?;
     Ok(receipt)
 }
 
@@ -454,7 +586,7 @@ fn unix_nanos() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{nearest_rank, T28PointPositionReceiptV1};
+    use super::{nearest_rank, T28PointLatencySampleV2, T28PointPositionReceiptV2};
     use crate::t28_cold_point::T28PointSubject;
 
     #[test]
@@ -468,8 +600,8 @@ mod tests {
 
     #[test]
     fn point_position_receipt_matches_frozen_schema() {
-        let mut receipt = T28PointPositionReceiptV1 {
-            schema_version: 1,
+        let mut receipt = T28PointPositionReceiptV2 {
+            schema_version: 2,
             plan_sha256: "a".repeat(64),
             subject: T28PointSubject::Candidate,
             trace_seed: 1,
@@ -487,6 +619,12 @@ mod tests {
             put_requests: 0,
             delete_requests: 0,
             correctness_anomalies: 0,
+            operation_latency_samples: vec![T28PointLatencySampleV2 {
+                ordinal: 0,
+                end_to_end_nanos: 2,
+                provider_nanos: 1,
+                local_residual_nanos: 1,
+            }],
             latency_nanos: vec![2],
             p50_latency_nanos: 2,
             p95_latency_nanos: 2,
@@ -512,9 +650,14 @@ mod tests {
             receipt_sha256: String::new(),
         };
         receipt.receipt_sha256 = receipt.calculated_sha256().expect("calculate receipt SHA");
+        receipt.validate().expect("validate position receipt");
+        T28PointPositionReceiptV2::decode(
+            &serde_json::to_vec(&receipt).expect("encode position receipt"),
+        )
+        .expect("decode position receipt");
         let value = serde_json::to_value(receipt).expect("encode position receipt value");
         let schema: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../evals/schema/t28-point-position-receipt-v1.schema.json"
+            "../../../evals/schema/t28-point-position-receipt-v2.schema.json"
         ))
         .expect("decode position receipt schema");
         jsonschema::validator_for(&schema)
