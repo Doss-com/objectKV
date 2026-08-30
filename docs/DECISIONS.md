@@ -1733,6 +1733,12 @@ end-to-end, provider, and local-residual latency to the position receipt. Any
 variance-aware addendum must be written before its execution and reported
 beside, not instead of, the rejected gate.
 
+The diagnostic also failed RFC-0046's seed-order contract: its script
+alternated order by block but did not invert the starting subject for seed
+2207. The run is therefore ineligible for admission independently of its two
+threshold misses. The corrected subject matrix and local-residual thresholds
+are frozen in `evals/plans/t28-point-curve-addendum-v1.toml` before execution.
+
 The curve completed 15 paired blocks and 30,720 reads per subject. Thirteen
 blocks passed; two rejected at 1.2978x and 1.3775x. Their provider-only ratios
 were 1.2990x and 1.3792x. A subsequent attribution diagnostic measured

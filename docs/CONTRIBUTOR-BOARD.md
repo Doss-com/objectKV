@@ -706,12 +706,15 @@ become one GitHub issue.
   positions. `[EVALUATING]` The 15-block, three-seed curve completed 30,720
   reads per subject. Pooled p99 was 1.048x raw control, but 2 of 15 blocks
   rejected the frozen 1.25x gate at 1.298x and 1.378x. Provider-only ratios on
-  those blocks were 1.299x and 1.379x. Every read returned the exact value with
+  those blocks were 1.299x and 1.379x. The script did not invert seed 2207's
+  starting order, so it is ineligible independently of those misses. Every
+  read returned the exact value with
   one planned range request, zero retries, and zero anomalies. Preserve the
   rejection. `[CODE-COMPLETE]` Exact per-operation attribution subsequently
   measured candidate/raw local-residual p99 at 428.507/407.242 microseconds in
-  one diagnostic pair. The next slice precommits the variance-aware addendum
-  before rerunning. Evidence:
+  one diagnostic pair. The corrected subject matrix and local-residual
+  addendum are frozen in
+  `evals/plans/t28-point-curve-addendum-v1.toml` before rerunning. Evidence:
   `docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`

@@ -1,0 +1,61 @@
+schema_version = 1
+plan_id = "t28-point-curve-addendum-v1"
+status = "frozen_before_corrected_execution"
+fixture_logical_bytes = 1073741824
+cache_state = "metadata_warm_data_cold"
+measured_operations_per_position = 1024
+concurrent_clients = 8
+blocks_per_seed = 5
+positions_per_block = 4
+object_store_max_retries = 0
+data_cache_bytes = 0
+max_data_range_bytes = 65536
+
+[fixture]
+project = "doss-objectkv-dev"
+bucket = "doss-objectkv-dev-okv-evals"
+region = "us-central1"
+placement_envelope_sha256 = "768e1a9b8ee91a16615dd69b89d15ba581667a9d5ab6e5190b5de663efcc024d"
+
+[reader]
+principal_email = "objectkv-eval-runner@doss-objectkv-dev.iam.gserviceaccount.com"
+credential_source = "gce_metadata_server"
+iam_receipt_sha256 = "f383977a0f13ddf791ebc6ac97381ffc903268f45416689fe7eb23db22f2c1e9"
+
+[original_end_to_end_gate]
+percentile_numerator = 99
+percentile_denominator = 100
+max_candidate_to_control_ratio = 1.25
+require_every_block = true
+result_authority = "unchanged_rfc0046_gate"
+
+[local_residual_addendum]
+definition = "operation_end_to_end_nanos_minus_same_operation_provider_nanos"
+percentile_numerator = 99
+percentile_denominator = 100
+max_candidate_to_control_ratio = 1.25
+max_candidate_minus_control_nanos = 250000
+require_every_block = true
+claim_if_passed = "candidate_local_cold_point_overhead_is_bounded"
+forbidden_claim = "end_to_end_gcs_point_latency_is_admitted"
+
+[[seeds]]
+trace_seed = 1103
+plan_sha256 = "f1e3612a8480b852a82ade64f030f7b7b4e347ae56e130f865e62544594ba3b1d"
+orders = ["candidate,raw,raw,candidate", "raw,candidate,candidate,raw", "candidate,raw,raw,candidate", "raw,candidate,candidate,raw", "candidate,raw,raw,candidate"]
+
+[[seeds]]
+trace_seed = 2207
+plan_sha256 = "dd7488b537c7fa71b685025defacf9f58b9b528b6d517d048e890392f5d3eb1d"
+orders = ["raw,candidate,candidate,raw", "candidate,raw,raw,candidate", "raw,candidate,candidate,raw", "candidate,raw,raw,candidate", "raw,candidate,candidate,raw"]
+
+[[seeds]]
+trace_seed = 3301
+plan_sha256 = "b90022799885d3443d5fb51e4caa38a45341ab6934779d118057c00c0b6cec20"
+orders = ["candidate,raw,raw,candidate", "raw,candidate,candidate,raw", "candidate,raw,raw,candidate", "raw,candidate,candidate,raw", "candidate,raw,raw,candidate"]
+
+[stopping_rule]
+execute_once = true
+publish_on_pass_or_fail = true
+rerun_requires_new_plan_id = true
+retain_prior_diagnostic = true

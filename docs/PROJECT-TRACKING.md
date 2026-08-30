@@ -48,7 +48,10 @@ unchanged because the curve was not admitted. Evidence:
 residual. A fresh diagnostic measured candidate/raw local-residual p99 at
 428.507/407.242 microseconds, a 21.265-microsecond candidate increment, while
 the 33.335 ms end-to-end difference tracked a 33.319 ms provider difference.
-This proves attribution, not admission.
+This proves attribution, not admission. The prior 15-block script also failed
+to invert seed 2207's starting order, making it ineligible independently of its
+two threshold misses. The corrected subject matrix and local-residual addendum
+are now frozen before execution.
 
 The recurring four-panel performance view is tracked with the RFC-0047
 diagnostic evidence. Each new admitted curve updates latency shape, concurrency

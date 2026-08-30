@@ -1,6 +1,6 @@
 # RFC-0046 T28 point curve on GCS
 
-Status: `[EVALUATING]`. The frozen admission gate rejected 2 of 15 blocks.
+Status: `[EVALUATING]` diagnostic. It is not eligible for admission.
 
 Date: 2026-08-30
 
@@ -8,8 +8,10 @@ Date: 2026-08-30
 
 The run used one existing 1 GiB content-addressed fixture, three deterministic
 1,024-operation plans, eight concurrent clients per position, four fresh
-processes per block, five paired blocks per seed, and alternating ABBA or BAAB
-order. Candidate and raw control consumed the same sealed data ranges.
+processes per block, and five paired blocks per seed. Candidate and raw control
+consumed the same sealed data ranges. The script alternated ABBA and BAAB by
+block but failed to invert the starting order for seed 2207. RFC-0046 requires
+that seed rotation, so this run cannot admit the gate regardless of its ratios.
 
 | Percentile | objectKV candidate | Raw GCS range control | Ratio |
 |---|---:|---:|---:|
@@ -18,7 +20,7 @@ order. Candidate and raw control consumed the same sealed data ranges.
 | p99 | 61.752 ms | 58.920 ms | 1.048x |
 | p99.9 | 140.124 ms | 116.206 ms | 1.206x |
 
-The frozen primary gate required every block's pooled candidate p99 to remain
+The frozen primary gate requires every block's pooled candidate p99 to remain
 at or below 1.25x its paired raw control. Thirteen blocks passed. Seed 2207,
 block 0 rejected at 1.3775x; seed 3301, block 0 rejected at 1.2978x. The block
 ratio distribution was 0.8479x minimum, 1.0033x median, 1.3775x nearest-rank
@@ -29,7 +31,8 @@ Across all samples, candidate provider p99 was 61.386 ms and raw-control
 provider p99 was 58.567 ms, also 1.048x. The end-to-provider latency gap was
 about 0.35 ms on both subjects. The rejected end-to-end ratios therefore track
 the measured GCS call rather than a separately visible objectKV-local stage.
-This attribution is diagnostic; it does not change the frozen rejection.
+This attribution is diagnostic; it does not repair the order mismatch or
+change the two observed threshold failures.
 
 ### Exact local-residual diagnostic
 
@@ -111,9 +114,9 @@ the raw evidence.
 
 ## What remains open
 
-1. Preserve this rejected result without changing its all-block threshold.
-2. Use the now code-complete per-operation local-residual receipt in a
-   precommitted variance-aware addendum. Do not select its
-   statistic from this result.
+1. Preserve this ineligible failed diagnostic without changing its all-block
+   threshold.
+2. Execute the corrected seed rotation and the now-frozen local-residual
+   addendum in `evals/plans/t28-point-curve-addendum-v1.toml`.
 3. Bind any admitted curve to the declared OTel evidence contract.
 4. Keep T38 unchanged until a curve is admitted.

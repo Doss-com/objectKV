@@ -142,7 +142,8 @@ three-seed curve completed 15 blocks and 30,720 reads per subject. Candidate
 p99 was 61.752 ms versus 58.920 ms raw control, or 1.048x when pooled. The
 frozen every-block gate rejected 2 of 15 blocks at 1.298x and 1.378x. Their
 provider-only ratios were 1.299x and 1.379x, so the observed misses follow GCS
-variance rather than measured candidate-local work. The rejection is retained;
+variance rather than measured candidate-local work. The script also failed to
+invert seed 2207's starting order, making the run ineligible. The result is retained;
 `[CODE-COMPLETE]` Exact per-operation attribution records end-to-end, provider,
 and local-residual latency. One fresh diagnostic measured candidate/raw
 local-residual p99 at 428.507/407.242 microseconds while its end-to-end gap

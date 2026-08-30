@@ -10,13 +10,15 @@ passes. D68 activates implementation after the bounded T27 provider-v2
 diagnostic while leaving T27 tail performance `[EVALUATING]`.
 
 Implementation checkpoint: `[CODE-COMPLETE]` commits `1d67897` through
-`8c0b39a` add lazy descriptor and manifest open, authenticated block plans,
-no-retry GCS construction, provider-attempt events, an independent value
-oracle, and candidate plus raw-range single-point commands. `[EVALUATING]` A
-real 1 GiB fixture preflight returned the exact value through one 65,048-byte
-GCS range attempt for each subject. This is mechanism evidence only. The
-read-only identity receipt, complete poison set, fresh-process paired runner,
-OTel receipt, and admission curve remain open.
+`b291612` add lazy descriptor and manifest open, authenticated block plans,
+read-only identity binding, no-retry GCS construction, provider-attempt events,
+an independent value oracle, fresh-process concurrent positions, and exact
+per-operation provider and local-residual latency. `[EVALUATING]` A real 1 GiB
+diagnostic completed 15 paired blocks and 30,720 reads per subject, but it is
+not an admission run. Two blocks exceeded the frozen ratio and the script did
+not invert the starting order for seed 2207. The corrected plan is frozen at
+`evals/plans/t28-point-curve-addendum-v1.toml`. OTel binding and an eligible
+admission curve remain open.
 
 ## Decision
 
@@ -184,6 +186,48 @@ block ratio is candidate p99 divided by raw-range p99. All 15 block ratios must
 be at most 1.25. Report the minimum, median, p95, and maximum block ratio, plus
 per-seed and per-order diagnostics. A pooled run-wide percentile is diagnostic
 only and cannot admit the gate.
+
+### Post-failure local-residual addendum
+
+The first 15-block diagnostic is retained but is ineligible for admission. It
+failed two block ratios and did not rotate seed 2207's starting subject. Its
+provider-only ratios matched its end-to-end ratios closely, so D69 adds a
+separate causal gate without changing the original gate.
+
+For operation `i`:
+
+```text
+local_residual_i = end_to_end_i - provider_call_i
+```
+
+Both clocks are captured in the same task around the same provider call. The
+candidate residual includes its RAM-resident index lookup, plan and manifest
+validation, checksummed block decode, and MVCC selection outside GCS. The raw
+residual includes the common planned-block validation, decode, and MVCC work.
+
+The corrected execution uses
+`evals/plans/t28-point-curve-addendum-v1.toml`. Its 15 exact subject orders are
+frozen before execution. Within each block, separately pool the 2,048
+candidate and 2,048 raw-control residuals and calculate nearest-rank p99. Every
+block must satisfy both:
+
+```text
+candidate residual p99 / raw residual p99 <= 1.25
+candidate residual p99 - raw residual p99 <= 250,000 ns
+```
+
+The additive threshold allocates 25 percent of a 1 ms local processing budget
+and 0.5 percent of a 50 ms cold-object latency budget. It is not derived from
+the diagnostic's observed 21.265-microsecond difference. The ratio catches
+proportional regressions; the additive bound prevents a small control residual
+from turning a harmless ratio into the only conclusion.
+
+A passing addendum verifies only bounded candidate-local cold-point overhead.
+It does not erase an original end-to-end rejection, admit GCS latency, verify
+refill, or update T38. The same corrected run still evaluates the unchanged
+original gate and publishes both results. It executes once; any later rerun
+requires a new plan ID and a named code, configuration, or infrastructure
+change.
 
 ### Dataset and trace matrix
 
