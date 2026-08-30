@@ -2,7 +2,8 @@
 
 - Status: `[PROPOSED]`
 - Model mechanism: `[VERIFIED]` in two finite scopes
-- Implementation refinement: `[EVALUATING]`
+- Implementation refinement: staged txLog prefix `[VERIFIED]`, complete cell
+  `[EVALUATING]`
 - Authors: DOSS
 - Created: 2026-08-30
 
@@ -87,10 +88,12 @@ identity, and the relevant media or worker identity.
 | `HydrateServingImage`, `ServeRead` | `ServingImage` and `SingleRange` | GP3.1 and GP3.1.1 `[VERIFIED]` |
 | `LoseRam`, `LoseStableMedium` | worker or media fault injection | independent-host envelope `[EVALUATING]` |
 
-`[PROPOSED]` A small trace checker consumes implementation events and rejects a
-sequence that has no corresponding TLA+ transition. This is the next useful
-refinement step. It is more valuable than enlarging the finite model before the
-implementation can demonstrate conformance to the current one.
+`[VERIFIED]` The first trace checker consumes the stable event vocabulary and
+is bound to the exact TLA+ model SHA-256. On the GCP R0 runner it accepted a
+36-event staged txLog trace with three post-restart stable-quorum assertions.
+The early-acknowledgement subject was rejected at assertion zero because no
+restart-observed stable quorum existed. This verifies only the RFC-0045 L1
+prefix, not transaction commit, publication, txLog pop, or serving recovery.
 
 ## Model-check result
 
@@ -134,14 +137,17 @@ conformance, and the master performance matrix.
 
 ## Next decision-bearing work
 
-1. Emit the minimal stable transition vocabulary from the current transaction,
-   txLog, publication, and serving paths.
-2. Check one retained healthy trace and one poison trace against the reference
-   model.
-3. Use the same transition identities in the independent-media T29 receipt.
-4. Extend the model only when that trace work reveals a missing state or when a
+1. Extend the verified staged txLog prefix through `CommitTxn` and
+   `DeliverCommitted` in the independent-media T29 receipt.
+2. Emit publication, safe-pop, and serving-recovery transitions from their
+   current implementation boundaries.
+3. Check one retained poison at each new cross-layer boundary.
+4. Extend the model only when trace work reveals a missing state or when a
    new architectural decision, such as resolver partitioning, cannot be stated
    with the current contract.
+
+Receipt:
+`docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
 
 This optimizes for one communicable architecture and early detection of unsafe
 cross-layer orderings. It gives up detailed proofs of each chosen algorithm

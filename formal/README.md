@@ -59,16 +59,21 @@ object base and stable txLog suffix. A RAM copy alone never authorizes a
 TLA+ reference state machine
   -> defines allowed architecture transitions and invariants
 
-Rust trace refinement                           [EVALUATING]
-  -> maps implementation events to those transitions
+Rust trace refinement                           [VERIFIED: staged txLog prefix]
+  -> maps 36 healthy implementation events to the exact model identity
+  -> rejects an early-acknowledgement poison at its first assertion
 
 real-infrastructure eval receipt                [EVALUATING]
   -> measures latency, throughput, loss, debt, and bounded state
 ```
 
-The model answers whether an explored ordering is allowed. It does not answer
-whether the implementation refines the model or whether the mechanism meets a
-performance target. Those require the Rust trace and eval receipt respectively.
+The model answers whether an explored ordering is allowed. The staged txLog
+prefix now has one implementation refinement receipt. Transaction commit,
+object publication, txLog pop, and serving recovery remain `[EVALUATING]`.
+Performance still requires a separate eval receipt.
+
+The retained GCP implementation receipt is documented at
+[`docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/`](../docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md).
 
 ## Checked scopes
 

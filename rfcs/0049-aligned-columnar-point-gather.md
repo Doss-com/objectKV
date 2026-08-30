@@ -142,10 +142,21 @@ RFC `[VERIFIED]`.
 
 The validator now uses the live subject identifiers and has a focused exact-ID
 regression. The program will not repeat 90 completed cloud positions solely to
-repair receipt ceremony. It advances to the still-unmeasured, decision-bearing
-complete-closure recovery, compaction write amplification, and branch-reference
-gates. Retained evidence:
+repair receipt ceremony.
+
+`[EVALUATING]` Source `60a593c` adds the complete-child recovery gate. Its first
+real GCS run fetched exactly the root, manifest, index, projection, and payload,
+then reproduced 25,014 retained records, 15,742 live rows, and the independent
+canonical history digest. It verified 792 proofs per data object in 792.221 ms
+using 13,700,110 response bytes, zero LIST, and zero writes. The local corrupted
+child failed closed. A sealed cloud poison and independent OTel confirmation
+remain before admission. Compaction write amplification and branch-reference
+reuse remain separate gates.
+
+Retained curve evidence:
 `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r2-failed-gcp-r0-2026-08-30/README.md`.
+Recovery evidence:
+`docs/artifacts/eval-receipts/c5v2-closure-recovery-gcp-r0-2026-08-30/README.md`.
 
 ## Format boundary
 

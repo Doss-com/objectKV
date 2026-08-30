@@ -935,8 +935,24 @@ bytes. Stored/live, compaction-write, and resident-index ratios are
 1.010\(\times\), 1.010\(\times\), and 1.170\(\times\). Repeated warm reads
 issue zero object requests, and a fresh process reconstructs the exact MVCC
 history from the manifest, index, projection, and payload objects. The source
-is dirty and telemetry is disabled, so this admits a mechanism to DataFusion
-and GCS evaluation, not a verified architecture.
+was initially dirty and telemetry was disabled, so that local run admitted only
+the mechanism. The subsequent clean regional-GCS preflight verified the same
+C5v2 layout at 0.869\(\times\) the indexed-row control's point p99 and
+31.692\(\times\) its projected-scan throughput. Its admitted 60-point and
+30-scan execution retained point p99 below 2.00\(\times\) control in all 15
+paired blocks and reached 21.523--33.031\(\times\) scan throughput, but an
+evaluator-only scan-name mismatch rejected the final receipt. We do not rerun
+the completed curve to repair receipt metadata.
+
+A separate clean-source recovery process then opened the authenticated C5v2
+root and fetched the manifest, index, projection, and payload as five exact
+generation-pinned GCS objects. It verified 1,584 frame proofs, reconstructed
+25,014 MVCC records and 15,742 live rows, and matched the independently frozen
+history digest in 792.221 ms after reading 13,700,110 bytes. The provider
+ledger recorded zero LIST and zero write operations. This is positive
+complete-closure recovery evidence, not a point-read result. Admission remains
+\evaluating{} until the cloud corruption rejection and independent telemetry
+receipt are sealed.
 
 The next experiment replaces the in-memory or Parquet base source with a custom
 DataFusion \texttt{TableProvider} and incremental \texttt{ExecutionPlan} over
@@ -1432,12 +1448,15 @@ control within 0.2 percent on bytes per read in one smoke sample. The native
 plane then reopened one persisted 64 MiB GCS fixture across fresh ABBA workers,
 with three exact descriptor reopens, 0.001623x authority scratch, zero hot
 object requests, and a passing reuse-bypass poison. The subsequent immutable
-fresh-process preflight retained 0.8652x and 0.9739x
-control throughput while clearing p99, CPU/read, physical-read, amplification,
-pressure, and three-signal telemetry gates in both orders. It therefore
-continues to the full coverage and skew curve and replicated-commit gates. The
-1 GiB fixture and 540-position plan are now frozen and preserved; only their
-performance execution remains open.
+fresh-process preflight retained 0.8652x and 0.9739x control throughput while
+clearing p99, CPU/read, physical-read, amplification, pressure, and
+three-signal telemetry gates in both orders. Provider v2 then reduced the 1 GiB
+local-byte ratio to 1.000037x control. Its bounded diagnostic measured p50,
+p95, p99, and p99.9 at 1.026x, 1.131x, 1.742x, and 1.032x control. The p99 tail
+remains deferred rather than admitted. The active decision row is now object
+layout: C5v2 has a real GCS point and scan curve and an exact positive
+complete-closure recovery result. Cloud corruption rejection, compaction
+amplification, and branch-reference reuse remain open.
 TiKV failed the strict-serializable
 write-skew control; FoundationDB passed and remains the semantic oracle and
 fallback profile. Its logical-generation and media-loss probes verify exact
@@ -1446,9 +1465,9 @@ process detects stale commit, route, and publication attempts. No receipt yet
 proves a complete native transaction cell, independent-zone quorum durability,
 the full cache-coverage curve, PostgreSQL execution, or end-to-end HTAP
 economics. The golden scenario is code complete as a plan. The next decisive
-results are the 1 GiB coverage and skew curve, same-durability native
-replicated commit, and exact object-plus-tail recovery under those admitted
-rates.
+results are C5v2 corruption rejection, compaction amplification, and
+branch-reference reuse. Same-durability native replicated commit follows only
+after that layout decision closes.
 
 \balance
 \bibliographystyle{ACM-Reference-Format}

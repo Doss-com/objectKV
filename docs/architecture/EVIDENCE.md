@@ -208,6 +208,24 @@ remote library suite. Fable returned `SHIP`. Admission r2 remains
 Evidence:
 `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r1-failed-gcp-r0-2026-08-30/README.md`.
 
+`[EVALUATING]` The C5v2 complete-child recovery now reads the exact root,
+manifest, index, projection, and payload without LIST or writes. Its first GCS
+run reconstructed 25,014 retained records and 15,742 live rows, verified 792
+proofs per data object, and matched the independent canonical history digest
+in 792.221 ms. A sealed cloud poison and OTel confirmation remain.
+
+Evidence:
+`docs/artifacts/eval-receipts/c5v2-closure-recovery-gcp-r0-2026-08-30/README.md`.
+
+`[VERIFIED]` The RFC-0050 implementation bridge now maps the staged txLog L1
+process path to the executable cell model. The exact GCP binary accepted 36
+healthy events and three post-restart stable-quorum assertions. Its
+early-acknowledgement poison failed at assertion zero. Complete transaction,
+publication, pop, and serving traces remain `[EVALUATING]`.
+
+Evidence:
+`docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
+
 ```text
 generation-pinned locator + immutable operation plan
   → fresh read-only process

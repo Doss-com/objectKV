@@ -1788,8 +1788,8 @@ Evidence:
 
 ## D71. Use one executable cell model as the architecture contract
 
-Status: finite model mechanism `[VERIFIED]`; implementation refinement
-`[EVALUATING]`, 2026-08-30.
+Status: finite model mechanism `[VERIFIED]`; staged txLog implementation
+refinement `[VERIFIED]`; complete-cell refinement `[EVALUATING]`, 2026-08-30.
 
 Decision: maintain one integrated TLA+ state machine for the externally visible
 behavior of a complete objectKV cell. It composes concurrent conflict
@@ -1806,11 +1806,13 @@ switches each produced the intended invariant counterexample. This verifies
 only the named finite model scopes. It does not prove the Rust implementation,
 unbounded operation, liveness, Raft or Paxos, or production performance.
 
-The next useful step is implementation trace refinement, not a larger state
-space. The current transaction, txLog, publication, generation, and serving
-paths should emit the model's stable transition vocabulary. One healthy trace
-and one poison trace must then be checked against allowed transitions before
-the T29 independent-media run.
+Source `beba5ef` adds the executable Rust trace checker. On the GCP R0 runner,
+its exact release binary accepted 36 staged txLog events and three post-restart
+stable-quorum assertions with zero anomalies. Its early-acknowledgement subject
+was rejected at assertion zero with the named stable-quorum violation. This
+closes the RFC-0045 L1 prefix only. The next refinement extends that same
+vocabulary through transaction commit and delivery in T29, then through object
+publication, safe pop, and serving recovery.
 
 Optimizes for: one reviewable source of truth for cross-layer safety and a
 direct bridge from architecture diagrams to implementation and eval receipts.
@@ -1819,4 +1821,5 @@ Gives up: treating separate subsystem models as sufficient proof of the cell or
 claiming that finite-state exploration establishes real-infrastructure
 correctness.
 
-Specification and receipt: `formal/README.md`. Design record: RFC-0050.
+Specification: `formal/README.md`. Design record: RFC-0050. Receipt:
+`docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.

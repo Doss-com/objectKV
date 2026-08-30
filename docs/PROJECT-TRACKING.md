@@ -455,9 +455,12 @@ diagnostic point p99 was 1.179x C0, all 15 blocks were below 2.00x, projected
 scan throughput had a 28.426x median, and media was 1.043x. No curve verdict or
 independent OTel admission was sealed. The exact naming mismatch is corrected;
 the program will not rerun completed cloud work for receipt-only repair. C5v2
-is still `[EVALUATING]` until complete-closure recovery, compaction
-amplification, and branch-reference gates pass. Rows 1 and 2 remain explicit
-deferred performance debt; their receipts are not combined with row 3.
+is still `[EVALUATING]`. Its first exact GCS complete-child recovery reproduced
+25,014 retained records and 15,742 live rows from five full GETs and 13,700,110
+bytes in 792.221 ms. It verified 1,584 frame proofs with zero LIST or writes.
+A sealed cloud poison, OTel confirmation, compaction amplification, and
+branch-reference gates remain. Rows 1 and 2 remain explicit deferred
+performance debt; their receipts are not combined with row 3.
 
 ## Current checkpoint
 
@@ -909,6 +912,14 @@ L1 verifies one-host process and local-journal mechanics only. It makes no
 independent-media, GCS-publication, append-latency, throughput, transaction
 commit, or OpenRaft-replacement claim. L2 same-zone independent-machine
 evaluation is the next staged txLog rung after the active read-path rows.
+
+`[VERIFIED]` Source `beba5ef` maps the L1 process path to the RFC-0050 cell
+trace. Its exact GCP release binary accepted 36 healthy events and three
+post-restart stable-quorum assertions with zero anomalies. The
+early-acknowledgement poison failed at assertion zero because no
+restart-observed stable quorum existed. This is a staged txLog-prefix proof,
+not complete-cell refinement. Receipt:
+`docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
 
 Do not expand MultiRaft, PostgreSQL, or metacluster scope until the resident
 read and bounded cold-object lookup curves clear their controls.
