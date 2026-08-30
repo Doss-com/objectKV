@@ -3,10 +3,15 @@
 //! This crate is deliberately independent of a storage engine. Implementations
 //! are compared against it; optimization experiments must not modify it.
 
+mod cell_trace;
 mod history;
 mod htap;
 mod publication_gc;
 
+pub use cell_trace::{
+    CellServingTierV1, CellTraceAssertionV1, CellTraceConfigV1, CellTraceEventV1,
+    CellTraceRefinementV1, CellTraceViolationV1, OBJECT_KV_CELL_TLA_SHA256,
+};
 pub use history::{run_differential_history, DifferentialMode, DifferentialReport};
 pub use htap::{run_htap_contract, HtapContractMode, HtapContractReport};
 pub use publication_gc::{run_publication_gc_contract, PublicationGcMode, PublicationGcReport};

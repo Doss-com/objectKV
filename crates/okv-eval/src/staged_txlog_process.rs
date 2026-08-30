@@ -3,6 +3,7 @@
 //! This module proves the frozen L1 process contract. It is not a performance
 //! benchmark and does not model independent machine or failure domains.
 
+use okv_model::{CellTraceAssertionV1, CellTraceConfigV1, CellTraceEventV1, CellTraceRefinementV1};
 use okv_wal::{
     StagedAppendOutcome, StagedLogError, StagedLogIdentity, StagedLogNode, StagedLogRecord,
     StagedRequestIdentity,
@@ -71,6 +72,8 @@ pub struct StagedTxLogAppendSample {
     pub position: u64,
     pub payload_bytes: u64,
     pub durable_acknowledgements: u64,
+    pub acknowledged_nodes: Vec<u8>,
+    pub stable_nodes_observed: Vec<u8>,
     pub quorum_duration_seconds: f64,
 }
 
@@ -112,6 +115,7 @@ pub struct StagedTxLogProcessReport {
     pub executed_checks: u64,
     pub anomaly_count: u64,
     pub first_mismatch: Option<String>,
+    pub cell_trace_refinement: CellTraceRefinementV1,
     pub trace_sha256: String,
 }
 
@@ -450,6 +454,7 @@ struct HealthObservation {
 
 #[derive(Clone, Debug)]
 struct StateObservation {
+    node_id: u8,
     physical_bytes: u64,
     recovered_torn_tail: bool,
     records: Vec<WireRecord>,
@@ -536,6 +541,8 @@ pub fn run_staged_txlog_process_contract(
             position,
             payload_bytes: bounded_u64(payload_size),
             durable_acknowledgements: result.durable_acknowledgements,
+            acknowledged_nodes: result.acknowledged_nodes(),
+            stable_nodes_observed: Vec::new(),
             quorum_duration_seconds: result.quorum_duration_seconds,
         });
         expected_initial.push(WireRecord {
@@ -646,6 +653,8 @@ pub fn run_staged_txlog_process_contract(
             position: final_position,
             payload_bytes: bounded_u64(final_payload.len()),
             durable_acknowledgements: final_result.durable_acknowledgements,
+            acknowledged_nodes: final_result.acknowledged_nodes(),
+            stable_nodes_observed: Vec::new(),
             quorum_duration_seconds: final_result.quorum_duration_seconds,
         });
         expected_complete.push(WireRecord {
@@ -657,6 +666,18 @@ pub fn run_staged_txlog_process_contract(
     }
 
     let final_states = read_states(&nodes)?;
+    for sample in &mut append_samples {
+        sample.stable_nodes_observed = final_states
+            .iter()
+            .filter(|state| {
+                state
+                    .records
+                    .iter()
+                    .any(|record| record.position == sample.position)
+            })
+            .map(|state| state.node_id)
+            .collect();
+    }
     let complete_node_count = final_states
         .iter()
         .filter(|state| state.records == expected_complete)
@@ -758,8 +779,9 @@ pub fn run_staged_txlog_process_contract(
         .find_map(|(detail, passed)| (!passed).then(|| (*detail).to_owned()));
     let anomaly_count = u64::from(first_mismatch.is_some());
 
+    let cell_trace_refinement = staged_txlog_cell_trace(&append_samples)?;
     let mut report = StagedTxLogProcessReport {
-        schema_version: 1,
+        schema_version: 2,
         seed,
         mode: mode.id().to_owned(),
         node_count: bounded_u64(NODE_COUNT),
@@ -793,6 +815,7 @@ pub fn run_staged_txlog_process_contract(
         executed_checks: bounded_u64(checks.len()),
         anomaly_count,
         first_mismatch,
+        cell_trace_refinement,
         trace_sha256: String::new(),
     };
     report.trace_sha256 = hex_digest(
@@ -909,6 +932,7 @@ fn read_states(nodes: &[RunningNode]) -> Result<Vec<StateObservation>, String> {
                 records,
                 ..
             } => Ok(StateObservation {
+                node_id,
                 physical_bytes,
                 recovered_torn_tail,
                 records,
@@ -918,6 +942,95 @@ fn read_states(nodes: &[RunningNode]) -> Result<Vec<StateObservation>, String> {
             )),
         })
         .collect()
+}
+
+impl ParallelAppend {
+    fn acknowledged_nodes(&self) -> Vec<u8> {
+        self.responses
+            .iter()
+            .filter_map(|(node_id, response)| {
+                matches!(
+                    response,
+                    Ok(NodeResponse::Append {
+                        synchronized: true,
+                        ..
+                    })
+                )
+                .then_some(*node_id)
+            })
+            .collect()
+    }
+}
+
+fn staged_txlog_cell_trace(
+    samples: &[StagedTxLogAppendSample],
+) -> Result<CellTraceRefinementV1, String> {
+    let config = CellTraceConfigV1::new(
+        (0..NODE_COUNT).map(|node| format!("n{node}")),
+        WRITE_QUORUM,
+        1,
+    )
+    .map_err(|error| error.detail)?;
+    let mut events = Vec::new();
+    let mut assertions = Vec::new();
+    let mut generation_advanced = false;
+    for sample in samples {
+        if sample.position > 3 && !generation_advanced {
+            events.push(CellTraceEventV1::AdvanceGeneration);
+            for node in 0..NODE_COUNT {
+                events.push(CellTraceEventV1::InstallGeneration {
+                    node: format!("n{node}"),
+                });
+            }
+            generation_advanced = true;
+        }
+        let transaction = format!("txlog-position-{}", sample.position);
+        events.push(CellTraceEventV1::Begin {
+            transaction: transaction.clone(),
+        });
+        events.push(CellTraceEventV1::SequenceTxn {
+            transaction: transaction.clone(),
+            version: sample.position,
+        });
+        let staged_nodes = sample
+            .acknowledged_nodes
+            .iter()
+            .chain(&sample.stable_nodes_observed)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        for node in staged_nodes {
+            events.push(CellTraceEventV1::StageInRam {
+                transaction: transaction.clone(),
+                node: format!("n{node}"),
+            });
+        }
+        for node in &sample.stable_nodes_observed {
+            events.push(CellTraceEventV1::PersistOnStableMedia {
+                transaction: transaction.clone(),
+                node: format!("n{node}"),
+            });
+        }
+        if sample.position <= 3 {
+            assertions.push(CellTraceAssertionV1::StableQuorumAtAcknowledgement {
+                transaction,
+                acknowledged_nodes: sample
+                    .acknowledged_nodes
+                    .iter()
+                    .map(|node| format!("n{node}"))
+                    .collect(),
+            });
+        }
+    }
+    let refinement = CellTraceRefinementV1::evaluate(
+        "staged-txlog-l1-stable-media-prefix",
+        config,
+        events,
+        assertions,
+    );
+    refinement
+        .validate()
+        .map_err(|error| format!("invalid cell trace refinement: {}", error.detail))?;
+    Ok(refinement)
 }
 
 fn append_parallel(

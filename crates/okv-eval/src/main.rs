@@ -484,6 +484,13 @@ enum Commands {
         #[arg(long, default_value_t = 32)]
         transactions_per_batch: usize,
     },
+    /// Emit one three-process staged txLog trace with TLA+ refinement evidence.
+    StagedTxLogProcessTrace {
+        #[arg(long)]
+        seed: u64,
+        #[arg(long, default_value = "correct")]
+        mode: String,
+    },
     /// Emit the RFC-0044 canonical empty-anchor determinism report.
     FixtureAnchorTrace {
         #[arg(long)]
@@ -1281,6 +1288,12 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let mode = parse_transaction_process_mode(&mode).map_err(std::io::Error::other)?;
             let config = serde_json::from_slice::<TransactionMachineConfig>(&fs::read(config)?)?;
             let report = run_transaction_machine_contract(seed, mode, config)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::StagedTxLogProcessTrace { seed, mode } => {
+            let mode = parse_staged_txlog_process_mode(&mode).map_err(std::io::Error::other)?;
+            let executable = std::env::current_exe()?;
+            let report = run_staged_txlog_process_contract(seed, mode, &executable)?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Commands::ServingRecoveryProcessTrace {
@@ -7316,6 +7329,16 @@ fn parse_transaction_process_mode(value: &str) -> Result<TransactionProcessMode,
         "accept_conflicts" => Ok(TransactionProcessMode::AcceptConflicts),
         "partial_apply" => Ok(TransactionProcessMode::PartialApply),
         other => Err(format!("unknown transaction process mode {other}")),
+    }
+}
+
+fn parse_staged_txlog_process_mode(value: &str) -> Result<StagedTxLogProcessMode, String> {
+    match value {
+        "correct" | "none" => Ok(StagedTxLogProcessMode::Correct),
+        "ack_before_sync" => Ok(StagedTxLogProcessMode::AckBeforeSync),
+        "accept_stale_epoch" => Ok(StagedTxLogProcessMode::AcceptStaleEpoch),
+        "node_specific_segment_bytes" => Ok(StagedTxLogProcessMode::NodeSpecificSegmentBytes),
+        other => Err(format!("unknown staged txLog process mode {other}")),
     }
 }
 
@@ -18297,14 +18320,11 @@ fn run_staged_txlog_process(
         .parameters
         .get("negative_control")
         .and_then(toml::Value::as_str);
-    let mode = match negative_control {
-        None => StagedTxLogProcessMode::Correct,
-        Some("ack_before_sync") => StagedTxLogProcessMode::AckBeforeSync,
-        Some("accept_stale_epoch") => StagedTxLogProcessMode::AcceptStaleEpoch,
-        Some("node_specific_segment_bytes") => StagedTxLogProcessMode::NodeSpecificSegmentBytes,
-        Some(other) => {
+    let mode = match parse_staged_txlog_process_mode(negative_control.unwrap_or("correct")) {
+        Ok(mode) => mode,
+        Err(error) => {
             return execution_from_result(Err(format!(
-                "unknown staged txLog process negative control {other}"
+                "invalid staged txLog process mode: {error}"
             )));
         }
     };
@@ -18406,6 +18426,13 @@ fn run_staged_txlog_process(
         .all(|report| report.segment_bytes_identical && report.segment_digests.len() == 3);
     let no_object_operations = object_operations == 0;
     let bounded_physical_bytes = reports.iter().all(|report| report.bounded_physical_bytes);
+    let cell_trace_refinement = reports
+        .iter()
+        .all(|report| report.cell_trace_refinement.passed);
+    let cell_trace_control_detected = mode != StagedTxLogProcessMode::AckBeforeSync
+        || reports
+            .iter()
+            .all(|report| !report.cell_trace_refinement.passed);
     let poison_detected = mode != StagedTxLogProcessMode::Correct
         && reports
             .iter()
@@ -18420,11 +18447,12 @@ fn run_staged_txlog_process(
         && stale_writer_fenced
         && segment_identity_exact
         && no_object_operations
-        && bounded_physical_bytes;
+        && bounded_physical_bytes
+        && cell_trace_refinement;
     let error = if mode == StagedTxLogProcessMode::Correct {
         (!candidate_passed).then(|| {
             format!(
-                "staged txLog L1 gate failed: anomalies={anomaly_count}, topology={topology_exact}, quorum={durable_quorum}, retry={exact_retry}, recovery={recovery_exact}, torn_repair={torn_repair_exact}, fencing={stale_writer_fenced}, segment_identity={segment_identity_exact}, no_objects={no_object_operations}, bounded={bounded_physical_bytes}; {}",
+                "staged txLog L1 gate failed: anomalies={anomaly_count}, topology={topology_exact}, quorum={durable_quorum}, retry={exact_retry}, recovery={recovery_exact}, torn_repair={torn_repair_exact}, fencing={stale_writer_fenced}, segment_identity={segment_identity_exact}, no_objects={no_object_operations}, bounded={bounded_physical_bytes}, cell_trace={cell_trace_refinement}; {}",
                 reports
                     .iter()
                     .find_map(|report| report.first_mismatch.clone())
@@ -18577,6 +18605,23 @@ fn run_staged_txlog_process(
                 id: "staged_txlog_process.bounded_physical_bytes".to_owned(),
                 status: gate_status(bounded_physical_bytes),
                 detail: None,
+            },
+            HardGateResult {
+                id: "staged_txlog_process.tla_cell_trace_refinement".to_owned(),
+                status: gate_status(if mode == StagedTxLogProcessMode::Correct {
+                    cell_trace_refinement
+                } else {
+                    cell_trace_control_detected
+                }),
+                detail: Some(format!(
+                    "model={}, passed_traces={}/{}",
+                    okv_model::OBJECT_KV_CELL_TLA_SHA256,
+                    reports
+                        .iter()
+                        .filter(|report| report.cell_trace_refinement.passed)
+                        .count(),
+                    reports.len()
+                )),
             },
             HardGateResult {
                 id: "staged_txlog_process.negative_control_detected".to_owned(),
