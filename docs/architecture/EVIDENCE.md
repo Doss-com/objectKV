@@ -27,9 +27,9 @@ not prove the GCS authority capability profile.
 | Layer | Matrix rows | Current proof | Missing admission evidence |
 | --- | --- | --- | --- |
 | `okv-fabric` | 9 | `okv-log`, Tetris, and Chess have bounded local semantics; unified fabric `[PROPOSED]` | Specialist log, Redis, search, and filesystem contracts and curves |
-| Public kernel | 0, 1, 7 | `[VERIFIED]` single-range resident read boundary, 64 MiB preflight, and first two complete 1 GiB T27 strata; full curve `[EVALUATING]` | Remaining 25 T27 strata and two buffered sentinels, then multi-range transactions and scaling |
+| Public kernel | 0, 1, 7 | `[VERIFIED]` single-range resident read boundary, 64 MiB preflight, and first three complete 1 GiB T27 strata; full curve `[EVALUATING]` | Remaining 24 T27 strata and two buffered sentinels, then multi-range transactions and scaling |
 | Transaction plane | 4, 5, 7 | `[EVALUATING]` local OpenRaft, conflict, batching, and recovery mechanisms | Independent media, same-durability control, host loss, bounded recovery, multi-range serializability |
-| RangeEngine | 0, 1, 2, 3, 8 | `[VERIFIED]` RocksDB single-range point-read boundary and two 1 GiB cache and skew strata at near-RocksDB parity | Complete 1 GiB cache curve, GCS cold misses, raw NVMe cache, RAM profile, handoff |
+| RangeEngine | 0, 1, 2, 3, 8 | `[VERIFIED]` RocksDB single-range point-read boundary and three 1 GiB cache and skew strata at near-RocksDB parity | Complete 1 GiB cache curve, GCS cold misses, raw NVMe cache, RAM profile, handoff |
 | Objectification | 5, 6 | `[VERIFIED]` scoped publication recovery mechanisms; integrated service `[EVALUATING]` | Sustained `C - O`, compaction, brownout, safe reclamation, branch-size sweep |
 | Manifested object state | 2, 3, 6, 11 | `[VERIFIED]` immutable closure identity and exact GCS reuse; layouts `[EVALUATING]` | Cold geometry, clean split-run GCS, branch independence, scaled HTAP tail |
 | Object provider | 2, 3, 5, 6, 12 | `[VERIFIED]` memory and MinIO authority profiles, filesystem segment profile, scoped GCS fixture use | GCS authority conformance, provider economics, sustained faults |
@@ -125,7 +125,7 @@ This is construction and recovery evidence, not a new throughput point.
 │ order         fresh-process ABBA                                  │
 │ primary gate  throughput ≥ 0.80x control                          │
 │ hard gates    p99 ≤ 1.20x · CPU/read ≤ 1.25x · I/O ≤ 1.25x       │
-│ progress      2 of 27 direct-NVMe strata · 0 of 2 sentinels       │
+│ progress      3 of 27 direct-NVMe strata · 0 of 2 sentinels       │
 │ state         [EVALUATING]                                        │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -142,10 +142,10 @@ completion persists a sealed failure receipt before exit. The five isolated
 plan, position-inventory, and missing-locator poisons are `[VERIFIED]` against
 that exact evidence. The immutable 1 GiB fixture and 540-position plan are also
 `[VERIFIED]`: 266 objects, 1,101,701,925 physical bytes, 27 strata, and exact
-native/direct treatment parity. The first two complete strata are
-`[VERIFIED]`. Seed 1103 retained 0.994982x and 0.997260x throughput; seed 2207
-retained 1.012558x and 0.998886x. Both have near-identical p99 in AB and BA
-order. The remaining 25 strata and two buffered sentinels remain open.
+native/direct treatment parity. The first three complete strata are
+`[VERIFIED]`. Across seeds 1103, 2207, and 3301, native throughput spans
+0.981275x to 1.012558x control and p99 spans 0.987784x to 1.003334x. The
+remaining 24 strata and two buffered sentinels remain open.
 
 ```text
 immutable plan + independent oracle + machine envelope
@@ -198,6 +198,7 @@ layer receipt.
 - [T27 1 GiB fixture and frozen plan](../artifacts/eval-receipts/t27-1gib-fixture-plan-gcp-r0-2026-08-29/README.md)
 - [T27 first complete 1 GiB stratum](../artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s1103-gcp-r0-2026-08-29/README.md)
 - [T27 second complete 1 GiB stratum](../artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s2207-gcp-r0-2026-08-29/README.md)
+- [T27 third complete 1 GiB stratum](../artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s3301-gcp-r0-2026-08-30/README.md)
 - [T27 GCS placement-boundary receipt](../artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md)
 - [Native matched single-range receipt](../artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md)
 - [Native concurrent-read receipt](../artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md)
@@ -205,6 +206,6 @@ layer receipt.
 - [Direct-read attribution preflight](../artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md)
 
 The current implementation slice adds the verified 1 GiB fixture, frozen live
-plan, authenticated resumable stratum runner, and first two passing strata.
+plan, authenticated resumable stratum runner, and first three passing strata.
 Master-matrix row 1 remains `[EVALUATING]` until all remaining strata and
 buffered sentinels execute and pass.
