@@ -13,6 +13,7 @@ pub mod object_fixture;
 pub mod object_frontier;
 pub mod process_snapshot_compaction;
 pub mod program;
+pub mod provider_attempt;
 pub mod provider_incarnation;
 pub mod provider_incarnation_provider;
 pub mod provider_lifecycle;
