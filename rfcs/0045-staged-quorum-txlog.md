@@ -309,6 +309,56 @@ checksums, sync ordering, process restart, and deterministic segment bytes for
 128 B, 1 KiB, and 4 KiB records. This is `[CODE-COMPLETE]` evidence only and
 cannot support a cloud latency claim.
 
+The L1 candidate freezes two experimental byte contracts before implementation:
+
+```text
+OKVT v1 node journal
+  log identity digest
+  writer epoch
+  consecutive position
+  immutable request identity
+  payload length and payload
+  frame checksum
+
+OKVL v1 immutable segment preview
+  log identity digest
+  first and last position
+  committed-through position
+  ordered OKVT record bodies
+  segment checksum
+```
+
+`OKVT` and `OKVL` are objectKV formats, not BtrLog compatibility formats. L1
+must freeze a fixture for each format. A node acknowledges an append only after
+the corresponding `OKVT` frame is fully written and the file synchronization
+returns successfully. An exact retry returns the retained outcome without
+appending another frame. A conflicting retry, gap, or stale epoch fails before
+physical mutation.
+
+For every seed, the candidate must:
+
+1. start three child processes with distinct roots and TCP listeners;
+2. install one writer epoch on all three nodes;
+3. append 128 B, 1 KiB, and 4 KiB records to a two-of-three write quorum;
+4. prove exact retry does not increase any node journal;
+5. stop all nodes, inject one incomplete final frame into one stopped node, and
+   restart all nodes from disk;
+6. prove the torn suffix is removed before the next synchronized append;
+7. reject the previous writer epoch after restart;
+8. recover one exact consecutive prefix from at least a read quorum; and
+9. construct byte-identical `OKVL` segment previews on every complete node.
+
+Hard gates require three distinct process IDs and roots, at least two durable
+acknowledgements per accepted append, zero acknowledged-record loss, zero
+conflicting or stale mutation, one repaired torn tail, exact restart recovery,
+equal segment digests, zero object operations, and bounded physical bytes. The
+process workload records append duration as a diagnostic only.
+
+Three process-level negative controls are frozen with the candidate. The first
+returns a quorum acknowledgement before stable append, the second accepts a
+stale writer epoch after restart, and the third injects node-specific bytes
+into the segment preview. Each must be rejected by the unchanged L1 oracle.
+
 ### L2. Same-zone independent-machine append curve
 
 Run three log nodes on independent local-NVMe machines and a separate client.

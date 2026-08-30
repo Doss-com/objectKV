@@ -170,6 +170,30 @@ operation = "staged_txlog_contract"
 subject = "protocol-model"
 
 [[workloads]]
+id = "staged-txlog-process-contract"
+lane = "staged-txlog-correctness"
+operation = "staged_txlog_process_contract"
+subject = "three-process-quorum-nvme"
+
+[[workloads]]
+id = "staged-txlog-process-early-ack-poison"
+lane = "staged-txlog-correctness"
+operation = "staged_txlog_process_contract"
+negative_control = "ack_before_sync"
+
+[[workloads]]
+id = "staged-txlog-process-stale-writer-poison"
+lane = "staged-txlog-correctness"
+operation = "staged_txlog_process_contract"
+negative_control = "accept_stale_epoch"
+
+[[workloads]]
+id = "staged-txlog-process-segment-divergence-poison"
+lane = "staged-txlog-correctness"
+operation = "staged_txlog_process_contract"
+negative_control = "node_specific_segment_bytes"
+
+[[workloads]]
 id = "staged-txlog-quorum-nvme"
 lane = "staged-txlog-append"
 operation = "staged_txlog_contract"
@@ -266,6 +290,13 @@ uncommitted_segment_invisible = true
 object_list_is_not_authority = true
 queue_and_tail_bounds_hold = true
 normal_append_object_requests = 0
+l1_process_nodes = 3
+l1_write_quorum = 2
+l1_record_bytes = [128, 1024, 4096]
+l1_exact_retry_has_no_physical_effect = true
+l1_torn_tail_repaired_before_append = true
+l1_stale_epoch_rejected_after_restart = true
+l1_segment_bytes_identical = true
 same_zone_128b_100k_p99_seconds = 0.001
 same_zone_p50_hardware_floor_ratio = 1.5
 paired_max_p99_ratio = 0.75
