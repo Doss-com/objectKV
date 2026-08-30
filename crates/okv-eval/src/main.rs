@@ -72,6 +72,10 @@ use okv_eval::serving_recovery_openraft::{
     OpenRaftHotReadSubject, OpenRaftServingObjectBackend, OpenRaftServingProcessConfig,
     OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport,
 };
+use okv_eval::staged_txlog_process::{
+    run_staged_txlog_node, run_staged_txlog_process_contract, StagedTxLogNodeConfig,
+    StagedTxLogProcessMode,
+};
 use okv_eval::storage_layout::{
     run_columnar_cache_admission_contract, run_columnar_cache_admission_contract_on_backend,
     run_columnar_datafusion_contract_with_scan_fetch, run_storage_layout_contract,
@@ -727,6 +731,12 @@ enum Commands {
     /// Internal entrypoint used by the G4.4 replacement-worker controller.
     #[command(hide = true)]
     ServingRecoveryOpenRaftNode {
+        #[arg(long)]
+        config_json: String,
+    },
+    /// Internal entrypoint used by the L1 staged txLog controller.
+    #[command(name = "staged-txlog-node", hide = true)]
+    StagedTxLogNode {
         #[arg(long)]
         config_json: String,
     },
@@ -1551,6 +1561,10 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let report = runtime.block_on(run_openraft_serving_recovery_node(config))?;
             println!("{}", serde_json::to_string(&report)?);
         }
+        Commands::StagedTxLogNode { config_json } => {
+            let config = serde_json::from_str::<StagedTxLogNodeConfig>(&config_json)?;
+            run_staged_txlog_node(config).map_err(std::io::Error::other)?;
+        }
     }
     Ok(())
 }
@@ -2055,6 +2069,7 @@ fn execute_workload(
         }
         "commit_envelope_contract" => run_commit_envelope_contract(workload, seeds),
         "staged_txlog_contract" => run_staged_txlog_protocol(workload, seeds, backend),
+        "staged_txlog_process_contract" => run_staged_txlog_process(workload, seeds, backend),
         "strict_serializability_contract" => run_strict_serializability_contract(workload, seeds),
         "transaction_process_serializability_contract" => {
             run_transaction_process_serializability(workload, seeds, backend)
@@ -15938,6 +15953,367 @@ fn run_staged_txlog_protocol(
             (
                 "staged_txlog.bounded_queue_rejections".to_owned(),
                 bounded_count(bounded_queue_rejections),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_staged_txlog_process(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "staged txLog process workload requires at least one seed".to_owned(),
+        ));
+    }
+    if backend != "local-process" {
+        return execution_from_result(Err(format!(
+            "staged txLog L1 requires backend local-process, got {backend}"
+        )));
+    }
+    let negative_control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match negative_control {
+        None => StagedTxLogProcessMode::Correct,
+        Some("ack_before_sync") => StagedTxLogProcessMode::AckBeforeSync,
+        Some("accept_stale_epoch") => StagedTxLogProcessMode::AcceptStaleEpoch,
+        Some("node_specific_segment_bytes") => StagedTxLogProcessMode::NodeSpecificSegmentBytes,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown staged txLog process negative control {other}"
+            )));
+        }
+    };
+    let subject = workload
+        .parameters
+        .get("subject")
+        .and_then(toml::Value::as_str);
+    if mode == StagedTxLogProcessMode::Correct && subject != Some("three-process-quorum-nvme") {
+        return execution_from_result(Err(format!(
+            "staged txLog L1 subject must be three-process-quorum-nvme, got {}",
+            subject.unwrap_or("missing")
+        )));
+    }
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => return execution_from_result(Err(error.to_string())),
+    };
+    let mut reports = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        match run_staged_txlog_process_contract(*seed, mode, &executable) {
+            Ok(report) => reports.push(report),
+            Err(error) => {
+                return execution_from_result(Err(format!(
+                    "staged txLog L1 seed {seed} could not execute: {error}"
+                )));
+            }
+        }
+    }
+
+    let anomaly_count = reports
+        .iter()
+        .map(|report| report.anomaly_count)
+        .sum::<u64>();
+    let process_starts = reports
+        .iter()
+        .map(|report| report.process_starts)
+        .sum::<u64>();
+    let process_kills = reports
+        .iter()
+        .map(|report| report.process_kills)
+        .sum::<u64>();
+    let acknowledged_appends = reports
+        .iter()
+        .map(|report| report.acknowledged_appends)
+        .sum::<u64>();
+    let network_append_requests = reports
+        .iter()
+        .map(|report| report.network_append_requests)
+        .sum::<u64>();
+    let acknowledged_record_loss = reports
+        .iter()
+        .map(|report| report.acknowledged_record_loss)
+        .sum::<u64>();
+    let object_operations = reports
+        .iter()
+        .map(|report| report.object_operations)
+        .sum::<u64>();
+    let topology_exact = reports.iter().all(|report| {
+        report.node_count == 3
+            && report.write_quorum == 2
+            && report.distinct_roots == 3
+            && report.distinct_listeners == 3
+            && report
+                .initial_process_ids
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == 3
+            && report
+                .restart_process_ids
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == 3
+            && report.process_starts == 6
+            && report.process_kills == 6
+    });
+    let durable_quorum = reports.iter().all(|report| {
+        report.append_samples.len() >= 3
+            && report
+                .append_samples
+                .iter()
+                .all(|sample| sample.durable_acknowledgements >= 2)
+    });
+    let exact_retry = reports
+        .iter()
+        .all(|report| report.exact_retry_no_physical_effect);
+    let recovery_exact = reports.iter().all(|report| {
+        report.acknowledged_record_loss == 0
+            && report.consecutive_recovery
+            && report.exact_prefix_nodes >= 2
+    });
+    let torn_repair_exact = reports.iter().all(|report| report.torn_tail_repairs == 1);
+    let stale_writer_fenced = reports
+        .iter()
+        .all(|report| report.stale_writer_rejections == 3 && report.stale_writer_mutations == 0);
+    let segment_identity_exact = reports
+        .iter()
+        .all(|report| report.segment_bytes_identical && report.segment_digests.len() == 3);
+    let no_object_operations = object_operations == 0;
+    let bounded_physical_bytes = reports.iter().all(|report| report.bounded_physical_bytes);
+    let poison_detected = mode != StagedTxLogProcessMode::Correct
+        && reports
+            .iter()
+            .all(|report| report.anomaly_count == 1 && report.first_mismatch.is_some());
+    let candidate_passed = mode == StagedTxLogProcessMode::Correct
+        && anomaly_count == 0
+        && topology_exact
+        && durable_quorum
+        && exact_retry
+        && recovery_exact
+        && torn_repair_exact
+        && stale_writer_fenced
+        && segment_identity_exact
+        && no_object_operations
+        && bounded_physical_bytes;
+    let error = if mode == StagedTxLogProcessMode::Correct {
+        (!candidate_passed).then(|| {
+            format!(
+                "staged txLog L1 gate failed: anomalies={anomaly_count}, topology={topology_exact}, quorum={durable_quorum}, retry={exact_retry}, recovery={recovery_exact}, torn_repair={torn_repair_exact}, fencing={stale_writer_fenced}, segment_identity={segment_identity_exact}, no_objects={no_object_operations}, bounded={bounded_physical_bytes}; {}",
+                reports
+                    .iter()
+                    .find_map(|report| report.first_mismatch.clone())
+                    .unwrap_or_else(|| "no mismatch detail".to_owned())
+            )
+        })
+    } else {
+        Some(if poison_detected {
+            format!(
+                "staged txLog L1 negative control {} was detected",
+                mode.id()
+            )
+        } else {
+            format!(
+                "staged txLog L1 negative control {} escaped detection",
+                mode.id()
+            )
+        })
+    };
+
+    let mut measurements = Vec::new();
+    for report in &reports {
+        measurements.push(Measurement {
+            metric: "correctness.anomalies",
+            value: bounded_count(report.anomaly_count),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("oracle", "staged-txlog-process-l1-v1"),
+                (
+                    "anomaly.class",
+                    negative_control.unwrap_or(if report.anomaly_count == 0 {
+                        "none"
+                    } else {
+                        "candidate"
+                    }),
+                ),
+            ]),
+        });
+        measurements.push(Measurement {
+            metric: "availability.success_ratio",
+            value: if report.anomaly_count == 0 { 1.0 } else { 0.0 },
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("operation", "staged-txlog-process-l1"),
+                ("fault", mode.id()),
+                ("backend", backend),
+            ]),
+        });
+        for sample in &report.append_samples {
+            let record_class = format!("{}B", sample.payload_bytes);
+            let result = if sample.durable_acknowledgements >= 2 {
+                "quorum"
+            } else {
+                "failed"
+            };
+            measurements.push(Measurement {
+                metric: "log.append.ack_duration",
+                value: sample.quorum_duration_seconds,
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend),
+                    ("durability", "quorum-nvme-local-process"),
+                    ("record.class", &record_class),
+                    ("load.class", "l1-diagnostic"),
+                    ("result", result),
+                ]),
+            });
+        }
+        measurements.push(Measurement {
+            metric: "log.staging.bytes",
+            value: bounded_count(report.max_node_physical_bytes),
+            attributes: attributes(&[
+                ("lane", &workload.lane),
+                ("workload", &workload.id),
+                ("backend", backend),
+                ("tier", "local-journal"),
+                ("sample", "maximum"),
+            ]),
+        });
+        for bytes in &report.segment_bytes {
+            measurements.push(Measurement {
+                metric: "log.segment.bytes",
+                value: bounded_count(*bytes),
+                attributes: attributes(&[
+                    ("lane", &workload.lane),
+                    ("workload", &workload.id),
+                    ("backend", backend),
+                    ("segment.class", "l1-preview"),
+                    ("partial", "false"),
+                ]),
+            });
+        }
+    }
+
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "staged_txlog_process.distinct_process_topology".to_owned(),
+                status: gate_status(topology_exact),
+                detail: Some(format!(
+                    "starts={process_starts}, kills={process_kills}, seeds={}",
+                    seeds.len()
+                )),
+            },
+            HardGateResult {
+                id: "staged_txlog_process.durable_write_quorum".to_owned(),
+                status: gate_status(durable_quorum),
+                detail: Some(format!(
+                    "acknowledged_appends={acknowledged_appends}, network_append_requests={network_append_requests}"
+                )),
+            },
+            HardGateResult {
+                id: "staged_txlog_process.exact_retry_no_physical_effect".to_owned(),
+                status: gate_status(exact_retry),
+                detail: None,
+            },
+            HardGateResult {
+                id: "staged_txlog_process.restart_recovery".to_owned(),
+                status: gate_status(recovery_exact),
+                detail: Some(format!(
+                    "acknowledged_record_loss={acknowledged_record_loss}"
+                )),
+            },
+            HardGateResult {
+                id: "staged_txlog_process.torn_tail_repair".to_owned(),
+                status: gate_status(torn_repair_exact),
+                detail: None,
+            },
+            HardGateResult {
+                id: "staged_txlog_process.stale_writer_fenced".to_owned(),
+                status: gate_status(stale_writer_fenced),
+                detail: None,
+            },
+            HardGateResult {
+                id: "staged_txlog_process.segment_identity".to_owned(),
+                status: gate_status(segment_identity_exact),
+                detail: None,
+            },
+            HardGateResult {
+                id: "staged_txlog_process.no_object_operations".to_owned(),
+                status: gate_status(no_object_operations),
+                detail: Some(format!("object_operations={object_operations}")),
+            },
+            HardGateResult {
+                id: "staged_txlog_process.bounded_physical_bytes".to_owned(),
+                status: gate_status(bounded_physical_bytes),
+                detail: None,
+            },
+            HardGateResult {
+                id: "staged_txlog_process.negative_control_detected".to_owned(),
+                status: gate_status(mode == StagedTxLogProcessMode::Correct || poison_detected),
+                detail: negative_control.map(|control| format!("control={control}")),
+            },
+            HardGateResult {
+                id: "staged_txlog_process.l1_scope_only".to_owned(),
+                status: GateStatus::Pass,
+                detail: Some(
+                    "one-host process mechanism; append timing is diagnostic and does not claim independent-machine latency"
+                        .to_owned(),
+                ),
+            },
+        ],
+        budget_units: bounded_count(
+            reports
+                .iter()
+                .map(|report| report.executed_checks)
+                .sum::<u64>(),
+        ),
+        artifact_refs: reports
+            .iter()
+            .map(|report| {
+                format!(
+                    "okv-staged-txlog-process://{}/{}/{}",
+                    mode.id(),
+                    report.seed,
+                    report.trace_sha256
+                )
+            })
+            .collect(),
+        secondary_metrics: BTreeMap::from([
+            (
+                "staged_txlog_process.process_starts".to_owned(),
+                bounded_count(process_starts),
+            ),
+            (
+                "staged_txlog_process.process_kills".to_owned(),
+                bounded_count(process_kills),
+            ),
+            (
+                "staged_txlog_process.acknowledged_appends".to_owned(),
+                bounded_count(acknowledged_appends),
+            ),
+            (
+                "staged_txlog_process.network_append_requests".to_owned(),
+                bounded_count(network_append_requests),
+            ),
+            (
+                "staged_txlog_process.acknowledged_record_loss".to_owned(),
+                bounded_count(acknowledged_record_loss),
+            ),
+            (
+                "staged_txlog_process.object_operations".to_owned(),
+                bounded_count(object_operations),
             ),
         ]),
     }
