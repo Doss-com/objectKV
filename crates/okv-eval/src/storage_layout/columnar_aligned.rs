@@ -4,8 +4,8 @@
 
 use super::columnar_overlay::{projection_batch, projection_schema};
 use super::{
-    content_sha256, key_u64, Backend, LogicalHistory, PointReadOutcome, ProjectedRow, RowRecord,
-    StorageLayoutProfile, ValueFields, WriteCondition,
+    content_sha256, key_u64, logical_digest, Backend, LogicalHistory, PointReadOutcome,
+    ProjectedRow, RowRecord, StorageLayoutProfile, ValueFields, WriteCondition,
 };
 use crate::t28_layout::{
     GenerationPinnedChildBackend, TypedLayoutObjectIdentityV1, TypedLayoutObjectRoleV1,
@@ -378,6 +378,17 @@ pub(super) struct T28AlignedColumnarCore {
     overlapping_point_pairs: AtomicU64,
 }
 
+/// Exact logical history recovered from every object in one C5v2 child.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct T28AlignedClosureRecovery {
+    pub record_count: u64,
+    pub live_row_count: u64,
+    pub group_count: u64,
+    pub projection_bytes: u64,
+    pub payload_bytes: u64,
+    pub canonical_history_sha256: String,
+}
+
 /// Runtime observation of the concurrent projection and payload gather.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct T28AlignedPointPairSnapshot {
@@ -594,6 +605,130 @@ impl T28AlignedColumnarCore {
             provider: Arc::new(RangeStripeTableProvider::new(source.clone())),
             source,
         }
+    }
+
+    /// Fetch and authenticate the complete projection and payload objects,
+    /// reconstruct every retained MVCC record, and return its canonical digest.
+    pub(super) async fn recover_complete_closure(
+        &self,
+    ) -> Result<T28AlignedClosureRecovery, String> {
+        let projection_request = self.backend.get(PROJECTION_KEY, None, None);
+        let payload_request = self.backend.get(PAYLOAD_KEY, None, None);
+        let (projection, payload) = tokio::join!(projection_request, payload_request);
+        let projection = projection.map_err(|error| error.to_string())?;
+        let payload = payload.map_err(|error| error.to_string())?;
+        if u64::try_from(projection.bytes.len()).unwrap_or(u64::MAX)
+            != self.prepared.manifest.projection_bytes
+            || content_sha256(&projection.bytes) != self.prepared.manifest.projection_sha256
+            || u64::try_from(payload.bytes.len()).unwrap_or(u64::MAX)
+                != self.prepared.manifest.payload_bytes
+            || content_sha256(&payload.bytes) != self.prepared.manifest.payload_sha256
+        {
+            return Err("RFC-0049 C5v2 complete closure differs from its manifest".to_owned());
+        }
+
+        let mut records = Vec::new();
+        for ordinal in 0..self.prepared.index.entries.len() {
+            let projection_frame = projection
+                .bytes
+                .get(self.prepared.index.projection_range(ordinal)?)
+                .ok_or_else(|| "RFC-0049 C5v2 complete projection range is absent".to_owned())?;
+            let payload_frame = payload
+                .bytes
+                .get(self.prepared.index.payload_range(ordinal)?)
+                .ok_or_else(|| "RFC-0049 C5v2 complete payload range is absent".to_owned())?;
+            let (projection_count, projection_content) = decode_frame(
+                FrameKind::Projection,
+                projection_frame,
+                ordinal,
+                self.prepared.index.entries.len(),
+                &self.prepared.index.projection_root,
+            )?;
+            let (payload_count, payload_content) = decode_frame(
+                FrameKind::Payload,
+                payload_frame,
+                ordinal,
+                self.prepared.index.entries.len(),
+                &self.prepared.index.payload_root,
+            )?;
+            if projection_count != payload_count {
+                return Err("RFC-0049 C5v2 complete paired frame record counts differ".to_owned());
+            }
+            let projection_records =
+                decode_projection_content(projection_content, projection_count)?;
+            if projection_records
+                .first()
+                .is_none_or(|first| first.key != self.prepared.index.entries[ordinal].first_key)
+            {
+                return Err("RFC-0049 C5v2 group fence differs from its records".to_owned());
+            }
+            if let (Some(previous), Some(first)) = (records.last(), projection_records.first()) {
+                let previous: &RowRecord = previous;
+                if key_u64(&previous.key)? >= first.key {
+                    return Err("RFC-0049 C5v2 key history crosses a group fence".to_owned());
+                }
+            }
+            for projection_record in projection_records {
+                if let Some(previous) = records.last() {
+                    let previous: &RowRecord = previous;
+                    let previous_key = key_u64(&previous.key)?;
+                    if previous_key > projection_record.key
+                        || (previous_key == projection_record.key
+                            && previous.version <= projection_record.version)
+                    {
+                        return Err("RFC-0049 C5v2 recovered history order is invalid".to_owned());
+                    }
+                }
+                let key = projection_record.key.to_be_bytes();
+                let record = if let Some(fields) = projection_record.fields {
+                    let start = usize::try_from(projection_record.payload_offset)
+                        .map_err(|error| error.to_string())?;
+                    let end = start
+                        .checked_add(
+                            usize::try_from(projection_record.payload_length)
+                                .map_err(|error| error.to_string())?,
+                        )
+                        .ok_or_else(|| {
+                            "RFC-0049 C5v2 recovered payload slice overflow".to_owned()
+                        })?;
+                    let opaque_payload = payload_content.get(start..end).ok_or_else(|| {
+                        "RFC-0049 C5v2 recovered payload slice is outside its frame".to_owned()
+                    })?;
+                    RowRecord::value(
+                        key,
+                        projection_record.version,
+                        ValueFields {
+                            payload: opaque_payload.to_vec(),
+                            ..fields
+                        }
+                        .encode(),
+                    )
+                } else {
+                    RowRecord::tombstone(key, projection_record.version)
+                };
+                records.push(record);
+            }
+        }
+
+        let mut live_row_count = 0_u64;
+        let mut previous_key = None;
+        for record in &records {
+            let key = key_u64(&record.key)?;
+            if previous_key != Some(key) {
+                if record.value.is_some() {
+                    live_row_count = live_row_count.saturating_add(1);
+                }
+                previous_key = Some(key);
+            }
+        }
+        Ok(T28AlignedClosureRecovery {
+            record_count: u64::try_from(records.len()).unwrap_or(u64::MAX),
+            live_row_count,
+            group_count: u64::try_from(self.prepared.index.entries.len()).unwrap_or(u64::MAX),
+            projection_bytes: u64::try_from(projection.bytes.len()).unwrap_or(u64::MAX),
+            payload_bytes: u64::try_from(payload.bytes.len()).unwrap_or(u64::MAX),
+            canonical_history_sha256: logical_digest(&records),
+        })
     }
 }
 

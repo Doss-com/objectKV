@@ -1,8 +1,9 @@
 //! RFC-0049 root envelope and generation-pinned C5v2 reader.
 
 use super::columnar_aligned::{
-    prepare_t28_aligned_columnar_layout, T28AlignedColumnarCore, T28AlignedColumnarScanCore,
-    T28AlignedPointPairSnapshot, INDEX_KEY, MANIFEST_KEY, PAYLOAD_KEY, PROJECTION_KEY,
+    prepare_t28_aligned_columnar_layout, T28AlignedClosureRecovery, T28AlignedColumnarCore,
+    T28AlignedColumnarScanCore, T28AlignedPointPairSnapshot, INDEX_KEY, MANIFEST_KEY, PAYLOAD_KEY,
+    PROJECTION_KEY,
 };
 use super::t28_typed::{
     capture_identity, child_total_bytes, numeric_generation, validate_history_against_oracle,
@@ -130,7 +131,7 @@ impl T28AlignedChildV1 {
         Ok(())
     }
 
-    fn total_bytes(&self) -> u64 {
+    pub(crate) fn total_bytes(&self) -> u64 {
         self.objects
             .iter()
             .fold(0_u64, |total, object| total.saturating_add(object.length))
@@ -298,6 +299,20 @@ pub struct T28AlignedPointGatherSnapshot {
     pub overlapping_point_pairs: u64,
 }
 
+/// Exact complete-child recovery result from a fresh C5v2 reader.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28AlignedClosureRecoveryV1 {
+    pub record_count: u64,
+    pub live_row_count: u64,
+    pub group_count: u64,
+    pub projection_proofs_verified: u64,
+    pub payload_proofs_verified: u64,
+    pub projection_bytes: u64,
+    pub payload_bytes: u64,
+    pub canonical_history_sha256: String,
+}
+
 /// One C5v2 `DataFusion` provider and its source counters.
 pub struct T28AlignedScan {
     inner: T28AlignedColumnarScanCore,
@@ -353,6 +368,26 @@ impl T28AlignedLayoutReader {
             point_pairs: snapshot.point_pairs,
             overlapping_point_pairs: snapshot.overlapping_point_pairs,
         }
+    }
+
+    /// Reconstruct and authenticate every retained MVCC record in this child.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for object generation, digest, framing, Merkle proof,
+    /// group ordering, or payload reconstruction drift.
+    pub async fn recover_complete_closure(&self) -> Result<T28AlignedClosureRecoveryV1, String> {
+        let recovery: T28AlignedClosureRecovery = self.inner.recover_complete_closure().await?;
+        Ok(T28AlignedClosureRecoveryV1 {
+            record_count: recovery.record_count,
+            live_row_count: recovery.live_row_count,
+            group_count: recovery.group_count,
+            projection_proofs_verified: recovery.group_count,
+            payload_proofs_verified: recovery.group_count,
+            projection_bytes: recovery.projection_bytes,
+            payload_bytes: recovery.payload_bytes,
+            canonical_history_sha256: recovery.canonical_history_sha256,
+        })
     }
 }
 
@@ -599,7 +634,8 @@ mod tests {
     use async_trait::async_trait;
     use datafusion::prelude::SessionContext;
     use okv_object::{
-        BackendDescriptor, BackendRead, ErrorClass, RevisionToken, StoreError, WriteCondition,
+        BackendDescriptor, BackendRead, ErrorClass, FaultBackend, RevisionToken, StoreError,
+        WriteCondition,
     };
     use std::collections::BTreeMap;
     use std::ops::Range;
@@ -801,6 +837,21 @@ mod tests {
         let c0 = opened.c0().await.expect("C0");
         let c5v2 = opened.c5v2().await.expect("C5v2");
         assert_eq!(c5v2.resident_metadata_bytes(), 20_176);
+        let recovery = c5v2
+            .recover_complete_closure()
+            .await
+            .expect("complete C5v2 closure");
+        assert_eq!(recovery.record_count, publication.fixture.record_count);
+        assert_eq!(recovery.live_row_count, publication.fixture.live_row_count);
+        assert_eq!(recovery.group_count, 792);
+        assert_eq!(recovery.projection_proofs_verified, 792);
+        assert_eq!(recovery.payload_proofs_verified, 792);
+        assert_eq!(recovery.projection_bytes, 1_701_414);
+        assert_eq!(recovery.payload_bytes, 11_974_176);
+        assert_eq!(
+            recovery.canonical_history_sha256,
+            publication.fixture.canonical_history_sha256
+        );
         for (key, version) in [(0, 1), (31, 5), (8_191, 3), (16_383, 5)] {
             assert_eq!(
                 c5v2.point(key, version).await.expect("C5v2 point"),
@@ -842,6 +893,52 @@ mod tests {
         assert_eq!(provider.stripes_read, 792);
         assert_eq!(provider.rows_emitted, 15_742);
         assert!(provider.peak_batch_rows <= 32);
+    }
+
+    #[tokio::test]
+    async fn complete_recovery_rejects_corrupted_child_bytes() {
+        let store: Arc<dyn Backend> = Arc::new(NumericGenerationBackend::default());
+        let oracle = oracle();
+        let source = publish_t28_typed_layout(
+            Arc::clone(&store),
+            &T28TypedLayoutPlacementInput {
+                project: "doss-objectkv-dev".to_owned(),
+                bucket: "doss-objectkv-dev-okv-evals".to_owned(),
+                region: "us-central1".to_owned(),
+                prefix: "tests/rfc0049/recovery-poison-source".to_owned(),
+            },
+            &oracle,
+            "b09eeeb482509b24ccb5e7f0c4a4d905983a612b0dbac2253519d9d82a98df86",
+        )
+        .await
+        .expect("source");
+        let publication = publish_t28_aligned_layout(
+            Arc::clone(&store),
+            &source.locator,
+            &T28AlignedLayoutPlacementInput {
+                project: "doss-objectkv-dev".to_owned(),
+                bucket: "doss-objectkv-dev-okv-evals".to_owned(),
+                region: "us-central1".to_owned(),
+                prefix: "tests/rfc0049/recovery-poison-candidate".to_owned(),
+            },
+            &oracle,
+            "b09eeeb482509b24ccb5e7f0c4a4d905983a612b0dbac2253519d9d82a98df86",
+            PHYSICAL_PLAN_SHA256,
+        )
+        .await
+        .expect("aligned publication");
+        let fault = Arc::new(FaultBackend::new(store));
+        let measured: Arc<dyn Backend> = fault.clone();
+        let opened = T28OpenedAlignedLayout::open(measured, &publication.locator)
+            .await
+            .expect("open");
+        let reader = opened.c5v2().await.expect("C5v2");
+        fault.corrupt_next_get();
+        let error = reader
+            .recover_complete_closure()
+            .await
+            .expect_err("corrupt full child must be rejected");
+        assert!(error.contains("generation-pinned child read identity mismatch"));
     }
 
     #[test]

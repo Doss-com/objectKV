@@ -28,6 +28,7 @@ pub mod staged_txlog_process;
 pub mod storage_layout;
 pub mod t27_plan;
 pub mod t28_aligned_curve;
+pub mod t28_aligned_recovery;
 pub mod t28_boundary;
 pub mod t28_cold_point;
 pub mod t28_curve;

@@ -102,6 +102,7 @@ use okv_eval::t28_aligned_curve::{
     T28AlignedCurvePlanV1, T28AlignedFailedRunReceiptV1, T28AlignedPerformanceRunReceiptV1,
     T28AlignedVerifiedRunReceiptV1,
 };
+use okv_eval::t28_aligned_recovery::run_t28_aligned_closure_recovery;
 use okv_eval::t28_cold_point::{
     T28CacheState, T28PointExecutionReceiptV1, T28PointPlanV2, T28PointSubject,
     T28ReaderPlanIdentityV1,
@@ -666,6 +667,19 @@ enum Commands {
         subject: String,
         #[arg(long)]
         trace_seed: u64,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Recover the complete RFC-0049 C5v2 child from one exact GCS root.
+    T28AlignedLayoutRecoverGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long)]
+        candidate_commit: String,
+        #[arg(long, default_value = "Cargo.lock")]
+        runtime_cargo_lock: PathBuf,
         #[arg(long)]
         output: PathBuf,
     },
@@ -1791,6 +1805,31 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 &expected_plan_sha256,
                 subject,
                 trace_seed,
+            ))?;
+            let bytes = serde_json::to_vec_pretty(&receipt)?;
+            fs::write(output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28AlignedLayoutRecoverGcs {
+            locator,
+            expected_envelope_sha256,
+            candidate_commit,
+            runtime_cargo_lock,
+            output,
+        } => {
+            let locator =
+                decode_typed_layout_placement(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let executable_sha256 = sha256(&fs::read(std::env::current_exe()?)?);
+            let cargo_lock_sha256 = sha256(&fs::read(runtime_cargo_lock)?);
+            let receipt = runtime.block_on(run_t28_aligned_closure_recovery(
+                gcs_backend_from_env_no_retries()?,
+                &locator,
+                candidate_commit,
+                executable_sha256,
+                cargo_lock_sha256,
             ))?;
             let bytes = serde_json::to_vec_pretty(&receipt)?;
             fs::write(output, &bytes)?;
