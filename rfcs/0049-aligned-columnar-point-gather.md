@@ -1,6 +1,7 @@
 # RFC-0049: Aligned columnar point gather
 
-- Status: `[EVALUATING]`, immutable GCS publication and preflight `[VERIFIED]`
+- Status: `[EVALUATING]`, immutable GCS publication, preflight, recovery,
+  compaction, and branch media gates `[VERIFIED]`
 - Authors: DOSS
 - Created: 2026-08-30
 - Corrects: RFC-0048 C5 point path
@@ -152,13 +153,25 @@ using 13,700,110 response bytes, zero LIST, and zero writes. Source `dbfb056`
 then changed byte zero of the exact generation-pinned projection object, bound
 both full-object digests and the exact five-object request graph, and failed at
 the child digest boundary after 455.298 ms. Independent OTel confirmation
-remains `[EVALUATING]` before admission. Compaction write amplification and
-branch-reference reuse remain separate gates.
+remains `[EVALUATING]` before admission.
+
+`[VERIFIED]` Source `76d9920` then ran both remaining media gates against real
+regional GCS. One new 4,344-byte branch root referenced 26,820,839 bytes of
+exact generation-pinned children using zero child-object PUTs. The six-run
+C5v2 compaction wrote 27,304,907 provider-accounted bytes through 24
+create-only object PUTs versus 26,253,246 bytes for the deterministic C0
+control, a 1.040058x ratio against the frozen 1.10x ceiling. It issued zero
+LIST requests and reopened the final four-object closure to reproduce 25,014
+records, 15,742 live rows, and the independent canonical history digest.
+These results close the branch-reference and compaction-write gates, not the
+full row 3 admission.
 
 Retained curve evidence:
 `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r2-failed-gcp-r0-2026-08-30/README.md`.
 Recovery evidence:
 `docs/artifacts/eval-receipts/c5v2-closure-recovery-gcp-r0-2026-08-30/README.md`.
+Media-gate evidence:
+`docs/artifacts/eval-receipts/c5v2-media-gates-gcs-r0-2026-08-30/README.md`.
 
 ## Format boundary
 

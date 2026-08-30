@@ -518,10 +518,11 @@ media.
     restart, torn-tail repair, epoch fencing & three independent machines,
     matched durable control, integrated transaction \\
     Object publication and recovery & \verified{} scoped & generation-pinned GCS
-    root, exact closure reconstruction, corruption rejection & sustained debt,
-    brownout, compaction amplification, branch reuse \\
+    root, exact closure reconstruction, corruption rejection, zero-copy branch &
+    sustained debt, brownout, publication latency \\
     C5v2 object layout & \evaluating & point and scan GCS preflight, complete
-    recovery & sealed full-curve verdict and write path \\
+    recovery, 1.040058x compaction bytes & independent OTel, sealed full-curve
+    verdict, and write path \\
     Cell transaction plane & \proposed & executable safety model and component
     protocols & complete resolver, proxy, assignment, and multi-range runtime \\
     RAM RangeEngine & \proposed & local playground replay only & matched Garnet,
@@ -581,6 +582,14 @@ and 15,742 live rows, and completed in 792.221 ms. A cloud poison changed byte
 zero of the exact projection object and recovery rejected it at the
 generation-pinned child SHA boundary after the same five-GET graph.
 
+A separate real-GCS media run created one 4,344-byte branch root that reused
+26,820,839 bytes of exact parent children with zero child-object PUTs. Six C5v2
+runs wrote 27,304,907 provider-accounted bytes through 24 create-only PUTs,
+1.040058x the deterministic C0 control and below the frozen 1.10x ceiling. It
+used zero LIST requests and reopened the compacted four-object closure to
+reproduce the exact 25,014-record history. This verifies media geometry, not
+publication latency or independent telemetry.
+
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{figures/performance-balance.pdf}
@@ -610,8 +619,9 @@ more important blocker than the next row.
     p99 1.742x & attribute hit and miss samples before resuming frozen sweep \\
     2 & Cold indexed point read & \evaluating & one bounded range GET; provider tail
     missed two block gates & return after object-layout write path \\
-    3 & Point and scan object geometry & \evaluating & C5v2 preflight and complete
-    recovery verified & compaction amplification and branch-reference reuse \\
+    3 & Point and scan object geometry & \evaluating & C5v2 preflight, recovery,
+    1.040058x compaction bytes, and zero-copy branch verified & independent OTel
+    and sealed curve verdict \\
     4 & Native three-node commit & \evaluating & one-host TCP log mechanics and
     finite TLA+ safety & three independent NVMe machines versus matched control \\
     5 & Brownout and host loss & \evaluating & exact base plus suffix recovery &
@@ -736,7 +746,7 @@ amplification.
 The immediate sequence is narrow:
 
 \begin{enumerate}
-  \item finish C5v2 compaction-amplification and branch-reference measurements;
+  \item confirm C5v2 recovery and media accounting in independent OTel;
   \item regenerate a current-model staged implementation trace;
   \item run the native \txlog{} on three independent NVMe machines against one
   matched remote durable control;

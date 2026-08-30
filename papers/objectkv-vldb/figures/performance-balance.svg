@@ -38,11 +38,12 @@
 
   <rect class="panel" x="620" y="380" width="532" height="278" rx="4"/>
   <text class="head" x="642" y="408">C5v2 object geometry / C0</text><text class="status" x="1036" y="408">VERIFIED</text>
-  <text class="text" x="664" y="458">Point-read p99</text><rect class="bar" x="822" y="442" width="139" height="24"/><text class="value" x="974" y="459">0.869x</text>
-  <text class="text" x="664" y="508">Projected scan</text><rect class="bar" x="822" y="492" width="254" height="24"/><text class="value" x="974" y="509">31.692x</text>
-  <text class="text" x="664" y="558">Object bytes</text><rect class="bar" x="822" y="542" width="167" height="24"/><text class="value" x="1002" y="559">1.043x</text>
-  <text class="small" x="822" y="478">lower is better</text><text class="small" x="822" y="528">higher is better</text><text class="small" x="822" y="578">lower is better</text>
-  <text class="small" x="642" y="638">Real GCS viewer-only preflight. Full curve verdict remains open.</text>
+  <text class="text" x="664" y="450">Point-read p99</text><rect class="bar" x="822" y="434" width="139" height="22"/><text class="value" x="974" y="451">0.869x</text>
+  <text class="text" x="664" y="496">Projected scan</text><rect class="bar" x="822" y="480" width="254" height="22"/><text class="value" x="974" y="497">31.692x</text>
+  <text class="text" x="664" y="542">Stored bytes</text><rect class="bar" x="822" y="526" width="167" height="22"/><text class="value" x="1002" y="543">1.043x</text>
+  <text class="text" x="664" y="588">Compaction bytes</text><rect class="bar" x="822" y="572" width="166" height="22"/><text class="value" x="1002" y="589">1.040x</text>
+  <text class="small" x="822" y="468">lower is better</text><text class="small" x="822" y="514">higher is better</text>
+  <text class="small" x="642" y="638">Real GCS scoped receipts. Full curve verdict remains open.</text>
 
   <text class="small" x="48" y="694">Ratios compare matched named controls. Panels summarize separate scoped receipts and do not constitute a complete-stack benchmark.</text>
 </svg>

@@ -220,6 +220,18 @@ remains `[EVALUATING]`.
 Evidence:
 `docs/artifacts/eval-receipts/c5v2-closure-recovery-gcp-r0-2026-08-30/README.md`.
 
+`[VERIFIED]` The real GCS C5v2 media evaluator closed the frozen compaction
+and branch gates. It created one 4,344-byte branch root that reused 26,820,839
+bytes of exact parent children with zero child-object PUTs. Six C5v2 runs wrote
+27,304,907 provider-accounted bytes versus 26,253,246 bytes for the matched C0
+control, a 1.040058x ratio against the 1.10x ceiling. The run used 24
+create-only object PUTs, zero LIST, and reconstructed the exact final history
+of 25,014 records and 15,742 live rows. This verifies media geometry and
+branch reuse, not latency or independent OTel.
+
+Evidence:
+`docs/artifacts/eval-receipts/c5v2-media-gates-gcs-r0-2026-08-30/README.md`.
+
 `[VERIFIED]` RFC-0050 R2 checks the integrated 3-node model through 2,484,568
 generated states and the 2-transaction concurrency scope through 4,496,463
 generated states. Six exact fault controls produced their named invariant
