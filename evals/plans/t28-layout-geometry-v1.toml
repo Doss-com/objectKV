@@ -1,0 +1,149 @@
+schema_version = 1
+plan_id = "t28-layout-geometry-v1"
+status = "proposed"
+one_execution = true
+contract = "../../rfcs/0048-generation-pinned-typed-layout-curve.md"
+object_store = "gcs"
+project = "doss-objectkv-dev"
+bucket = "doss-objectkv-dev-okv-evals"
+region = "us-central1"
+candidate = "c5_columnar_main_range_engine"
+control = "c0_indexed_row_object"
+read_version = 5
+fixture_seed = 5699
+trace_seeds = [5701, 5702, 5703]
+oracle_artifact = "../oracles/t28-layout-geometry-v1-oracle.json"
+oracle_artifact_sha256 = "b09eeeb482509b24ccb5e7f0c4a4d905983a612b0dbac2253519d9d82a98df86"
+oracle_generator = "../oracles/t28-layout-geometry-v1.mjs"
+oracle_generator_sha256 = "c1b06252161baf973c459757905db63198c1fc046e62d0272f6d3df693b84e4c"
+workload_plan_sha256 = "fa337ae95089b7c9e5771575568480769267468c271778e6781e18b99de337e1"
+
+[dataset]
+key_count = 16384
+canonical_live_row_bytes = 512
+opaque_payload_bytes = 480
+base_version = 1
+delta_cycles = 4
+update_fraction_millionths = 125000
+delete_fraction_millionths = 10000
+target_run_object_bytes = 8388608
+row_block_bytes = 65536
+columnar_block_rows = 128
+
+[authority]
+publisher_roles = ["roles/storage.objectCreator", "roles/storage.objectViewer"]
+consumer_role = "roles/storage.objectViewer"
+require_writer_revocation_receipt = true
+require_denied_create_probe = true
+measured_put_max = 0
+measured_delete_max = 0
+measured_list_max = 0
+
+[cache]
+state = "metadata_warm_data_cold"
+metadata_bytes_max = 8388608
+data_bytes_max = 0
+fetch_buffer_bytes_max = 262144
+cross_position_reuse = false
+
+[transport]
+provider_retries_max = 0
+sdk_attempts_per_request = 1
+require_expected_generation_on_every_read = true
+require_returned_generation_match = true
+
+[point_lane]
+blocks_per_seed = 5
+positions_per_block = 4
+reads_per_position = 1024
+concurrent_tasks = 8
+warmup_transport_canary_reads = 128
+percentile = 99
+nearest_rank = true
+candidate_p99_ratio_millionths_max = 2000000
+candidate_gets_per_point_millionths_max = 2000000
+control_gets_per_point_millionths_max = 1000000
+candidate_bytes_ratio_millionths_max = 500000
+candidate_full_object_gets_max = 0
+
+[[point_lane.seed_orders]]
+seed = 5701
+orders = ["ABBA", "BAAB", "ABBA", "BAAB", "ABBA"]
+
+[[point_lane.seed_orders]]
+seed = 5702
+orders = ["BAAB", "ABBA", "BAAB", "ABBA", "BAAB"]
+
+[[point_lane.seed_orders]]
+seed = 5703
+orders = ["ABBA", "BAAB", "ABBA", "BAAB", "ABBA"]
+
+[scan_lane]
+blocks_per_seed = 5
+positions_per_block = 2
+scans_per_position = 1
+concurrent_range_fetches = 1
+observed_peak_range_fetches = 1
+candidate_median_rows_per_second_ratio_millionths_min = 2000000
+paired_ratio_count = 15
+paired_ratio_statistic = "nearest_rank_median"
+timer_boundary = "before_sql_parse_through_final_batch_digest"
+query = "SELECT key, tenant, category, quantity, COUNT(*) OVER () AS row_count, SUM(quantity) OVER () AS quantity_sum FROM okv_layout ORDER BY key"
+candidate_gets_per_complete_projection_max = 64
+candidate_response_bytes_ratio_millionths_max = 500000
+candidate_opaque_payload_requests_max = 0
+candidate_opaque_payload_bytes_max = 0
+candidate_full_object_gets_max = 0
+peak_fetch_bytes_max = 262144
+peak_arrow_batch_rows_max = 128
+
+[preflight]
+seed = 5701
+point_reads_per_subject = 256
+point_concurrent_tasks = 8
+scans_per_subject = 1
+candidate_point_p99_ratio_millionths_max = 2500000
+candidate_scan_rows_per_second_ratio_millionths_min = 1250000
+samples_are_ineligible_for_admission = true
+
+[[scan_lane.seed_orders]]
+seed = 5701
+orders = ["AB", "BA", "AB", "BA", "AB"]
+
+[[scan_lane.seed_orders]]
+seed = 5702
+orders = ["BA", "AB", "BA", "AB", "BA"]
+
+[[scan_lane.seed_orders]]
+seed = 5703
+orders = ["AB", "BA", "AB", "BA", "AB"]
+
+[media]
+candidate_storage_amplification_ratio_millionths_max = 1100000
+candidate_compaction_write_amplification_ratio_millionths_max = 1100000
+candidate_resident_metadata_ratio_millionths_max = 2000000
+require_complete_child_closure_recovery = true
+require_canonical_history_digest_match = true
+require_branch_reference_reuse = true
+
+[telemetry]
+protocol = "otlp-http"
+require_logs = true
+require_metrics = true
+require_traces = true
+require_exporter_flush_and_shutdown = true
+require_independent_collector_confirmation = true
+
+[poisons]
+missing_child = true
+swapped_child_manifest = true
+child_generation_mismatch = true
+history_or_schema_mismatch = true
+measured_position_publication = true
+reused_data_cache = true
+full_object_point_get = true
+projected_scan_payload_fetch = true
+corrupted_column_page = true
+invalid_order_or_position = true
+runtime_writer_authority = true
+hidden_local_or_list_discovery = true

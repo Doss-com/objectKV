@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "generator": "evals/oracles/t28-layout-geometry-v1.mjs",
+  "fixture": {
+    "seed": 5699,
+    "key_count": 16384,
+    "record_count": 25014,
+    "live_row_count": 15742,
+    "covered_through_version": 5,
+    "canonical_history_sha256": "d4be64434f6b69990a2787876f514c6036727b41dcf1c5e120f91b6ce968ecd4",
+    "ordered_projection_sha256": "7fb3fbb637ac93942620d287899dcebfec54e0f50ee9eeb9414ebff022cab39e",
+    "aggregate": {
+      "row_count": 15742,
+      "quantity_sum": "67524278"
+    }
+  },
+  "schema": {
+    "id": "objectkv.t28.typed-row.v1",
+    "columns": [
+      {
+        "name": "key",
+        "type": "u64",
+        "nullable": false
+      },
+      {
+        "name": "tenant",
+        "type": "u32",
+        "nullable": false
+      },
+      {
+        "name": "category",
+        "type": "u16",
+        "nullable": false
+      },
+      {
+        "name": "quantity",
+        "type": "i64",
+        "nullable": false
+      },
+      {
+        "name": "opaque_payload",
+        "type": "bytes[480]",
+        "nullable": false
+      }
+    ]
+  },
+  "schema_sha256": "967d37734d36729543c0ae50303eb6ff530ddddb367fd143c335faedf6c8eb6d",
+  "traces": [
+    {
+      "seed": 5701,
+      "operation_sequence_sha256": "30a2c0d5b78fabf1a5446186e9bcf2ba03252d48b9f860e7c56cc0cfcebf6f35",
+      "expected_outcomes_sha256": "f15dff9e4ec92a23dbbb1235ccf92b8d5011e7ca0dba4188edd1e1b40a548329"
+    },
+    {
+      "seed": 5702,
+      "operation_sequence_sha256": "0ec26dea2ae888506ad32a0aa3104844d4fdd9012a4e108f4459bc3944128653",
+      "expected_outcomes_sha256": "798ed4b417a5ac9b28f1ac202defa395313bb44eaae335ce88e113b54ecc59d6"
+    },
+    {
+      "seed": 5703,
+      "operation_sequence_sha256": "8017cf17a9ac519c976d25916e218fc815c84594ad7afab0bafddf1789d7ccbd",
+      "expected_outcomes_sha256": "b133425752749df93f2fb7c04f8fab266c59172adcf8d0c0b62bf01a222e3178"
+    }
+  ],
+  "workload_plan_sha256": "fa337ae95089b7c9e5771575568480769267468c271778e6781e18b99de337e1"
+}

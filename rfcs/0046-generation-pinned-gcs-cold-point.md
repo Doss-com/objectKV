@@ -10,15 +10,15 @@ passes. D68 activates implementation after the bounded T27 provider-v2
 diagnostic while leaving T27 tail performance `[EVALUATING]`.
 
 Implementation checkpoint: `[CODE-COMPLETE]` commits `1d67897` through
-`b291612` add lazy descriptor and manifest open, authenticated block plans,
+`afbfb69` add lazy descriptor and manifest open, authenticated block plans,
 read-only identity binding, no-retry GCS construction, provider-attempt events,
 an independent value oracle, fresh-process concurrent positions, and exact
-per-operation provider and local-residual latency. `[EVALUATING]` A real 1 GiB
-diagnostic completed 15 paired blocks and 30,720 reads per subject, but it is
-not an admission run. Two blocks exceeded the frozen ratio and the script did
-not invert the starting order for seed 2207. The corrected plan is frozen at
-`evals/plans/t28-point-curve-addendum-v1.toml`. OTel binding and an eligible
-admission curve remain open.
+per-operation provider and local-residual latency. `[EVALUATING]` The corrected
+1 GiB execution passed 13 of 15 original end-to-end blocks. `[VERIFIED]` Its
+precommitted local-residual addendum passed all 15 blocks with a maximum 1.078x
+ratio and 33.932-microsecond increment. D70 preserves the original rejection
+and advances the program to object-layout geometry. Evidence is under
+`docs/artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/`.
 
 ## Decision
 
@@ -356,6 +356,12 @@ second or 50 percent fewer GCS requests than C0. This is a separate lane and
 receipt from point lookup. Implementation is blocked until C0 and C5 consume
 one authenticated typed GCS closure instead of publishing subject-local media
 inside the measured invocation.
+
+RFC-0048 proposes that missing boundary. One generation-pinned evaluation root
+authenticates C0 and C5 child closures built from the same typed history;
+publication ends before fresh read-only point and scan processes begin. Its
+point and scan lanes remain separate. Implementation still requires
+pre-implementation review.
 
 ### T28.4. Size and recovery closure `[PROPOSED]`
 
