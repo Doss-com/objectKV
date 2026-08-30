@@ -1,8 +1,8 @@
 # objectKV executable cell model
 
-Status: `[VERIFIED]` for the two finite TLC scopes in the R2 receipt.
-Hand-written Rust trace conformance is `[CODE-COMPLETE]`. Neither result is an
-unbounded proof or a mechanical implementation refinement.
+Status: `[VERIFIED]` for the two finite TLC scopes in the R2 receipt and for
+the scoped current-model staged txLog trace. Neither result is an unbounded
+proof, a complete-cell trace, or a mechanical implementation refinement.
 
 ## What the model says
 
@@ -73,7 +73,7 @@ must hydrate it again from the same object base and stable txLog suffix.
 TLA+ state machine                    [VERIFIED, finite scopes]
   → allowed transitions and invariants
 
-Rust trace-conformance checker        [CODE-COMPLETE]
+Rust staged-prefix trace conformance  [VERIFIED, scoped]
   → replays selected emitted events
   → validates model identity and TLA constant assumptions
 
@@ -82,10 +82,11 @@ real-infrastructure evaluation        [EVALUATING by mechanism]
 ```
 
 The Rust checker is hand-written. It does not establish a mechanical refinement
-mapping from the complete Rust implementation to TLA+. The retained staged
-txLog receipt remains useful historical mechanism evidence, but it is bound to
-an older model identity. A current-model implementation trace must be captured
-before that conformance slice is called verified.
+mapping from the complete Rust implementation to TLA+. The current GCP receipt
+binds three healthy staged txLog traces and one trace-visible poison to the R2
+model identity. The trace stops after stable-media persistence, before
+`CommitTxn` and `DeliverCommitted`. Two physical process poisons remain outside
+the trace vocabulary and are detected by the independent process oracle.
 
 ## Checked scopes
 
@@ -122,6 +123,16 @@ Exact evidence:
 - GCS generation: `1788122230581424`
 - archive SHA-256:
   `407bbfe489f9bb699a1f33f33031f7c9cdce5697c44524295acd971dba0167c4`
+
+Current-model Rust trace evidence:
+
+- governed receipt:
+  `docs/artifacts/eval-receipts/cell-trace-refinement-r2-gcp-r0-2026-08-30/README.md`
+- raw reports and manifest:
+  `gs://doss-objectkv-dev-okv-evals/eval-receipts/objectkv-cell-trace-r2-d351f35/objectkv-cell-trace-r2-d351f35.tar.gz`
+- GCS generation: `1788125012353672`
+- archive SHA-256:
+  `bf04f836915740d867f7254fb165666898ae5a7a9eab098fa516ea9e4d04f344`
 
 ## Run and validate
 

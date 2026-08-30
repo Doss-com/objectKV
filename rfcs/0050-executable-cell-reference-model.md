@@ -2,8 +2,8 @@
 
 - Status: `[PROPOSED]`
 - Model mechanism: `[VERIFIED]` in two finite scopes
-- Hand-written trace conformance: checker `[CODE-COMPLETE]`, current-model
-  infrastructure receipt `[EVALUATING]`
+- Hand-written trace conformance: current-model staged prefix `[VERIFIED]`,
+  complete-cell implementation refinement `[EVALUATING]`
 - Authors: DOSS
 - Created: 2026-08-30
 
@@ -88,16 +88,16 @@ identity, and the relevant media or worker identity.
 | `HydrateServingImage`, `ServeRead` | `ServingImage` and `SingleRange` | GP3.1 and GP3.1.1 `[VERIFIED]` |
 | `LoseRam`, `LoseStableMedium` | worker or media fault injection | independent-host envelope `[EVALUATING]` |
 
-`[CODE-COMPLETE]` The trace checker consumes the stable event vocabulary,
+`[VERIFIED]` The trace checker consumes the stable event vocabulary,
 replays every event and assertion, validates the TLA+ constant assumptions,
 and binds the receipt to the exact model SHA-256. It is a hand-written
-conformance checker, not a mechanical TLA+ refinement proof.
-
-`[EVALUATING]` The retained GCP R0 staged txLog receipt accepted a 36-event
-trace with three post-restart stable-quorum assertions and rejected an early
-acknowledgement subject. That receipt is historical mechanism evidence bound to
-an older model identity. It does not verify conformance to the current R2
-model. A fresh current-model implementation trace remains required.
+conformance checker, not a mechanical TLA+ refinement proof. The current GCP
+receipt accepted three 36-event healthy traces with three post-restart
+stable-quorum assertions each and rejected the 15-event early-acknowledgement
+trace. The stale-epoch and node-specific-segment controls remain process-oracle
+checks because those attempted physical effects are not represented in the
+current trace vocabulary. The emitted scope ends before transaction commit and
+delivery.
 
 ## Model-check result
 
@@ -142,9 +142,8 @@ conformance, and the master performance matrix.
 
 ## Next decision-bearing work
 
-1. Regenerate the staged txLog trace against the current R2 model, then extend
-   it through `CommitTxn` and `DeliverCommitted` in the independent-media T29
-   receipt.
+1. Extend the current staged trace through `CommitTxn` and `DeliverCommitted`
+   in the independent-media T29 receipt.
 2. Emit publication, safe-pop, and serving-recovery transitions from their
    current implementation boundaries.
 3. Check one retained poison at each new cross-layer boundary.
@@ -156,6 +155,9 @@ Finite-model receipt: `formal/evidence/gcp-r2-2026-08-30.json`.
 
 Historical staged txLog trace:
 `docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
+
+Current R2 staged txLog trace:
+`docs/artifacts/eval-receipts/cell-trace-refinement-r2-gcp-r0-2026-08-30/README.md`.
 
 This optimizes for one communicable architecture and early detection of unsafe
 cross-layer orderings. It gives up detailed proofs of each chosen algorithm

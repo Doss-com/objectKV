@@ -57,6 +57,6 @@ not harden until their RFC is accepted.
 | 0047 | Sparse post-frontier resident history | `[PROPOSED]` | remove the 2.015x disposable base duplication, preserve exact snapshots, and replay the rejected T27 stratum |
 | 0048 | Generation-pinned typed object-layout curve | `[EVALUATING]`, retained preflight rejection | C5v1 verified scan leverage and localized sequential point-request tail |
 | 0049 | Aligned columnar point gather | `[CODE-COMPLETE]` admission; immutable GCS publication, preflight, recovery, corruption, compaction, and branch gates `[VERIFIED]`; full admission `[EVALUATING]` | C5v2 point p99 0.869x C0, scan throughput 31.692x C0, compaction bytes 1.040058x C0, branch root 4,344 bytes with zero child copies; independent OTel and sealed curve verdict next |
-| 0050 | Executable cell reference model | `[PROPOSED]`, two finite TLA+ scopes `[VERIFIED]`, Rust trace checker `[CODE-COMPLETE]`, complete-cell conformance `[EVALUATING]` | one integrated architecture contract for concurrency, durability, publication, recovery, and serving tiers |
+| 0050 | Executable cell reference model | `[PROPOSED]`, two finite TLA+ scopes and current-model staged-prefix trace `[VERIFIED]`, complete-cell implementation refinement `[EVALUATING]` | one integrated architecture contract for concurrency, durability, publication, recovery, and serving tiers |
 
 Use `0000-template.md` for new proposals.

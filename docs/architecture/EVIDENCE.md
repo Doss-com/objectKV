@@ -235,13 +235,18 @@ Evidence:
 `[VERIFIED]` RFC-0050 R2 checks the integrated 3-node model through 2,484,568
 generated states and the 2-transaction concurrency scope through 4,496,463
 generated states. Six exact fault controls produced their named invariant
-counterexamples, and Fable returned `SHIP`. `[CODE-COMPLETE]` The hand-written
-Rust checker replays selected events and validates the TLA+ assumptions. A
-current-model infrastructure trace and mechanical implementation refinement
-remain `[EVALUATING]`.
+counterexamples, and Fable returned `SHIP`. `[VERIFIED]` Three current-model
+GCP staged-prefix traces each replayed 36 events and three stable-quorum
+assertions with zero anomalies; the 15-event early-ack trace was rejected. The
+stale-epoch and divergent-segment poisons remain process-oracle checks outside
+the current trace vocabulary. Complete-cell mechanical refinement remains
+`[EVALUATING]`.
 
 Evidence:
 `formal/evidence/gcp-r2-2026-08-30.json`.
+
+Trace evidence:
+`docs/artifacts/eval-receipts/cell-trace-refinement-r2-gcp-r0-2026-08-30/README.md`.
 
 ```text
 generation-pinned locator + immutable operation plan

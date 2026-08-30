@@ -477,11 +477,13 @@ successor error.
 \end{table*}
 
 A hand-written Rust trace checker replays selected events, verifies the model
-identity, and validates constant assumptions. It is \codecomplete{}, not a
-mechanical refinement mapping. A current-model implementation trace and a
-mechanically checked action-to-event relation are required before calling Rust
-conformance verified. Liveness and unbounded correctness remain
-\evaluating{}.
+identity, and validates constant assumptions. Three current-model GCP traces
+each replayed 36 staged-prefix events and three stable-quorum assertions with
+zero anomalies; an early-ack trace was rejected after 15 events. This is
+\verified{} for the named prefix, not a mechanical refinement. The trace stops
+before transaction commit and delivery; two physical process poisons remain
+outside its event vocabulary. Liveness, unbounded correctness, and complete-cell
+refinement remain \evaluating{}.
 
 \section{Implementation and Infrastructure Boundary}
 
@@ -515,8 +517,8 @@ media.
     8, and 32 clients on GCP local NVMe & writes, eviction curve, range movement,
     and full cell RPC \\
     Native quorum \txlog{} & \evaluating & three real TCP processes on one host,
-    restart, torn-tail repair, epoch fencing & three independent machines,
-    matched durable control, integrated transaction \\
+    restart, torn-tail repair, epoch fencing, current-model staged trace & three
+    independent machines, matched durable control, integrated transaction \\
     Object publication and recovery & \verified{} scoped & generation-pinned GCS
     root, exact closure reconstruction, corruption rejection, zero-copy branch &
     sustained debt, brownout, publication latency \\
@@ -622,8 +624,9 @@ more important blocker than the next row.
     3 & Point and scan object geometry & \evaluating & C5v2 preflight, recovery,
     1.040058x compaction bytes, and zero-copy branch verified & independent OTel
     and sealed curve verdict \\
-    4 & Native three-node commit & \evaluating & one-host TCP log mechanics and
-    finite TLA+ safety & three independent NVMe machines versus matched control \\
+    4 & Native three-node commit & \evaluating & one-host TCP log mechanics,
+    finite TLA+ safety, current-model staged trace & three independent NVMe
+    machines versus matched control \\
     5 & Brownout and host loss & \evaluating & exact base plus suffix recovery &
     sustained write with object-fault schedule and hard debt ceiling \\
     6 & Branch and lazy reopen & \evaluating & exact local branch and empty worker &
@@ -747,7 +750,6 @@ The immediate sequence is narrow:
 
 \begin{enumerate}
   \item confirm C5v2 recovery and media accounting in independent OTel;
-  \item regenerate a current-model staged implementation trace;
   \item run the native \txlog{} on three independent NVMe machines against one
   matched remote durable control;
   \item integrate one transaction path only if that curve clears;
@@ -788,8 +790,9 @@ RangeEngine state exposes several typed fabric views. Immutable object closures
 own portable reconstruction, history, branching, and analytical layout.
 
 Current evidence supports the single-range RocksDB read boundary, scoped C5v2
-GCS geometry and recovery, and the finite cell safety model. It does not yet
-support the complete distributed claim. The next useful proof is physical: a
+GCS geometry and recovery, the finite cell safety model, and current-model
+staged-prefix trace conformance. It does not yet support the complete
+distributed claim. The next useful proof is physical: a
 three-machine stable-quorum curve with exact durability and failure controls.
 If that path clears, multi-range transactions become the next kernel milestone.
 PostgreSQL, Redis-like objects, logs, search, virtual filesystems, and DataFusion

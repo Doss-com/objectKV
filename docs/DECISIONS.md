@@ -1788,8 +1788,8 @@ Evidence:
 
 ## D71. Use one executable cell model as the architecture contract
 
-Status: finite model mechanism `[VERIFIED]`; hand-written Rust trace checker
-`[CODE-COMPLETE]`; current-model infrastructure conformance `[EVALUATING]`,
+Status: finite model mechanism and current-model staged-prefix trace
+`[VERIFIED]`; complete-cell implementation refinement `[EVALUATING]`,
 2026-08-30.
 
 Decision: maintain one integrated TLA+ state machine for the externally visible
@@ -1812,13 +1812,15 @@ verifies only the named finite model scopes. It does not prove the Rust
 implementation, unbounded operation, liveness, Raft or Paxos, or production
 performance.
 
-The Rust checker now independently replays every event and assertion, rejects
+The Rust checker independently replays every event and assertion, rejects
 constant assignments outside the TLA+ assumptions, and detects changed derived
-state. It remains `[CODE-COMPLETE]` hand-written bounded trace conformance. The
-older GCP staged txLog trace is historical mechanism evidence bound to an older
-model identity, not current proof. The next receipt reruns that trace against
-R2, then extends the vocabulary through transaction commit and delivery in T29,
-object publication, safe pop, and serving recovery.
+state. The current GCP receipt binds three accepted 36-event staged-prefix
+traces and one rejected early-ack trace to R2. This is `[VERIFIED]` hand-written
+bounded conformance for the named stable-media prefix, not a mechanical
+refinement. Stale-epoch mutation and divergent segment bytes remain
+process-oracle checks outside the trace vocabulary. T29 must extend the trace
+through transaction commit and delivery, followed by object publication, safe
+pop, and serving recovery.
 
 Optimizes for: one reviewable source of truth for cross-layer safety and a
 direct bridge from architecture diagrams to implementation and eval receipts.
@@ -1828,6 +1830,6 @@ claiming that finite-state exploration establishes real-infrastructure
 correctness.
 
 Specification: `formal/README.md`. Design record: RFC-0050. Finite-model
-receipt: `formal/evidence/gcp-r2-2026-08-30.json`. Historical implementation
+receipt: `formal/evidence/gcp-r2-2026-08-30.json`. Current implementation
 trace:
-`docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
+`docs/artifacts/eval-receipts/cell-trace-refinement-r2-gcp-r0-2026-08-30/README.md`.

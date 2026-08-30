@@ -922,11 +922,13 @@ generated states. Six exact fault controls produced their named invariant
 counterexamples. Fable returned `SHIP` after two adversarial passes. Receipt:
 `formal/evidence/gcp-r2-2026-08-30.json`.
 
-`[CODE-COMPLETE]` The hand-written Rust trace checker replays selected model
-events, checks constant assumptions, and rejects changed derived state. The
-older 36-event GCP L1 receipt remains historical mechanism evidence bound to an
-older model identity. A new R2-bound trace remains `[EVALUATING]`; no complete
-Rust implementation refinement is claimed.
+`[VERIFIED]` The current-model GCP staged-prefix receipt binds three accepted
+36-event traces and one rejected 15-event early-ack trace to the R2 model. The
+hand-written checker replays every selected event and assertion, checks
+constant assumptions, and rejects changed derived state. Stale-epoch mutation
+and divergent segment bytes remain process-oracle controls outside the trace
+vocabulary. No complete Rust implementation refinement is claimed. Receipt:
+`docs/artifacts/eval-receipts/cell-trace-refinement-r2-gcp-r0-2026-08-30/README.md`.
 
 Do not expand MultiRaft, PostgreSQL, or metacluster scope until the resident
 read and bounded cold-object lookup curves clear their controls.
