@@ -122,7 +122,8 @@ use okv_object::{
 };
 use okv_sim::{
     run_commit_contract, run_generation_fencing, run_persisted_wal_contract,
-    run_serializability_history, CommitContractMode, PersistedWalMode, SerializabilityMode,
+    run_serializability_history, run_staged_txlog_contract, CommitContractMode, PersistedWalMode,
+    SerializabilityMode, StagedTxLogMode,
 };
 use okv_slate::{
     run_phase0_filesystem_contract, Phase0Config, Phase0IoDelta, Phase0Mode, Phase0PhaseReport,
@@ -2053,6 +2054,7 @@ fn execute_workload(
             run_generation_recovery(workload, candidate_commit, seeds)
         }
         "commit_envelope_contract" => run_commit_envelope_contract(workload, seeds),
+        "staged_txlog_contract" => run_staged_txlog_protocol(workload, seeds, backend),
         "strict_serializability_contract" => run_strict_serializability_contract(workload, seeds),
         "transaction_process_serializability_contract" => {
             run_transaction_process_serializability(workload, seeds, backend)
@@ -15668,6 +15670,274 @@ fn run_object_publication_gc_contract(
             (
                 "publication_gc.live_bytes".to_owned(),
                 bounded_count(live_bytes),
+            ),
+        ]),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_staged_txlog_protocol(
+    workload: &WorkloadConfig,
+    seeds: &[u64],
+    backend: &str,
+) -> WorkloadExecution {
+    if seeds.is_empty() {
+        return execution_from_result(Err(
+            "staged txLog protocol workload requires at least one seed".to_owned(),
+        ));
+    }
+    let negative_control = workload
+        .parameters
+        .get("negative_control")
+        .and_then(toml::Value::as_str);
+    let mode = match negative_control {
+        None => StagedTxLogMode::Correct,
+        Some("ack_one_copy") => StagedTxLogMode::AckOneCopy,
+        Some("accept_stale_epoch") => StagedTxLogMode::AcceptStaleEpoch,
+        Some("overwrite_acknowledged_suffix") => StagedTxLogMode::OverwriteAcknowledgedSuffix,
+        Some("publish_uncommitted_segment") => StagedTxLogMode::PublishUncommittedSegment,
+        Some("trust_object_list") => StagedTxLogMode::TrustObjectList,
+        Some("unbounded_queue") => StagedTxLogMode::UnboundedQueue,
+        Some(other) => {
+            return execution_from_result(Err(format!(
+                "unknown staged txLog negative control {other}"
+            )));
+        }
+    };
+    let subject = workload
+        .parameters
+        .get("subject")
+        .and_then(toml::Value::as_str);
+    if mode == StagedTxLogMode::Correct && subject != Some("protocol-model") {
+        return execution_from_result(Err(format!(
+            "staged txLog subject {} is not code complete; only the L0 protocol-model subject is runnable",
+            subject.unwrap_or("missing")
+        )));
+    }
+    if backend != "sim-model" {
+        return execution_from_result(Err(format!(
+            "staged txLog L0 requires backend sim-model, got {backend}"
+        )));
+    }
+
+    let mut reports = Vec::new();
+    let mut exact_replay = true;
+    for seed in seeds {
+        let first = run_staged_txlog_contract(*seed, mode);
+        let second = run_staged_txlog_contract(*seed, mode);
+        exact_replay &= first == second;
+        reports.push(first);
+    }
+
+    let anomaly_count = reports
+        .iter()
+        .map(|report| report.anomaly_count)
+        .sum::<u64>();
+    let event_count = reports
+        .iter()
+        .map(|report| report.executed_steps)
+        .sum::<u64>();
+    let acknowledged_appends = reports
+        .iter()
+        .map(|report| report.acknowledged_appends)
+        .sum::<u64>();
+    let recovered_unknown_outcomes = reports
+        .iter()
+        .map(|report| report.recovered_unknown_outcomes)
+        .sum::<u64>();
+    let writer_takeovers = reports
+        .iter()
+        .map(|report| report.writer_takeovers)
+        .sum::<u64>();
+    let repaired_records = reports
+        .iter()
+        .map(|report| report.repaired_records)
+        .sum::<u64>();
+    let stale_writer_rejections = reports
+        .iter()
+        .map(|report| report.stale_writer_rejections)
+        .sum::<u64>();
+    let conflicting_retries_rejected = reports
+        .iter()
+        .map(|report| report.conflicting_retries_rejected)
+        .sum::<u64>();
+    let published_segments = reports
+        .iter()
+        .map(|report| report.published_segments)
+        .sum::<u64>();
+    let orphan_objects_ignored = reports
+        .iter()
+        .map(|report| report.orphan_objects_ignored)
+        .sum::<u64>();
+    let bounded_queue_rejections = reports
+        .iter()
+        .map(|report| report.bounded_queue_rejections)
+        .sum::<u64>();
+    let candidate_semantics_exercised = acknowledged_appends > 0
+        && recovered_unknown_outcomes > 0
+        && writer_takeovers > 0
+        && repaired_records > 0
+        && stale_writer_rejections > 0
+        && conflicting_retries_rejected > 0
+        && published_segments > 0
+        && orphan_objects_ignored > 0
+        && bounded_queue_rejections > 0;
+    let poison_detected = mode != StagedTxLogMode::Correct
+        && reports.iter().all(|report| {
+            report.anomaly_count == 1
+                && report.first_mismatch_step.is_some()
+                && report.first_mismatch.is_some()
+        });
+    let candidate_passed = mode == StagedTxLogMode::Correct
+        && anomaly_count == 0
+        && exact_replay
+        && candidate_semantics_exercised;
+    let error = if mode == StagedTxLogMode::Correct {
+        (!candidate_passed).then(|| {
+            let detail = reports
+                .iter()
+                .find_map(|report| report.first_mismatch.clone())
+                .unwrap_or_else(|| "no mismatch detail".to_owned());
+            format!(
+                "staged txLog protocol gate failed: anomalies={anomaly_count}, exact_replay={exact_replay}, candidate_semantics={candidate_semantics_exercised}; {detail}"
+            )
+        })
+    } else {
+        Some(if poison_detected {
+            format!("staged txLog negative control {} was detected", mode.id())
+        } else {
+            format!(
+                "staged txLog negative control {} escaped detection",
+                mode.id()
+            )
+        })
+    };
+    let measurements = reports
+        .iter()
+        .flat_map(|report| {
+            [
+                Measurement {
+                    metric: "correctness.anomalies",
+                    value: bounded_count(report.anomaly_count),
+                    attributes: attributes(&[
+                        ("lane", &workload.lane),
+                        ("workload", &workload.id),
+                        ("oracle", "staged-txlog-protocol-v1"),
+                        (
+                            "anomaly.class",
+                            negative_control.unwrap_or(if report.anomaly_count == 0 {
+                                "none"
+                            } else {
+                                "candidate"
+                            }),
+                        ),
+                    ]),
+                },
+                Measurement {
+                    metric: "availability.success_ratio",
+                    value: if report.anomaly_count == 0 { 1.0 } else { 0.0 },
+                    attributes: attributes(&[
+                        ("lane", &workload.lane),
+                        ("workload", &workload.id),
+                        ("operation", "staged-txlog-protocol"),
+                        ("fault", mode.id()),
+                        ("backend", backend),
+                    ]),
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    WorkloadExecution {
+        error,
+        measurements,
+        hard_gates: vec![
+            HardGateResult {
+                id: "staged_txlog.exact_seed_replay".to_owned(),
+                status: gate_status(exact_replay),
+                detail: None,
+            },
+            HardGateResult {
+                id: "staged_txlog.candidate_semantics_exercised".to_owned(),
+                status: gate_status(
+                    mode != StagedTxLogMode::Correct || candidate_semantics_exercised,
+                ),
+                detail: Some(format!(
+                    "acks={acknowledged_appends}, unknowns={recovered_unknown_outcomes}, takeovers={writer_takeovers}, repairs={repaired_records}, stale_rejections={stale_writer_rejections}, retry_rejections={conflicting_retries_rejected}, segments={published_segments}, ignored_orphans={orphan_objects_ignored}, queue_rejections={bounded_queue_rejections}"
+                )),
+            },
+            HardGateResult {
+                id: "staged_txlog.contract_agreement".to_owned(),
+                status: gate_status(anomaly_count == 0),
+                detail: reports
+                    .iter()
+                    .find_map(|report| report.first_mismatch.clone()),
+            },
+            HardGateResult {
+                id: "staged_txlog.negative_control_detected".to_owned(),
+                status: gate_status(mode == StagedTxLogMode::Correct || poison_detected),
+                detail: negative_control.map(|control| format!("control={control}")),
+            },
+            HardGateResult {
+                id: "staged_txlog.l0_scope_only".to_owned(),
+                status: GateStatus::Pass,
+                detail: Some(
+                    "deterministic protocol model; no process, media, latency, or transaction-commit claim"
+                        .to_owned(),
+                ),
+            },
+        ],
+        budget_units: bounded_count(event_count),
+        artifact_refs: reports
+            .iter()
+            .map(|report| {
+                format!(
+                    "okv-staged-txlog://{}/{}/{}",
+                    mode.id(),
+                    report.seed,
+                    report.trace_sha256
+                )
+            })
+            .collect(),
+        secondary_metrics: BTreeMap::from([
+            (
+                "staged_txlog.events".to_owned(),
+                bounded_count(event_count),
+            ),
+            (
+                "staged_txlog.acknowledged_appends".to_owned(),
+                bounded_count(acknowledged_appends),
+            ),
+            (
+                "staged_txlog.recovered_unknown_outcomes".to_owned(),
+                bounded_count(recovered_unknown_outcomes),
+            ),
+            (
+                "staged_txlog.writer_takeovers".to_owned(),
+                bounded_count(writer_takeovers),
+            ),
+            (
+                "staged_txlog.repaired_records".to_owned(),
+                bounded_count(repaired_records),
+            ),
+            (
+                "staged_txlog.stale_writer_rejections".to_owned(),
+                bounded_count(stale_writer_rejections),
+            ),
+            (
+                "staged_txlog.conflicting_retries_rejected".to_owned(),
+                bounded_count(conflicting_retries_rejected),
+            ),
+            (
+                "staged_txlog.published_segments".to_owned(),
+                bounded_count(published_segments),
+            ),
+            (
+                "staged_txlog.orphan_objects_ignored".to_owned(),
+                bounded_count(orphan_objects_ignored),
+            ),
+            (
+                "staged_txlog.bounded_queue_rejections".to_owned(),
+                bounded_count(bounded_queue_rejections),
             ),
         ]),
     }
