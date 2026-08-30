@@ -3241,10 +3241,9 @@ mod tests {
 
         let encoded = serde_json::to_value(&value).expect("encode historical receipt");
         assert!(encoded.get("resident_image_local_bytes").is_none());
-        let schema: serde_json::Value = serde_json::from_str(include_str!(
+        let schema = position_receipt_schema(include_str!(
             "../../../evals/schema/t27-position-receipt-v1.schema.json"
-        ))
-        .expect("decode position schema v1");
+        ));
         jsonschema::validator_for(&schema)
             .expect("compile position schema v1")
             .validate(&encoded)
@@ -3257,10 +3256,9 @@ mod tests {
         let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
         let value = receipt(&plan, 0, T27PlanSubjectV1::NativeSnapshot);
         value.validate(&plan).expect("validate current receipt");
-        let schema: serde_json::Value = serde_json::from_str(include_str!(
+        let schema = position_receipt_schema(include_str!(
             "../../../evals/schema/t27-position-receipt-v2.schema.json"
-        ))
-        .expect("decode position schema v2");
+        ));
         jsonschema::validator_for(&schema)
             .expect("compile position schema v2")
             .validate(&serde_json::to_value(&value).expect("encode current receipt"))
@@ -3701,6 +3699,18 @@ mod tests {
             scratch_block_device: "/dev/nvme0n1".to_owned(),
             host_lease_path: "/var/lib/objectkv/t27.lock".to_owned(),
         }
+    }
+
+    fn position_receipt_schema(source: &str) -> serde_json::Value {
+        let mut schema: serde_json::Value =
+            serde_json::from_str(source).expect("decode position receipt schema");
+        let plan_schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../evals/schema/t27-execution-plan-v1.schema.json"
+        ))
+        .expect("decode execution plan schema");
+        schema["properties"]["execution"] = plan_schema["$defs"]["execution"].clone();
+        schema["properties"]["position"] = plan_schema["$defs"]["position"].clone();
+        schema
     }
 
     fn replacement_execution() -> T27ExecutionEnvelopeV1 {
