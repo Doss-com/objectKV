@@ -307,6 +307,30 @@ negative_controls = ["replacement-worker-skip-concurrent-catchup-poison"]
 evidence = ["../../docs/artifacts/eval-receipts/serving-recovery-g4.4-v2/candidate.json"]
 control = { id = "replacement-worker-openraft-full-hydration", suite = "../suites/serving-recovery-openraft.toml", profile = "local-fs", workload = "replacement-worker-openraft-full-hydration-control", backend = "object-store-local-fs+authority-openraft+data-openraft", lane = "serving-worker-openraft-recovery" }
 
+[[phases.gates]]
+id = "GP3.7"
+status = "proposed"
+kind = "performance"
+claim = "A single-writer staged txLog reaches one-round-trip quorum-NVMe durability with p99 at least twenty-five percent below the same-zone remote-block control, bounded queues, zero foreground object operations, and exact recovery after one log-node loss."
+falsifier = "The candidate loses or rewrites an acknowledged record, accepts a stale writer, needs object storage on the foreground path, exceeds a declared queue or tail bound, misses 100,000 128-byte appends per second at 1 ms p99, or fails to improve matched remote-block p99 by twenty-five percent."
+requirement_ids = ["TXN-003", "TXN-004", "LOG-001", "LOG-002", "LOG-003", "LOG-007", "LOG-010", "PUB-001", "PUB-002", "EVAL-007", "EVAL-008"]
+suite = "../suites/staged-txlog.toml"
+profile = "gcp-r1-same-zone"
+workload = "staged-txlog-quorum-nvme"
+backend = "okv-wal-staged-quorum-nvme+gcp-local-ssd"
+lane = "staged-txlog-append"
+checkpoint = "durable-tail"
+negative_controls = [
+  "staged-txlog-ack-one-copy-poison",
+  "staged-txlog-stale-writer-poison",
+  "staged-txlog-overwrite-acknowledged-poison",
+  "staged-txlog-publish-uncommitted-poison",
+  "staged-txlog-list-authority-poison",
+  "staged-txlog-unbounded-queue-poison",
+]
+evidence = []
+control = { id = "staged-txlog-remote-block-control", suite = "../suites/staged-txlog.toml", profile = "gcp-r1-same-zone", workload = "staged-txlog-remote-block-control", backend = "gcp-zonal-remote-block+single-writer-wal", lane = "staged-txlog-append" }
+
 [[phases]]
 id = "GP4"
 name = "Distribute one transaction domain"

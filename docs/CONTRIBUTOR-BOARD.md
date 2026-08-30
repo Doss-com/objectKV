@@ -690,12 +690,18 @@ become one GitHub issue.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
 
-- Scope: move the retained 32-item commit-proxy mechanism onto three machines
-  with independent stable media and compare it with a same-durability control.
+- Scope: first evaluate RFC-0045's standalone single-writer staged quorum log,
+  then move exactly one retained 32-item commit-proxy mechanism onto three
+  machines with independent stable media. Do not add a second WAL beside
+  OpenRaft in the integrated candidate.
 - Done when: one-range commit p99 is at most 1.25x control, acknowledged retries
   and conflicts recover exactly after leader and host loss, normal commits issue
   zero object operations, and all workload identities appear in OTel.
 - Dependency: T28 fixes the permanent object representation used by recovery.
+- Pre-gate: `evals/suites/staged-txlog.toml` must first prove one-round-trip
+  quorum append, writer fencing, bounded queues, object-segment publication,
+  and exact hot-tail recovery. That standalone result cannot verify transaction
+  commit until the unchanged strict-serializability and retry histories pass.
 
 ### T30. Bound objectification debt and local recovery media `[EVALUATING]`
 

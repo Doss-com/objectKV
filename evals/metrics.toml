@@ -276,6 +276,91 @@ attributes = ["lane", "workload", "topology", "fault"]
 required_attributes = ["lane", "workload", "topology"]
 
 [[metrics]]
+id = "log.append.ack_duration"
+otel_name = "okv.eval.log.append.ack_duration"
+kind = "histogram"
+unit = "s"
+description = "Writer-observed time until one append reaches its declared quorum durability result"
+attributes = ["lane", "workload", "backend", "durability", "record.class", "load.class", "result"]
+required_attributes = ["lane", "workload", "backend", "durability", "result"]
+boundaries = [0.000025, 0.00005, 0.000075, 0.0001, 0.00015, 0.00025, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05]
+
+[[metrics]]
+id = "log.append.throughput"
+otel_name = "okv.eval.log.append.throughput"
+kind = "gauge"
+unit = "{append}/s"
+description = "Completed ordered log appends per second at one declared offered-load point"
+attributes = ["lane", "workload", "backend", "durability", "record.class", "load.class"]
+required_attributes = ["lane", "workload", "backend", "durability"]
+
+[[metrics]]
+id = "log.append.hardware_floor_ratio"
+otel_name = "okv.eval.log.append.hardware_floor_ratio"
+kind = "gauge"
+unit = "1"
+description = "Observed append latency divided by the measured quorum network plus local-media latency floor"
+attributes = ["lane", "workload", "backend", "durability", "statistic"]
+required_attributes = ["lane", "workload", "backend", "durability", "statistic"]
+
+[[metrics]]
+id = "log.queue.depth"
+otel_name = "okv.eval.log.queue.depth"
+kind = "gauge"
+unit = "{append}"
+description = "Bounded queued append count observed by one staged log component"
+attributes = ["lane", "workload", "backend", "component", "sample"]
+required_attributes = ["lane", "workload", "backend", "component"]
+
+[[metrics]]
+id = "log.staging.bytes"
+otel_name = "okv.eval.log.staging.bytes"
+kind = "gauge"
+unit = "By"
+description = "Bytes retained in RAM or local media by the staged unobjectified log tail"
+attributes = ["lane", "workload", "backend", "tier", "sample"]
+required_attributes = ["lane", "workload", "backend", "tier"]
+
+[[metrics]]
+id = "log.segment.bytes"
+otel_name = "okv.eval.log.segment.bytes"
+kind = "histogram"
+unit = "By"
+description = "Physical size of one immutable published log segment"
+attributes = ["lane", "workload", "backend", "segment.class", "partial"]
+required_attributes = ["lane", "workload", "backend", "partial"]
+boundaries = [262144, 1048576, 4194304, 8388608, 16777216, 33554432, 67108864]
+
+[[metrics]]
+id = "log.segment.publication_lag"
+otel_name = "okv.eval.log.segment.publication_lag"
+kind = "histogram"
+unit = "s"
+description = "Time from the segment's committed closing position to active object-manifest visibility"
+attributes = ["lane", "workload", "backend", "segment.class", "result"]
+required_attributes = ["lane", "workload", "backend", "result"]
+boundaries = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+
+[[metrics]]
+id = "log.recovery.scan_throughput"
+otel_name = "okv.eval.log.recovery.scan_throughput"
+kind = "gauge"
+unit = "By/s"
+description = "Verified consecutive log bytes reconstructed per second from active objects plus the quorum tail"
+attributes = ["lane", "workload", "backend", "source.class"]
+required_attributes = ["lane", "workload", "backend", "source.class"]
+
+[[metrics]]
+id = "log.failover.duration"
+otel_name = "okv.eval.log.failover.duration"
+kind = "histogram"
+unit = "s"
+description = "Time from declared writer or log-node loss until an exact fenced writer resumes append acknowledgement"
+attributes = ["lane", "workload", "backend", "fault", "result"]
+required_attributes = ["lane", "workload", "backend", "fault", "result"]
+boundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+
+[[metrics]]
 id = "authority.snapshot_growth_ratio"
 otel_name = "okv.eval.authority.snapshot_growth_ratio"
 kind = "gauge"

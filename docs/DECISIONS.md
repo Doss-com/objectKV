@@ -1598,3 +1598,32 @@ mechanism, not T27's 1 GiB performance curve.
 
 Evidence:
 `docs/artifacts/eval-receipts/t27-preflight-poisons-r0-2026-08-29/README.md`.
+
+## D65. Evaluate a staged quorum txLog before changing transaction agreement
+
+Status: `[PROPOSED]`, 2026-08-30.
+
+Decision: preserve `okv-log` as pure ordered-record algebra and evaluate a
+single-writer, client-driven quorum service inside `okv-wal`. The candidate
+stages a bounded tail in RAM, persists `COMMITTED` appends to local NVMe on a
+declared quorum, and publishes complete immutable segments to object storage
+asynchronously. `quorum_ram` may return only `BUFFERED`.
+
+Do not insert this service beside the current OpenRaft transaction log and call
+the double write an architecture. First prove the standalone protocol and
+performance curve. Then use T29 to choose whether it replaces only per-node
+stable storage or supports a later FoundationDB-shaped commit-proxy, resolver,
+and txLog plane.
+
+Optimizes for: a reusable cloud WAL primitive, one writer-to-quorum network
+round trip, bounded fast media, open immutable history, and an explicit path
+from `okv-log` to `okv-wal` without putting object latency on every commit.
+
+Gives up: treating physical presence as transaction commit, multi-writer order
+inside one log stream, or assuming the BtrLog prototype validates objectKV's
+transaction plane. Writer fencing, unknown-outcome recovery, cross-stream
+ordering, and transaction integration remain separate gates.
+
+Evidence contract: RFC-0045 and `evals/suites/staged-txlog.toml`. The current
+status is `[PROPOSED]`; no staged-log implementation or objectKV performance
+receipt exists yet.

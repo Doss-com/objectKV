@@ -271,3 +271,37 @@ The first implementation is admitted only if public-interface tests prove:
 - `[PROPOSED]` No cross-cell log order exists.
 - `[PROPOSED]` No exactly-once external effect claim exists.
 - `[PROPOSED]` No WAL or stream performance result exists.
+
+## Staged quorum service research lane
+
+`[PROPOSED]` RFC-0045 freezes the next physical `okv-wal` candidate without
+changing the pure `okv-log` waist:
+
+```text
+okv-log commands
+      |
+      v
+one assigned writer per stream and epoch
+      |
+      +---- parallel append ----> LogNode RAM + optional NVMe
+      |                           LogNode RAM + optional NVMe
+      |                           LogNode RAM + optional NVMe
+      |                                      |
+      <------------- quorum result ----------+
+                                             |
+                                   asynchronous segment seal
+                                             |
+                                             v
+                                     immutable GCS / S3
+```
+
+The candidate borrows BtrLog's useful physical split, not its proof status.
+`quorum_nvme` may report `COMMITTED`; `quorum_ram` may report only `BUFFERED`.
+The cell generation authority owns writer epochs, and the existing publication
+authority owns active object roots. Object storage remains outside the normal
+append acknowledgement path and is not a coordination system.
+
+The standalone service does not replace OpenRaft or verify transaction commit.
+T29 may integrate it only after fencing, unknown-outcome repair, bounded queues,
+segment economics, and recovery pass, and only if the complete transaction path
+does not double log.
