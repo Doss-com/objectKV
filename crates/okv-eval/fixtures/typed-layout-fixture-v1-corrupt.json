@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "fixture_id": "eb00ddfacf92ef3a2f9d747e0962b9c5ce4cb9837f1ae6e11e3c14ae4244de73",
+  "fixture_seed": 5699,
+  "key_count": 16384,
+  "record_count": 25014,
+  "live_row_count": 15742,
+  "canonical_history_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "schema_id": "objectkv.t28.typed-row.v1",
+  "schema_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "covered_through_version": 5,
+  "oracle_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "workload_plan_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "provider": "gcs",
+  "project": "doss-objectkv-dev",
+  "bucket": "doss-objectkv-dev-okv-evals",
+  "region": "us-central1",
+  "children": [
+    {
+      "subject": "c0_indexed_row",
+      "bucket": "doss-objectkv-dev-okv-evals",
+      "format_id": "okv.row-object.v1",
+      "format_version": 1,
+      "canonical_history_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema_id": "objectkv.t28.typed-row.v1",
+      "schema_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "covered_through_version": 5,
+      "manifest_key": "c0/manifest.json",
+      "capabilities": ["point", "projected_scan"],
+      "objects": [
+        {"role": "data", "key": "c0/data.okvb", "generation": "101", "length": 4096, "sha256": "1111111111111111111111111111111111111111111111111111111111111111"},
+        {"role": "index", "key": "c0/index.okvi", "generation": "102", "length": 4096, "sha256": "1212121212121212121212121212121212121212121212121212121212121212"},
+        {"role": "manifest", "key": "c0/manifest.json", "generation": "103", "length": 4096, "sha256": "1313131313131313131313131313131313131313131313131313131313131313"}
+      ],
+      "closure_sha256": "9d01091a187123ac536e225039e11c96be83d31a112efbd67cbf903151f64718"
+    },
+    {
+      "subject": "c5_columnar_main",
+      "bucket": "doss-objectkv-dev-okv-evals",
+      "format_id": "okv.columnar-overlay.v1",
+      "format_version": 1,
+      "canonical_history_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema_id": "objectkv.t28.typed-row.v1",
+      "schema_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "covered_through_version": 5,
+      "manifest_key": "c5/manifest.json",
+      "capabilities": ["point", "projected_scan", "opaque_payload_split"],
+      "objects": [
+        {"role": "index", "key": "c5/index.okvi", "generation": "201", "length": 4096, "sha256": "2121212121212121212121212121212121212121212121212121212121212121"},
+        {"role": "manifest", "key": "c5/manifest.json", "generation": "202", "length": 4096, "sha256": "2222222222222222222222222222222222222222222222222222222222222222"},
+        {"role": "payload", "key": "c5/payload.okvp", "generation": "205", "length": 4096, "sha256": "2323232323232323232323232323232323232323232323232323232323232323"},
+        {"role": "projection", "key": "c5/projection.okvc", "generation": "204", "length": 4096, "sha256": "2424242424242424242424242424242424242424242424242424242424242424"}
+      ],
+      "closure_sha256": "3e73f883742aed962d88b1fe1996671aca97bb6531752aef56cdee32eeb7e071"
+    }
+  ],
+  "root_sha256": "b15feff16af815bfec76574aedc0bb5c7ab99a3c0b4749a452c03f3d5edbeae2"
+}

@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Doss-com/objectKV/evals/schema/typed-layout-fixture-v1.schema.json",
+  "title": "objectKV RFC-0048 typed layout fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fixture_id",
+    "fixture_seed",
+    "key_count",
+    "record_count",
+    "live_row_count",
+    "canonical_history_sha256",
+    "schema_id",
+    "schema_sha256",
+    "covered_through_version",
+    "oracle_sha256",
+    "workload_plan_sha256",
+    "provider",
+    "project",
+    "bucket",
+    "region",
+    "children",
+    "root_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "fixture_id": { "$ref": "#/$defs/sha256" },
+    "fixture_seed": { "type": "integer", "minimum": 1 },
+    "key_count": { "type": "integer", "minimum": 1 },
+    "record_count": { "type": "integer", "minimum": 1 },
+    "live_row_count": { "type": "integer", "minimum": 0 },
+    "canonical_history_sha256": { "$ref": "#/$defs/sha256" },
+    "schema_id": { "$ref": "#/$defs/schemaId" },
+    "schema_sha256": { "$ref": "#/$defs/sha256" },
+    "covered_through_version": { "type": "integer", "minimum": 1 },
+    "oracle_sha256": { "$ref": "#/$defs/sha256" },
+    "workload_plan_sha256": { "$ref": "#/$defs/sha256" },
+    "provider": { "const": "gcs" },
+    "project": { "type": "string", "pattern": "^[a-z][a-z0-9-]{5,29}$" },
+    "bucket": { "$ref": "#/$defs/bucket" },
+    "region": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "children": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/child" }
+    },
+    "root_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "schemaId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._-]+$" },
+    "bucket": { "type": "string", "minLength": 3, "maxLength": 222, "pattern": "^[a-z0-9][a-z0-9._-]*[a-z0-9]$" },
+    "objectKey": { "type": "string", "minLength": 1, "pattern": "^[^/]+(?:/[^/]+)*$" },
+    "object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "key", "generation", "length", "sha256"],
+      "properties": {
+        "role": { "enum": ["manifest", "data", "index", "projection", "payload"] },
+        "key": { "$ref": "#/$defs/objectKey" },
+        "generation": { "type": "string", "pattern": "^[0-9]+$" },
+        "length": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "child": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "bucket",
+        "format_id",
+        "format_version",
+        "canonical_history_sha256",
+        "schema_id",
+        "schema_sha256",
+        "covered_through_version",
+        "manifest_key",
+        "capabilities",
+        "objects",
+        "closure_sha256"
+      ],
+      "properties": {
+        "subject": { "enum": ["c0_indexed_row", "c5_columnar_main"] },
+        "bucket": { "$ref": "#/$defs/bucket" },
+        "format_id": { "enum": ["okv.row-object.v1", "okv.columnar-overlay.v1"] },
+        "format_version": { "const": 1 },
+        "canonical_history_sha256": { "$ref": "#/$defs/sha256" },
+        "schema_id": { "$ref": "#/$defs/schemaId" },
+        "schema_sha256": { "$ref": "#/$defs/sha256" },
+        "covered_through_version": { "type": "integer", "minimum": 1 },
+        "manifest_key": { "$ref": "#/$defs/objectKey" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["point", "projected_scan", "opaque_payload_split"] }
+        },
+        "objects": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/object" }
+        },
+        "closure_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
