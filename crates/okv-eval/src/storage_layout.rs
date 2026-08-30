@@ -31,7 +31,9 @@ use tempfile::TempDir;
 mod columnar_overlay;
 mod t28_typed;
 
-pub use t28_typed::T28RowLayoutReader;
+pub use t28_typed::{
+    T28ColumnarLayoutReader, T28ColumnarScan, T28ColumnarScanSnapshot, T28RowLayoutReader,
+};
 
 const GENERATION: u64 = 11;
 const FORMAT_VERSION: u16 = 1;

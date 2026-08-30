@@ -10,6 +10,9 @@ use super::{
     StorageLayoutProfile, StorageLayoutSample, ValueFields, WriteCondition, FORMAT_VERSION,
     GENERATION,
 };
+use crate::t28_layout::{
+    GenerationPinnedChildBackend, TypedLayoutChildV1, TypedLayoutObjectRoleV1, TypedLayoutSubjectV1,
+};
 use arrow::array::{ArrayRef, Int64Array, UInt16Array, UInt32Array, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::{RecordBatch, RecordBatchOptions};
@@ -332,6 +335,28 @@ struct PreparedColumnarLayout {
     active_manifest_complete: bool,
 }
 
+/// Generation-pinned C5 reader state used by the RFC-0048 matched curve.
+pub(super) struct T28ColumnarLayoutCore {
+    backend: Arc<dyn Backend>,
+    prepared: Arc<PreparedColumnarLayout>,
+    read_version: u64,
+}
+
+/// One C5 provider plus counters that are not owned by the shared scheduler.
+pub(super) struct T28ColumnarScanCore {
+    provider: Arc<RangeStripeTableProvider>,
+    source: Arc<ColumnarProjectionStripeSource>,
+}
+
+/// Stable snapshot of C5-specific object-fetch counters.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct T28ColumnarSourceSnapshot {
+    pub projection_fetch_requests: u64,
+    pub peak_fetch_bytes: u64,
+    pub payload_requests: u64,
+    pub payload_response_bytes: u64,
+}
+
 struct RangeEngineCache {
     projection_stripes: BTreeMap<usize, Vec<ProjectionRecord>>,
     payload_pages: BTreeMap<usize, Bytes>,
@@ -511,6 +536,142 @@ impl Debug for ColumnarProjectionStripeSource {
             .field("mode", &self.mode)
             .field("scan_fetch_target_bytes", &self.scan_fetch_target_bytes)
             .finish_non_exhaustive()
+    }
+}
+
+impl T28ColumnarLayoutCore {
+    pub(super) async fn open(
+        inner: Arc<dyn Backend>,
+        child: &TypedLayoutChildV1,
+        read_version: u64,
+    ) -> Result<Self, String> {
+        if child.subject != TypedLayoutSubjectV1::C5ColumnarMain
+            || read_version == 0
+            || read_version > child.covered_through_version
+        {
+            return Err("invalid RFC-0048 C5 reader identity or version".to_owned());
+        }
+        let backend: Arc<dyn Backend> = Arc::new(GenerationPinnedChildBackend::new(inner, child)?);
+        let prepared = Arc::new(reopen_columnar_layout(backend.as_ref()).await?);
+        if prepared.manifest.covered_through != child.covered_through_version
+            || prepared.manifest.generation != prepared.index.generation
+        {
+            return Err("RFC-0048 C5 manifest coverage or format generation mismatch".to_owned());
+        }
+
+        let expected = [
+            (
+                MANIFEST_KEY,
+                TypedLayoutObjectRoleV1::Manifest,
+                prepared.manifest_bytes,
+                prepared.manifest_sha256.as_str(),
+            ),
+            (
+                INDEX_KEY,
+                TypedLayoutObjectRoleV1::Index,
+                prepared.index_bytes,
+                prepared.manifest.index_sha256.as_str(),
+            ),
+            (
+                PROJECTION_KEY,
+                TypedLayoutObjectRoleV1::Projection,
+                prepared.projection_bytes,
+                prepared.manifest.projection_sha256.as_str(),
+            ),
+            (
+                PAYLOAD_KEY,
+                TypedLayoutObjectRoleV1::Payload,
+                prepared.payload_bytes,
+                prepared.manifest.payload_sha256.as_str(),
+            ),
+        ];
+        let expected_keys = expected
+            .iter()
+            .map(|(key, _, _, _)| *key)
+            .collect::<BTreeSet<_>>();
+        let actual_keys = child
+            .objects
+            .iter()
+            .map(|object| object.key.as_str())
+            .collect::<BTreeSet<_>>();
+        if expected_keys != actual_keys {
+            return Err("RFC-0048 C5 descriptor has unreachable or missing media".to_owned());
+        }
+        for (key, role, length, sha256) in expected {
+            let identity = child
+                .object(key)
+                .filter(|object| object.role == role)
+                .ok_or_else(|| "RFC-0048 C5 object role is absent".to_owned())?;
+            if identity.length != length || identity.sha256 != sha256 {
+                return Err("RFC-0048 C5 descriptor differs from its manifest".to_owned());
+            }
+        }
+
+        Ok(Self {
+            backend,
+            prepared,
+            read_version,
+        })
+    }
+
+    pub(super) async fn point(
+        &self,
+        key: u64,
+        read_version: u64,
+    ) -> Result<PointReadOutcome, String> {
+        if read_version == 0 || read_version > self.read_version {
+            return Err("RFC-0048 C5 point version exceeds the opened snapshot".to_owned());
+        }
+        columnar_point(
+            self.backend.as_ref(),
+            self.prepared.as_ref(),
+            key,
+            read_version,
+        )
+        .await
+    }
+
+    pub(super) fn table_provider(&self, scan_fetch_target_bytes: usize) -> T28ColumnarScanCore {
+        let source = Arc::new(ColumnarProjectionStripeSource {
+            backend: Arc::clone(&self.backend),
+            prepared: Arc::clone(&self.prepared),
+            read_version: self.read_version,
+            mode: ColumnarDataFusionMode::Correct,
+            scan_fetch_target_bytes,
+            scan_group: Mutex::new(None),
+            projection_fetch_requests: AtomicU64::new(0),
+            peak_fetch_bytes: AtomicU64::new(0),
+            payload_requests: AtomicU64::new(0),
+            payload_response_bytes: AtomicU64::new(0),
+        });
+        T28ColumnarScanCore {
+            provider: Arc::new(RangeStripeTableProvider::new(source.clone())),
+            source,
+        }
+    }
+
+    pub(super) fn resident_metadata_bytes(&self) -> u64 {
+        self.prepared
+            .manifest_bytes
+            .saturating_add(self.prepared.index_bytes)
+    }
+}
+
+impl T28ColumnarScanCore {
+    pub(super) fn provider(&self) -> Arc<RangeStripeTableProvider> {
+        Arc::clone(&self.provider)
+    }
+
+    pub(super) fn source_snapshot(&self) -> T28ColumnarSourceSnapshot {
+        T28ColumnarSourceSnapshot {
+            projection_fetch_requests: self
+                .source
+                .projection_fetch_requests
+                .load(Ordering::Relaxed),
+            peak_fetch_bytes: self.source.peak_fetch_bytes.load(Ordering::Relaxed),
+            payload_requests: self.source.payload_requests.load(Ordering::Relaxed),
+            payload_response_bytes: self.source.payload_response_bytes.load(Ordering::Relaxed),
+        }
     }
 }
 
@@ -1930,6 +2091,75 @@ impl<'a> ColumnCursor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::t28_layout::{TypedLayoutCapabilityV1, TypedLayoutObjectIdentityV1};
+    use arrow::array::UInt64Array;
+    use okv_object::{
+        memory_backend, BackendDescriptor, BackendRead, ErrorClass, RevisionToken, StoreError,
+    };
+
+    #[derive(Debug)]
+    struct NumericRevisionBackend {
+        inner: Arc<dyn Backend>,
+        generation: String,
+    }
+
+    #[async_trait]
+    impl Backend for NumericRevisionBackend {
+        fn descriptor(&self) -> BackendDescriptor {
+            self.inner.descriptor()
+        }
+
+        async fn put(
+            &self,
+            _key: &str,
+            _bytes: Bytes,
+            _condition: WriteCondition,
+        ) -> Result<RevisionToken, StoreError> {
+            Err(StoreError {
+                class: ErrorClass::PermissionDenied,
+                detail: "read only".to_owned(),
+            })
+        }
+
+        async fn get(
+            &self,
+            key: &str,
+            range: Option<Range<u64>>,
+            expected: Option<&RevisionToken>,
+        ) -> Result<BackendRead, StoreError> {
+            if expected.and_then(|value| value.version.as_deref()) != Some(self.generation.as_str())
+            {
+                return Err(StoreError {
+                    class: ErrorClass::PreconditionFailed,
+                    detail: "generation mismatch".to_owned(),
+                });
+            }
+            let mut read = self.inner.get(key, range, None).await?;
+            read.revision = RevisionToken {
+                e_tag: None,
+                version: Some(self.generation.clone()),
+            };
+            Ok(read)
+        }
+
+        async fn delete(
+            &self,
+            _key: &str,
+            _expected: Option<&RevisionToken>,
+        ) -> Result<(), StoreError> {
+            Err(StoreError {
+                class: ErrorClass::PermissionDenied,
+                detail: "read only".to_owned(),
+            })
+        }
+
+        async fn list(&self, _prefix: &str) -> Result<Vec<String>, StoreError> {
+            Err(StoreError {
+                class: ErrorClass::PermissionDenied,
+                detail: "no list".to_owned(),
+            })
+        }
+    }
 
     #[test]
     fn compact_index_round_trips() {
@@ -1951,5 +2181,120 @@ mod tests {
         };
         let encoded = index.encode().expect("encode");
         assert_eq!(ColumnarIndex::decode(&encoded).expect("decode"), index);
+    }
+
+    #[tokio::test]
+    async fn generation_pinned_c5_serves_point_and_exact_datafusion_projection() {
+        let profile = StorageLayoutProfile {
+            key_count: 1_024,
+            canonical_live_row_bytes: 512,
+            opaque_payload_bytes: 480,
+            base_version: 1,
+            delta_cycles: 4,
+            update_fraction: 0.125,
+            delete_fraction: 0.01,
+            point_operations: 64,
+            target_run_object_bytes: 512 * 1_024,
+            row_block_bytes: 64 * 1_024,
+            columnar_block_rows: 128,
+            overlay_cache_bytes: 64 * 1_024,
+            seeds: vec![5_699],
+            repeats: 1,
+        };
+        let history = LogicalHistory::generate(&profile, 5_699).expect("history");
+        let writable = memory_backend();
+        let prepared = prepare_columnar_layout(&profile, &history, writable.as_ref())
+            .await
+            .expect("columnar layout");
+        let generation = "101".to_owned();
+        let mut objects = Vec::new();
+        for (key, role) in [
+            (MANIFEST_KEY, TypedLayoutObjectRoleV1::Manifest),
+            (INDEX_KEY, TypedLayoutObjectRoleV1::Index),
+            (PAYLOAD_KEY, TypedLayoutObjectRoleV1::Payload),
+            (PROJECTION_KEY, TypedLayoutObjectRoleV1::Projection),
+        ] {
+            let read = writable
+                .get(key, None, None)
+                .await
+                .expect("published object");
+            objects.push(TypedLayoutObjectIdentityV1 {
+                role,
+                key: key.to_owned(),
+                generation: generation.clone(),
+                length: read.object_length,
+                sha256: content_sha256(&read.bytes),
+            });
+        }
+        let child = TypedLayoutChildV1::seal(
+            TypedLayoutSubjectV1::C5ColumnarMain,
+            "doss-objectkv-dev-okv-evals".to_owned(),
+            history.canonical_sha256.clone(),
+            "objectkv.t28.typed-row.v1".to_owned(),
+            "bb".repeat(32),
+            5,
+            MANIFEST_KEY.to_owned(),
+            vec![
+                TypedLayoutCapabilityV1::Point,
+                TypedLayoutCapabilityV1::ProjectedScan,
+                TypedLayoutCapabilityV1::OpaquePayloadSplit,
+            ],
+            objects,
+        )
+        .expect("typed C5 child");
+        let readonly: Arc<dyn Backend> = Arc::new(NumericRevisionBackend {
+            inner: writable,
+            generation,
+        });
+        let reader = T28ColumnarLayoutCore::open(readonly, &child, 5)
+            .await
+            .expect("open C5");
+        assert_eq!(
+            reader.point(7, 5).await.expect("C5 point"),
+            expected_outcome(history.visible(7, 5))
+        );
+        assert_eq!(
+            reader.resident_metadata_bytes(),
+            prepared.manifest_bytes.saturating_add(prepared.index_bytes)
+        );
+
+        let scan = reader.table_provider(256 * 1_024);
+        let context = SessionContext::new();
+        context
+            .register_table("c5", scan.provider())
+            .expect("register C5");
+        let batches = context
+            .sql("SELECT key, tenant, category, quantity FROM c5 ORDER BY key")
+            .await
+            .expect("plan C5 query")
+            .collect()
+            .await
+            .expect("execute C5 query");
+        let keys = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column_by_name("key")
+                    .and_then(|column| column.as_any().downcast_ref::<UInt64Array>())
+                    .expect("key column")
+                    .values()
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            keys,
+            history
+                .final_rows(5)
+                .iter()
+                .map(|row| row.key)
+                .collect::<Vec<_>>()
+        );
+        let snapshot = scan.source_snapshot();
+        assert!(snapshot.projection_fetch_requests > 0);
+        assert!(snapshot.peak_fetch_bytes <= 256 * 1_024);
+        assert_eq!(snapshot.payload_requests, 0);
+        assert_eq!(snapshot.payload_response_bytes, 0);
     }
 }

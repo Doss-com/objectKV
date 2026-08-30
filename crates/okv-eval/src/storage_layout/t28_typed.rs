@@ -1,5 +1,6 @@
 //! RFC-0048 generation-pinned C0 row reader and matched `DataFusion` source.
 
+use super::columnar_overlay::{T28ColumnarLayoutCore, T28ColumnarScanCore};
 use super::{project_snapshot, ProjectedRow};
 use crate::t28_layout::{
     GenerationPinnedChildBackend, TypedLayoutChildV1, TypedLayoutObjectRoleV1, TypedLayoutSubjectV1,
@@ -11,7 +12,7 @@ use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result as DataFusionResult};
 use okv_htap::{RangeRowTableProvider, RangeStripeSource};
 use okv_object::{
-    read_indexed_point, read_planned_block, Backend, PointBlockPlanV1, PointRead,
+    read_indexed_point, read_planned_block, Backend, PointBlockPlanV1, PointRead, PointReadOutcome,
     RowObjectManifestV1, RowSegmentIndex,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,6 +20,87 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 const MAX_EMITTED_ROWS: usize = 128;
+
+/// C5-specific object-fetch counters for one matched projected scan.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct T28ColumnarScanSnapshot {
+    pub projection_fetch_requests: u64,
+    pub peak_fetch_bytes: u64,
+    pub payload_requests: u64,
+    pub payload_response_bytes: u64,
+}
+
+/// Generation-pinned C5 reader over projection and payload objects.
+pub struct T28ColumnarLayoutReader {
+    inner: T28ColumnarLayoutCore,
+}
+
+/// One C5 DataFusion provider and its independently sampled source counters.
+pub struct T28ColumnarScan {
+    inner: T28ColumnarScanCore,
+}
+
+impl T28ColumnarLayoutReader {
+    /// Open C5 from one already fixture-scoped object backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the descriptor, manifest, index, object closure,
+    /// or requested version disagree.
+    pub async fn open(
+        inner: Arc<dyn Backend>,
+        child: &TypedLayoutChildV1,
+        read_version: u64,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            inner: T28ColumnarLayoutCore::open(inner, child, read_version).await?,
+        })
+    }
+
+    /// Execute one complete C5 point lookup through projection and payload media.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a version beyond the opened snapshot or any failed
+    /// generation, framing, or checksum check.
+    pub async fn point(&self, key: u64, read_version: u64) -> Result<PointReadOutcome, String> {
+        self.inner.point(key, read_version).await
+    }
+
+    /// Create the C5 semantic provider over the matched bounded scheduler.
+    #[must_use]
+    pub fn table_provider(&self, scan_fetch_target_bytes: usize) -> T28ColumnarScan {
+        T28ColumnarScan {
+            inner: self.inner.table_provider(scan_fetch_target_bytes),
+        }
+    }
+
+    /// Bytes retained after manifest and index warmup.
+    #[must_use]
+    pub fn resident_metadata_bytes(&self) -> u64 {
+        self.inner.resident_metadata_bytes()
+    }
+}
+
+impl T28ColumnarScan {
+    /// Return the provider registered in one fresh DataFusion context.
+    #[must_use]
+    pub fn provider(&self) -> Arc<okv_htap::RangeStripeTableProvider> {
+        self.inner.provider()
+    }
+
+    /// Sample C5 counters after the final result batch has been drained.
+    #[must_use]
+    pub fn source_snapshot(&self) -> T28ColumnarScanSnapshot {
+        let source = self.inner.source_snapshot();
+        T28ColumnarScanSnapshot {
+            projection_fetch_requests: source.projection_fetch_requests,
+            peak_fetch_bytes: source.peak_fetch_bytes,
+            payload_requests: source.payload_requests,
+            payload_response_bytes: source.payload_response_bytes,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 struct RowBlockReadPlan {
