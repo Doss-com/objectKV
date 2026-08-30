@@ -2,8 +2,10 @@
 
 use crate::{Backend, RevisionToken};
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
+use std::ops::Range;
 
 const DATA_MAGIC: &[u8; 4] = b"OKVB";
 const INDEX_MAGIC: &[u8; 4] = b"OKVI";
@@ -183,13 +185,7 @@ impl RowSegmentIndex {
 
     #[must_use]
     pub fn data_sha256(&self) -> String {
-        const HEX: &[u8; 16] = b"0123456789abcdef";
-        let mut encoded = String::with_capacity(DIGEST_BYTES * 2);
-        for byte in self.data_digest {
-            encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-            encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-        }
-        encoded
+        encode_digest(self.data_digest)
     }
 
     #[must_use]
@@ -232,6 +228,23 @@ impl RowSegmentIndex {
             .and_then(|index| self.blocks.get(index))?;
         (key <= candidate.last_key.as_slice()).then_some(candidate)
     }
+
+    /// Freeze the authenticated data-object range required for `key`.
+    #[must_use]
+    pub fn plan_point(&self, key: &[u8]) -> Option<PointBlockPlanV1> {
+        let block = self.locate(key)?;
+        Some(PointBlockPlanV1 {
+            object_length: self.object_length,
+            data_sha256: self.data_sha256(),
+            offset: block.offset,
+            length: block.length,
+            first_key: block.first_key.clone(),
+            last_key: block.last_key.clone(),
+            min_version: block.min_version,
+            max_version: block.max_version,
+            block_sha256: encode_digest(block.digest),
+        })
+    }
 }
 
 /// Logical result of a versioned point lookup.
@@ -247,6 +260,52 @@ pub enum PointReadOutcome {
 pub struct PointRead {
     pub outcome: PointReadOutcome,
     pub data_bytes: u64,
+}
+
+/// Immutable byte-range plan for one indexed point lookup.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PointBlockPlanV1 {
+    pub object_length: u64,
+    pub data_sha256: String,
+    pub offset: u64,
+    pub length: u64,
+    pub first_key: Vec<u8>,
+    pub last_key: Vec<u8>,
+    pub min_version: u64,
+    pub max_version: u64,
+    pub block_sha256: String,
+}
+
+impl PointBlockPlanV1 {
+    /// Return the exact object byte range selected by the authenticated index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the range overflows.
+    pub fn range(&self) -> Result<Range<u64>, String> {
+        let end = self
+            .offset
+            .checked_add(self.length)
+            .ok_or_else(|| "row block plan range overflow".to_owned())?;
+        Ok(self.offset..end)
+    }
+
+    fn validate(&self) -> Result<[u8; DIGEST_BYTES], String> {
+        let range = self.range()?;
+        if self.object_length == 0
+            || self.length == 0
+            || range.end > self.object_length
+            || self.first_key.is_empty()
+            || self.first_key > self.last_key
+            || self.min_version == 0
+            || self.max_version < self.min_version
+            || parse_digest(&self.data_sha256).is_err()
+        {
+            return Err("invalid row block plan".to_owned());
+        }
+        parse_digest(&self.block_sha256)
+    }
 }
 
 /// Encode sorted MVCC records into independently checksummed row blocks and a
@@ -353,30 +412,57 @@ pub async fn read_indexed_point(
     if read_version == 0 {
         return Err("row point read version must be non-zero".to_owned());
     }
-    let Some(block) = index.locate(key) else {
+    let Some(plan) = index.plan_point(key) else {
         return Ok(PointRead {
             outcome: PointReadOutcome::Absent,
             data_bytes: 0,
         });
     };
-    let end = block
-        .offset
-        .checked_add(block.length)
-        .ok_or_else(|| "row block range overflow".to_owned())?;
+    read_planned_point(backend, data_key, expected, &plan, key, read_version).await
+}
+
+/// Execute one precomputed authenticated block plan.
+///
+/// # Errors
+///
+/// Returns an error for a malformed plan, key or version mismatch, object
+/// identity mismatch, short response, corrupt block, or malformed record.
+pub async fn read_planned_point(
+    backend: &dyn Backend,
+    data_key: &str,
+    expected: Option<&RevisionToken>,
+    plan: &PointBlockPlanV1,
+    key: &[u8],
+    read_version: u64,
+) -> Result<PointRead, String> {
+    if read_version == 0 || key < plan.first_key.as_slice() || key > plan.last_key.as_slice() {
+        return Err("row planned point key or version is outside its bounds".to_owned());
+    }
+    let digest = plan.validate()?;
+    let range = plan.range()?;
     let read = backend
-        .get(data_key, Some(block.offset..end), expected)
+        .get(data_key, Some(range.clone()), expected)
         .await
         .map_err(|error| error.to_string())?;
-    if read.object_length != index.object_length
-        || read.returned_range != (block.offset..end)
-        || u64::try_from(read.bytes.len()).unwrap_or(u64::MAX) != block.length
+    if read.object_length != plan.object_length
+        || read.returned_range != range
+        || u64::try_from(read.bytes.len()).unwrap_or(u64::MAX) != plan.length
     {
-        return Err("row block response does not match its index".to_owned());
+        return Err("row block response does not match its plan".to_owned());
     }
-    let records = decode_block(&read.bytes, block)?;
+    let block = BlockIndex {
+        first_key: plan.first_key.clone(),
+        last_key: plan.last_key.clone(),
+        offset: plan.offset,
+        length: plan.length,
+        min_version: plan.min_version,
+        max_version: plan.max_version,
+        digest,
+    };
+    let records = decode_block(&read.bytes, &block)?;
     Ok(PointRead {
         outcome: select_version(&records, key, read_version),
-        data_bytes: block.length,
+        data_bytes: plan.length,
     })
 }
 
@@ -681,6 +767,37 @@ fn digest(bytes: &[u8]) -> [u8; DIGEST_BYTES] {
     Sha256::digest(bytes).into()
 }
 
+fn encode_digest(digest: [u8; DIGEST_BYTES]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(DIGEST_BYTES * 2);
+    for byte in digest {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+fn parse_digest(encoded: &str) -> Result<[u8; DIGEST_BYTES], String> {
+    if encoded.len() != DIGEST_BYTES * 2 {
+        return Err("row digest length mismatch".to_owned());
+    }
+    let mut digest = [0_u8; DIGEST_BYTES];
+    for (index, pair) in encoded.as_bytes().chunks_exact(2).enumerate() {
+        let high = decode_hex_nibble(pair[0])?;
+        let low = decode_hex_nibble(pair[1])?;
+        digest[index] = (high << 4) | low;
+    }
+    Ok(digest)
+}
+
+fn decode_hex_nibble(byte: u8) -> Result<u8, String> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        _ => Err("row digest contains non-lowercase-hex bytes".to_owned()),
+    }
+}
+
 struct Cursor<'a> {
     bytes: &'a [u8],
     position: usize,
@@ -745,8 +862,8 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_full_row_object, encode_row_segment, read_indexed_point, scan_full_object_for_point,
-        PointReadOutcome, RowRecord, RowSegmentIndex,
+        decode_full_row_object, encode_row_segment, read_indexed_point, read_planned_point,
+        scan_full_object_for_point, PointReadOutcome, RowRecord, RowSegmentIndex,
     };
     use crate::{memory_backend, Backend, ObservedBackend, WriteCondition};
     use bytes::Bytes;
@@ -791,6 +908,80 @@ mod tests {
         assert_eq!(stats.requests.len(), 1);
         assert_eq!(stats.requests[0].api, "get.range");
         assert_eq!(stats.requests[0].count, 1);
+    }
+
+    #[tokio::test]
+    async fn frozen_block_plan_replays_the_same_point_range() {
+        let encoded = encode_row_segment(7, &records(), 4_096).expect("encode row segment");
+        let index = RowSegmentIndex::decode(&encoded.index).expect("decode row index");
+        let plan = index.plan_point(b"b").expect("point block plan");
+        let encoded_plan = serde_json::to_vec(&plan).expect("encode point block plan");
+        let decoded_plan = serde_json::from_slice(&encoded_plan).expect("decode point block plan");
+        assert_eq!(decoded_plan, plan);
+        assert_eq!(plan.data_sha256, index.data_sha256());
+        assert!(plan.length <= 4_096 + 1_024);
+
+        let observed = Arc::new(ObservedBackend::new(memory_backend()));
+        let revision = observed
+            .put("rows/data", encoded.data, WriteCondition::Create)
+            .await
+            .expect("put row data");
+        observed.clear_stats();
+        let read = read_planned_point(
+            observed.as_ref(),
+            "rows/data",
+            Some(&revision),
+            &decoded_plan,
+            b"b",
+            3,
+        )
+        .await
+        .expect("planned point read");
+        assert_eq!(
+            read.outcome,
+            PointReadOutcome::Value(Bytes::from_static(b"b2"))
+        );
+        let stats = observed.stats();
+        assert_eq!(stats.requests.len(), 1);
+        assert_eq!(stats.requests[0].api, "get.range");
+        assert_eq!(stats.requests[0].count, 1);
+        assert_eq!(stats.requests[0].response_bytes, plan.length);
+    }
+
+    #[tokio::test]
+    async fn frozen_block_plan_rejects_identity_and_bounds_drift() {
+        let encoded = encode_row_segment(7, &records(), 4_096).expect("encode row segment");
+        let index = RowSegmentIndex::decode(&encoded.index).expect("decode row index");
+        let backend = memory_backend();
+        let revision = backend
+            .put("rows/data", encoded.data, WriteCondition::Create)
+            .await
+            .expect("put row data");
+
+        let mut plan = index.plan_point(b"a").expect("point block plan");
+        plan.block_sha256 = "0".repeat(64);
+        assert!(read_planned_point(
+            backend.as_ref(),
+            "rows/data",
+            Some(&revision),
+            &plan,
+            b"a",
+            4,
+        )
+        .await
+        .is_err());
+
+        let plan = index.plan_point(b"a").expect("point block plan");
+        assert!(read_planned_point(
+            backend.as_ref(),
+            "rows/data",
+            Some(&revision),
+            &plan,
+            b"z",
+            4,
+        )
+        .await
+        .is_err());
     }
 
     #[tokio::test]

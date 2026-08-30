@@ -10,7 +10,7 @@ use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
 use object_store::{
     Error as ObjectStoreError, GetOptions, ObjectStore, ObjectStoreExt, PutMode, PutOptions,
-    UpdateVersion,
+    RetryConfig, UpdateVersion,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -54,9 +54,9 @@ pub use row_manifest::{
     content_sha256, encode_row_object_set, RowObjectManifestV1, RowObjectReference,
 };
 pub use row_segment::{
-    decode_full_row_object, encode_row_segment, read_indexed_point, read_point_from_full_object,
-    scan_full_object_for_point, validate_full_row_object, EncodedRowSegment, PointRead,
-    PointReadOutcome, RowRecord, RowSegmentIndex,
+    decode_full_row_object, encode_row_segment, read_indexed_point, read_planned_point,
+    read_point_from_full_object, scan_full_object_for_point, validate_full_row_object,
+    EncodedRowSegment, PointBlockPlanV1, PointRead, PointReadOutcome, RowRecord, RowSegmentIndex,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -1787,11 +1787,28 @@ pub fn minio_backend_from_env() -> Result<Arc<dyn Backend>, StoreError> {
 ///
 /// Returns an error for missing configuration or an invalid client build.
 pub fn gcs_backend_from_env() -> Result<Arc<dyn Backend>, StoreError> {
+    gcs_backend_from_env_with_retry(RetryConfig::default())
+}
+
+/// Build the GCS adapter with application retries disabled.
+///
+/// # Errors
+///
+/// Returns an error for missing configuration or an invalid client build.
+pub fn gcs_backend_from_env_no_retries() -> Result<Arc<dyn Backend>, StoreError> {
+    gcs_backend_from_env_with_retry(RetryConfig {
+        max_retries: 0,
+        ..RetryConfig::default()
+    })
+}
+
+fn gcs_backend_from_env_with_retry(retry: RetryConfig) -> Result<Arc<dyn Backend>, StoreError> {
     let bucket = required_env("OKV_GCS_BUCKET")?;
     let server_version =
         env::var("OKV_OBJECT_SERVER_VERSION").unwrap_or_else(|_| "google-cloud-storage".to_owned());
     let store = GoogleCloudStorageBuilder::from_env()
         .with_bucket_name(bucket)
+        .with_retry(retry)
         .build()
         .map_err(|error| classify_object_store_error(&error))?;
     Ok(Arc::new(ObjectStoreBackend::new(

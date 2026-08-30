@@ -8,9 +8,10 @@ use okv_consensus::{
     TransactionLogStorageStatsRequest, TransactionMutation,
 };
 use okv_object::{
-    content_sha256, decode_full_row_object, encode_row_object_set, filesystem_backend, Backend,
-    FaultBackend, ObjectClient, ObservedBackend, PutOutcome, RevisionToken, RowObjectManifestV1,
-    RowObjectReference, RowRecord, RowSegmentIndex,
+    content_sha256, decode_full_row_object, encode_row_object_set, filesystem_backend,
+    read_planned_point, Backend, FaultBackend, ObjectClient, ObservedBackend, PointBlockPlanV1,
+    PointRead, PutOutcome, RevisionToken, RowObjectManifestV1, RowObjectReference, RowRecord,
+    RowSegmentIndex,
 };
 use okv_transaction::{KeyRange, TransactionCommand, TransactionStatus};
 use serde::{Deserialize, Serialize};
@@ -201,6 +202,136 @@ pub(crate) struct BuiltFixture {
     pub descriptor_bytes: Vec<u8>,
     pub descriptor_revision: RevisionToken,
     pub reused: bool,
+}
+
+/// One point-read plan derived from a verified fixture manifest and index.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FixturePointPlanV1 {
+    pub fixture_id: String,
+    pub read_version: u64,
+    pub key: Vec<u8>,
+    pub data_key: String,
+    pub index_key: String,
+    pub index_bytes: u64,
+    pub index_sha256: String,
+    pub block: PointBlockPlanV1,
+}
+
+/// Descriptor and manifest state opened without reading any index or data object.
+pub struct LazyFixtureReaderV1 {
+    backend: Arc<dyn Backend>,
+    descriptor: ObjectFixtureDescriptorV1,
+    fixture_id: String,
+    manifest: RowObjectManifestV1,
+    descriptor_revision: RevisionToken,
+    manifest_revision: RevisionToken,
+}
+
+impl LazyFixtureReaderV1 {
+    #[must_use]
+    pub fn descriptor(&self) -> &ObjectFixtureDescriptorV1 {
+        &self.descriptor
+    }
+
+    #[must_use]
+    pub fn descriptor_revision(&self) -> &RevisionToken {
+        &self.descriptor_revision
+    }
+
+    #[must_use]
+    pub fn manifest_revision(&self) -> &RevisionToken {
+        &self.manifest_revision
+    }
+
+    /// Fetch and verify only the selected sparse index, then freeze its block range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the key is outside the manifest or the selected
+    /// index and block identity fail validation.
+    pub async fn plan_point(&self, key: &[u8]) -> Result<FixturePointPlanV1, String> {
+        let reference = self
+            .manifest
+            .locate(key)
+            .ok_or_else(|| "fixture point key is outside the manifested range".to_owned())?;
+        let client = ObjectClient::new(self.backend.clone());
+        let (index_bytes, _) = client
+            .read_full_verified(
+                &reference.index_key,
+                None,
+                reference.index_bytes,
+                &reference.index_sha256,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        let index = RowSegmentIndex::decode(&index_bytes)?;
+        reference.validate_index(&index_bytes, &index)?;
+        let block = index
+            .plan_point(key)
+            .ok_or_else(|| "fixture index omitted its manifested point key".to_owned())?;
+        if block.object_length != reference.data_bytes || block.data_sha256 != reference.data_sha256
+        {
+            return Err("fixture point block plan differs from its manifest".to_owned());
+        }
+        Ok(FixturePointPlanV1 {
+            fixture_id: self.fixture_id.clone(),
+            read_version: self.descriptor.base_version,
+            key: key.to_vec(),
+            data_key: reference.data_key.clone(),
+            index_key: reference.index_key.clone(),
+            index_bytes: reference.index_bytes,
+            index_sha256: reference.index_sha256.clone(),
+            block,
+        })
+    }
+
+    /// Execute exactly the data range named by a previously verified point plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the plan differs from this fixture or the selected
+    /// data range fails identity, checksum, or row decoding.
+    pub async fn read_planned_point(&self, plan: &FixturePointPlanV1) -> Result<PointRead, String> {
+        if plan.fixture_id != self.fixture_id
+            || plan.read_version != self.descriptor.base_version
+            || plan.read_version != self.manifest.covered_through
+        {
+            return Err("fixture point plan identity or version mismatch".to_owned());
+        }
+        let reference = self
+            .manifest
+            .locate(&plan.key)
+            .ok_or_else(|| "fixture point plan key is outside the manifested range".to_owned())?;
+        if plan.data_key != reference.data_key
+            || plan.index_key != reference.index_key
+            || plan.index_bytes != reference.index_bytes
+            || plan.index_sha256 != reference.index_sha256
+            || plan.block.object_length != reference.data_bytes
+            || plan.block.data_sha256 != reference.data_sha256
+        {
+            return Err("fixture point plan differs from its manifested object".to_owned());
+        }
+        read_planned_point(
+            self.backend.as_ref(),
+            &plan.data_key,
+            None,
+            &plan.block,
+            &plan.key,
+            plan.read_version,
+        )
+        .await
+    }
+
+    /// Fetch one selected index and one selected data block for an exact point.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when index planning or the selected data read fails.
+    pub async fn read_point(&self, key: &[u8]) -> Result<PointRead, String> {
+        let plan = self.plan_point(key).await?;
+        self.read_planned_point(&plan).await
+    }
 }
 
 /// Exact descriptor identity used to reopen one persisted fixture without
@@ -902,6 +1033,109 @@ pub(crate) async fn open_existing_fixture(
     open_existing_fixture_at_revision(backend, locator, anchor_version, None).await
 }
 
+/// Open only one exact fixture descriptor and manifest at a pinned revision.
+///
+/// This function does not read an index or data object. Callers must use the
+/// returned reader to plan and execute one bounded point path.
+///
+/// # Errors
+///
+/// Returns an error when descriptor or manifest identity, revision, format,
+/// closure declaration, or base version validation fails.
+pub async fn open_existing_fixture_lazy_at_revision(
+    backend: Arc<dyn Backend>,
+    locator: &ObjectFixtureLocatorV1,
+    anchor_version: u64,
+    expected_descriptor_revision: Option<&RevisionToken>,
+) -> Result<LazyFixtureReaderV1, String> {
+    let descriptor_length = usize::try_from(locator.descriptor_length)
+        .map_err(|_| "object fixture descriptor length exceeds usize".to_owned())?;
+    let descriptor_read = backend
+        .get(
+            &descriptor_key(&locator.fixture_id),
+            None,
+            expected_descriptor_revision,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    if descriptor_read.returned_range != (0..u64::try_from(descriptor_length).unwrap_or(u64::MAX))
+        || descriptor_read.object_length != u64::try_from(descriptor_length).unwrap_or(u64::MAX)
+        || content_sha256(&descriptor_read.bytes) != locator.descriptor_sha256
+    {
+        return Err("fixture descriptor content identity mismatch".to_owned());
+    }
+    let descriptor: ObjectFixtureDescriptorV1 =
+        serde_json::from_slice(&descriptor_read.bytes).map_err(|error| error.to_string())?;
+    validate_descriptor(&descriptor, anchor_version)?;
+    if descriptor.fixture_id() != locator.fixture_id {
+        return Err("fixture descriptor semantic identity mismatch".to_owned());
+    }
+    let descriptor_bytes = serde_json::to_vec(&descriptor).map_err(|error| error.to_string())?;
+    if descriptor_bytes.len() != descriptor_length
+        || content_sha256(&descriptor_bytes) != locator.descriptor_sha256
+    {
+        return Err("reopened fixture descriptor identity changed after decoding".to_owned());
+    }
+
+    let client = ObjectClient::new(backend.clone());
+    let (manifest_bytes, manifest_identity) = client
+        .read_full_verified(
+            &descriptor.manifest.key,
+            None,
+            descriptor.manifest.length,
+            &descriptor.manifest.sha256,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    let manifest = RowObjectManifestV1::decode(&manifest_bytes)?;
+    validate_lazy_closure(&descriptor, &manifest)?;
+
+    Ok(LazyFixtureReaderV1 {
+        backend,
+        descriptor,
+        fixture_id: locator.fixture_id.clone(),
+        manifest,
+        descriptor_revision: descriptor_read.revision,
+        manifest_revision: manifest_identity.revision,
+    })
+}
+
+/// Validate a placement locator and open its descriptor plus manifest only.
+///
+/// # Errors
+///
+/// Returns an error when locator, independently supplied identities, provider,
+/// read version, descriptor generation, or lazy open validation fails.
+pub async fn open_generation_pinned_fixture_lazy(
+    backend: Arc<dyn Backend>,
+    placement: &FixturePlacementLocatorV1,
+    expected_envelope_sha256: &str,
+    expected_fixture_id: &str,
+    read_version: u64,
+) -> Result<LazyFixtureReaderV1, String> {
+    placement.validate()?;
+    if !valid_sha256(expected_envelope_sha256)
+        || !valid_sha256(expected_fixture_id)
+        || placement.envelope_sha256 != expected_envelope_sha256
+        || placement.fixture.fixture_id != expected_fixture_id
+        || read_version != placement.base_version
+        || backend.descriptor().id != placement.provider
+    {
+        return Err("T28 fixture placement, provider, or read version mismatch".to_owned());
+    }
+    let revision = RevisionToken {
+        e_tag: None,
+        version: Some(placement.descriptor_generation.clone()),
+    };
+    open_existing_fixture_lazy_at_revision(
+        backend,
+        &placement.fixture,
+        placement.base_version,
+        Some(&revision),
+    )
+    .await
+}
+
 pub(crate) async fn open_existing_fixture_at_revision(
     backend: &Arc<dyn Backend>,
     locator: &ObjectFixtureLocatorV1,
@@ -935,6 +1169,48 @@ pub(crate) async fn open_existing_fixture_at_revision(
         reused: true,
     };
     Ok((fixture, verified.records, verified.verification_seconds))
+}
+
+fn validate_lazy_closure(
+    descriptor: &ObjectFixtureDescriptorV1,
+    manifest: &RowObjectManifestV1,
+) -> Result<(), String> {
+    if manifest.generation != GENERATION
+        || manifest.covered_through != descriptor.base_version
+        || manifest.segments.iter().any(|reference| {
+            reference.min_version != descriptor.base_version
+                || reference.max_version != descriptor.base_version
+        })
+    {
+        return Err("fixture manifest generation or base version mismatch".to_owned());
+    }
+    let mut closure = vec![ClosureObjectIdentity {
+        key: descriptor.manifest.key.clone(),
+        length: descriptor.manifest.length,
+        sha256: descriptor.manifest.sha256.clone(),
+    }];
+    for reference in &manifest.segments {
+        closure.extend([
+            ClosureObjectIdentity {
+                key: reference.data_key.clone(),
+                length: reference.data_bytes,
+                sha256: reference.data_sha256.clone(),
+            },
+            ClosureObjectIdentity {
+                key: reference.index_key.clone(),
+                length: reference.index_bytes,
+                sha256: reference.index_sha256.clone(),
+            },
+        ]);
+    }
+    closure.sort();
+    if u64::try_from(closure.len()).unwrap_or(u64::MAX) != descriptor.object_count
+        || closure.iter().map(|object| object.length).sum::<u64>() != descriptor.object_bytes
+        || closure_sha256(&closure) != descriptor.closure_sha256
+    {
+        return Err("fixture manifest does not declare the descriptor closure".to_owned());
+    }
+    Ok(())
 }
 
 async fn verify_closure(
@@ -1637,11 +1913,16 @@ mod tests {
     use super::{
         base_records, build_fixture, content_sha256, decode_fixture_placement_locator,
         logical_image_sha256, open_existing_fixture, open_existing_fixture_at_revision,
-        FixtureManifestIdentityV1, FixturePlacementLocatorV1, LogicalOutcome,
-        ObjectFixtureDescriptorV1, ObjectFixtureLocatorV1, ObjectFixtureProfile,
+        open_existing_fixture_lazy_at_revision, FixtureManifestIdentityV1,
+        FixturePlacementLocatorV1, LogicalOutcome, ObjectFixtureDescriptorV1,
+        ObjectFixtureLocatorV1, ObjectFixtureProfile,
     };
-    use okv_object::{memory_backend, ObjectClient, RevisionToken};
+    use bytes::Bytes;
+    use okv_object::{
+        memory_backend, Backend, ObjectClient, ObservedBackend, PointReadOutcome, RevisionToken,
+    };
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     fn descriptor() -> ObjectFixtureDescriptorV1 {
         ObjectFixtureDescriptorV1 {
@@ -1815,5 +2096,143 @@ mod tests {
         let mut wrong = locator;
         wrong.descriptor_sha256 = content_sha256(b"wrong descriptor");
         assert!(open_existing_fixture(&backend, &wrong, 2).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn lazy_fixture_open_reads_only_descriptor_manifest_index_and_one_block() {
+        let profile = ObjectFixtureProfile {
+            key_count: 33,
+            value_bytes: 256,
+            target_object_bytes: 4_096,
+            target_block_bytes: 4_096,
+        };
+        let backend = memory_backend();
+        let records = base_records(7, &profile, 2).expect("base records");
+        let built = build_fixture(
+            7,
+            &profile,
+            2,
+            &records,
+            &ObjectClient::new(backend.clone()),
+        )
+        .await
+        .expect("build fixture");
+        assert!(built.descriptor.object_count > 3);
+
+        let observed = Arc::new(ObservedBackend::new(backend));
+        let observed_backend: Arc<dyn Backend> = observed.clone();
+        let reader = open_existing_fixture_lazy_at_revision(
+            observed_backend,
+            &built.locator(),
+            2,
+            Some(&built.descriptor_revision),
+        )
+        .await
+        .expect("lazy fixture open");
+        assert_eq!(reader.descriptor().fixture_id(), built.fixture_id);
+        assert_eq!(reader.descriptor_revision(), &built.descriptor_revision);
+
+        let open_stats = observed.stats();
+        assert_eq!(
+            open_stats
+                .requests
+                .iter()
+                .filter(|request| request.api == "get")
+                .map(|request| request.count)
+                .sum::<u64>(),
+            2
+        );
+        assert!(open_stats
+            .requests
+            .iter()
+            .all(|request| request.api != "get.range"));
+
+        let key = records[17].key.clone();
+        let expected_value = records[17].value.clone().expect("base value");
+        let plan = reader.plan_point(&key).await.expect("plan point");
+        assert_eq!(plan.read_version, 2);
+        assert_eq!(plan.key, key);
+        assert!(plan.block.length <= 4_096 + 1_024);
+        let point = reader
+            .read_planned_point(&plan)
+            .await
+            .expect("read planned point");
+        assert_eq!(
+            point.outcome,
+            PointReadOutcome::Value(Bytes::from(expected_value))
+        );
+
+        let stats = observed.stats();
+        assert_eq!(
+            stats
+                .requests
+                .iter()
+                .filter(|request| request.api == "get")
+                .map(|request| request.count)
+                .sum::<u64>(),
+            3
+        );
+        assert_eq!(
+            stats
+                .requests
+                .iter()
+                .filter(|request| request.api == "get.range")
+                .map(|request| request.count)
+                .sum::<u64>(),
+            1
+        );
+        assert_eq!(point.data_bytes, plan.block.length);
+    }
+
+    #[tokio::test]
+    async fn lazy_fixture_point_rejects_cross_fixture_plan_before_data_read() {
+        let profile = ObjectFixtureProfile {
+            key_count: 17,
+            value_bytes: 64,
+            target_object_bytes: 4_096,
+            target_block_bytes: 4_096,
+        };
+        let backend = memory_backend();
+        let records = base_records(7, &profile, 2).expect("base records");
+        let built = build_fixture(
+            7,
+            &profile,
+            2,
+            &records,
+            &ObjectClient::new(backend.clone()),
+        )
+        .await
+        .expect("build fixture");
+        let observed = Arc::new(ObservedBackend::new(backend));
+        let observed_backend: Arc<dyn Backend> = observed.clone();
+        let reader = open_existing_fixture_lazy_at_revision(
+            observed_backend,
+            &built.locator(),
+            2,
+            Some(&built.descriptor_revision),
+        )
+        .await
+        .expect("lazy fixture open");
+        let mut plan = reader
+            .plan_point(&records[0].key)
+            .await
+            .expect("plan point");
+        let before = observed.stats();
+        plan.fixture_id = content_sha256(b"other fixture");
+        assert!(reader.read_planned_point(&plan).await.is_err());
+        assert_eq!(observed.stats().requests.len(), before.requests.len());
+        assert_eq!(
+            observed
+                .stats()
+                .requests
+                .iter()
+                .map(|request| request.count)
+                .sum::<u64>(),
+            before
+                .requests
+                .iter()
+                .map(|request| request.count)
+                .sum::<u64>()
+        );
     }
 }
