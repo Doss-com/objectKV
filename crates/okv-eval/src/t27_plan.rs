@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 const PLAN_SCHEMA_VERSION: u32 = 1;
 const RECEIPT_SCHEMA_VERSION: u32 = 1;
+const POSITION_RECEIPT_SCHEMA_VERSION: u32 = 2;
+const MAX_NATIVE_LOCAL_BYTES_RATIO: f64 = 1.25;
 const PLAN_MAGIC: &[u8] = b"OKVT27P1";
 const OPTIONS_MAGIC: &[u8] = b"OKVT27O1";
 const RECEIPT_MAGIC: &[u8] = b"OKVT27R1";
@@ -231,6 +233,7 @@ pub struct T27PositionObservationV1 {
     pub block_cache_capacity_bytes: u64,
     pub block_cache_usage_bytes: u64,
     pub block_cache_misses: u64,
+    pub resident_image_local_bytes: u64,
     pub operations_per_second: f64,
     pub latency_ns_p99: u64,
     pub cpu_nanoseconds_per_read: f64,
@@ -624,6 +627,8 @@ pub struct T27PositionReceiptV1 {
     pub block_cache_capacity_bytes: u64,
     pub block_cache_usage_bytes: u64,
     pub block_cache_misses: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resident_image_local_bytes: Option<u64>,
     pub operations_per_second: f64,
     pub latency_ns_p99: u64,
     pub cpu_nanoseconds_per_read: f64,
@@ -666,7 +671,7 @@ impl T27PositionReceiptV1 {
             observed.direct_reads,
         );
         let mut receipt = Self {
-            schema_version: RECEIPT_SCHEMA_VERSION,
+            schema_version: POSITION_RECEIPT_SCHEMA_VERSION,
             controller_id,
             lease_id,
             worker_id,
@@ -701,6 +706,7 @@ impl T27PositionReceiptV1 {
             block_cache_capacity_bytes: observed.block_cache_capacity_bytes,
             block_cache_usage_bytes: observed.block_cache_usage_bytes,
             block_cache_misses: observed.block_cache_misses,
+            resident_image_local_bytes: Some(observed.resident_image_local_bytes),
             operations_per_second: observed.operations_per_second,
             latency_ns_p99: observed.latency_ns_p99,
             cpu_nanoseconds_per_read: observed.cpu_nanoseconds_per_read,
@@ -738,7 +744,7 @@ impl T27PositionReceiptV1 {
         plan.validate()?;
         let ordinal = usize::try_from(self.position.ordinal)
             .map_err(|_| "T27 receipt ordinal exceeds usize".to_owned())?;
-        if self.schema_version != RECEIPT_SCHEMA_VERSION
+        if !matches!(self.schema_version, 1 | POSITION_RECEIPT_SCHEMA_VERSION)
             || plan.positions.get(ordinal) != Some(&self.position)
             || self.plan_sha256 != plan.plan_sha256
             || self.execution != plan.execution
@@ -746,6 +752,21 @@ impl T27PositionReceiptV1 {
             || self.fixture_id != plan.fixture.fixture.fixture_id
         {
             return Err("T27 position receipt identity mismatch".to_owned());
+        }
+        match (self.schema_version, self.resident_image_local_bytes) {
+            (1, None) => {
+                if self.image_provider == crate::serving_recovery_openraft::NATIVE_RESIDENT_PROVIDER
+                {
+                    return Err(
+                        "T27 native resident v2 requires a schema-v2 local-byte receipt".to_owned(),
+                    );
+                }
+            }
+            (POSITION_RECEIPT_SCHEMA_VERSION, Some(bytes))
+                if bytes > 0 && bytes <= self.position.max_local_bytes => {}
+            _ => {
+                return Err("T27 position resident-image local bytes are invalid".to_owned());
+            }
         }
         Uuid::parse_str(&self.controller_id)
             .map_err(|_| "T27 controller ID is invalid".to_owned())?;
@@ -1844,6 +1865,7 @@ fn build_t27_comparisons(
                 median_pair_ratio(&pairs, physical_bytes_per_read);
             let native_read_amplification_ratio =
                 median_pair_ratio(&pairs, |receipt| receipt.read_amplification_ratio);
+            let native_local_bytes_ratio = median_optional_local_bytes_ratio(&pairs)?;
             let pressure_passed = (native_cache_misses_per_read > 0.0 || native_physical > 0.0)
                 && (control_cache_misses_per_read > 0.0 || control_physical > 0.0);
             let passed = pressure_passed
@@ -1851,7 +1873,9 @@ fn build_t27_comparisons(
                 && native_p99_ratio <= 1.20
                 && native_cpu_per_read_ratio <= 1.25
                 && native_physical_bytes_per_read_ratio <= 1.25
-                && native_read_amplification_ratio <= 1.25;
+                && native_read_amplification_ratio <= 1.25
+                && native_local_bytes_ratio
+                    .is_none_or(|ratio| ratio <= MAX_NATIVE_LOCAL_BYTES_RATIO);
             comparisons.push(T27StratumComparisonV1 {
                 stratum_id: stratum_id.clone(),
                 order,
@@ -1871,6 +1895,36 @@ fn build_t27_comparisons(
         }
     }
     Ok(comparisons)
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn median_optional_local_bytes_ratio(
+    pairs: &[(&T27PositionReceiptV1, &T27PositionReceiptV1)],
+) -> Result<Option<f64>, String> {
+    let mut ratios = Vec::with_capacity(pairs.len());
+    for (native, control) in pairs {
+        match (
+            native.resident_image_local_bytes,
+            control.resident_image_local_bytes,
+        ) {
+            (Some(native_bytes), Some(control_bytes)) => {
+                ratios.push(bounded_ratio(native_bytes as f64, control_bytes as f64))
+            }
+            (None, None) => {}
+            _ => {
+                return Err(
+                    "T27 comparison mixes position receipt local-byte schema versions".to_owned(),
+                );
+            }
+        }
+    }
+    if ratios.is_empty() {
+        Ok(None)
+    } else if ratios.len() == pairs.len() {
+        Ok(Some(median_f64(&ratios)))
+    } else {
+        Err("T27 comparison mixes position receipt local-byte schema versions".to_owned())
+    }
 }
 
 fn median_pair_ratio<F>(pairs: &[(&T27PositionReceiptV1, &T27PositionReceiptV1)], metric: F) -> f64
@@ -2563,6 +2617,14 @@ fn encode_position_receipt_identity(receipt: &T27PositionReceiptV1) -> Vec<u8> {
     bytes.extend_from_slice(&receipt.block_cache_capacity_bytes.to_be_bytes());
     bytes.extend_from_slice(&receipt.block_cache_usage_bytes.to_be_bytes());
     bytes.extend_from_slice(&receipt.block_cache_misses.to_be_bytes());
+    if receipt.schema_version >= POSITION_RECEIPT_SCHEMA_VERSION {
+        bytes.extend_from_slice(
+            &receipt
+                .resident_image_local_bytes
+                .unwrap_or_default()
+                .to_be_bytes(),
+        );
+    }
     bytes.extend_from_slice(&receipt.operations_per_second.to_bits().to_be_bytes());
     bytes.extend_from_slice(&receipt.latency_ns_p99.to_be_bytes());
     bytes.extend_from_slice(&receipt.cpu_nanoseconds_per_read.to_bits().to_be_bytes());
@@ -3087,6 +3149,125 @@ mod tests {
     }
 
     #[test]
+    fn native_local_bytes_above_the_matched_ratio_fail_the_comparison() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let mut receipts = plan
+            .positions
+            .iter()
+            .enumerate()
+            .map(|(index, position)| receipt(&plan, index, position.subject))
+            .collect::<Vec<_>>();
+        for value in &mut receipts {
+            value.resident_image_local_bytes = Some(match value.observed_subject {
+                T27PlanSubjectV1::NativeSnapshot => 126,
+                T27PlanSubjectV1::DirectOwnedRocksdb => 100,
+            });
+            value.receipt_sha256 = value.calculated_receipt_sha256();
+        }
+
+        let comparisons = build_t27_comparisons(&receipts).expect("compare local bytes");
+        assert!(comparisons.iter().all(|comparison| !comparison.passed));
+    }
+
+    #[test]
+    fn native_local_bytes_at_the_matched_ratio_pass_the_comparison() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let mut receipts = plan
+            .positions
+            .iter()
+            .enumerate()
+            .map(|(index, position)| receipt(&plan, index, position.subject))
+            .collect::<Vec<_>>();
+        for value in &mut receipts {
+            value.resident_image_local_bytes = Some(match value.observed_subject {
+                T27PlanSubjectV1::NativeSnapshot => 125,
+                T27PlanSubjectV1::DirectOwnedRocksdb => 100,
+            });
+            value.receipt_sha256 = value.calculated_receipt_sha256();
+        }
+
+        let comparisons = build_t27_comparisons(&receipts).expect("compare local bytes");
+        assert!(comparisons.iter().all(|comparison| comparison.passed));
+    }
+
+    #[test]
+    fn mixed_position_local_byte_schema_versions_fail_closed() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let mut receipts = plan
+            .positions
+            .iter()
+            .enumerate()
+            .map(|(index, position)| receipt(&plan, index, position.subject))
+            .collect::<Vec<_>>();
+        receipts[0].resident_image_local_bytes = None;
+        receipts[0].receipt_sha256 = receipts[0].calculated_receipt_sha256();
+
+        let error = build_t27_comparisons(&receipts)
+            .expect_err("mixed local-byte schema versions must fail closed");
+        assert!(error.contains("mixes"));
+    }
+
+    #[test]
+    fn provider_v2_requires_a_schema_v2_local_byte_receipt() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let mut value = receipt(&plan, 0, T27PlanSubjectV1::NativeSnapshot);
+        value.schema_version = 1;
+        value.resident_image_local_bytes = None;
+        value.receipt_sha256 = value.calculated_receipt_sha256();
+
+        let error = value
+            .validate(&plan)
+            .expect_err("provider v2 must not validate under schema v1");
+        assert!(error.contains("requires a schema-v2"));
+    }
+
+    #[test]
+    fn historical_schema_v1_position_receipt_remains_valid() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let mut value = receipt(&plan, 0, T27PlanSubjectV1::NativeSnapshot);
+        value.schema_version = 1;
+        value.image_provider = "rocksdb-11.8.1-native-resident-v1".to_owned();
+        value.runtime_resident_provider = Some(value.image_provider.clone());
+        value.resident_image_local_bytes = None;
+        value.receipt_sha256 = value.calculated_receipt_sha256();
+        value
+            .validate(&plan)
+            .expect("historical schema-v1 receipt must remain valid");
+
+        let encoded = serde_json::to_value(&value).expect("encode historical receipt");
+        assert!(encoded.get("resident_image_local_bytes").is_none());
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../evals/schema/t27-position-receipt-v1.schema.json"
+        ))
+        .expect("decode position schema v1");
+        jsonschema::validator_for(&schema)
+            .expect("compile position schema v1")
+            .validate(&encoded)
+            .expect("historical receipt must satisfy schema v1");
+    }
+
+    #[test]
+    fn current_position_receipt_satisfies_schema_v2() {
+        let fixture = locator(65_536);
+        let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
+        let value = receipt(&plan, 0, T27PlanSubjectV1::NativeSnapshot);
+        value.validate(&plan).expect("validate current receipt");
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../evals/schema/t27-position-receipt-v2.schema.json"
+        ))
+        .expect("decode position schema v2");
+        jsonschema::validator_for(&schema)
+            .expect("compile position schema v2")
+            .validate(&serde_json::to_value(&value).expect("encode current receipt"))
+            .expect("current receipt must satisfy schema v2");
+    }
+
+    #[test]
     fn telemetry_binding_mismatch_fails_the_run_receipt() {
         let fixture = locator(65_536);
         let plan = test_plan(&fixture, T27PlanProfileV1::Preflight64Mib);
@@ -3426,7 +3607,7 @@ mod tests {
                 fixture_id: plan.fixture.fixture.fixture_id.clone(),
                 image_provider: match subject {
                     T27PlanSubjectV1::NativeSnapshot => {
-                        "rocksdb-11.8.1-native-resident-v1".to_owned()
+                        crate::serving_recovery_openraft::NATIVE_RESIDENT_PROVIDER.to_owned()
                     }
                     T27PlanSubjectV1::DirectOwnedRocksdb => {
                         "rocksdb-11.8.1-direct-owned-v1".to_owned()
@@ -3434,7 +3615,7 @@ mod tests {
                 },
                 runtime_resident_provider: match subject {
                     T27PlanSubjectV1::NativeSnapshot => {
-                        Some("rocksdb-11.8.1-native-resident-v1".to_owned())
+                        Some(crate::serving_recovery_openraft::NATIVE_RESIDENT_PROVIDER.to_owned())
                     }
                     T27PlanSubjectV1::DirectOwnedRocksdb => None,
                 },
@@ -3463,6 +3644,10 @@ mod tests {
                 block_cache_capacity_bytes: position.block_cache_bytes,
                 block_cache_usage_bytes: position.block_cache_bytes / 2,
                 block_cache_misses: 100,
+                resident_image_local_bytes: match subject {
+                    T27PlanSubjectV1::NativeSnapshot => 80,
+                    T27PlanSubjectV1::DirectOwnedRocksdb => 100,
+                },
                 operations_per_second: 1_000_000.0,
                 latency_ns_p99: 2_000,
                 cpu_nanoseconds_per_read: 900.0,

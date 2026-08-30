@@ -6655,6 +6655,7 @@ fn run_t27_plan_position(
             block_cache_capacity_bytes: sample.storage.block_cache_capacity_bytes,
             block_cache_usage_bytes: sample.storage.block_cache_usage_bytes,
             block_cache_misses: sample.storage.block_cache_misses,
+            resident_image_local_bytes: image.local_bytes,
             operations_per_second: sample.operations_per_second,
             latency_ns_p99: sample.latency_ns_p99,
             cpu_nanoseconds_per_read: sample.process.cpu_nanoseconds_per_read,
@@ -7099,6 +7100,18 @@ fn record_t27_position_telemetry(
             ("sample", &sample),
         ]),
     )?;
+    if let Some(local_bytes) = receipt.resident_image_local_bytes {
+        recorder.record(
+            "serving.local_bytes",
+            local_bytes as f64,
+            attributes(&[
+                ("lane", lane),
+                ("workload", workload),
+                ("backend", backend),
+                ("sample", &sample),
+            ]),
+        )?;
+    }
     recorder.record(
         "correctness.failures",
         receipt.correctness_failures as f64,
