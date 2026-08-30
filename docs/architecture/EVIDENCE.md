@@ -165,6 +165,18 @@ branch gates remain `[EVALUATING]`.
 Evidence:
 `docs/artifacts/eval-receipts/rfc0048-t28-layout-publication-gcp-r0-2026-08-30/README.md`.
 
+`[VERIFIED]` The fresh-process resource preflight retained a C5 v1 rejection.
+C5/C0 point p99 was 2.540x against the frozen 2.50x guard, despite moving
+0.351x the bytes and measuring only 1.060x per-call provider p99. The two
+sequential C5 GETs are the remaining point-path exposure. The projected scan
+returned the exact 15,742 rows at 67,227 rows/s versus C0 at 2,128 rows/s,
+31.595x, with 6 versus 203 GETs and 0.117x response bytes. No admission
+positions ran. Row 3 remains `[EVALUATING]` while a new compatible primary
+index exposes both point ranges for concurrent gather.
+
+Evidence:
+`docs/artifacts/eval-receipts/rfc0048-t28-layout-preflight-gcp-r0-2026-08-30/README.md`.
+
 ```text
 generation-pinned locator + immutable operation plan
   → fresh read-only process
@@ -224,12 +236,14 @@ layer receipt.
 - [T27 GCS placement-boundary receipt](../artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md)
 - [T28 corrected GCS point curve](../artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md)
 - [RFC-0048 typed GCS publication](../artifacts/eval-receipts/rfc0048-t28-layout-publication-gcp-r0-2026-08-30/README.md)
+- [RFC-0048 typed GCS preflight](../artifacts/eval-receipts/rfc0048-t28-layout-preflight-gcp-r0-2026-08-30/README.md)
 - [Native matched single-range receipt](../artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md)
 - [Native concurrent-read receipt](../artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md)
 - [Corrected cache calibration](../artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md)
 - [Direct-read attribution preflight](../artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md)
 
 The current implementation slice adds a `[VERIFIED]` typed C0/C5 GCS
-publication and read-only generation-pinned reopen. Master-matrix row 1 remains
+publication and a retained preflight rejection. Master-matrix row 1 remains
 deferred and unverified because p99 is 1.742x control. The active frontier is
-row 3, the fresh-process matched point and projected-scan curve.
+row 3, the C5 point-index revision that removes sequential range-fetch latency
+without changing the verified columnar scan path.
