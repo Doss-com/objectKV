@@ -114,8 +114,27 @@ impl T28AlignedAdmissionPlanV1 {
         let execution = &self.execution;
         let scope = &self.scope;
         let stopping = &self.stopping_rule;
+        let execution_identity_is_frozen = matches!(
+            (
+                self.plan_id.as_str(),
+                self.candidate_parent_commit.as_str(),
+                self.named_code_change.as_str(),
+                self.prior_diagnostic_archive_sha256.as_str(),
+            ),
+            (
+                "t28-aligned-columnar-v2-admission-r1",
+                "8ff14a211b74f21928965f109f4aa730ed346bd7",
+                "rust-controller-and-logical-point-provider-correlation",
+                "a23dcd642c797e51a368b79d7bbcfde48cb089fefc1c250ae318f09deefa8530",
+            ) | (
+                "t28-aligned-columnar-v2-admission-r2",
+                "dfc29f5d5058af936040f01455e526d42016bc85",
+                "fixture-exact-same-role-object-selection",
+                "90d2b6c29047edbe3d6b32dff071c69a8d7e1ca4f91ddb3e86fb0c71da49215d",
+            )
+        );
         if self.schema_version != 1
-            || self.plan_id != "t28-aligned-columnar-v2-admission-r1"
+            || !execution_identity_is_frozen
             || self.status != "frozen_before_execution"
             || !self.one_execution
             || self.physical_plan != "t28-aligned-columnar-v2.toml"
@@ -125,10 +144,6 @@ impl T28AlignedAdmissionPlanV1 {
                 != "2e04d69775f67cb7561b59374d27bf2082909ca2df23a72f40e209728131c797"
             || self.reader_iam_receipt_sha256
                 != "f383977a0f13ddf791ebc6ac97381ffc903268f45416689fe7eb23db22f2c1e9"
-            || self.candidate_parent_commit != "8ff14a211b74f21928965f109f4aa730ed346bd7"
-            || self.named_code_change != "rust-controller-and-logical-point-provider-correlation"
-            || self.prior_diagnostic_archive_sha256
-                != "a23dcd642c797e51a368b79d7bbcfde48cb089fefc1c250ae318f09deefa8530"
             || receipt.point_position_schema_version != 2
             || receipt.scan_position_schema_version != 1
             || receipt.performance_run_schema_version != 1
@@ -1211,11 +1226,23 @@ impl T28AlignedPerformanceRunReceiptV1 {
             && self.telemetry_logs_shutdown_succeeded;
         let measured_media_gates_passed = self.stored_media_ratio_millionths <= 1_100_000
             && self.resident_metadata_ratio_millionths <= 2_000_000;
+        let admission_identity_is_frozen = matches!(
+            (
+                self.admission_plan_id.as_str(),
+                self.admission_plan_sha256.as_str(),
+            ),
+            (
+                "t28-aligned-columnar-v2-admission-r1",
+                "1faec4b6eabd37ae99f2ac3309edec659915705ab31ab5e2c2f59cf7e784f01a",
+            ) | (
+                "t28-aligned-columnar-v2-admission-r2",
+                "71ae74cde687872170459d9d0803875b077112a223ffe3cc6bb2e1100b0bb1d8",
+            )
+        );
         if self.schema_version != RUN_SCHEMA_VERSION
             || self.physical_plan_id != "t28-aligned-columnar-v2"
-            || self.admission_plan_id != "t28-aligned-columnar-v2-admission-r1"
+            || !admission_identity_is_frozen
             || !valid_sha256(&self.physical_plan_sha256)
-            || !valid_sha256(&self.admission_plan_sha256)
             || self.controller_run_id.trim().is_empty()
             || self.candidate_commit.trim().is_empty()
             || !valid_sha256(&self.executable_sha256)
@@ -2050,6 +2077,22 @@ mod tests {
     }
 
     #[test]
+    fn second_admission_plan_names_and_retains_the_first_admitted_failure() {
+        let bytes =
+            include_bytes!("../../../evals/plans/t28-aligned-columnar-v2-admission-r2.toml");
+        let loaded = T28AlignedAdmissionPlanV1::decode(bytes, &content_sha256(bytes))
+            .expect("decode second admission plan");
+        assert_eq!(
+            loaded.plan.named_code_change,
+            "fixture-exact-same-role-object-selection"
+        );
+        assert_eq!(
+            loaded.plan.prior_diagnostic_archive_sha256,
+            "90d2b6c29047edbe3d6b32dff071c69a8d7e1ca4f91ddb3e86fb0c71da49215d"
+        );
+    }
+
+    #[test]
     fn frozen_plan_has_exact_point_and_scan_schedules() {
         let bytes = include_bytes!("../../../evals/plans/t28-aligned-columnar-v2.toml");
         let loaded = T28AlignedCurvePlanV1::decode(
@@ -2187,6 +2230,16 @@ mod tests {
         assert!(performance.performance_eligible_pending_collector_confirmation);
         let encoded = serde_json::to_vec(&performance).expect("encode performance");
         T28AlignedPerformanceRunReceiptV1::decode(&encoded).expect("decode performance");
+        let mut r2_performance = performance.clone();
+        r2_performance.admission_plan_id = "t28-aligned-columnar-v2-admission-r2".to_owned();
+        r2_performance.admission_plan_sha256 =
+            "71ae74cde687872170459d9d0803875b077112a223ffe3cc6bb2e1100b0bb1d8".to_owned();
+        r2_performance.receipt_sha256 = r2_performance
+            .calculated_sha256()
+            .expect("r2 performance digest");
+        r2_performance
+            .validate()
+            .expect("r2 performance receipt identity");
 
         let collector_evidence = collector_query_evidence(&controller_run_id);
         let logs = collector_export("resourceLogs", &performance, true);

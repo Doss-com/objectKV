@@ -9,7 +9,8 @@ use crate::storage_layout::{
     T28RowLayoutReader, T28TypedLayoutExecutionPlanV1,
 };
 use crate::t28_layout::{
-    T28LayoutOracleV1, TypedLayoutObjectRoleV1, TypedLayoutPlacementLocatorV1, TypedLayoutSubjectV1,
+    T28LayoutOracleV1, TypedLayoutObjectIdentityV1, TypedLayoutObjectRoleV1,
+    TypedLayoutPlacementLocatorV1, TypedLayoutSubjectV1,
 };
 use arrow::array::{Int64Array, UInt16Array, UInt32Array, UInt64Array};
 use datafusion::prelude::SessionContext;
@@ -760,15 +761,12 @@ impl T28AlignedPointPositionReceiptV2 {
                         );
                     }
                 };
-                let descriptor = objects
-                    .iter()
-                    .find(|object| object.role == role)
-                    .ok_or_else(|| "RFC-0049 persisted media omits an attempt role".to_owned())?;
-                let expected_key = format!(
-                    "{}/{}",
-                    prefix.trim_matches('/'),
-                    descriptor.key.trim_start_matches('/')
-                );
+                let descriptor =
+                    find_exact_fixture_object(objects, prefix, role, &attempt.object_key)
+                        .ok_or_else(|| {
+                            "RFC-0049 persisted media omits an attempt role".to_owned()
+                        })?;
+                let expected_key = fixture_object_key(prefix, descriptor);
                 if attempt.object_key != expected_key
                     || attempt.expected_generation != descriptor.generation
                     || attempt.returned_generation != descriptor.generation
@@ -1954,24 +1952,22 @@ fn correlate_provider_events(
             _ => return Err("RFC-0049 provider role differs from its subject".to_owned()),
         };
         let expected_object = match subject {
-            T28TypedPointSubjectV1::C0IndexedRow => fixture
-                .source_c0
-                .objects
-                .iter()
-                .find(|object| object.role == expected_role),
-            T28TypedPointSubjectV1::C5v2AlignedColumnar => fixture
-                .candidate
-                .objects
-                .iter()
-                .find(|object| object.role == expected_role),
+            T28TypedPointSubjectV1::C0IndexedRow => find_exact_fixture_object(
+                &fixture.source_c0.objects,
+                expected_prefix,
+                expected_role,
+                &started.object_key,
+            ),
+            T28TypedPointSubjectV1::C5v2AlignedColumnar => find_exact_fixture_object(
+                &fixture.candidate.objects,
+                expected_prefix,
+                expected_role,
+                &started.object_key,
+            ),
             T28TypedPointSubjectV1::C5ColumnarMain => None,
         }
         .ok_or_else(|| "RFC-0049 fixture omits an expected point object".to_owned())?;
-        let expected_key = format!(
-            "{}/{}",
-            expected_prefix.trim_matches('/'),
-            expected_object.key.trim_start_matches('/')
-        );
+        let expected_key = fixture_object_key(expected_prefix, expected_object);
         if started.api != "get"
             || started.object_key != expected_key
             || completed.object_key != expected_key
@@ -2073,6 +2069,25 @@ fn correlate_provider_events(
     Ok(correlated)
 }
 
+fn find_exact_fixture_object<'a>(
+    objects: &'a [TypedLayoutObjectIdentityV1],
+    prefix: &str,
+    role: TypedLayoutObjectRoleV1,
+    observed_key: &str,
+) -> Option<&'a TypedLayoutObjectIdentityV1> {
+    objects
+        .iter()
+        .find(|object| object.role == role && fixture_object_key(prefix, object) == observed_key)
+}
+
+fn fixture_object_key(prefix: &str, object: &TypedLayoutObjectIdentityV1) -> String {
+    format!(
+        "{}/{}",
+        prefix.trim_matches('/'),
+        object.key.trim_start_matches('/')
+    )
+}
+
 fn peak_inflight(intervals: &[(u64, u64)]) -> u64 {
     let mut events = intervals
         .iter()
@@ -2125,7 +2140,12 @@ const fn is_zero(value: &u64) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::nearest_rank;
+    use super::{
+        find_exact_fixture_object, nearest_rank, T28AlignedMediaObservationV1,
+        T28AlignedObjectRoleV2, T28AlignedPointOperationV2, T28AlignedPointPositionReceiptV2,
+        T28AlignedProviderAttemptV2, T28TypedPointPositionReceiptV1, T28TypedPointSubjectV1,
+    };
+    use crate::t28_layout::{TypedLayoutObjectIdentityV1, TypedLayoutObjectRoleV1};
 
     #[test]
     fn nearest_rank_uses_frozen_tail_semantics() {
@@ -2133,5 +2153,132 @@ mod tests {
         assert_eq!(nearest_rank(&values, 50, 100).expect("p50"), 500);
         assert_eq!(nearest_rank(&values, 99, 100).expect("p99"), 990);
         assert_eq!(nearest_rank(&values, 999, 1_000).expect("p999"), 999);
+    }
+
+    #[test]
+    fn exact_fixture_match_selects_the_addressed_object_among_same_role_descriptors() {
+        let objects = [
+            object("layout/row/data/sha256/first", "101"),
+            object("layout/row/data/sha256/second", "202"),
+        ];
+        let selected = find_exact_fixture_object(
+            &objects,
+            "runs/source",
+            TypedLayoutObjectRoleV1::Data,
+            "runs/source/layout/row/data/sha256/second",
+        )
+        .expect("second data object");
+
+        assert_eq!(selected.generation, "202");
+    }
+
+    #[test]
+    fn persisted_replay_accepts_the_addressed_object_among_same_role_descriptors() {
+        let mut base = T28TypedPointPositionReceiptV1 {
+            schema_version: 1,
+            execution_plan_sha256: "a".repeat(64),
+            fixture_id: "b".repeat(64),
+            root_sha256: "c".repeat(64),
+            subject: T28TypedPointSubjectV1::C0IndexedRow,
+            trace_seed: 5_701,
+            measured_operations: 1,
+            concurrent_tasks: 8,
+            warmup_canary_reads: 128,
+            resident_metadata_bytes: 1,
+            measured_provider_attempts: 1,
+            measured_response_bytes: 10,
+            maximum_point_bytes_upper_bound: 10,
+            maximum_attempts_per_point: 1,
+            full_object_requests: 0,
+            list_requests: 0,
+            put_requests: 0,
+            delete_requests: 0,
+            missing_expected_generation_requests: 0,
+            returned_generation_mismatches: 0,
+            provider_errors: 0,
+            correctness_anomalies: 0,
+            point_pairs: 0,
+            overlapping_point_pairs: 0,
+            latency_nanos: vec![100],
+            p50_latency_nanos: 100,
+            p95_latency_nanos: 100,
+            p99_latency_nanos: 100,
+            p999_latency_nanos: 100,
+            provider_latency_nanos: vec![80],
+            provider_p50_latency_nanos: 80,
+            provider_p95_latency_nanos: 80,
+            provider_p99_latency_nanos: 80,
+            provider_p999_latency_nanos: 80,
+            wall_elapsed_nanos: 100,
+            process_id: 1,
+            measured_started_unix_nanos: 1,
+            measured_finished_unix_nanos: 2,
+            receipt_sha256: String::new(),
+        };
+        base.receipt_sha256 = base.calculated_sha256().expect("base digest");
+        let key = "runs/source/layout/row/data/sha256/second";
+        let sample = T28AlignedPointOperationV2 {
+            ordinal: 0,
+            end_to_end_nanos: 100,
+            provider_pair_max_nanos: 80,
+            local_residual_nanos: 20,
+            pair_start_skew_nanos: 0,
+            pair_completion_nanos: 80,
+            provider_attempts: 1,
+            provider_pair_overlapped: false,
+            attempts: vec![T28AlignedProviderAttemptV2 {
+                api: "get".to_owned(),
+                object_role: T28AlignedObjectRoleV2::IndexedRow,
+                object_key: key.to_owned(),
+                requested_range: 0..10,
+                returned_range: 0..10,
+                expected_generation: "202".to_owned(),
+                returned_generation: "202".to_owned(),
+                response_payload_bytes: 10,
+                started_monotonic_nanos: 10,
+                elapsed_nanos: 80,
+                result: "ok".to_owned(),
+            }],
+        };
+        let receipt =
+            T28AlignedPointPositionReceiptV2::seal(base, vec![sample]).expect("correlated receipt");
+        let control_objects = vec![
+            object("layout/row/data/sha256/first", "101"),
+            object("layout/row/data/sha256/second", "202"),
+        ];
+        let candidate_objects = vec![object("layout/candidate/data", "303")];
+        let mut media = T28AlignedMediaObservationV1 {
+            fixture_id: "b".repeat(64),
+            root_sha256: "c".repeat(64),
+            canonical_history_sha256: "d".repeat(64),
+            candidate_placement_envelope_sha256: "e".repeat(64),
+            source_root_sha256: "f".repeat(64),
+            source_placement_envelope_sha256: "1".repeat(64),
+            control_prefix: "runs/source".to_owned(),
+            candidate_prefix: "runs/candidate".to_owned(),
+            control_closure_sha256: "2".repeat(64),
+            candidate_closure_sha256: "3".repeat(64),
+            control_total_media_bytes: 8_192,
+            candidate_total_media_bytes: 4_096,
+            control_objects,
+            candidate_objects,
+            source_c0_reused_by_reference: true,
+            observation_sha256: String::new(),
+        };
+        media.observation_sha256 = media.calculated_sha256().expect("media digest");
+
+        receipt
+            .validate_against_media(&media)
+            .expect("second same-role object remains valid during persisted replay");
+    }
+
+    fn object(key: &str, generation: &str) -> TypedLayoutObjectIdentityV1 {
+        TypedLayoutObjectIdentityV1 {
+            role: TypedLayoutObjectRoleV1::Data,
+            key: key.to_owned(),
+            generation: generation.to_owned(),
+            length: 4_096,
+            sha256: "a".repeat(64),
+        }
     }
 }

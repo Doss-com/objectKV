@@ -719,11 +719,17 @@ become one GitHub issue.
   throughput, 7 versus 203 scan GETs, and zero scan payload reads.
   `[CODE-COMPLETE]` The 90-position controller, persisted evidence replay,
   export-derived OTel confirmation, build provenance, failure receipt, and
-  locator-generation poison passed 155 of 155 GCP-runner tests, strict Clippy,
-  and Fable review. The C5v2 15-block admission curve, OTel confirmation,
+  locator-generation poison passed 157 of 157 GCP-runner tests. Admitted r1
+  stopped at position 2 of 90 on an evaluator defect: exact validation chose
+  the first of two valid same-role C0 data objects. The failed execution is
+  retained, the 1,024-read unminimized control passes after exact-key selection,
+  and r2 is frozen around that named correction. The C5v2 15-block admission
+  curve, OTel confirmation,
   recovery, compaction, and branch-reference gates remain `[EVALUATING]`.
   Evidence:
   `docs/artifacts/eval-receipts/rfc0049-t28-aligned-preflight-gcp-r0-2026-08-30/README.md`.
+  Failed admitted execution:
+  `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r1-failed-gcp-r0-2026-08-30/README.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
 

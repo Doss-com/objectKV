@@ -441,12 +441,15 @@ Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
 stop decision for objectKV. The immediate owned task is the RFC-0049 row-3
 C5v2 admission curve. `[CODE-COMPLETE]` Its Rust controller and full evidence
-graph passed 155 of 155 remote evaluator tests, strict changed-surface Clippy,
-and Fable's final `SHIP` review. `[VERIFIED]` Its immutable GCS preflight
+graph passed 157 of 157 remote evaluator tests. `[VERIFIED]` Its immutable GCS preflight
 measured point p99 at 0.869x C0, 0.267x point bytes, and all 256 concurrent
 frame pairs overlapping. Its exact projection-only scan measured 31.692x C0
 rows/s, 7 versus 203 GETs, and 0.130x bytes. C5v1 remains a retained rejection.
-C5v2 is still `[EVALUATING]` until the frozen 15-block curve, OTel confirmation,
+Admission r1 stopped at its second of 90 positions because the evaluator
+mistook the first of two valid C0 data descriptors for the only valid object.
+The failure is preserved and produced no performance verdict. Admission r2
+names the exact-key descriptor correction and retains r1 by archive digest.
+C5v2 is still `[EVALUATING]` until the r2 15-block curve, OTel confirmation,
 complete-closure recovery, compaction amplification, and branch-reference
 gates pass. Rows 1 and 2 remain explicit deferred performance debt; their
 receipts are not combined with row 3.

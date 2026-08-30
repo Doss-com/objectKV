@@ -82,6 +82,24 @@ preflight passes its 2.50x point and 1.25x scan guards. Admission remains
 Evidence:
 `docs/artifacts/eval-receipts/rfc0049-t28-aligned-preflight-gcp-r0-2026-08-30/README.md`.
 
+Admission r1 started against the immutable GCS fixture and stopped at position
+2 of 90. The new fixture-exact correlation code selected the first descriptor
+with role `data`, but C0 correctly contains two immutable data objects. A read
+against the second object was rejected before aggregation. This is an
+evaluator failure, not a kernel or curve result. The sealed failed run is
+retained under SHA-256
+`90d2b6c29047edbe3d6b32dff071c69a8d7e1ca4f91ddb3e86fb0c71da49215d`.
+
+Admission r2 changes only descriptor selection: it finds the exact observed
+object key among all descriptors with the expected role, then checks the
+generation, returned range, length, and response bytes against that object.
+Both live correlation and persisted replay use the same selection function.
+The original 1,024-read C0 position now passes with reads distributed across
+both data objects, 1,024 bounded generation-pinned GETs, and zero correctness
+anomalies. The full remote evaluator library suite passes 157 of 157 tests
+before the two replay-path review regressions were added; both new focused
+regressions also pass.
+
 ## Admission controller
 
 `[CODE-COMPLETE]` The Rust admission controller now owns the complete 60-point

@@ -1,0 +1,49 @@
+schema_version = 1
+plan_id = "t28-aligned-columnar-v2-admission-r2"
+status = "frozen_before_execution"
+one_execution = true
+physical_plan = "t28-aligned-columnar-v2.toml"
+physical_plan_sha256 = "5b6f2ee2ceaeabae78ff689f33c42fc2bc2022070970e6bb66a1ea410be17d61"
+position_execution_plan_sha256 = "2e04d69775f67cb7561b59374d27bf2082909ca2df23a72f40e209728131c797"
+reader_iam_receipt_sha256 = "f383977a0f13ddf791ebc6ac97381ffc903268f45416689fe7eb23db22f2c1e9"
+candidate_parent_commit = "dfc29f5d5058af936040f01455e526d42016bc85"
+named_code_change = "fixture-exact-same-role-object-selection"
+prior_diagnostic_archive_sha256 = "90d2b6c29047edbe3d6b32dff071c69a8d7e1ca4f91ddb3e86fb0c71da49215d"
+
+[receipt_contract]
+point_position_schema_version = 2
+scan_position_schema_version = 1
+performance_run_schema_version = 1
+require_controller_spawn_identity = true
+require_logical_point_provider_correlation = true
+require_provider_pair_max = true
+require_local_residual = true
+require_pair_start_skew = true
+require_pair_completion = true
+require_fresh_process_per_position = true
+
+[execution]
+machine_receipt_required = true
+build_receipt_required = true
+runtime_cargo_lock_required = true
+object_viewer_only = true
+host_global_lock_required = true
+otel_logs_required = true
+otel_metrics_required = true
+otel_traces_required = true
+collector_confirmation_required = true
+
+[scope]
+point_curve = true
+projected_scan_curve = true
+stored_media_ratio = true
+resident_metadata_ratio = true
+complete_child_closure_recovery = false
+compaction_write_amplification = false
+branch_reference_reuse = false
+
+[stopping_rule]
+execute_once = true
+publish_on_pass_or_fail = true
+rerun_requires_new_plan = true
+retain_prior_diagnostic = true
