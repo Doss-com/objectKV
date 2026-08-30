@@ -131,7 +131,9 @@ pub async fn publish_t28_typed_layout(
         )
         .await?,
     );
-    c0_objects.sort();
+    c0_objects.sort_by(|left, right| {
+        (left.key.as_str(), left.role).cmp(&(right.key.as_str(), right.role))
+    });
     let c0 = TypedLayoutChildV1::seal(
         TypedLayoutSubjectV1::C0IndexedRow,
         placement.bucket.clone(),
@@ -152,7 +154,9 @@ pub async fn publish_t28_typed_layout(
     for (key, role) in c5_media {
         c5_objects.push(capture_identity(scoped.as_ref(), &key, role).await?);
     }
-    c5_objects.sort();
+    c5_objects.sort_by(|left, right| {
+        (left.key.as_str(), left.role).cmp(&(right.key.as_str(), right.role))
+    });
     let c5 = TypedLayoutChildV1::seal(
         TypedLayoutSubjectV1::C5ColumnarMain,
         placement.bucket.clone(),
