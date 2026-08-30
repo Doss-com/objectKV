@@ -2,6 +2,7 @@
 
 use okv_object::{content_sha256, RevisionToken};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeSet;
 
 const FIXTURE_SCHEMA_VERSION: u32 = 1;
@@ -9,6 +10,151 @@ const FIXTURE_ID_MAGIC: &[u8] = b"OKVTLFI1";
 const CHILD_MAGIC: &[u8] = b"OKVTLCH1";
 const ROOT_MAGIC: &[u8] = b"OKVTLR1";
 const PLACEMENT_MAGIC: &[u8] = b"OKVTLPL1";
+
+/// Frozen SHA-256 of the RFC-0048 abstract workload plan.
+pub const T28_LAYOUT_WORKLOAD_PLAN_SHA256: &str =
+    "fa337ae95089b7c9e5771575568480769267468c271778e6781e18b99de337e1";
+
+/// Summary of the independently generated typed MVCC fixture.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28LayoutOracleFixtureV1 {
+    pub seed: u64,
+    pub key_count: u64,
+    pub record_count: u64,
+    pub live_row_count: u64,
+    pub covered_through_version: u64,
+    pub canonical_history_sha256: String,
+    pub ordered_projection_sha256: String,
+    pub aggregate: T28LayoutOracleAggregateV1,
+}
+
+/// Aggregate returned by the frozen projected-scan query.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28LayoutOracleAggregateV1 {
+    pub row_count: u64,
+    pub quantity_sum: String,
+}
+
+/// One field in the frozen typed-row schema.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28LayoutOracleColumnV1 {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub data_type: String,
+    pub nullable: bool,
+}
+
+/// Logical schema independently bound by the oracle artifact.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28LayoutOracleSchemaV1 {
+    pub id: String,
+    pub columns: Vec<T28LayoutOracleColumnV1>,
+}
+
+/// One deterministic point-operation and expected-outcome trace.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28LayoutOracleTraceV1 {
+    pub seed: u64,
+    pub operation_sequence_sha256: String,
+    pub expected_outcomes_sha256: String,
+}
+
+/// Checked-in output of the standalone RFC-0048 reference generator.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28LayoutOracleV1 {
+    pub schema_version: u32,
+    pub generator: String,
+    pub fixture: T28LayoutOracleFixtureV1,
+    pub schema: T28LayoutOracleSchemaV1,
+    pub schema_sha256: String,
+    pub traces: Vec<T28LayoutOracleTraceV1>,
+    pub workload_plan_sha256: String,
+}
+
+impl T28LayoutOracleV1 {
+    /// Validate the exact frozen oracle shape and internal schema digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any fixture, schema, aggregate, trace, or digest
+    /// differs from the pre-implementation artifact reviewed in RFC-0048.
+    pub fn validate(&self) -> Result<(), String> {
+        let expected_columns = [
+            ("key", "u64", false),
+            ("tenant", "u32", false),
+            ("category", "u16", false),
+            ("quantity", "i64", false),
+            ("opaque_payload", "bytes[480]", false),
+        ];
+        if self.schema_version != 1
+            || self.generator != "evals/oracles/t28-layout-geometry-v1.mjs"
+            || self.fixture.seed != 5_699
+            || self.fixture.key_count != 16_384
+            || self.fixture.record_count != 25_014
+            || self.fixture.live_row_count != 15_742
+            || self.fixture.aggregate.row_count != self.fixture.live_row_count
+            || self.fixture.covered_through_version != 5
+            || self.fixture.aggregate.quantity_sum != "67524278"
+            || self.fixture.canonical_history_sha256
+                != "d4be64434f6b69990a2787876f514c6036727b41dcf1c5e120f91b6ce968ecd4"
+            || self.fixture.ordered_projection_sha256
+                != "7fb3fbb637ac93942620d287899dcebfec54e0f50ee9eeb9414ebff022cab39e"
+            || self.schema.id != "objectkv.t28.typed-row.v1"
+            || self.schema.columns.len() != expected_columns.len()
+            || self
+                .schema
+                .columns
+                .iter()
+                .zip(expected_columns)
+                .any(|(observed, expected)| {
+                    (
+                        observed.name.as_str(),
+                        observed.data_type.as_str(),
+                        observed.nullable,
+                    ) != expected
+                })
+            || self.schema_sha256
+                != "967d37734d36729543c0ae50303eb6ff530ddddb367fd143c335faedf6c8eb6d"
+            || self.schema_sha256 != calculated_json_sha256(&self.schema)?
+            || self.workload_plan_sha256 != T28_LAYOUT_WORKLOAD_PLAN_SHA256
+            || self.traces.len() != 3
+        {
+            return Err("invalid RFC-0048 independent oracle".to_owned());
+        }
+        let expected_traces = [
+            (
+                5_701,
+                "30a2c0d5b78fabf1a5446186e9bcf2ba03252d48b9f860e7c56cc0cfcebf6f35",
+                "f15dff9e4ec92a23dbbb1235ccf92b8d5011e7ca0dba4188edd1e1b40a548329",
+            ),
+            (
+                5_702,
+                "0ec26dea2ae888506ad32a0aa3104844d4fdd9012a4e108f4459bc3944128653",
+                "798ed4b417a5ac9b28f1ac202defa395313bb44eaae335ce88e113b54ecc59d6",
+            ),
+            (
+                5_703,
+                "8017cf17a9ac519c976d25916e218fc815c84594ad7afab0bafddf1789d7ccbd",
+                "b133425752749df93f2fb7c04f8fab266c59172adcf8d0c0b62bf01a222e3178",
+            ),
+        ];
+        for (trace, expected) in self.traces.iter().zip(expected_traces) {
+            if trace.seed != expected.0
+                || trace.operation_sequence_sha256 != expected.1
+                || trace.expected_outcomes_sha256 != expected.2
+            {
+                return Err("invalid RFC-0048 oracle trace".to_owned());
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Physical representation authenticated by one typed-layout root.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -546,6 +692,26 @@ pub fn decode_typed_layout_placement(
     Ok(locator)
 }
 
+/// Decode one independently generated RFC-0048 oracle artifact.
+///
+/// # Errors
+///
+/// Returns an error when the serialized bytes differ from the expected digest,
+/// contain unknown fields, or violate the frozen fixture, schema, or trace
+/// contract.
+pub fn decode_t28_layout_oracle(
+    bytes: &[u8],
+    expected_sha256: &str,
+) -> Result<T28LayoutOracleV1, String> {
+    if !valid_sha256(expected_sha256) || content_sha256(bytes) != expected_sha256 {
+        return Err("RFC-0048 oracle artifact identity mismatch".to_owned());
+    }
+    let oracle: T28LayoutOracleV1 =
+        serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+    oracle.validate()?;
+    Ok(oracle)
+}
+
 fn required_roles(subject: TypedLayoutSubjectV1) -> BTreeSet<TypedLayoutObjectRoleV1> {
     match subject {
         TypedLayoutSubjectV1::C0IndexedRow => [
@@ -679,6 +845,42 @@ fn push_string(bytes: &mut Vec<u8>, value: &str) {
     bytes.extend_from_slice(value.as_bytes());
 }
 
+fn calculated_json_sha256<T: Serialize>(value: &T) -> Result<String, String> {
+    let value = serde_json::to_value(value).map_err(|error| error.to_string())?;
+    Ok(content_sha256(canonical_json(&value)?.as_bytes()))
+}
+
+fn canonical_json(value: &Value) -> Result<String, String> {
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+            serde_json::to_string(value).map_err(|error| error.to_string())
+        }
+        Value::Array(values) => Ok(format!(
+            "[{}]",
+            values
+                .iter()
+                .map(canonical_json)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(",")
+        )),
+        Value::Object(values) => {
+            let mut keys = values.keys().collect::<Vec<_>>();
+            keys.sort_unstable();
+            let fields = keys
+                .into_iter()
+                .map(|key| {
+                    Ok(format!(
+                        "{}:{}",
+                        serde_json::to_string(key).map_err(|error| error.to_string())?,
+                        canonical_json(&values[key])?
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(format!("{{{}}}", fields.join(",")))
+        }
+    }
+}
+
 fn valid_sha256(value: &str) -> bool {
     value.len() == 64
         && value
@@ -736,9 +938,10 @@ fn valid_schema_id(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_typed_layout_fixture, decode_typed_layout_placement, TypedLayoutCapabilityV1,
-        TypedLayoutChildV1, TypedLayoutFixtureV1, TypedLayoutObjectIdentityV1,
-        TypedLayoutObjectRoleV1, TypedLayoutPlacementLocatorV1, TypedLayoutSubjectV1,
+        decode_t28_layout_oracle, decode_typed_layout_fixture, decode_typed_layout_placement,
+        TypedLayoutCapabilityV1, TypedLayoutChildV1, TypedLayoutFixtureV1,
+        TypedLayoutObjectIdentityV1, TypedLayoutObjectRoleV1, TypedLayoutPlacementLocatorV1,
+        TypedLayoutSubjectV1,
     };
     use okv_object::content_sha256;
 
@@ -929,5 +1132,26 @@ mod tests {
         let validator = jsonschema::validator_for(&schema).expect("fixture schema");
         let value: serde_json::Value = serde_json::from_slice(bytes).expect("fixture JSON");
         validator.validate(&value).expect("schema-valid fixture");
+    }
+
+    #[test]
+    fn independent_oracle_digest_schema_and_traces_are_frozen() {
+        let bytes = include_bytes!("../../../evals/oracles/t28-layout-geometry-v1-oracle.json");
+        let oracle = decode_t28_layout_oracle(
+            bytes,
+            "b09eeeb482509b24ccb5e7f0c4a4d905983a612b0dbac2253519d9d82a98df86",
+        )
+        .expect("decode independent oracle");
+        assert_eq!(
+            oracle.fixture.canonical_history_sha256,
+            "d4be64434f6b69990a2787876f514c6036727b41dcf1c5e120f91b6ce968ecd4"
+        );
+        assert_eq!(oracle.fixture.live_row_count, 15_742);
+
+        let mut poisoned = serde_json::to_value(&oracle).expect("oracle value");
+        poisoned["traces"][0]["expected_outcomes_sha256"] =
+            serde_json::Value::String("00".repeat(32));
+        let bytes = serde_json::to_vec(&poisoned).expect("poisoned oracle");
+        assert!(decode_t28_layout_oracle(&bytes, &content_sha256(&bytes)).is_err());
     }
 }
