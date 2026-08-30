@@ -28,6 +28,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tempfile::TempDir;
 
+mod columnar_aligned;
 mod columnar_overlay;
 mod t28_typed;
 
