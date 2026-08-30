@@ -916,11 +916,25 @@ independent-media, GCS-publication, append-latency, throughput, transaction
 commit, or OpenRaft-replacement claim. L2 same-zone independent-machine
 evaluation is the next staged txLog rung after the active read-path rows.
 
-`[CODE-COMPLETE]` The L2 prerequisite now exposes a bounded node-level append
-batch with one shared sync and a client-only three-machine preflight over
-persistent connections. The preflight reports exact node histories, batch
-acknowledgement percentiles, throughput, bytes, and topology identities. It is
-not a replacement for the frozen open-loop L2 curve.
+`[VERIFIED]` The L2a prerequisite now exposes a bounded node-level append batch
+with one shared sync and a client-only three-machine preflight over persistent
+connections. Three corrected executions on three independent same-zone GCE
+local-NVMe nodes acknowledged 196,608/196,608 128-byte records, reproduced
+exact state on all nine node checks, and reported zero anomalies and zero object
+operations. The combined 768-batch p50/p95/p99/p99.9 was
+4.357/4.535/4.716/5.343 ms at 256 records per sync. Median throughput was
+49,028 records/s. The current `OKVT` frame consumed approximately 2.0x logical
+payload bytes per node before replica multiplication.
+
+The first physical run remains a rejected result. Its 47.336 ms p99 and 5,321
+records/s came from server-side Nagle coalescing across separate response-length
+and response-body writes. Enabling `TCP_NODELAY` removed the delayed-ACK plateau
+without changing transaction, quorum, payload, machine, or media geometry. The
+result supports building the frozen open-loop L2 queue and matched remote-block
+control. It does not admit row 4 or replace the transaction plane.
+
+Receipt:
+`docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
 
 `[VERIFIED]` RFC-0050 R2 checks the integrated 3-node model through 2,484,568
 generated states and the 2-transaction concurrency scope through 4,496,463

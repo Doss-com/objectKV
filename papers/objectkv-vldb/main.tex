@@ -51,11 +51,13 @@ p99 while improving a projected scan by 31.692x in a scoped preflight. Complete
 GCS recovery reconstructed 25,014 MVCC records with five named GETs and rejected
 a one-byte corruption. A TLA+ model explored 264,076 distinct states across two
 finite scopes; six weakened-contract controls each reached its named invariant
-violation. These results do not establish a complete cell. Independent-machine
-quorum latency, multi-range transactions, RAM admission, PostgreSQL, Redis, and
-scaled HTAP remain open gates. The contribution is therefore a precise system
-shape, evidence boundary, and evaluation program for deciding each layer with
-matched controls.
+violation. A three-machine same-zone NVMe \txlog{} preflight reached 49,028
+128-byte records/s median and 4.716 ms combined batch p99 with exact final state.
+These results do not establish a complete cell. The open-loop matched commit
+curve, multi-range transactions, RAM admission, PostgreSQL, Redis, and scaled
+HTAP remain open gates. The contribution is therefore a precise system shape,
+evidence boundary, and evaluation program for deciding each layer with matched
+controls.
 \end{abstract}
 
 \maketitle
@@ -333,8 +335,22 @@ node quorum. This trades explicit batching dwell for fsync amortization; dwell
 time remains part of the record's acknowledgement latency.
 
 The current TLA+ model captures this order. The complete multi-range protocol,
-partitioned conflict representation, and independent-media performance remain
+partitioned conflict representation, and matched open-loop commit curve remain
 \evaluating{} or \proposed{}.
+
+Figure~\ref{fig:txlog} makes the physical boundary explicit. L2a verifies the
+closed-loop batch, persistent connections, independent local-NVMe roots, quorum
+acknowledgement, and exact final histories. It does not include the commit
+proxy's batch-formation dwell or a transaction resolver.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/txlog-path.pdf}
+  \caption{The staged \txlog{} path and its current evidence boundary. One
+  validated batch amortizes one sync on each node. The second durable response
+  completes the batch; object publication remains asynchronous.}
+  \label{fig:txlog}
+\end{figure*}
 
 \subsection{Latest point read}
 
@@ -497,8 +513,9 @@ refinement remain \evaluating{}.
 Figure~\ref{fig:ladder} separates mechanism evidence from operational evidence.
 The project has used real files, MinIO, TCP processes, process kill, GCP local
 NVMe, regional GCS, restricted service accounts, and independent OTel exports.
-It has not yet run the native commit path across three independent machines and
-media.
+It has run the staged \txlog{} preflight across three independent same-zone
+machines and local-NVMe devices. It has not run the admitted open-loop matched
+commit curve or a complete native transaction through those machines.
 
 \begin{figure*}[t]
   \centering
@@ -523,9 +540,9 @@ media.
     RocksDB RangeEngine & \verified{} scoped & matched single-range reads at 1,
     8, and 32 clients on GCP local NVMe & writes, eviction curve, range movement,
     and full cell RPC \\
-    Native quorum \txlog{} & \evaluating & three real TCP processes on one host,
-    restart, torn-tail repair, epoch fencing, current-model staged trace & three
-    independent machines, matched durable control, integrated transaction \\
+    Native quorum \txlog{} & \evaluating & three independent same-zone NVMe
+    nodes, 4.716 ms batch p99, exact final state, fencing and repair mechanics &
+    open-loop queue, matched durable control, failure and integrated transaction \\
     Object publication and recovery & \verified{} scoped & generation-pinned GCS
     root, exact closure reconstruction, corruption rejection, zero-copy branch &
     sustained debt, brownout, publication latency \\
@@ -599,6 +616,44 @@ used zero LIST requests and reopened the compacted four-object closure to
 reproduce the exact 25,014-record history. This verifies media geometry, not
 publication latency or independent telemetry.
 
+\subsection{Independent-machine staged log}
+
+L2a ran one closed-loop client against three independent
+\texttt{n2-standard-8} GCE machines, each with a distinct 375 GB local-NVMe
+device and ext4 root. Every 256-record batch carried 128-byte payloads over one
+persistent connection per node. Acknowledgement followed the second durable
+node response; final validation read the complete history from all three nodes.
+
+\begin{table*}[t]
+  \centering
+  \small
+  \caption{Three-machine staged \txlog{} preflight. The rejected run exposed a
+  response-framing defect; corrected runs retained the workload and durability
+  path.}
+  \label{tab:txlogpreflight}
+  \begin{tabularx}{\textwidth}{@{}l l r r r r r X@{}}
+    \toprule
+    Run & Source & Records/s & p50 & p95 & p99 & Exact nodes & Result \\
+    \midrule
+    rejected r0 & \texttt{bcafe7b} & 5,321 & 47.219 ms & 47.271 ms & 47.336 ms & 3/3 & server Nagle plus delayed ACK \\
+    corrected r1 & \texttt{d3db192} & 48,078 & 4.343 ms & 4.548 ms & 4.730 ms & 3/3 & zero anomalies \\
+    corrected r2 & \texttt{d3db192} & 49,159 & 4.377 ms & 4.535 ms & 4.682 ms & 3/3 & zero anomalies \\
+    corrected r3 & \texttt{d3db192} & 49,028 & 4.348 ms & 4.498 ms & 4.570 ms & 3/3 & zero anomalies \\
+    \bottomrule
+  \end{tabularx}
+\end{table*}
+
+Across all 768 corrected batches, p50, p95, p99, p99.9, and maximum were
+4.357, 4.535, 4.716, 5.343, and 5.591 ms. The three runs acknowledged all
+196,608 records and passed all nine exact final-node checks with zero object
+operations. Each node stored 16,777,300 physical bytes for 8,388,608 logical
+payload bytes, an approximately 2.0x frame amplification before replication.
+
+The result verifies independent-machine media mechanics and sufficient
+throughput headroom to build L2. It does not admit row 4: one closed-loop stream
+does not measure batch dwell, queue saturation, concurrent writers, failure,
+cross-zone behavior, transaction resolution, or a matched durable control.
+
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{figures/performance-balance.pdf}
@@ -631,9 +686,9 @@ more important blocker than the next row.
     3 & Point and scan object geometry & \evaluating & C5v2 preflight, recovery,
     1.040058x compaction bytes, and zero-copy branch verified & independent OTel
     and sealed curve verdict \\
-    4 & Native three-node commit & \evaluating & one-host TCP log mechanics,
-    finite TLA+ safety, current-model staged trace & three independent NVMe
-    machines versus matched control \\
+    4 & Native three-node commit & \evaluating & independent-NVMe L2a at 49,028
+    records/s median and 4.716 ms batch p99; finite TLA+ and staged trace &
+    open-loop queue versus matched durable control, then transaction integration \\
     5 & Brownout and host loss & \evaluating & exact base plus suffix recovery &
     sustained write with object-fault schedule and hard debt ceiling \\
     6 & Branch and lazy reopen & \evaluating & exact local branch and empty worker &
@@ -730,8 +785,8 @@ amplification.
     Risk & Failure signal & Earliest decisive eval & Consequence \\
     \midrule
     Quorum tax & native commit p99 exceeds 1.25x matched durable control after
-    one optimization cycle & three independent NVMe machines, exact same
-    durability and client path & retain FoundationDB or TiKV transaction plane \\
+    one optimization cycle & open-loop three-machine curve with exact same
+    durability, queue, and client path & retain FoundationDB or TiKV transaction plane \\
     Double logging & engine WAL, \txlog{}, and objectification dominate bytes or
     CPU & per-layer bytes and CPU during mixed writes & native hybrid log or
     remove redundant durability layer \\
@@ -757,8 +812,8 @@ The immediate sequence is narrow:
 
 \begin{enumerate}
   \item confirm C5v2 recovery and media accounting in independent OTel;
-  \item run the native \txlog{} on three independent NVMe machines against one
-  matched remote durable control;
+  \item run the native \txlog{} open-loop queue on the verified three-machine
+  topology against one matched remote durable control;
   \item integrate one transaction path only if that curve clears;
   \item then begin the first multi-range strict-serializability history.
 \end{enumerate}
@@ -798,9 +853,11 @@ own portable reconstruction, history, branching, and analytical layout.
 
 Current evidence supports the single-range RocksDB read boundary, scoped C5v2
 GCS geometry and recovery, the finite cell safety model, and current-model
-staged-prefix trace conformance. It does not yet support the complete
-distributed claim. The next useful proof is physical: a
-three-machine stable-quorum curve with exact durability and failure controls.
+staged-prefix trace conformance. It also supports the scoped three-machine
+closed-loop \txlog{} mechanism, including exact histories and the stable-media
+batch distribution. It does not yet support the complete distributed claim.
+The next useful proof is a matched open-loop quorum curve with queueing,
+batch-dwell, durability, and failure controls.
 If that path clears, multi-range transactions become the next kernel milestone.
 PostgreSQL, Redis-like objects, logs, search, virtual filesystems, and DataFusion
 then become typed consumers of one measured fabric rather than separate storage

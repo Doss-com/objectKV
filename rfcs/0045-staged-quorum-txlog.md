@@ -20,10 +20,19 @@ byte-identical `OKVL` segment previews. Each of three process poisons is
 rejected. The clean-source receipt is
 `docs/artifacts/eval-receipts/staged-txlog-l1-gcp-r0-2026-08-30/README.md`.
 
-`[PROPOSED]` L2 through L6 remain open. L1 uses one machine and local files, so
-it does not verify independent-media quorum durability, GCS segment
-publication, latency, throughput, transaction commit, or an OpenRaft
-replacement. The RFC remains proposed.
+`[VERIFIED]` L2a runs the batched log path on three independent same-zone GCE
+machines and local NVMe devices from a fourth client machine. Across three
+corrected runs, it acknowledged 196,608 of 196,608 records, reproduced exact
+final state on all nine node checks, issued zero object operations, and recorded
+zero anomalies. The combined 768-batch distribution was 4.357 ms p50, 4.535 ms
+p95, 4.716 ms p99, and 5.343 ms p99.9. Median throughput was 49,028 128-byte
+records/s at 256 records per sync. Receipt:
+`docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
+
+`[EVALUATING]` The admitted L2 open-loop comparison and L3 through L6 remain
+open. L2a has no matched durable control, queue-depth sweep, failure injection,
+cross-zone envelope, transaction integration, or independent OTel. The RFC
+remains proposed.
 
 ## Decision
 
@@ -375,22 +384,33 @@ Use open-loop Poisson arrivals, 64 client tasks, 256 streams, three record
 sizes, five repeats, and a measured offered-load sweep. Capture the idle
 network RTT and local-NVMe persistence distribution as the hardware floor.
 
-`[CODE-COMPLETE]` The L2 prerequisite path adds bounded node-level append
-batches and persistent client connections. A node validates the complete batch
-before physical mutation, writes every new `OKVT` frame together, performs one
-shared journal sync, and publishes the in-memory records only after that sync
-succeeds. Exact retries may share a batch with new consecutive records without
-growing the journal. Every record still becomes acknowledged only after the
-same batch has synchronized on a write quorum.
+`[VERIFIED]` The L2a prerequisite path adds bounded node-level append batches
+and persistent client connections. A node validates the complete batch before
+physical mutation, writes every new `OKVT` frame together, performs one shared
+journal sync, and publishes the in-memory records only after that sync succeeds.
+Exact retries may share a batch with new consecutive records without growing
+the journal. Every record still becomes acknowledged only after the same batch
+has synchronized on a write quorum.
 
-The first real-machine execution is a bounded preflight, not the admitted L2
-curve. It uses one client, three exact machine identities, 128-byte records,
-256-record batches, persistent connections, and final exact-history reads from
-all nodes. It measures whether microbatching creates enough throughput headroom
-to justify implementing the open-loop writer queue. Batch dwell time, once
-added, must remain inside each record's end-to-end acknowledgement latency.
-Neither the preflight nor a batch throughput number can satisfy the 1 ms
-per-record p99 gate by itself.
+The bounded real-machine preflight used one client, three exact machine and
+local-NVMe identities, 128-byte records, 256-record batches, persistent
+connections, and final exact-history reads from all nodes. Three corrected
+runs reached 48,078 to 49,159 records/s with zero anomalies. Across 768 batches,
+acknowledgement was 4.357 ms p50, 4.535 ms p95, 4.716 ms p99, 5.343 ms p99.9,
+and 5.591 ms maximum. Every node retained 16,777,300 physical bytes for
+8,388,608 logical payload bytes, exposing an approximately 2.0x per-node frame
+amplification before replica multiplication.
+
+The rejected first run is also retained. It reached only 5,321 records/s and
+47.336 ms p99 because the server wrote the response length and body separately
+with Nagle coalescing enabled. Adding server-side `TCP_NODELAY` removed that
+delayed-ACK plateau without changing the workload or durability path.
+
+L2a verifies physical headroom and exact final state, not the admitted L2 curve.
+Batch formation dwell must remain inside each record's end-to-end
+acknowledgement latency. Neither this closed-loop batch distribution nor its
+throughput number can satisfy the 1 ms per-record p99 gate by itself. Receipt:
+`docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
 
 Primary metric: p99 `log.append.ack_duration` at the largest offered load that
 keeps success at 100 percent and queue refusal below one percent.

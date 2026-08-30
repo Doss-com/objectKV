@@ -1630,9 +1630,12 @@ epochs, exact retries, suffix repair, committed segment visibility,
 manifest-only reads, and bounded queues. `[VERIFIED]` L1 runs three real
 log-node processes over TCP and proves synchronized local journals, exact
 retries, restart and torn-tail recovery, stale-writer fencing, and deterministic
-segment bytes across three seeds and three process poisons. Independent media,
-object publication, transaction integration, and performance rungs remain
-`[PROPOSED]`.
+segment bytes across three seeds and three process poisons. `[VERIFIED]` L2a
+runs the batched path on three independent same-zone local-NVMe machines. Its
+three corrected runs reached 49,028 records/s median and 4.716 ms combined batch
+p99 with exact final state and zero anomalies. The admitted open-loop matched
+control, object publication, transaction integration, and later performance
+rungs remain `[EVALUATING]` or `[PROPOSED]`.
 
 ## D66. Separate generation-pinned GCS cold reads from fixture publication
 
@@ -1836,8 +1839,8 @@ trace:
 
 ## D72. Batch physical txLog appends without weakening per-record durability
 
-Status: node batch and persistent-client preflight `[CODE-COMPLETE]`;
-independent-machine curve `[EVALUATING]`, 2026-08-30.
+Status: node batch and three-machine closed-loop preflight `[VERIFIED]`;
+open-loop matched curve `[EVALUATING]`, 2026-08-30.
 
 Decision: the active writer may group consecutive ordered append requests into
 one bounded physical batch per log node. Each node validates the complete batch
@@ -1848,10 +1851,19 @@ node quorum. Exact retries do not create another frame. Batch dwell time counts
 against the record's end-to-end acknowledgement latency.
 
 The network path keeps one persistent connection from the active writer to each
-log node. The first independent-machine preflight uses one sequential batch
-stream to determine whether the media and wire shape have sufficient
-headroom. The admitted curve still requires the frozen open-loop arrival,
-queue, latency, failure, and matched-control contract.
+log node. Three corrected independent-machine preflight runs acknowledged
+196,608/196,608 records, reproduced exact final state on all nine node checks,
+and recorded zero anomalies. At 256 128-byte records per sync, combined batch
+p50/p95/p99/p99.9 was 4.357/4.535/4.716/5.343 ms and median throughput was
+49,028 records/s. The frame currently consumes approximately 2.0x logical
+payload bytes per node before replica multiplication.
+
+The rejected first run's nearly flat 47 ms distribution identified
+server-side Nagle and delayed-ACK coupling between separate response-header and
+body writes. Enabling `TCP_NODELAY` reduced p99 to the 4.6 to 4.7 ms range
+without changing the workload or durability contract. The admitted curve still
+requires the frozen open-loop arrival, queue, batch-dwell, failure, independent
+OTel, and matched-control contract.
 
 Optimizes for: amortizing NVMe synchronization and connection setup while
 preserving the logical order, exact retry, and quorum acknowledgement contract.
@@ -1859,3 +1871,6 @@ preserving the logical order, exact retry, and quorum acknowledgement contract.
 Gives up: treating each request as an immediate independent fsync. Batching
 introduces an explicit latency versus throughput choice and requires a hard
 batch-size, dwell-time, and queue bound.
+
+Evidence:
+`docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.

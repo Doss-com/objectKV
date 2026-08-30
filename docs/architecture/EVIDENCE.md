@@ -108,7 +108,7 @@ This is construction and recovery evidence, not a new throughput point.
 | Matrix row | Measurement | Why it remains `[EVALUATING]` |
 | ---: | --- | --- |
 | 3 | DataFusion range source reached 2.544M source rows/s and reduced projection requests from 1,761 to 54 | Dirty local diagnostic; no exact live-tail, complete-memory, OTel, or GCS curve |
-| 4 | One-host commit composition reached 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x one-entry control | Both quorums and object files shared one host |
+| 4 | L2a reached 49,028 128-byte records/s median and 4.716 ms combined batch p99 across three independent same-zone NVMe nodes with exact final state | Closed-loop microbatches have no matched durable control, batching dwell, failure injection, transaction resolver, or OTel |
 | 5 | Exact object-base plus txLog-suffix recovery works | Sustained debt, physical bounds, brownout, and host-loss curves are open |
 | 6 | Local branch, replay, and empty replacement worker are exact | Parent-size independence and GCS request curve are open |
 | 11 | Streaming base-plus-tail operator is exact on bounded fixtures | Tail-size, query-memory, GCS, and OLTP-interference curves are open |
@@ -248,11 +248,19 @@ Evidence:
 Trace evidence:
 `docs/artifacts/eval-receipts/cell-trace-refinement-r2-gcp-r0-2026-08-30/README.md`.
 
-`[CODE-COMPLETE]` The RFC-0045 L2 preflight path validates a bounded
-consecutive record batch before physical mutation, writes its frames under one
-journal sync, advances memory only after sync, and preserves no-growth exact
-retries. The client keeps one persistent connection to each of three named
-machines. This is an unmeasured prerequisite, not independent-media evidence.
+`[VERIFIED]` The RFC-0045 L2a preflight validates a bounded consecutive record
+batch before physical mutation, writes its frames under one journal sync,
+advances memory only after sync, and preserves no-growth exact retries. Three
+corrected independent-machine runs acknowledged 196,608/196,608 records with
+exact final state on all nine node checks and zero anomalies. Across 768 quorum
+batches, p50/p95/p99/p99.9 was 4.357/4.535/4.716/5.343 ms; median throughput
+was 49,028 records/s. The first run's 47.336 ms p99 exposed server-side
+Nagle/delayed-ACK coupling and was retained as a rejected result. Row 4 remains
+`[EVALUATING]` until the open-loop matched-control curve, batching dwell,
+failure, transaction, and independent OTel gates pass.
+
+Evidence:
+`docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
 
 ```text
 generation-pinned locator + immutable operation plan

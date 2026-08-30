@@ -20,6 +20,7 @@ template root or make `acmart.cls`, `pvldb.sty`, and
 rsvg-convert -f pdf -o figures/construction.pdf figures/construction.svg
 rsvg-convert -f pdf -o figures/cell-services.pdf figures/cell-services.svg
 rsvg-convert -f pdf -o figures/data-paths.pdf figures/data-paths.svg
+rsvg-convert -f pdf -o figures/txlog-path.pdf figures/txlog-path.svg
 rsvg-convert -f pdf -o figures/c5v2-layout.pdf figures/c5v2-layout.svg
 rsvg-convert -f pdf -o figures/performance-balance.pdf figures/performance-balance.svg
 rsvg-convert -f pdf -o figures/proof-ladder.pdf figures/proof-ladder.svg

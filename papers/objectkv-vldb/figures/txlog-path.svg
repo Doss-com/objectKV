@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="610" viewBox="0 0 1200 610" role="img" aria-labelledby="title desc">
+  <title id="title">objectKV staged transaction-log batch path</title>
+  <desc id="desc">A flowchart shows batching at the active writer, persistent connections to three independent NVMe log nodes, quorum acknowledgement, asynchronous object publication, current measurements, and the remaining open-loop evaluation boundary.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#757575"/></marker>
+    <style>
+      .lane{fill:#fafafa;stroke:#00000014;stroke-width:1}.box{fill:#fff;stroke:#00000017;stroke-width:1}.active{fill:#fff;stroke:#1a85ff;stroke-width:1.5}.future{fill:#fafafa;stroke:#bdbdbd;stroke-width:1;stroke-dasharray:7 5}.flow{fill:none;stroke:#757575;stroke-width:1.5;marker-end:url(#arrow)}.async{fill:none;stroke:#1a85ff;stroke-width:1.5;stroke-dasharray:6 4;marker-end:url(#arrow)}.brace{fill:none;stroke:#1a85ff;stroke-width:2}.title{font:600 24px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.head{font:600 15px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.text{font:400 12px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#4d4d4d}.small{font:400 11px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#6b6b6b}.metric{font:600 12px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#0061d5}.status{font:600 10px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#0061d5;letter-spacing:.4px}
+    </style>
+  </defs>
+
+  <text class="title" x="48" y="38">One physical batch amortizes three independent durable appends</text>
+
+  <rect class="lane" x="48" y="68" width="1104" height="336" rx="4"/>
+  <text class="head" x="70" y="96">Foreground L2a path</text>
+  <text class="status" x="1055" y="96">VERIFIED</text>
+
+  <rect class="future" x="70" y="132" width="166" height="76" rx="4"/>
+  <text class="text" x="90" y="157">open-loop queue</text>
+  <text class="small" x="90" y="177">batch dwell + limits</text>
+  <text class="small" x="90" y="194">next measurement</text>
+
+  <rect class="active" x="278" y="132" width="188" height="76" rx="4"/>
+  <text class="text" x="298" y="157">TxLogClient</text>
+  <text class="small" x="298" y="177">256 consecutive records</text>
+  <text class="small" x="298" y="194">one persistent TCP / node</text>
+
+  <rect class="box" x="520" y="116" width="252" height="72" rx="4"/>
+  <text class="text" x="540" y="141">LogNode 0</text>
+  <text class="small" x="540" y="161">validate all -> append frames -> fsync NVMe</text>
+  <rect class="box" x="520" y="204" width="252" height="72" rx="4"/>
+  <text class="text" x="540" y="229">LogNode 1</text>
+  <text class="small" x="540" y="249">validate all -> append frames -> fsync NVMe</text>
+  <rect class="box" x="520" y="292" width="252" height="72" rx="4"/>
+  <text class="text" x="540" y="317">LogNode 2</text>
+  <text class="small" x="540" y="337">validate all -> append frames -> fsync NVMe</text>
+
+  <path class="flow" d="M236 170H278"/>
+  <path class="flow" d="M466 170H492V152H520"/>
+  <path class="flow" d="M466 170H492V240H520"/>
+  <path class="flow" d="M466 170H492V328H520"/>
+
+  <path class="brace" d="M802 142H816V338H802"/>
+  <text class="metric" x="834" y="216">quorum = 2 durable nodes</text>
+  <text class="small" x="834" y="238">acknowledge the whole ordered batch</text>
+
+  <rect class="active" x="834" y="266" width="274" height="72" rx="4"/>
+  <text class="text" x="854" y="291">DurableAppend</text>
+  <text class="small" x="854" y="311">positions + digest + node identities</text>
+  <text class="small" x="854" y="328">no object request on foreground path</text>
+  <path class="flow" d="M816 302H834"/>
+
+  <rect class="lane" x="48" y="424" width="1104" height="138" rx="4"/>
+  <text class="head" x="70" y="452">Measured boundary and asynchronous continuation</text>
+  <text class="metric" x="70" y="482">768 batches: p50 4.357 ms  |  p95 4.535 ms  |  p99 4.716 ms  |  p99.9 5.343 ms</text>
+  <text class="small" x="70" y="505">49,028 records/s median; 196,608/196,608 acknowledged; exact final state; zero anomalies</text>
+
+  <rect class="future" x="710" y="466" width="180" height="58" rx="4"/>
+  <text class="text" x="730" y="490">SegmentPublisher</text>
+  <text class="small" x="730" y="509">complete committed prefix</text>
+  <rect class="future" x="936" y="466" width="172" height="58" rx="4"/>
+  <text class="text" x="956" y="490">GCS / S3 closure</text>
+  <text class="small" x="956" y="509">immutable cold history</text>
+  <path class="async" d="M890 495H936"/>
+  <text class="small" x="899" y="484">async</text>
+
+  <text class="small" x="70" y="544">Open: matched durable control, queue-depth sweep, per-record dwell, node loss, transaction integration, and OTel correlation.</text>
+</svg>
