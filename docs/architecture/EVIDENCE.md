@@ -201,8 +201,9 @@ Clippy; Fable returned `SHIP`. This establishes evaluator integrity, not the
 performance claim. Admitted r1 then stopped at position 2 of 90 because its
 validator treated the first of two valid C0 data descriptors as the only valid
 object. The sealed failure is retained. Exact-key selection across same-role
-descriptors passes the original 1,024-read C0 shape and the full 157-test
-remote library suite. Admission r2 remains `[EVALUATING]`.
+descriptors passes the original 1,024-read C0 shape and the full 158-test
+remote library suite. Fable returned `SHIP`. Admission r2 remains
+`[EVALUATING]`.
 
 Evidence:
 `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r1-failed-gcp-r0-2026-08-30/README.md`.

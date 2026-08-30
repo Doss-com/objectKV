@@ -719,11 +719,12 @@ become one GitHub issue.
   throughput, 7 versus 203 scan GETs, and zero scan payload reads.
   `[CODE-COMPLETE]` The 90-position controller, persisted evidence replay,
   export-derived OTel confirmation, build provenance, failure receipt, and
-  locator-generation poison passed 157 of 157 GCP-runner tests. Admitted r1
+  locator-generation poison passed 158 of 158 GCP-runner tests. Admitted r1
   stopped at position 2 of 90 on an evaluator defect: exact validation chose
   the first of two valid same-role C0 data objects. The failed execution is
   retained, the 1,024-read unminimized control passes after exact-key selection,
-  and r2 is frozen around that named correction. The C5v2 15-block admission
+  and r2 is frozen around that named correction. Fable returned `SHIP` on the
+  corrected live, replay, and admission-identity paths. The C5v2 15-block admission
   curve, OTel confirmation,
   recovery, compaction, and branch-reference gates remain `[EVALUATING]`.
   Evidence:

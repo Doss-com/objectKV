@@ -96,9 +96,9 @@ generation, returned range, length, and response bytes against that object.
 Both live correlation and persisted replay use the same selection function.
 The original 1,024-read C0 position now passes with reads distributed across
 both data objects, 1,024 bounded generation-pinned GETs, and zero correctness
-anomalies. The full remote evaluator library suite passes 157 of 157 tests
-before the two replay-path review regressions were added; both new focused
-regressions also pass.
+anomalies. The exact pushed candidate passes the full remote evaluator library
+suite, 158 of 158 tests in 98.53 seconds. Fable's second adversarial review
+returned `SHIP` after the live and persisted replay regressions passed.
 
 ## Admission controller
 

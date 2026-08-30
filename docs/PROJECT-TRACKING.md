@@ -441,7 +441,8 @@ Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
 stop decision for objectKV. The immediate owned task is the RFC-0049 row-3
 C5v2 admission curve. `[CODE-COMPLETE]` Its Rust controller and full evidence
-graph passed 157 of 157 remote evaluator tests. `[VERIFIED]` Its immutable GCS preflight
+graph passed 158 of 158 remote evaluator tests and Fable returned `SHIP`.
+`[VERIFIED]` Its immutable GCS preflight
 measured point p99 at 0.869x C0, 0.267x point bytes, and all 256 concurrent
 frame pairs overlapping. Its exact projection-only scan measured 31.692x C0
 rows/s, 7 versus 203 GETs, and 0.130x bytes. C5v1 remains a retained rejection.
