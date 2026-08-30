@@ -9,8 +9,9 @@ mod staged;
 
 pub use node_journal::{JournalCompaction, JournalError, JournalMarker, JournalState, NodeJournal};
 pub use staged::{
-    decode_staged_segment, StagedAppendOutcome, StagedEpochOutcome, StagedLogError,
-    StagedLogIdentity, StagedLogNode, StagedLogRecord, StagedLogSegment, StagedRequestIdentity,
+    decode_staged_segment, StagedAppendOutcome, StagedBatchAppendOutcome, StagedEpochOutcome,
+    StagedLogError, StagedLogIdentity, StagedLogNode, StagedLogRecord, StagedLogSegment,
+    StagedRequestIdentity,
 };
 
 use sha2::{Digest, Sha256};

@@ -11,13 +11,16 @@ use std::fmt::{self, Display};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 const JOURNAL_MAGIC: &[u8; 4] = b"OKVT";
-const JOURNAL_VERSION: u16 = 1;
+const JOURNAL_VERSION_V1: u16 = 1;
+const JOURNAL_VERSION_V2: u16 = 2;
 const JOURNAL_HEADER_BYTES: usize = 4 + 2 + 1 + 1 + 4;
 const JOURNAL_CHECKSUM_BYTES: usize = 32;
 const JOURNAL_KIND_EPOCH: u8 = 1;
 const JOURNAL_KIND_APPEND: u8 = 2;
+const JOURNAL_KIND_APPEND_BATCH: u8 = 3;
 const JOURNAL_FLAGS: u8 = 0;
 
 const SEGMENT_MAGIC: &[u8; 4] = b"OKVL";
@@ -56,6 +59,20 @@ pub struct StagedAppendOutcome {
     pub physical_bytes: u64,
     pub replayed: bool,
     pub synchronized: bool,
+}
+
+/// One measured physical batch append.
+///
+/// The record outcomes preserve exact retry behavior. `frame_bytes` is the
+/// single new journal frame written for all new records in the batch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagedBatchAppendOutcome {
+    pub records: Vec<StagedAppendOutcome>,
+    pub frame_bytes: u64,
+    pub validation_nanos: u64,
+    pub encode_nanos: u64,
+    pub write_nanos: u64,
+    pub sync_nanos: u64,
 }
 
 /// Result of installing a writer epoch on one node.
@@ -158,6 +175,11 @@ impl From<io::Error> for StagedLogError {
 struct StagedNodeState {
     writer_epoch: Option<u64>,
     records: BTreeMap<u64, StagedLogRecord>,
+}
+
+struct PlannedAppendBatch {
+    records: BTreeMap<u64, StagedLogRecord>,
+    outcomes: Vec<(u64, bool)>,
 }
 
 impl StagedNodeState {
@@ -340,18 +362,101 @@ impl StagedLogNode {
         &mut self,
         records: &[StagedLogRecord],
     ) -> Result<Vec<StagedAppendOutcome>, StagedLogError> {
+        self.append_batch_measured(records)
+            .map(|outcome| outcome.records)
+    }
+
+    /// Validate and append one batch while exposing its physical stage costs.
+    ///
+    /// New records share one version-2 journal frame, one checksum, and one
+    /// synchronization. Version-1 epoch and append frames remain recoverable.
+    ///
+    /// # Errors
+    ///
+    /// Returns a semantic, encoding, or filesystem error without advancing the
+    /// in-memory state.
+    pub fn append_batch_measured(
+        &mut self,
+        records: &[StagedLogRecord],
+    ) -> Result<StagedBatchAppendOutcome, StagedLogError> {
         if records.is_empty() {
-            return Ok(Vec::new());
+            return Ok(StagedBatchAppendOutcome {
+                records: Vec::new(),
+                frame_bytes: 0,
+                validation_nanos: 0,
+                encode_nanos: 0,
+                write_nanos: 0,
+                sync_nanos: 0,
+            });
         }
+        let validation_started = Instant::now();
+        let plan = self.validate_append_batch(records)?;
+        let validation_nanos = elapsed_nanos(validation_started);
+        let planned_records = plan.records;
+        let outcome_plan = plan.outcomes;
+
+        let encode_started = Instant::now();
+        let frame = if planned_records.is_empty() {
+            Vec::new()
+        } else {
+            encode_append_batch_frame(self.log_identity, planned_records.values())?
+        };
+        let encode_nanos = elapsed_nanos(encode_started);
+        let frame_bytes = to_u64(frame.len());
+        let mut write_nanos = 0;
+        let mut sync_nanos = 0;
+        if !frame.is_empty() {
+            let mut file = OpenOptions::new().append(true).open(&self.path)?;
+            let write_started = Instant::now();
+            file.write_all(&frame)?;
+            write_nanos = elapsed_nanos(write_started);
+            let sync_started = Instant::now();
+            file.sync_all()?;
+            sync_nanos = elapsed_nanos(sync_started);
+            self.state.records.extend(planned_records);
+            self.recovered_torn_tail = false;
+        }
+        let physical_bytes = self.physical_bytes()?;
+        let mut frame_attributed = false;
+        let records = outcome_plan
+            .into_iter()
+            .map(|(position, replayed)| {
+                let attributed_bytes = if replayed || frame_attributed {
+                    0
+                } else {
+                    frame_attributed = true;
+                    frame_bytes
+                };
+                StagedAppendOutcome {
+                    position,
+                    frame_bytes: attributed_bytes,
+                    physical_bytes,
+                    replayed,
+                    synchronized: true,
+                }
+            })
+            .collect();
+        Ok(StagedBatchAppendOutcome {
+            records,
+            frame_bytes,
+            validation_nanos,
+            encode_nanos,
+            write_nanos,
+            sync_nanos,
+        })
+    }
+
+    fn validate_append_batch(
+        &self,
+        records: &[StagedLogRecord],
+    ) -> Result<PlannedAppendBatch, StagedLogError> {
         let current = self
             .state
             .writer_epoch
             .ok_or(StagedLogError::WriterNotOpen)?;
         let mut expected = self.state.next_position();
         let mut planned_records = BTreeMap::<u64, StagedLogRecord>::new();
-        let mut planned_frames = Vec::<Vec<u8>>::new();
-        let mut outcome_plan = Vec::<(u64, u64, bool)>::with_capacity(records.len());
-
+        let mut outcomes = Vec::<(u64, bool)>::with_capacity(records.len());
         for record in records {
             if record.position == 0 {
                 return Err(StagedLogError::InvalidPosition(record.position));
@@ -374,7 +479,6 @@ impl StagedLogNode {
                     }
                 });
             }
-
             if let Some(existing) = self
                 .state
                 .records
@@ -385,45 +489,25 @@ impl StagedLogNode {
                     && existing.payload == record.payload
                     && existing.writer_epoch == record.writer_epoch
                 {
-                    outcome_plan.push((record.position, 0, true));
+                    outcomes.push((record.position, true));
                     continue;
                 }
                 return Err(StagedLogError::ConflictingRetry(record.position));
             }
-
             if record.position != expected {
                 return Err(StagedLogError::NonConsecutive {
                     expected,
                     actual: record.position,
                 });
             }
-            let frame = encode_append_frame(self.log_identity, record)?;
-            outcome_plan.push((record.position, to_u64(frame.len()), false));
-            planned_frames.push(frame);
+            outcomes.push((record.position, false));
             planned_records.insert(record.position, record.clone());
             expected = expected.saturating_add(1);
         }
-
-        if !planned_frames.is_empty() {
-            let mut file = OpenOptions::new().append(true).open(&self.path)?;
-            for frame in &planned_frames {
-                file.write_all(frame)?;
-            }
-            file.sync_all()?;
-            self.state.records.extend(planned_records);
-            self.recovered_torn_tail = false;
-        }
-        let physical_bytes = self.physical_bytes()?;
-        Ok(outcome_plan
-            .into_iter()
-            .map(|(position, frame_bytes, replayed)| StagedAppendOutcome {
-                position,
-                frame_bytes,
-                physical_bytes,
-                replayed,
-                synchronized: true,
-            })
-            .collect())
+        Ok(PlannedAppendBatch {
+            records: planned_records,
+            outcomes,
+        })
     }
 
     /// Return one recovered record.
@@ -627,12 +711,13 @@ fn replay_journal(
             return Ok((state, offset, true));
         }
         let header = &bytes[offset..offset + JOURNAL_HEADER_BYTES];
+        let version = u16::from_be_bytes(header[4..6].try_into().map_err(|_| {
+            StagedLogError::CorruptFrame {
+                offset: to_u64(offset),
+            }
+        })?);
         if &header[..4] != JOURNAL_MAGIC
-            || u16::from_be_bytes(header[4..6].try_into().map_err(|_| {
-                StagedLogError::CorruptFrame {
-                    offset: to_u64(offset),
-                }
-            })?) != JOURNAL_VERSION
+            || !matches!(version, JOURNAL_VERSION_V1 | JOURNAL_VERSION_V2)
             || header[7] != JOURNAL_FLAGS
         {
             return Err(StagedLogError::CorruptFrame {
@@ -671,6 +756,7 @@ fn replay_journal(
         apply_journal_body(
             &mut state,
             log_identity,
+            version,
             header[6],
             &frame[JOURNAL_HEADER_BYTES..checksum_offset],
             offset,
@@ -683,6 +769,7 @@ fn replay_journal(
 fn apply_journal_body(
     state: &mut StagedNodeState,
     expected_log_identity: StagedLogIdentity,
+    version: u16,
     kind: u8,
     mut body: &[u8],
     offset: usize,
@@ -694,79 +781,119 @@ fn apply_journal_body(
     if log_identity != expected_log_identity {
         return Err(StagedLogError::LogIdentityMismatch);
     }
-    match kind {
-        JOURNAL_KIND_EPOCH => {
-            let writer_epoch = take_u64(&mut body, "truncated writer epoch").map_err(|_| {
-                StagedLogError::CorruptFrame {
-                    offset: to_u64(offset),
-                }
-            })?;
-            if !body.is_empty()
-                || writer_epoch == 0
-                || state
-                    .writer_epoch
-                    .is_some_and(|current| writer_epoch <= current)
-            {
-                return Err(StagedLogError::CorruptFrame {
-                    offset: to_u64(offset),
-                });
-            }
-            state.writer_epoch = Some(writer_epoch);
+    match (version, kind) {
+        (JOURNAL_VERSION_V1, JOURNAL_KIND_EPOCH) => apply_epoch_body(state, body, offset),
+        (JOURNAL_VERSION_V1, JOURNAL_KIND_APPEND) => apply_v1_append_body(state, body, offset),
+        (JOURNAL_VERSION_V2, JOURNAL_KIND_APPEND_BATCH) => apply_v2_batch_body(state, body, offset),
+        _ => Err(corrupt_frame(offset)),
+    }
+}
+
+fn apply_epoch_body(
+    state: &mut StagedNodeState,
+    mut body: &[u8],
+    offset: usize,
+) -> Result<(), StagedLogError> {
+    let writer_epoch =
+        take_u64(&mut body, "truncated writer epoch").map_err(|_| corrupt_frame(offset))?;
+    if !body.is_empty()
+        || writer_epoch == 0
+        || state
+            .writer_epoch
+            .is_some_and(|current| writer_epoch <= current)
+    {
+        return Err(corrupt_frame(offset));
+    }
+    state.writer_epoch = Some(writer_epoch);
+    Ok(())
+}
+
+fn apply_v1_append_body(
+    state: &mut StagedNodeState,
+    mut body: &[u8],
+    offset: usize,
+) -> Result<(), StagedLogError> {
+    let writer_epoch =
+        take_u64(&mut body, "truncated writer epoch").map_err(|_| corrupt_frame(offset))?;
+    let position = take_u64(&mut body, "truncated position").map_err(|_| corrupt_frame(offset))?;
+    let request_identity =
+        take_array::<REQUEST_IDENTITY_BYTES>(&mut body, "truncated request identity")
+            .map_err(|_| corrupt_frame(offset))?;
+    let payload_len = usize::try_from(
+        take_u32(&mut body, "truncated payload length").map_err(|_| corrupt_frame(offset))?,
+    )
+    .map_err(|_| corrupt_frame(offset))?;
+    let payload = take_bytes(&mut body, payload_len, "truncated payload")
+        .map_err(|_| corrupt_frame(offset))?
+        .to_vec();
+    if !body.is_empty()
+        || position != state.next_position()
+        || state.writer_epoch != Some(writer_epoch)
+    {
+        return Err(corrupt_frame(offset));
+    }
+    state.records.insert(
+        position,
+        StagedLogRecord {
+            writer_epoch,
+            position,
+            request_identity,
+            payload,
+        },
+    );
+    Ok(())
+}
+
+fn apply_v2_batch_body(
+    state: &mut StagedNodeState,
+    mut body: &[u8],
+    offset: usize,
+) -> Result<(), StagedLogError> {
+    let writer_epoch =
+        take_u64(&mut body, "truncated batch writer epoch").map_err(|_| corrupt_frame(offset))?;
+    let first_position =
+        take_u64(&mut body, "truncated batch first position").map_err(|_| corrupt_frame(offset))?;
+    let record_count = usize::try_from(
+        take_u32(&mut body, "truncated batch record count").map_err(|_| corrupt_frame(offset))?,
+    )
+    .map_err(|_| corrupt_frame(offset))?;
+    if record_count == 0
+        || record_count > body.len() / (REQUEST_IDENTITY_BYTES + 4)
+        || first_position != state.next_position()
+        || state.writer_epoch != Some(writer_epoch)
+    {
+        return Err(corrupt_frame(offset));
+    }
+    for record_index in 0..record_count {
+        let position = first_position
+            .checked_add(to_u64(record_index))
+            .ok_or_else(|| corrupt_frame(offset))?;
+        let request_identity =
+            take_array::<REQUEST_IDENTITY_BYTES>(&mut body, "truncated batch request identity")
+                .map_err(|_| corrupt_frame(offset))?;
+        let payload_len = usize::try_from(
+            take_u32(&mut body, "truncated batch payload length")
+                .map_err(|_| corrupt_frame(offset))?,
+        )
+        .map_err(|_| corrupt_frame(offset))?;
+        if payload_len > MAX_PAYLOAD_BYTES {
+            return Err(corrupt_frame(offset));
         }
-        JOURNAL_KIND_APPEND => {
-            let writer_epoch = take_u64(&mut body, "truncated writer epoch").map_err(|_| {
-                StagedLogError::CorruptFrame {
-                    offset: to_u64(offset),
-                }
-            })?;
-            let position = take_u64(&mut body, "truncated position").map_err(|_| {
-                StagedLogError::CorruptFrame {
-                    offset: to_u64(offset),
-                }
-            })?;
-            let request_identity =
-                take_array::<REQUEST_IDENTITY_BYTES>(&mut body, "truncated request identity")
-                    .map_err(|_| StagedLogError::CorruptFrame {
-                        offset: to_u64(offset),
-                    })?;
-            let payload_len = usize::try_from(
-                take_u32(&mut body, "truncated payload length").map_err(|_| {
-                    StagedLogError::CorruptFrame {
-                        offset: to_u64(offset),
-                    }
-                })?,
-            )
-            .map_err(|_| StagedLogError::CorruptFrame {
-                offset: to_u64(offset),
-            })?;
-            let payload = take_bytes(&mut body, payload_len, "truncated payload")
-                .map_err(|_| StagedLogError::CorruptFrame {
-                    offset: to_u64(offset),
-                })?
-                .to_vec();
-            if !body.is_empty()
-                || position != state.next_position()
-                || state.writer_epoch != Some(writer_epoch)
-            {
-                return Err(StagedLogError::CorruptFrame {
-                    offset: to_u64(offset),
-                });
-            }
-            state.records.insert(
+        let payload = take_bytes(&mut body, payload_len, "truncated batch payload")
+            .map_err(|_| corrupt_frame(offset))?
+            .to_vec();
+        state.records.insert(
+            position,
+            StagedLogRecord {
+                writer_epoch,
                 position,
-                StagedLogRecord {
-                    writer_epoch,
-                    position,
-                    request_identity,
-                    payload,
-                },
-            );
-        }
-        _ => {
-            return Err(StagedLogError::CorruptFrame {
-                offset: to_u64(offset),
-            });
-        }
+                request_identity,
+                payload,
+            },
+        );
+    }
+    if !body.is_empty() {
+        return Err(corrupt_frame(offset));
     }
     Ok(())
 }
@@ -775,33 +902,50 @@ fn encode_epoch_frame(log_identity: StagedLogIdentity, writer_epoch: u64) -> Vec
     let mut body = Vec::with_capacity(LOG_IDENTITY_BYTES + 8);
     body.extend_from_slice(&log_identity);
     body.extend_from_slice(&writer_epoch.to_be_bytes());
-    encode_journal_frame(JOURNAL_KIND_EPOCH, &body)
+    encode_journal_frame(JOURNAL_VERSION_V1, JOURNAL_KIND_EPOCH, &body)
 }
 
-fn encode_append_frame(
+fn encode_append_batch_frame<'a>(
     log_identity: StagedLogIdentity,
-    record: &StagedLogRecord,
+    records: impl ExactSizeIterator<Item = &'a StagedLogRecord>,
 ) -> Result<Vec<u8>, StagedLogError> {
-    let mut body = Vec::with_capacity(
-        LOG_IDENTITY_BYTES + 8 + 8 + REQUEST_IDENTITY_BYTES + 4 + record.payload.len(),
-    );
+    if records.len() == 0 {
+        return Err(StagedLogError::InvalidSegment("empty journal batch"));
+    }
+    let records = records.collect::<Vec<_>>();
+    let first = records[0];
+    let mut body = Vec::with_capacity(LOG_IDENTITY_BYTES + 8 + 8 + 4);
     body.extend_from_slice(&log_identity);
-    body.extend_from_slice(&record.writer_epoch.to_be_bytes());
-    body.extend_from_slice(&record.position.to_be_bytes());
-    body.extend_from_slice(&record.request_identity);
+    body.extend_from_slice(&first.writer_epoch.to_be_bytes());
+    body.extend_from_slice(&first.position.to_be_bytes());
     body.extend_from_slice(
-        &u32::try_from(record.payload.len())
-            .map_err(|_| StagedLogError::PayloadTooLarge(record.payload.len()))?
+        &u32::try_from(records.len())
+            .map_err(|_| StagedLogError::InvalidSegment("too many journal records"))?
             .to_be_bytes(),
     );
-    body.extend_from_slice(&record.payload);
-    Ok(encode_journal_frame(JOURNAL_KIND_APPEND, &body))
+    for record in records {
+        body.extend_from_slice(&record.request_identity);
+        body.extend_from_slice(
+            &u32::try_from(record.payload.len())
+                .map_err(|_| StagedLogError::PayloadTooLarge(record.payload.len()))?
+                .to_be_bytes(),
+        );
+        body.extend_from_slice(&record.payload);
+    }
+    if body.len() > MAX_RECORD_BODY_BYTES {
+        return Err(StagedLogError::PayloadTooLarge(body.len()));
+    }
+    Ok(encode_journal_frame(
+        JOURNAL_VERSION_V2,
+        JOURNAL_KIND_APPEND_BATCH,
+        &body,
+    ))
 }
 
-fn encode_journal_frame(kind: u8, body: &[u8]) -> Vec<u8> {
+fn encode_journal_frame(version: u16, kind: u8, body: &[u8]) -> Vec<u8> {
     let mut frame = Vec::with_capacity(JOURNAL_HEADER_BYTES + body.len() + JOURNAL_CHECKSUM_BYTES);
     frame.extend_from_slice(JOURNAL_MAGIC);
-    frame.extend_from_slice(&JOURNAL_VERSION.to_be_bytes());
+    frame.extend_from_slice(&version.to_be_bytes());
     frame.push(kind);
     frame.push(JOURNAL_FLAGS);
     frame.extend_from_slice(
@@ -812,6 +956,16 @@ fn encode_journal_frame(kind: u8, body: &[u8]) -> Vec<u8> {
     frame.extend_from_slice(body);
     frame.extend_from_slice(&digest(&frame));
     frame
+}
+
+fn corrupt_frame(offset: usize) -> StagedLogError {
+    StagedLogError::CorruptFrame {
+        offset: to_u64(offset),
+    }
+}
+
+fn elapsed_nanos(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 fn read_u32(bytes: &[u8], reason: &'static str) -> Result<u32, StagedLogError> {
@@ -915,21 +1069,50 @@ mod tests {
     }
 
     #[test]
-    fn node_journal_v1_matches_frozen_fixture() {
+    fn node_journal_v1_remains_recoverable() {
         let root = TempDir::new("journal-fixture");
+        let log_identity = [0x11; LOG_IDENTITY_BYTES];
+        let expected = decode_hex(include_str!("../fixtures/staged-node-journal-v1.hex"));
+        fs::write(root.0.join(JOURNAL_FILE_NAME), expected).unwrap();
+
+        let mut recovered = StagedLogNode::open(&root.0, log_identity).unwrap();
+        assert_eq!(recovered.writer_epoch(), Some(7));
+        assert_eq!(recovered.records().len(), 1);
+        assert_eq!(recovered.read(1).unwrap().payload, b"abc");
+        recovered
+            .append(7, 2, [0x33; REQUEST_IDENTITY_BYTES], b"v2")
+            .unwrap();
+        drop(recovered);
+        let mixed = StagedLogNode::open(&root.0, log_identity).unwrap();
+        assert_eq!(mixed.records().len(), 2);
+        assert_eq!(mixed.read(2).unwrap().payload, b"v2");
+    }
+
+    #[test]
+    fn node_journal_v2_emits_one_batch_frame() {
+        let root = TempDir::new("journal-v2");
         let log_identity = [0x11; LOG_IDENTITY_BYTES];
         let mut node = StagedLogNode::open(&root.0, log_identity).unwrap();
         node.install_writer_epoch(7).unwrap();
+        let epoch_bytes = node.physical_bytes().unwrap();
         node.append(7, 1, [0x22; REQUEST_IDENTITY_BYTES], b"abc")
             .unwrap();
 
         let actual = fs::read(node.journal_path()).unwrap();
-        let expected = decode_hex(include_str!("../fixtures/staged-node-journal-v1.hex"));
-        assert_eq!(actual, expected);
+        let batch_offset = usize::try_from(epoch_bytes).unwrap();
+        assert_eq!(&actual[batch_offset..batch_offset + 4], JOURNAL_MAGIC);
+        assert_eq!(
+            u16::from_be_bytes(
+                actual[batch_offset + 4..batch_offset + 6]
+                    .try_into()
+                    .unwrap()
+            ),
+            JOURNAL_VERSION_V2
+        );
+        assert_eq!(actual[batch_offset + 6], JOURNAL_KIND_APPEND_BATCH);
 
         drop(node);
         let recovered = StagedLogNode::open(&root.0, log_identity).unwrap();
-        assert_eq!(recovered.writer_epoch(), Some(7));
         assert_eq!(recovered.records().len(), 1);
         assert_eq!(recovered.read(1).unwrap().payload, b"abc");
     }
@@ -1007,12 +1190,30 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let outcomes = node.append_batch(&records).unwrap();
+        let before_batch = node.physical_bytes().unwrap();
+        let measured = node.append_batch_measured(&records).unwrap();
+        let outcomes = measured.records;
         assert_eq!(outcomes.len(), records.len());
-        assert!(outcomes.iter().all(|outcome| {
-            outcome.synchronized && !outcome.replayed && outcome.frame_bytes > 0
-        }));
+        assert!(outcomes
+            .iter()
+            .all(|outcome| outcome.synchronized && !outcome.replayed));
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| outcome.frame_bytes > 0)
+                .count(),
+            1
+        );
         let after_first = node.physical_bytes().unwrap();
+        assert_eq!(measured.frame_bytes, after_first - before_batch);
+        assert_eq!(
+            outcomes
+                .iter()
+                .map(|outcome| outcome.frame_bytes)
+                .sum::<u64>(),
+            measured.frame_bytes
+        );
+        assert!(measured.frame_bytes < 256 * 256);
         let retries = node.append_batch(&records).unwrap();
         assert!(retries
             .iter()
@@ -1023,6 +1224,38 @@ mod tests {
         let recovered = StagedLogNode::open(&root.0, log_identity).unwrap();
         assert_eq!(recovered.records(), records);
         assert_eq!(recovered.next_position(), 257);
+    }
+
+    #[test]
+    fn torn_v2_batch_recovers_no_partial_records() {
+        let root = TempDir::new("batch-torn");
+        let log_identity = [0x35; LOG_IDENTITY_BYTES];
+        let mut node = StagedLogNode::open(&root.0, log_identity).unwrap();
+        node.install_writer_epoch(7).unwrap();
+        let epoch_bytes = node.physical_bytes().unwrap();
+        let records = (1_u64..=8)
+            .map(|position| StagedLogRecord {
+                writer_epoch: 7,
+                position,
+                request_identity: [u8::try_from(position).unwrap(); 32],
+                payload: vec![0x44; 128],
+            })
+            .collect::<Vec<_>>();
+        node.append_batch(&records).unwrap();
+        let path = node.journal_path().to_path_buf();
+        let torn_length = node.physical_bytes().unwrap().saturating_sub(5);
+        drop(node);
+
+        let file = OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(torn_length).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+
+        let recovered = StagedLogNode::open(&root.0, log_identity).unwrap();
+        assert!(recovered.recovered_torn_tail());
+        assert!(recovered.records().is_empty());
+        assert_eq!(recovered.next_position(), 1);
+        assert_eq!(recovered.physical_bytes().unwrap(), epoch_bytes);
     }
 
     #[test]

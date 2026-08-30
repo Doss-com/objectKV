@@ -8,7 +8,7 @@ use okv_wal::{
     StagedAppendOutcome, StagedLogError, StagedLogIdentity, StagedLogNode, StagedLogRecord,
     StagedRequestIdentity,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
@@ -41,6 +41,12 @@ const MACHINE_CURVE_MAX_STREAMS: usize = 4_096;
 const MACHINE_CURVE_MAX_QUEUE_RECORDS: usize = 1_048_576;
 const MACHINE_CURVE_MAX_DWELL_MICROS: u64 = 100_000;
 const MACHINE_CURVE_MAX_OFFERED_RECORDS_PER_SECOND: f64 = 2_000_000.0;
+const WIRE_REQUEST_MAGIC: [u8; 4] = *b"OKVQ";
+const WIRE_RESPONSE_MAGIC: [u8; 4] = *b"OKVA";
+const WIRE_VERSION: u16 = 1;
+const WIRE_KIND_APPEND_BATCH: u8 = 1;
+const WIRE_FLAGS: u8 = 0;
+const WIRE_BINARY_HEADER_BYTES: usize = 4 + 2 + 1 + 1;
 
 /// Fault mode exercised by the unchanged L1 process oracle.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -237,6 +243,13 @@ pub struct StagedTxLogMachineBatchSample {
     pub queue_depth_before_dispatch: u64,
     pub oldest_queue_dwell_seconds: f64,
     pub quorum_duration_seconds: f64,
+    pub request_wire_bytes_per_node: u64,
+    pub journal_frame_bytes_per_node: u64,
+    pub quorum_node_wire_decode_seconds: f64,
+    pub quorum_node_validation_seconds: f64,
+    pub quorum_node_encode_seconds: f64,
+    pub quorum_node_write_seconds: f64,
+    pub quorum_node_sync_seconds: f64,
 }
 
 /// Result for one bounded open-loop L2 staged-log curve point.
@@ -266,6 +279,8 @@ pub struct StagedTxLogMachineCurveReport {
     pub mean_batch_records: f64,
     pub max_observed_batch_records: u64,
     pub network_batch_requests: u64,
+    pub network_request_bytes: u64,
+    pub journal_frame_bytes_per_node: u64,
     pub producer_seconds: f64,
     pub measurement_seconds: f64,
     pub record_ack_p50_seconds: f64,
@@ -280,6 +295,16 @@ pub struct StagedTxLogMachineCurveReport {
     pub quorum_p95_seconds: f64,
     pub quorum_p99_seconds: f64,
     pub quorum_p999_seconds: f64,
+    pub node_wire_decode_p50_seconds: f64,
+    pub node_wire_decode_p99_seconds: f64,
+    pub node_validation_p50_seconds: f64,
+    pub node_validation_p99_seconds: f64,
+    pub node_encode_p50_seconds: f64,
+    pub node_encode_p99_seconds: f64,
+    pub node_write_p50_seconds: f64,
+    pub node_write_p99_seconds: f64,
+    pub node_sync_p50_seconds: f64,
+    pub node_sync_p99_seconds: f64,
     pub batch_samples: Vec<StagedTxLogMachineBatchSample>,
     pub expected_records_sha256: String,
     pub exact_state_nodes: u64,
@@ -381,6 +406,12 @@ enum NodeResponse {
         frame_bytes: u64,
         physical_bytes: u64,
         synchronized: bool,
+        wire_request_bytes: u64,
+        wire_decode_nanos: u64,
+        validation_nanos: u64,
+        encode_nanos: u64,
+        write_nanos: u64,
+        sync_nanos: u64,
     },
     State {
         writer_epoch: Option<u64>,
@@ -603,8 +634,9 @@ impl NodeRuntime {
         let first_position = records.first().map_or(0, |record| record.position);
         let last_position = records.last().map_or(0, |record| record.position);
         self.node
-            .append_batch(&records)
-            .map_or_else(error_response, |outcomes| {
+            .append_batch_measured(&records)
+            .map_or_else(error_response, |batch| {
+                let outcomes = &batch.records;
                 let new_record_count =
                     bounded_u64(outcomes.iter().filter(|outcome| !outcome.replayed).count());
                 let replayed_record_count =
@@ -615,11 +647,57 @@ impl NodeRuntime {
                     record_count: bounded_u64(outcomes.len()),
                     new_record_count,
                     replayed_record_count,
-                    frame_bytes: outcomes.iter().map(|outcome| outcome.frame_bytes).sum(),
+                    frame_bytes: batch.frame_bytes,
                     physical_bytes: outcomes.last().map_or(0, |outcome| outcome.physical_bytes),
                     synchronized: outcomes.iter().all(|outcome| outcome.synchronized),
+                    wire_request_bytes: 0,
+                    wire_decode_nanos: 0,
+                    validation_nanos: batch.validation_nanos,
+                    encode_nanos: batch.encode_nanos,
+                    write_nanos: batch.write_nanos,
+                    sync_nanos: batch.sync_nanos,
                 }
             })
+    }
+}
+
+fn attach_wire_measurement(
+    response: NodeResponse,
+    wire_request_bytes: u64,
+    wire_decode_nanos: u64,
+) -> NodeResponse {
+    match response {
+        NodeResponse::AppendBatch {
+            first_position,
+            last_position,
+            record_count,
+            new_record_count,
+            replayed_record_count,
+            frame_bytes,
+            physical_bytes,
+            synchronized,
+            validation_nanos,
+            encode_nanos,
+            write_nanos,
+            sync_nanos,
+            ..
+        } => NodeResponse::AppendBatch {
+            first_position,
+            last_position,
+            record_count,
+            new_record_count,
+            replayed_record_count,
+            frame_bytes,
+            physical_bytes,
+            synchronized,
+            wire_request_bytes,
+            wire_decode_nanos,
+            validation_nanos,
+            encode_nanos,
+            write_nanos,
+            sync_nanos,
+        },
+        other => other,
     }
 }
 
@@ -670,9 +748,13 @@ pub fn run_staged_txlog_node(config: StagedTxLogNodeConfig) -> Result<(), String
         stream
             .set_nodelay(true)
             .map_err(|error| error.to_string())?;
-        while let Some(request) = read_wire_optional::<NodeRequest>(&mut stream)? {
-            let response = runtime.handle(request);
-            write_wire(&mut stream, &response)?;
+        while let Some(decoded) = read_node_request_optional(&mut stream)? {
+            let response = attach_wire_measurement(
+                runtime.handle(decoded.request),
+                decoded.frame_bytes,
+                decoded.decode_nanos,
+            );
+            write_node_response(&mut stream, &response)?;
         }
     }
     Ok(())
@@ -1344,6 +1426,80 @@ struct BatchProgress {
     response_count: u64,
     durable_acknowledgements: u64,
     responding_nodes: BTreeSet<u8>,
+    request_wire_bytes_total: u64,
+    request_wire_bytes_per_node: u64,
+    journal_frame_bytes_per_node: u64,
+    wire_decode_nanos: u64,
+    validation_nanos: u64,
+    encode_nanos: u64,
+    write_nanos: u64,
+    sync_nanos: u64,
+}
+
+#[derive(Clone, Copy)]
+struct BatchNodeMeasurement {
+    wire_request_bytes: u64,
+    frame_bytes: u64,
+    wire_decode_nanos: u64,
+    validation_nanos: u64,
+    encode_nanos: u64,
+    write_nanos: u64,
+    sync_nanos: u64,
+}
+
+fn exact_batch_measurement(
+    response: &Result<NodeResponse, String>,
+    progress: &BatchProgress,
+) -> Option<BatchNodeMeasurement> {
+    match response {
+        Ok(NodeResponse::AppendBatch {
+            first_position,
+            last_position,
+            record_count,
+            frame_bytes,
+            synchronized: true,
+            wire_request_bytes,
+            wire_decode_nanos,
+            validation_nanos,
+            encode_nanos,
+            write_nanos,
+            sync_nanos,
+            ..
+        }) if *first_position == progress.first_position
+            && *last_position == progress.last_position
+            && *record_count == progress.record_count =>
+        {
+            Some(BatchNodeMeasurement {
+                wire_request_bytes: *wire_request_bytes,
+                frame_bytes: *frame_bytes,
+                wire_decode_nanos: *wire_decode_nanos,
+                validation_nanos: *validation_nanos,
+                encode_nanos: *encode_nanos,
+                write_nanos: *write_nanos,
+                sync_nanos: *sync_nanos,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn apply_batch_measurement(progress: &mut BatchProgress, measurement: BatchNodeMeasurement) {
+    progress.request_wire_bytes_total = progress
+        .request_wire_bytes_total
+        .saturating_add(measurement.wire_request_bytes);
+    progress.request_wire_bytes_per_node = progress
+        .request_wire_bytes_per_node
+        .max(measurement.wire_request_bytes);
+    progress.journal_frame_bytes_per_node = progress
+        .journal_frame_bytes_per_node
+        .max(measurement.frame_bytes);
+    progress.wire_decode_nanos = progress
+        .wire_decode_nanos
+        .max(measurement.wire_decode_nanos);
+    progress.validation_nanos = progress.validation_nanos.max(measurement.validation_nanos);
+    progress.encode_nanos = progress.encode_nanos.max(measurement.encode_nanos);
+    progress.write_nanos = progress.write_nanos.max(measurement.write_nanos);
+    progress.sync_nanos = progress.sync_nanos.max(measurement.sync_nanos);
 }
 
 struct DeterministicPoisson {
@@ -1563,6 +1719,14 @@ pub fn run_staged_txlog_machine_curve(
                 response_count: 0,
                 durable_acknowledgements: 0,
                 responding_nodes: BTreeSet::new(),
+                request_wire_bytes_total: 0,
+                request_wire_bytes_per_node: 0,
+                journal_frame_bytes_per_node: 0,
+                wire_decode_nanos: 0,
+                validation_nanos: 0,
+                encode_nanos: 0,
+                write_nanos: 0,
+                sync_nanos: 0,
             },
         );
         for sender in &node_senders {
@@ -1585,23 +1749,16 @@ pub fn run_staged_txlog_machine_curve(
                 .get_mut(&reply.batch_id)
                 .ok_or_else(|| format!("response for unknown batch {}", reply.batch_id))?;
             let unique_node = batch_progress.responding_nodes.insert(reply.node_id);
-            let exact = unique_node
-                && matches!(
-                    reply.response,
-                    Ok(NodeResponse::AppendBatch {
-                        first_position: observed_first,
-                        last_position: observed_last,
-                        record_count,
-                        synchronized: true,
-                        ..
-                    }) if observed_first == batch_progress.first_position
-                        && observed_last == batch_progress.last_position
-                        && record_count == batch_progress.record_count
-                );
+            let measurement = exact_batch_measurement(&reply.response, batch_progress);
             batch_progress.response_count = batch_progress.response_count.saturating_add(1);
-            if exact {
-                batch_progress.durable_acknowledgements =
-                    batch_progress.durable_acknowledgements.saturating_add(1);
+            if unique_node {
+                if let Some(measurement) = measurement {
+                    batch_progress.durable_acknowledgements =
+                        batch_progress.durable_acknowledgements.saturating_add(1);
+                    apply_batch_measurement(batch_progress, measurement);
+                } else {
+                    node_response_anomalies = node_response_anomalies.saturating_add(1);
+                }
             } else {
                 node_response_anomalies = node_response_anomalies.saturating_add(1);
             }
@@ -1643,6 +1800,27 @@ pub fn run_staged_txlog_machine_curve(
                 })
                 .fold(0.0, f64::max),
             quorum_duration_seconds,
+            request_wire_bytes_per_node: progress
+                .get(&next_batch_id)
+                .map_or(0, |batch| batch.request_wire_bytes_per_node),
+            journal_frame_bytes_per_node: progress
+                .get(&next_batch_id)
+                .map_or(0, |batch| batch.journal_frame_bytes_per_node),
+            quorum_node_wire_decode_seconds: progress
+                .get(&next_batch_id)
+                .map_or(0.0, |batch| nanos_seconds(batch.wire_decode_nanos)),
+            quorum_node_validation_seconds: progress
+                .get(&next_batch_id)
+                .map_or(0.0, |batch| nanos_seconds(batch.validation_nanos)),
+            quorum_node_encode_seconds: progress
+                .get(&next_batch_id)
+                .map_or(0.0, |batch| nanos_seconds(batch.encode_nanos)),
+            quorum_node_write_seconds: progress
+                .get(&next_batch_id)
+                .map_or(0.0, |batch| nanos_seconds(batch.write_nanos)),
+            quorum_node_sync_seconds: progress
+                .get(&next_batch_id)
+                .map_or(0.0, |batch| nanos_seconds(batch.sync_nanos)),
         });
         acknowledged_records = acknowledged_records.saturating_add(bounded_u64(arrivals.len()));
         next_position = next_position.saturating_add(bounded_u64(arrivals.len()));
@@ -1664,22 +1842,15 @@ pub fn run_staged_txlog_machine_curve(
             .ok_or_else(|| format!("response for unknown batch {}", reply.batch_id))?;
         let unique_node = batch_progress.responding_nodes.insert(reply.node_id);
         batch_progress.response_count = batch_progress.response_count.saturating_add(1);
-        if unique_node
-            && matches!(
-                reply.response,
-                Ok(NodeResponse::AppendBatch {
-                    first_position,
-                    last_position,
-                    record_count,
-                    synchronized: true,
-                    ..
-                }) if first_position == batch_progress.first_position
-                    && last_position == batch_progress.last_position
-                    && record_count == batch_progress.record_count
-            )
-        {
-            batch_progress.durable_acknowledgements =
-                batch_progress.durable_acknowledgements.saturating_add(1);
+        let measurement = exact_batch_measurement(&reply.response, batch_progress);
+        if unique_node {
+            if let Some(measurement) = measurement {
+                batch_progress.durable_acknowledgements =
+                    batch_progress.durable_acknowledgements.saturating_add(1);
+                apply_batch_measurement(batch_progress, measurement);
+            } else {
+                node_response_anomalies = node_response_anomalies.saturating_add(1);
+            }
         } else {
             node_response_anomalies = node_response_anomalies.saturating_add(1);
         }
@@ -1751,6 +1922,31 @@ pub fn run_staged_txlog_machine_curve(
     record_ack_seconds.sort_by(f64::total_cmp);
     queue_dwell_seconds.sort_by(f64::total_cmp);
     quorum_seconds.sort_by(f64::total_cmp);
+    let mut wire_decode_seconds = batch_samples
+        .iter()
+        .map(|sample| sample.quorum_node_wire_decode_seconds)
+        .collect::<Vec<_>>();
+    let mut validation_seconds = batch_samples
+        .iter()
+        .map(|sample| sample.quorum_node_validation_seconds)
+        .collect::<Vec<_>>();
+    let mut encode_seconds = batch_samples
+        .iter()
+        .map(|sample| sample.quorum_node_encode_seconds)
+        .collect::<Vec<_>>();
+    let mut write_seconds = batch_samples
+        .iter()
+        .map(|sample| sample.quorum_node_write_seconds)
+        .collect::<Vec<_>>();
+    let mut sync_seconds = batch_samples
+        .iter()
+        .map(|sample| sample.quorum_node_sync_seconds)
+        .collect::<Vec<_>>();
+    wire_decode_seconds.sort_by(f64::total_cmp);
+    validation_seconds.sort_by(f64::total_cmp);
+    encode_seconds.sort_by(f64::total_cmp);
+    write_seconds.sort_by(f64::total_cmp);
+    sync_seconds.sort_by(f64::total_cmp);
     let checks = [
         (
             "every requested arrival was attempted",
@@ -1825,6 +2021,14 @@ pub fn run_staged_txlog_machine_curve(
             .max()
             .unwrap_or(0),
         network_batch_requests,
+        network_request_bytes: progress
+            .values()
+            .map(|batch| batch.request_wire_bytes_total)
+            .sum(),
+        journal_frame_bytes_per_node: batch_samples
+            .iter()
+            .map(|sample| sample.journal_frame_bytes_per_node)
+            .sum(),
         producer_seconds,
         measurement_seconds,
         record_ack_p50_seconds: percentile_per_mille(&record_ack_seconds, 500),
@@ -1839,6 +2043,16 @@ pub fn run_staged_txlog_machine_curve(
         quorum_p95_seconds: percentile_per_mille(&quorum_seconds, 950),
         quorum_p99_seconds: percentile_per_mille(&quorum_seconds, 990),
         quorum_p999_seconds: percentile_per_mille(&quorum_seconds, 999),
+        node_wire_decode_p50_seconds: percentile_per_mille(&wire_decode_seconds, 500),
+        node_wire_decode_p99_seconds: percentile_per_mille(&wire_decode_seconds, 990),
+        node_validation_p50_seconds: percentile_per_mille(&validation_seconds, 500),
+        node_validation_p99_seconds: percentile_per_mille(&validation_seconds, 990),
+        node_encode_p50_seconds: percentile_per_mille(&encode_seconds, 500),
+        node_encode_p99_seconds: percentile_per_mille(&encode_seconds, 990),
+        node_write_p50_seconds: percentile_per_mille(&write_seconds, 500),
+        node_write_p99_seconds: percentile_per_mille(&write_seconds, 990),
+        node_sync_p50_seconds: percentile_per_mille(&sync_seconds, 500),
+        node_sync_p99_seconds: percentile_per_mille(&sync_seconds, 990),
         batch_samples,
         expected_records_sha256,
         exact_state_nodes,
@@ -2004,8 +2218,8 @@ impl ConnectedNode {
     }
 
     fn request(&mut self, request: &NodeRequest) -> Result<NodeResponse, String> {
-        write_wire(&mut self.stream, request)?;
-        read_wire(&mut self.stream)
+        write_node_request(&mut self.stream, request)?;
+        read_node_response(&mut self.stream)
     }
 }
 
@@ -2108,6 +2322,10 @@ fn update_atomic_max(value: &AtomicU64, candidate: u64) {
 
 fn duration_nanos_u64(duration: Duration) -> u64 {
     u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+}
+
+fn nanos_seconds(nanos: u64) -> f64 {
+    Duration::from_nanos(nanos).as_secs_f64()
 }
 
 fn start_nodes(
@@ -2409,28 +2627,23 @@ fn request_node(endpoint: &str, request: &NodeRequest) -> Result<NodeResponse, S
     stream
         .set_write_timeout(Some(IO_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    write_wire(&mut stream, request)?;
-    read_wire(&mut stream)
+    write_node_request(&mut stream, request)?;
+    read_node_response(&mut stream)
 }
 
-fn write_wire<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(), String> {
-    let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+fn write_wire_payload(stream: &mut TcpStream, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() > MAX_WIRE_BYTES {
         return Err("wire message exceeds limit".to_owned());
     }
     let length = u32::try_from(bytes.len()).map_err(|error| error.to_string())?;
     stream
         .write_all(&length.to_be_bytes())
-        .and_then(|()| stream.write_all(&bytes))
+        .and_then(|()| stream.write_all(bytes))
         .and_then(|()| stream.flush())
         .map_err(|error| error.to_string())
 }
 
-fn read_wire<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T, String> {
-    read_wire_optional(stream)?.ok_or_else(|| "wire peer closed before a response".to_owned())
-}
-
-fn read_wire_optional<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<Option<T>, String> {
+fn read_wire_payload_optional(stream: &mut TcpStream) -> Result<Option<Vec<u8>>, String> {
     let mut header = [0_u8; 4];
     match stream.read_exact(&mut header) {
         Ok(()) => {}
@@ -2445,9 +2658,247 @@ fn read_wire_optional<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<Opt
     stream
         .read_exact(&mut bytes)
         .map_err(|error| error.to_string())?;
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|error| error.to_string())
+    Ok(Some(bytes))
+}
+
+struct DecodedNodeRequest {
+    request: NodeRequest,
+    frame_bytes: u64,
+    decode_nanos: u64,
+}
+
+fn write_node_request(stream: &mut TcpStream, request: &NodeRequest) -> Result<(), String> {
+    let bytes = match request {
+        NodeRequest::AppendBatch { records } => encode_append_batch_request(records)?,
+        _ => serde_json::to_vec(request).map_err(|error| error.to_string())?,
+    };
+    write_wire_payload(stream, &bytes)
+}
+
+fn read_node_request_optional(
+    stream: &mut TcpStream,
+) -> Result<Option<DecodedNodeRequest>, String> {
+    let Some(bytes) = read_wire_payload_optional(stream)? else {
+        return Ok(None);
+    };
+    let decode_started = Instant::now();
+    let request = if bytes.starts_with(&WIRE_REQUEST_MAGIC) {
+        decode_append_batch_request(&bytes)?
+    } else {
+        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?
+    };
+    Ok(Some(DecodedNodeRequest {
+        request,
+        frame_bytes: bounded_u64(bytes.len()).saturating_add(4),
+        decode_nanos: duration_nanos_u64(decode_started.elapsed()),
+    }))
+}
+
+fn write_node_response(stream: &mut TcpStream, response: &NodeResponse) -> Result<(), String> {
+    let bytes = match response {
+        NodeResponse::AppendBatch { .. } => encode_append_batch_response(response)?,
+        _ => serde_json::to_vec(response).map_err(|error| error.to_string())?,
+    };
+    write_wire_payload(stream, &bytes)
+}
+
+fn read_node_response(stream: &mut TcpStream) -> Result<NodeResponse, String> {
+    let bytes = read_wire_payload_optional(stream)?
+        .ok_or_else(|| "wire peer closed before a response".to_owned())?;
+    if bytes.starts_with(&WIRE_RESPONSE_MAGIC) {
+        decode_append_batch_response(&bytes)
+    } else {
+        serde_json::from_slice(&bytes).map_err(|error| error.to_string())
+    }
+}
+
+fn encode_append_batch_request(records: &[WireRecord]) -> Result<Vec<u8>, String> {
+    let record_count = u32::try_from(records.len())
+        .map_err(|_| "wire append batch contains too many records".to_owned())?;
+    if record_count == 0 {
+        return Err("wire append batch is empty".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(WIRE_BINARY_HEADER_BYTES + 4);
+    append_wire_header(&mut bytes, WIRE_REQUEST_MAGIC, WIRE_KIND_APPEND_BATCH);
+    bytes.extend_from_slice(&record_count.to_be_bytes());
+    for record in records {
+        let payload_len = u32::try_from(record.payload.len())
+            .map_err(|_| "wire record payload exceeds u32".to_owned())?;
+        bytes.extend_from_slice(&record.writer_epoch.to_be_bytes());
+        bytes.extend_from_slice(&record.position.to_be_bytes());
+        bytes.extend_from_slice(&record.request_identity);
+        bytes.extend_from_slice(&payload_len.to_be_bytes());
+        bytes.extend_from_slice(&record.payload);
+    }
+    if bytes.len() > MAX_WIRE_BYTES {
+        return Err("wire message exceeds limit".to_owned());
+    }
+    Ok(bytes)
+}
+
+fn decode_append_batch_request(bytes: &[u8]) -> Result<NodeRequest, String> {
+    let mut body = decode_wire_header(bytes, WIRE_REQUEST_MAGIC, WIRE_KIND_APPEND_BATCH)?;
+    let record_count = usize::try_from(take_wire_u32(&mut body, "missing record count")?)
+        .map_err(|error| error.to_string())?;
+    if record_count == 0 || record_count > MACHINE_PREFLIGHT_MAX_BATCH_RECORDS {
+        return Err("wire append batch record count is out of bounds".to_owned());
+    }
+    let mut records = Vec::with_capacity(record_count);
+    for _ in 0..record_count {
+        let writer_epoch = take_wire_u64(&mut body, "missing writer epoch")?;
+        let position = take_wire_u64(&mut body, "missing position")?;
+        let request_identity = take_wire_array::<32>(&mut body, "missing request identity")?;
+        let payload_len = usize::try_from(take_wire_u32(&mut body, "missing payload length")?)
+            .map_err(|error| error.to_string())?;
+        if payload_len > MACHINE_PREFLIGHT_MAX_PAYLOAD_BYTES {
+            return Err("wire record payload exceeds machine bound".to_owned());
+        }
+        let payload = take_wire_bytes(&mut body, payload_len, "truncated payload")?.to_vec();
+        records.push(WireRecord {
+            writer_epoch,
+            position,
+            request_identity,
+            payload,
+        });
+    }
+    if !body.is_empty() {
+        return Err("wire append batch has trailing bytes".to_owned());
+    }
+    Ok(NodeRequest::AppendBatch { records })
+}
+
+fn encode_append_batch_response(response: &NodeResponse) -> Result<Vec<u8>, String> {
+    let NodeResponse::AppendBatch {
+        first_position,
+        last_position,
+        record_count,
+        new_record_count,
+        replayed_record_count,
+        frame_bytes,
+        physical_bytes,
+        synchronized,
+        wire_request_bytes,
+        wire_decode_nanos,
+        validation_nanos,
+        encode_nanos,
+        write_nanos,
+        sync_nanos,
+    } = response
+    else {
+        return Err("binary response encoder received a non-batch response".to_owned());
+    };
+    let mut bytes = Vec::with_capacity(WIRE_BINARY_HEADER_BYTES + 8 * 13 + 1);
+    append_wire_header(&mut bytes, WIRE_RESPONSE_MAGIC, WIRE_KIND_APPEND_BATCH);
+    for value in [
+        *first_position,
+        *last_position,
+        *record_count,
+        *new_record_count,
+        *replayed_record_count,
+        *frame_bytes,
+        *physical_bytes,
+        *wire_request_bytes,
+        *wire_decode_nanos,
+        *validation_nanos,
+        *encode_nanos,
+        *write_nanos,
+        *sync_nanos,
+    ] {
+        bytes.extend_from_slice(&value.to_be_bytes());
+    }
+    bytes.push(u8::from(*synchronized));
+    Ok(bytes)
+}
+
+fn decode_append_batch_response(bytes: &[u8]) -> Result<NodeResponse, String> {
+    let mut body = decode_wire_header(bytes, WIRE_RESPONSE_MAGIC, WIRE_KIND_APPEND_BATCH)?;
+    let first_position = take_wire_u64(&mut body, "missing first position")?;
+    let last_position = take_wire_u64(&mut body, "missing last position")?;
+    let record_count = take_wire_u64(&mut body, "missing record count")?;
+    let new_record_count = take_wire_u64(&mut body, "missing new record count")?;
+    let replayed_record_count = take_wire_u64(&mut body, "missing replayed record count")?;
+    let frame_bytes = take_wire_u64(&mut body, "missing frame bytes")?;
+    let physical_bytes = take_wire_u64(&mut body, "missing physical bytes")?;
+    let wire_request_bytes = take_wire_u64(&mut body, "missing wire request bytes")?;
+    let wire_decode_nanos = take_wire_u64(&mut body, "missing wire decode duration")?;
+    let validation_nanos = take_wire_u64(&mut body, "missing validation duration")?;
+    let encode_nanos = take_wire_u64(&mut body, "missing encode duration")?;
+    let write_nanos = take_wire_u64(&mut body, "missing write duration")?;
+    let sync_nanos = take_wire_u64(&mut body, "missing sync duration")?;
+    let synchronized = match take_wire_bytes(&mut body, 1, "missing synchronized flag")?[0] {
+        0 => false,
+        1 => true,
+        _ => return Err("invalid synchronized flag".to_owned()),
+    };
+    if !body.is_empty() {
+        return Err("wire append response has trailing bytes".to_owned());
+    }
+    Ok(NodeResponse::AppendBatch {
+        first_position,
+        last_position,
+        record_count,
+        new_record_count,
+        replayed_record_count,
+        frame_bytes,
+        physical_bytes,
+        synchronized,
+        wire_request_bytes,
+        wire_decode_nanos,
+        validation_nanos,
+        encode_nanos,
+        write_nanos,
+        sync_nanos,
+    })
+}
+
+fn append_wire_header(bytes: &mut Vec<u8>, magic: [u8; 4], kind: u8) {
+    bytes.extend_from_slice(&magic);
+    bytes.extend_from_slice(&WIRE_VERSION.to_be_bytes());
+    bytes.push(kind);
+    bytes.push(WIRE_FLAGS);
+}
+
+fn decode_wire_header(bytes: &[u8], magic: [u8; 4], kind: u8) -> Result<&[u8], String> {
+    if bytes.len() < WIRE_BINARY_HEADER_BYTES
+        || bytes[..4] != magic
+        || u16::from_be_bytes(bytes[4..6].try_into().map_err(|_| "bad wire version")?)
+            != WIRE_VERSION
+        || bytes[6] != kind
+        || bytes[7] != WIRE_FLAGS
+    {
+        return Err("unsupported binary wire header".to_owned());
+    }
+    Ok(&bytes[WIRE_BINARY_HEADER_BYTES..])
+}
+
+fn take_wire_u32(bytes: &mut &[u8], reason: &'static str) -> Result<u32, String> {
+    Ok(u32::from_be_bytes(take_wire_array::<4>(bytes, reason)?))
+}
+
+fn take_wire_u64(bytes: &mut &[u8], reason: &'static str) -> Result<u64, String> {
+    Ok(u64::from_be_bytes(take_wire_array::<8>(bytes, reason)?))
+}
+
+fn take_wire_array<const N: usize>(
+    bytes: &mut &[u8],
+    reason: &'static str,
+) -> Result<[u8; N], String> {
+    take_wire_bytes(bytes, N, reason)?
+        .try_into()
+        .map_err(|_| reason.to_owned())
+}
+
+fn take_wire_bytes<'a>(
+    bytes: &mut &'a [u8],
+    length: usize,
+    reason: &'static str,
+) -> Result<&'a [u8], String> {
+    if bytes.len() < length {
+        return Err(reason.to_owned());
+    }
+    let (selected, remaining) = bytes.split_at(length);
+    *bytes = remaining;
+    Ok(selected)
 }
 
 fn reserve_loopback_address() -> Result<String, String> {
@@ -2576,8 +3027,12 @@ mod tests {
                 payload: vec![0x33; 128],
             }],
         };
-        let encoded = serde_json::to_vec(&request).unwrap();
-        let decoded = serde_json::from_slice::<NodeRequest>(&encoded).unwrap();
+        let NodeRequest::AppendBatch { records } = &request else {
+            unreachable!();
+        };
+        let encoded = encode_append_batch_request(records).unwrap();
+        assert_eq!(encoded.len(), 192);
+        let decoded = decode_append_batch_request(&encoded).unwrap();
         match decoded {
             NodeRequest::AppendBatch { records } => {
                 assert_eq!(records.len(), 1);
@@ -2586,6 +3041,42 @@ mod tests {
             }
             _ => panic!("decoded the wrong request variant"),
         }
+    }
+
+    #[test]
+    fn wire_protocol_round_trips_measured_append_batch_responses() {
+        let response = NodeResponse::AppendBatch {
+            first_position: 3,
+            last_position: 258,
+            record_count: 256,
+            new_record_count: 256,
+            replayed_record_count: 0,
+            frame_bytes: 42_068,
+            physical_bytes: 42_152,
+            synchronized: true,
+            wire_request_bytes: 46_096,
+            wire_decode_nanos: 21_000,
+            validation_nanos: 34_000,
+            encode_nanos: 41_000,
+            write_nanos: 18_000,
+            sync_nanos: 510_000,
+        };
+        let encoded = encode_append_batch_response(&response).unwrap();
+        assert_eq!(encoded.len(), 113);
+        let decoded = decode_append_batch_response(&encoded).unwrap();
+        assert!(matches!(
+            decoded,
+            NodeResponse::AppendBatch {
+                first_position: 3,
+                last_position: 258,
+                record_count: 256,
+                frame_bytes: 42_068,
+                wire_request_bytes: 46_096,
+                sync_nanos: 510_000,
+                synchronized: true,
+                ..
+            }
+        ));
     }
 
     #[test]
