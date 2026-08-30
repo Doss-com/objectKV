@@ -6,12 +6,14 @@ compile_error!("okv-sim requires --cfg tokio_unstable to seed Tokio runtime sche
 mod commit;
 mod persisted_wal;
 mod serializability;
+mod staged_txlog;
 
 pub use commit::{
     run_commit_contract, CommitCodecError, CommitContractMode, CommitContractReport, CommitEnvelope,
 };
 pub use persisted_wal::{run_persisted_wal_contract, PersistedWalMode, PersistedWalReport};
 pub use serializability::{run_serializability_history, SerializabilityMode};
+pub use staged_txlog::{run_staged_txlog_contract, StagedTxLogMode, StagedTxLogReport};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
