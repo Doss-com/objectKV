@@ -1,9 +1,17 @@
 //! RFC-0048 typed C0/C5 fixture and generation-pinned placement contract.
 
-use okv_object::{content_sha256, RevisionToken};
+use async_trait::async_trait;
+use bytes::Bytes;
+use okv_object::{
+    content_sha256, Backend, BackendDescriptor, BackendRead, ErrorClass, RevisionToken, StoreError,
+    WriteCondition,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{Debug, Formatter};
+use std::ops::Range;
+use std::sync::Arc;
 
 const FIXTURE_SCHEMA_VERSION: u32 = 1;
 const FIXTURE_ID_MAGIC: &[u8] = b"OKVTLFI1";
@@ -648,6 +656,126 @@ impl TypedLayoutPlacementLocatorV1 {
     }
 }
 
+/// Read-only backend that translates a closed child descriptor into mandatory
+/// provider generation preconditions.
+pub struct GenerationPinnedChildBackend {
+    inner: Arc<dyn Backend>,
+    subject: TypedLayoutSubjectV1,
+    objects: BTreeMap<String, TypedLayoutObjectIdentityV1>,
+}
+
+impl Debug for GenerationPinnedChildBackend {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GenerationPinnedChildBackend")
+            .field("subject", &self.subject)
+            .field("objects", &self.objects.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl GenerationPinnedChildBackend {
+    /// Wrap one child-scoped backend with its exact immutable object inventory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the child descriptor is invalid.
+    pub fn new(inner: Arc<dyn Backend>, child: &TypedLayoutChildV1) -> Result<Self, String> {
+        child.validate()?;
+        Ok(Self {
+            inner,
+            subject: child.subject,
+            objects: child
+                .objects
+                .iter()
+                .cloned()
+                .map(|object| (object.key.clone(), object))
+                .collect(),
+        })
+    }
+
+    fn denied(operation: &str) -> StoreError {
+        store_error(
+            ErrorClass::PermissionDenied,
+            format!("RFC-0048 measured backend denies {operation}"),
+        )
+    }
+}
+
+#[async_trait]
+impl Backend for GenerationPinnedChildBackend {
+    fn descriptor(&self) -> BackendDescriptor {
+        self.inner.descriptor()
+    }
+
+    async fn put(
+        &self,
+        _key: &str,
+        _bytes: Bytes,
+        _condition: WriteCondition,
+    ) -> Result<RevisionToken, StoreError> {
+        Err(Self::denied("PUT"))
+    }
+
+    async fn get(
+        &self,
+        key: &str,
+        range: Option<Range<u64>>,
+        expected: Option<&RevisionToken>,
+    ) -> Result<BackendRead, StoreError> {
+        let identity = self.objects.get(key).ok_or_else(|| {
+            store_error(
+                ErrorClass::PermissionDenied,
+                "RFC-0048 read is outside the selected child closure",
+            )
+        })?;
+        let revision = identity.revision();
+        if expected.is_some_and(|value| value != &revision) {
+            return Err(store_error(
+                ErrorClass::PreconditionFailed,
+                "RFC-0048 caller revision differs from the child descriptor",
+            ));
+        }
+        if range
+            .as_ref()
+            .is_some_and(|value| value.start >= value.end || value.end > identity.length)
+        {
+            return Err(store_error(
+                ErrorClass::PreconditionFailed,
+                "RFC-0048 requested range exceeds the child object",
+            ));
+        }
+        let read = self.inner.get(key, range.clone(), Some(&revision)).await?;
+        let expected_range = range.unwrap_or(0..identity.length);
+        if read.revision.version.as_deref() != Some(identity.generation.as_str())
+            || read.object_length != identity.length
+            || read.returned_range != expected_range
+            || u64::try_from(read.bytes.len()).unwrap_or(u64::MAX)
+                != expected_range.end.saturating_sub(expected_range.start)
+            || (expected_range == (0..identity.length)
+                && content_sha256(&read.bytes) != identity.sha256)
+        {
+            return Err(store_error(
+                ErrorClass::Corrupt,
+                "RFC-0048 generation-pinned child read identity mismatch",
+            ));
+        }
+        Ok(read)
+    }
+
+    async fn delete(
+        &self,
+        _key: &str,
+        _expected: Option<&RevisionToken>,
+    ) -> Result<(), StoreError> {
+        Err(Self::denied("DELETE"))
+    }
+
+    async fn list(&self, _prefix: &str) -> Result<Vec<String>, StoreError> {
+        Err(Self::denied("LIST"))
+    }
+}
+
 /// Decode and authenticate one serialized typed-layout root.
 ///
 /// # Errors
@@ -888,6 +1016,13 @@ fn valid_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+fn store_error(class: ErrorClass, detail: impl Into<String>) -> StoreError {
+    StoreError {
+        class,
+        detail: detail.into(),
+    }
+}
+
 fn valid_object_key(value: &str) -> bool {
     !value.is_empty()
         && !value.starts_with('/')
@@ -939,11 +1074,94 @@ fn valid_schema_id(value: &str) -> bool {
 mod tests {
     use super::{
         decode_t28_layout_oracle, decode_typed_layout_fixture, decode_typed_layout_placement,
-        TypedLayoutCapabilityV1, TypedLayoutChildV1, TypedLayoutFixtureV1,
-        TypedLayoutObjectIdentityV1, TypedLayoutObjectRoleV1, TypedLayoutPlacementLocatorV1,
-        TypedLayoutSubjectV1,
+        store_error, GenerationPinnedChildBackend, TypedLayoutCapabilityV1, TypedLayoutChildV1,
+        TypedLayoutFixtureV1, TypedLayoutObjectIdentityV1, TypedLayoutObjectRoleV1,
+        TypedLayoutPlacementLocatorV1, TypedLayoutSubjectV1,
     };
+    use crate::provider_attempt::{ProviderAttemptBackend, ProviderAttemptPhase};
+    use bytes::Bytes;
     use okv_object::content_sha256;
+    use okv_object::{
+        Backend, BackendDescriptor, BackendRead, ErrorClass, RevisionToken, StoreError,
+        WriteCondition,
+    };
+    use std::collections::BTreeMap;
+    use std::ops::Range;
+    use std::sync::Arc;
+
+    #[derive(Debug)]
+    struct TestGenerationBackend {
+        objects: BTreeMap<String, (Bytes, String)>,
+    }
+
+    #[async_trait::async_trait]
+    impl Backend for TestGenerationBackend {
+        fn descriptor(&self) -> BackendDescriptor {
+            BackendDescriptor {
+                id: "test-generation".to_owned(),
+                driver: "test".to_owned(),
+                driver_version: "1".to_owned(),
+                server_version: "1".to_owned(),
+                conditional_primitive: "generation-match".to_owned(),
+                guarded_delete: true,
+                delete_strategy: "test".to_owned(),
+            }
+        }
+
+        async fn put(
+            &self,
+            _key: &str,
+            _bytes: Bytes,
+            _condition: WriteCondition,
+        ) -> Result<RevisionToken, StoreError> {
+            Err(store_error(ErrorClass::PermissionDenied, "read only"))
+        }
+
+        async fn get(
+            &self,
+            key: &str,
+            range: Option<Range<u64>>,
+            expected: Option<&RevisionToken>,
+        ) -> Result<BackendRead, StoreError> {
+            let (bytes, generation) = self
+                .objects
+                .get(key)
+                .ok_or_else(|| store_error(ErrorClass::NotFound, "missing"))?;
+            if expected.and_then(|revision| revision.version.as_deref())
+                != Some(generation.as_str())
+            {
+                return Err(store_error(
+                    ErrorClass::PreconditionFailed,
+                    "generation mismatch",
+                ));
+            }
+            let object_length = u64::try_from(bytes.len()).expect("test object length");
+            let returned_range = range.unwrap_or(0..object_length);
+            let start = usize::try_from(returned_range.start).expect("test range start");
+            let end = usize::try_from(returned_range.end).expect("test range end");
+            Ok(BackendRead {
+                bytes: bytes.slice(start..end),
+                revision: RevisionToken {
+                    e_tag: None,
+                    version: Some(generation.clone()),
+                },
+                object_length,
+                returned_range,
+            })
+        }
+
+        async fn delete(
+            &self,
+            _key: &str,
+            _expected: Option<&RevisionToken>,
+        ) -> Result<(), StoreError> {
+            Err(store_error(ErrorClass::PermissionDenied, "read only"))
+        }
+
+        async fn list(&self, _prefix: &str) -> Result<Vec<String>, StoreError> {
+            Err(store_error(ErrorClass::PermissionDenied, "no list"))
+        }
+    }
 
     fn object(
         role: TypedLayoutObjectRoleV1,
@@ -1153,5 +1371,93 @@ mod tests {
             serde_json::Value::String("00".repeat(32));
         let bytes = serde_json::to_vec(&poisoned).expect("poisoned oracle");
         assert!(decode_t28_layout_oracle(&bytes, &content_sha256(&bytes)).is_err());
+    }
+
+    #[tokio::test]
+    async fn measured_child_reads_always_reach_provider_with_generation() {
+        let mut objects = Vec::new();
+        let mut stored = BTreeMap::new();
+        for (role, key, generation, bytes) in [
+            (
+                TypedLayoutObjectRoleV1::Data,
+                "c0/data.okvb",
+                "101",
+                b"data".as_slice(),
+            ),
+            (
+                TypedLayoutObjectRoleV1::Index,
+                "c0/index.okvi",
+                "102",
+                b"index".as_slice(),
+            ),
+            (
+                TypedLayoutObjectRoleV1::Manifest,
+                "c0/manifest.json",
+                "103",
+                b"manifest".as_slice(),
+            ),
+        ] {
+            stored.insert(
+                key.to_owned(),
+                (Bytes::copy_from_slice(bytes), generation.to_owned()),
+            );
+            objects.push(TypedLayoutObjectIdentityV1 {
+                role,
+                key: key.to_owned(),
+                generation: generation.to_owned(),
+                length: u64::try_from(bytes.len()).expect("object length"),
+                sha256: content_sha256(bytes),
+            });
+        }
+        let child = TypedLayoutChildV1::seal(
+            TypedLayoutSubjectV1::C0IndexedRow,
+            "doss-objectkv-dev-okv-evals".to_owned(),
+            "aa".repeat(32),
+            "objectkv.t28.typed-row.v1".to_owned(),
+            "bb".repeat(32),
+            5,
+            "c0/manifest.json".to_owned(),
+            vec![
+                TypedLayoutCapabilityV1::Point,
+                TypedLayoutCapabilityV1::ProjectedScan,
+            ],
+            objects,
+        )
+        .expect("seal child");
+        let raw: Arc<dyn Backend> = Arc::new(TestGenerationBackend { objects: stored });
+        let observed = Arc::new(ProviderAttemptBackend::new(raw, "c0").expect("attempt backend"));
+        let backend = GenerationPinnedChildBackend::new(observed.clone(), &child)
+            .expect("generation backend");
+
+        let read = backend
+            .get("c0/data.okvb", Some(1..3), None)
+            .await
+            .expect("pinned range read");
+        assert_eq!(read.bytes, Bytes::from_static(b"at"));
+        let events = observed.events();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].phase, ProviderAttemptPhase::Started);
+        assert_eq!(
+            events[0]
+                .expected_revision
+                .as_ref()
+                .and_then(|revision| revision.version.as_deref()),
+            Some(child.objects[0].generation.as_str())
+        );
+
+        let wrong = RevisionToken {
+            e_tag: None,
+            version: Some("999".to_owned()),
+        };
+        assert!(backend
+            .get("c0/data.okvb", Some(1..3), Some(&wrong))
+            .await
+            .is_err());
+        assert!(backend.list("c0").await.is_err());
+        assert!(backend
+            .put("c0/new", Bytes::from_static(b"new"), WriteCondition::Create)
+            .await
+            .is_err());
+        assert_eq!(observed.events().len(), 2);
     }
 }
