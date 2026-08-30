@@ -20,10 +20,10 @@ use datafusion::common::{DataFusionError, Result as DataFusionResult};
 use okv_htap::{RangeRowTableProvider, RangeStripeSource};
 use okv_object::{
     content_sha256, prefixed_backend, read_indexed_point, read_planned_block, Backend,
-    PointBlockPlanV1, PointRead, PointReadOutcome, RowObjectManifestV1, RowSegmentIndex,
+    PointBlockPlanV1, PointRead, PointReadOutcome, RowObjectManifestV1, RowRecord, RowSegmentIndex,
     WriteCondition,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Formatter};
@@ -52,6 +52,26 @@ pub struct T28TypedLayoutPublication {
     pub root_bytes: u64,
 }
 
+/// One deterministic point operation plus its independently bound outcome.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28TypedPointOperationV1 {
+    pub ordinal: u64,
+    pub key: u64,
+    pub read_version: u64,
+    pub expected_outcome_sha256: String,
+}
+
+/// Complete 1,024-operation trace authenticated against the external oracle.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28TypedPointTraceV1 {
+    pub trace_seed: u64,
+    pub operation_sequence_sha256: String,
+    pub expected_outcomes_sha256: String,
+    pub operations: Vec<T28TypedPointOperationV1>,
+}
+
 /// Read-only typed root reopened from one exact provider generation.
 pub struct T28OpenedTypedLayout {
     fixture: TypedLayoutFixtureV1,
@@ -77,6 +97,74 @@ pub fn t28_typed_layout_profile() -> StorageLayoutProfile {
         seeds: vec![5_699],
         repeats: 1,
     }
+}
+
+/// Derive one complete point trace and require both aggregate hashes to match
+/// the independent JavaScript oracle.
+///
+/// # Errors
+///
+/// Returns an error for an unknown seed or any generator, operation, version,
+/// or expected-outcome drift.
+pub fn derive_t28_typed_point_trace(
+    oracle: &T28LayoutOracleV1,
+    trace_seed: u64,
+) -> Result<T28TypedPointTraceV1, String> {
+    oracle.validate()?;
+    let expected_trace = oracle
+        .traces
+        .iter()
+        .find(|trace| trace.seed == trace_seed)
+        .ok_or_else(|| "RFC-0048 trace seed is outside the independent oracle".to_owned())?;
+    let profile = t28_typed_layout_profile();
+    let history = LogicalHistory::generate(&profile, oracle.fixture.seed)?;
+    validate_history_against_oracle(&history, oracle)?;
+    let operation_count = u64::try_from(profile.point_operations).unwrap_or(u64::MAX);
+    let mut operation_digest = Sha256::new();
+    operation_digest.update(b"okv-t28-point-operations-v1\0");
+    operation_digest.update(trace_seed.to_be_bytes());
+    operation_digest.update(operation_count.to_be_bytes());
+    let mut outcome_digest = Sha256::new();
+    outcome_digest.update(b"okv-t28-point-outcomes-v1\0");
+    outcome_digest.update(trace_seed.to_be_bytes());
+    outcome_digest.update(operation_count.to_be_bytes());
+    let mut state = trace_seed;
+    let mut operations = Vec::with_capacity(profile.point_operations);
+    for ordinal in 0..profile.point_operations {
+        let ordinal = u64::try_from(ordinal).unwrap_or(u64::MAX);
+        state = splitmix64(state ^ ordinal);
+        let key = state % profile.key_count;
+        state = splitmix64(state);
+        let read_version = profile.base_version
+            + (state % profile.base_version.saturating_add(profile.delta_cycles));
+        let mut prefix = Vec::with_capacity(24);
+        prefix.extend_from_slice(&ordinal.to_be_bytes());
+        prefix.extend_from_slice(&key.to_be_bytes());
+        prefix.extend_from_slice(&read_version.to_be_bytes());
+        operation_digest.update(&prefix);
+        outcome_digest.update(&prefix);
+        let encoded_outcome = encode_expected_outcome(history.visible(key, read_version));
+        outcome_digest.update(&encoded_outcome);
+        operations.push(T28TypedPointOperationV1 {
+            ordinal,
+            key,
+            read_version,
+            expected_outcome_sha256: content_sha256(&encoded_outcome),
+        });
+    }
+    let operation_sequence_sha256 = format!("{:x}", operation_digest.finalize());
+    let expected_outcomes_sha256 = format!("{:x}", outcome_digest.finalize());
+    if operation_sequence_sha256 != expected_trace.operation_sequence_sha256
+        || expected_outcomes_sha256 != expected_trace.expected_outcomes_sha256
+    {
+        return Err("RFC-0048 Rust point trace differs from the independent oracle".to_owned());
+    }
+    Ok(T28TypedPointTraceV1 {
+        trace_seed,
+        operation_sequence_sha256,
+        expected_outcomes_sha256,
+        operations,
+    })
 }
 
 /// Publish C0 and C5 from one independently verified logical history.
@@ -386,6 +474,47 @@ fn validate_history_against_oracle(
         return Err("RFC-0048 Rust history differs from the independent oracle".to_owned());
     }
     Ok(())
+}
+
+/// Return the per-operation digest used by a sealed point execution plan.
+#[must_use]
+pub fn t28_typed_point_outcome_sha256(outcome: &PointReadOutcome) -> String {
+    content_sha256(&encode_point_outcome(outcome))
+}
+
+fn encode_expected_outcome(record: Option<&RowRecord>) -> Vec<u8> {
+    match record {
+        None => vec![0],
+        Some(record) => match &record.value {
+            None => vec![1],
+            Some(value) => {
+                let outcome = PointReadOutcome::Value(Bytes::copy_from_slice(value));
+                encode_point_outcome(&outcome)
+            }
+        },
+    }
+}
+
+fn encode_point_outcome(outcome: &PointReadOutcome) -> Vec<u8> {
+    match outcome {
+        PointReadOutcome::Absent => vec![0],
+        PointReadOutcome::Tombstone => vec![1],
+        PointReadOutcome::Value(value) => {
+            let mut encoded = Vec::with_capacity(value.len().saturating_add(9));
+            encoded.push(2);
+            encoded
+                .extend_from_slice(&u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+            encoded.extend_from_slice(value);
+            encoded
+        }
+    }
+}
+
+const fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
 }
 
 fn ordered_projection_sha256(rows: &[ProjectedRow]) -> String {
@@ -742,8 +871,12 @@ fn projection_batch(
 
 #[cfg(test)]
 mod tests {
-    use super::{projection_batch, projection_schema, RowBlockReadPlan, RowProjectionSource};
+    use super::{
+        derive_t28_typed_point_trace, projection_batch, projection_schema, RowBlockReadPlan,
+        RowProjectionSource,
+    };
     use crate::storage_layout::{prepare_row_layout, LogicalHistory, StorageLayoutProfile};
+    use crate::t28_layout::decode_t28_layout_oracle;
     use arrow::array::UInt64Array;
     use datafusion::prelude::SessionContext;
     use okv_htap::RangeRowTableProvider;
@@ -766,6 +899,24 @@ mod tests {
             overlay_cache_bytes: 64 * 1_024,
             seeds: vec![5_699],
             repeats: 1,
+        }
+    }
+
+    #[test]
+    fn all_rust_point_traces_match_the_independent_oracle() {
+        let oracle = decode_t28_layout_oracle(
+            include_bytes!("../../../../evals/oracles/t28-layout-geometry-v1-oracle.json"),
+            "b09eeeb482509b24ccb5e7f0c4a4d905983a612b0dbac2253519d9d82a98df86",
+        )
+        .expect("independent oracle");
+        for seed in [5_701, 5_702, 5_703] {
+            let trace = derive_t28_typed_point_trace(&oracle, seed).expect("matched trace");
+            assert_eq!(trace.operations.len(), 1_024);
+            assert_eq!(trace.operations[0].ordinal, 0);
+            assert!(trace
+                .operations
+                .iter()
+                .all(|operation| operation.expected_outcome_sha256.len() == 64));
         }
     }
 
