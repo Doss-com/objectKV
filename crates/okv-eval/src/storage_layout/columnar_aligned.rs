@@ -2,19 +2,28 @@
 
 #![allow(dead_code)]
 
+use super::columnar_overlay::{projection_batch, projection_schema};
 use super::{
-    content_sha256, key_u64, Backend, LogicalHistory, PointReadOutcome, RowRecord,
+    content_sha256, key_u64, Backend, LogicalHistory, PointReadOutcome, ProjectedRow, RowRecord,
     StorageLayoutProfile, ValueFields, WriteCondition,
 };
 use crate::t28_layout::{
     GenerationPinnedChildBackend, TypedLayoutObjectIdentityV1, TypedLayoutObjectRoleV1,
 };
+use arrow::datatypes::SchemaRef;
+use arrow::record_batch::RecordBatch;
+use async_trait::async_trait;
 use bytes::Bytes;
+use datafusion::common::{DataFusionError, Result as DataFusionResult};
+use okv_htap::{RangeStripeSource, RangeStripeTableProvider};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
+use std::fmt::{Debug, Formatter};
 use std::ops::Range;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 const FORMAT_VERSION: u16 = 2;
 const FORMAT_GENERATION: u64 = 1;
@@ -366,6 +375,70 @@ pub(super) struct T28AlignedColumnarCore {
     read_version: u64,
 }
 
+/// One C5v2 provider plus counters owned by its projection-only source.
+pub(super) struct T28AlignedColumnarScanCore {
+    provider: Arc<RangeStripeTableProvider>,
+    source: Arc<AlignedProjectionStripeSource>,
+}
+
+/// Stable snapshot of C5v2 object-fetch counters.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct T28AlignedColumnarSourceSnapshot {
+    pub projection_fetch_requests: u64,
+    pub peak_fetch_bytes: u64,
+    pub payload_requests: u64,
+    pub payload_response_bytes: u64,
+}
+
+struct AlignedProjectionStripeSource {
+    backend: Arc<dyn Backend>,
+    prepared: Arc<PreparedAlignedLayout>,
+    read_version: u64,
+    scan_fetch_target_bytes: usize,
+    scan_group: Mutex<Option<CachedAlignedProjectionGroup>>,
+    projection_fetch_requests: AtomicU64,
+    peak_fetch_bytes: AtomicU64,
+}
+
+struct CachedAlignedProjectionGroup {
+    first_ordinal: usize,
+    end_ordinal: usize,
+    object_offset: usize,
+    bytes: Bytes,
+}
+
+impl CachedAlignedProjectionGroup {
+    fn contains(&self, ordinal: usize) -> bool {
+        (self.first_ordinal..self.end_ordinal).contains(&ordinal)
+    }
+
+    fn frame_bytes(&self, index: &AlignedIndex, ordinal: usize) -> Result<Bytes, String> {
+        let range = index.projection_range(ordinal)?;
+        let start = range
+            .start
+            .checked_sub(self.object_offset)
+            .ok_or_else(|| "cached C5v2 scan group begins after its frame".to_owned())?;
+        let end = start
+            .checked_add(range.len())
+            .ok_or_else(|| "cached C5v2 scan-group slice overflow".to_owned())?;
+        if end > self.bytes.len() {
+            return Err("cached C5v2 scan group does not cover its frame".to_owned());
+        }
+        Ok(self.bytes.slice(start..end))
+    }
+}
+
+impl Debug for AlignedProjectionStripeSource {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AlignedProjectionStripeSource")
+            .field("groups", &self.prepared.index.entries.len())
+            .field("read_version", &self.read_version)
+            .field("scan_fetch_target_bytes", &self.scan_fetch_target_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Publish the independently frozen C5v2 bytes through a create-only backend.
 pub(super) async fn prepare_t28_aligned_columnar_layout(
     profile: &StorageLayoutProfile,
@@ -465,6 +538,170 @@ impl T28AlignedColumnarCore {
             .manifest_bytes
             .saturating_add(self.prepared.index_bytes)
     }
+
+    pub(super) fn table_provider(
+        &self,
+        scan_fetch_target_bytes: usize,
+    ) -> T28AlignedColumnarScanCore {
+        let source = Arc::new(AlignedProjectionStripeSource {
+            backend: Arc::clone(&self.backend),
+            prepared: Arc::clone(&self.prepared),
+            read_version: self.read_version,
+            scan_fetch_target_bytes,
+            scan_group: Mutex::new(None),
+            projection_fetch_requests: AtomicU64::new(0),
+            peak_fetch_bytes: AtomicU64::new(0),
+        });
+        T28AlignedColumnarScanCore {
+            provider: Arc::new(RangeStripeTableProvider::new(source.clone())),
+            source,
+        }
+    }
+}
+
+impl T28AlignedColumnarScanCore {
+    pub(super) fn provider(&self) -> Arc<RangeStripeTableProvider> {
+        Arc::clone(&self.provider)
+    }
+
+    pub(super) fn source_snapshot(&self) -> T28AlignedColumnarSourceSnapshot {
+        T28AlignedColumnarSourceSnapshot {
+            projection_fetch_requests: self
+                .source
+                .projection_fetch_requests
+                .load(Ordering::Relaxed),
+            peak_fetch_bytes: self.source.peak_fetch_bytes.load(Ordering::Relaxed),
+            payload_requests: 0,
+            payload_response_bytes: 0,
+        }
+    }
+}
+
+impl AlignedProjectionStripeSource {
+    async fn projection_frame(&self, ordinal: usize) -> Result<Bytes, String> {
+        if let Some(bytes) = self
+            .scan_group
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .filter(|group| group.contains(ordinal))
+            .map(|group| group.frame_bytes(&self.prepared.index, ordinal))
+            .transpose()?
+        {
+            return Ok(bytes);
+        }
+
+        let mut end_ordinal = ordinal;
+        let mut fetch_bytes = 0_usize;
+        while end_ordinal < self.prepared.index.entries.len() {
+            let next = self.prepared.index.projection_range(end_ordinal)?.len();
+            if end_ordinal > ordinal
+                && (self.scan_fetch_target_bytes == 0
+                    || fetch_bytes.saturating_add(next) > self.scan_fetch_target_bytes)
+            {
+                break;
+            }
+            fetch_bytes = fetch_bytes.saturating_add(next);
+            end_ordinal = end_ordinal.saturating_add(1);
+        }
+        let first = self.prepared.index.projection_range(ordinal)?;
+        let last = self
+            .prepared
+            .index
+            .projection_range(end_ordinal.saturating_sub(1))?;
+        let range = first.start..last.end;
+        let read = self
+            .backend
+            .get(PROJECTION_KEY, Some(to_u64_range(range.clone())?), None)
+            .await
+            .map_err(|error| error.to_string())?;
+        if usize::try_from(read.returned_range.start).ok() != Some(range.start)
+            || usize::try_from(read.returned_range.end).ok() != Some(range.end)
+            || read.bytes.len() != range.len()
+        {
+            return Err("C5v2 projection scan-group range framing mismatch".to_owned());
+        }
+        let group_bytes = u64::try_from(read.bytes.len()).unwrap_or(u64::MAX);
+        self.projection_fetch_requests
+            .fetch_add(1, Ordering::Relaxed);
+        self.peak_fetch_bytes
+            .fetch_max(group_bytes, Ordering::Relaxed);
+        let group = CachedAlignedProjectionGroup {
+            first_ordinal: ordinal,
+            end_ordinal,
+            object_offset: range.start,
+            bytes: read.bytes,
+        };
+        let frame = group.frame_bytes(&self.prepared.index, ordinal)?;
+        *self
+            .scan_group
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(group);
+        Ok(frame)
+    }
+}
+
+#[async_trait]
+impl RangeStripeSource for AlignedProjectionStripeSource {
+    fn schema(&self) -> SchemaRef {
+        projection_schema()
+    }
+
+    fn stripe_count(&self) -> usize {
+        self.prepared.index.entries.len()
+    }
+
+    async fn read_stripe(
+        &self,
+        stripe_index: usize,
+        projection: Option<&[usize]>,
+    ) -> DataFusionResult<RecordBatch> {
+        let frame = self
+            .projection_frame(stripe_index)
+            .await
+            .map_err(DataFusionError::Execution)?;
+        let (record_count, content) = decode_frame(
+            FrameKind::Projection,
+            &frame,
+            stripe_index,
+            self.prepared.index.entries.len(),
+            &self.prepared.index.projection_root,
+        )
+        .map_err(DataFusionError::Execution)?;
+        let records =
+            decode_projection_content(content, record_count).map_err(DataFusionError::Execution)?;
+        let rows = visible_aligned_projection_rows(&records, self.read_version);
+        projection_batch(&rows, projection)
+            .map_err(|error| DataFusionError::ArrowError(Box::new(error), None))
+    }
+}
+
+fn visible_aligned_projection_rows(
+    records: &[AlignedProjectionRecord],
+    read_version: u64,
+) -> Vec<ProjectedRow> {
+    let mut projected = Vec::new();
+    let mut cursor = 0_usize;
+    while cursor < records.len() {
+        let key = records[cursor].key;
+        let mut visible = None;
+        while cursor < records.len() && records[cursor].key == key {
+            if visible.is_none() && records[cursor].version <= read_version {
+                visible = Some(&records[cursor]);
+            }
+            cursor = cursor.saturating_add(1);
+        }
+        let Some(fields) = visible.and_then(|record| record.fields.as_ref()) else {
+            continue;
+        };
+        projected.push(ProjectedRow {
+            key,
+            tenant: fields.tenant,
+            category: fields.category,
+            quantity: fields.quantity,
+        });
+    }
+    projected
 }
 
 async fn reopen_aligned_layout(backend: &dyn Backend) -> Result<PreparedAlignedLayout, String> {

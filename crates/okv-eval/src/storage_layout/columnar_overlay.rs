@@ -820,7 +820,7 @@ impl RangeStripeSource for ColumnarProjectionStripeSource {
     }
 }
 
-fn projection_schema() -> SchemaRef {
+pub(super) fn projection_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
         Field::new("key", DataType::UInt64, false),
         Field::new("tenant", DataType::UInt32, false),
@@ -854,7 +854,7 @@ fn visible_projection_rows(records: &[ProjectionRecord], read_version: u64) -> V
     projected
 }
 
-fn projection_batch(
+pub(super) fn projection_batch(
     rows: &[ProjectedRow],
     projection: Option<&[usize]>,
 ) -> Result<RecordBatch, arrow::error::ArrowError> {

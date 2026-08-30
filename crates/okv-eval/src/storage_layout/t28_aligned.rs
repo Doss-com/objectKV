@@ -1,8 +1,8 @@
 //! RFC-0049 root envelope and generation-pinned C5v2 reader.
 
 use super::columnar_aligned::{
-    prepare_t28_aligned_columnar_layout, T28AlignedColumnarCore, INDEX_KEY, MANIFEST_KEY,
-    PAYLOAD_KEY, PROJECTION_KEY,
+    prepare_t28_aligned_columnar_layout, T28AlignedColumnarCore, T28AlignedColumnarScanCore,
+    INDEX_KEY, MANIFEST_KEY, PAYLOAD_KEY, PROJECTION_KEY,
 };
 use super::t28_typed::{
     capture_identity, child_total_bytes, numeric_generation, validate_history_against_oracle,
@@ -281,6 +281,20 @@ pub struct T28AlignedLayoutReader {
     inner: T28AlignedColumnarCore,
 }
 
+/// C5v2-specific object-fetch counters for one projected scan.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct T28AlignedScanSnapshot {
+    pub projection_fetch_requests: u64,
+    pub peak_fetch_bytes: u64,
+    pub payload_requests: u64,
+    pub payload_response_bytes: u64,
+}
+
+/// One C5v2 DataFusion provider and its source counters.
+pub struct T28AlignedScan {
+    inner: T28AlignedColumnarScanCore,
+}
+
 impl T28AlignedLayoutReader {
     async fn open(
         backend: Arc<dyn Backend>,
@@ -309,10 +323,38 @@ impl T28AlignedLayoutReader {
         self.inner.point(key, read_version).await
     }
 
+    /// Create a projection-only C5v2 provider over bounded aligned frames.
+    #[must_use]
+    pub fn table_provider(&self, scan_fetch_target_bytes: usize) -> T28AlignedScan {
+        T28AlignedScan {
+            inner: self.inner.table_provider(scan_fetch_target_bytes),
+        }
+    }
+
     /// Bytes retained after manifest and index warmup.
     #[must_use]
     pub fn resident_metadata_bytes(&self) -> u64 {
         self.inner.resident_metadata_bytes()
+    }
+}
+
+impl T28AlignedScan {
+    /// Return the provider registered in one fresh DataFusion context.
+    #[must_use]
+    pub fn provider(&self) -> Arc<okv_htap::RangeStripeTableProvider> {
+        self.inner.provider()
+    }
+
+    /// Sample C5v2 source counters after the result stream has drained.
+    #[must_use]
+    pub fn source_snapshot(&self) -> T28AlignedScanSnapshot {
+        let source = self.inner.source_snapshot();
+        T28AlignedScanSnapshot {
+            projection_fetch_requests: source.projection_fetch_requests,
+            peak_fetch_bytes: source.peak_fetch_bytes,
+            payload_requests: source.payload_requests,
+            payload_response_bytes: source.payload_response_bytes,
+        }
     }
 }
 
@@ -535,7 +577,9 @@ mod tests {
     use super::*;
     use crate::storage_layout::{publish_t28_typed_layout, T28TypedLayoutPlacementInput};
     use crate::t28_layout::decode_t28_layout_oracle;
+    use arrow::array::Int64Array;
     use async_trait::async_trait;
+    use datafusion::prelude::SessionContext;
     use okv_object::{
         BackendDescriptor, BackendRead, ErrorClass, RevisionToken, StoreError, WriteCondition,
     };
@@ -745,6 +789,41 @@ mod tests {
                 c0.point(key, version).await.expect("C0 point").outcome
             );
         }
+
+        let scan = c5v2.table_provider(256 * 1_024);
+        let provider = scan.provider();
+        let provider_stats = provider.stats();
+        let context = SessionContext::new();
+        context
+            .register_table("c5v2", provider)
+            .expect("register C5v2");
+        let batches = context
+            .sql("SELECT COUNT(*) AS row_count, SUM(quantity) AS quantity_sum FROM c5v2")
+            .await
+            .expect("plan C5v2 aggregate")
+            .collect()
+            .await
+            .expect("execute C5v2 aggregate");
+        assert_eq!(batches.len(), 1);
+        let row_count = batches[0]
+            .column_by_name("row_count")
+            .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+            .expect("row count");
+        let quantity_sum = batches[0]
+            .column_by_name("quantity_sum")
+            .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+            .expect("quantity sum");
+        assert_eq!(row_count.value(0), 15_742);
+        assert_eq!(quantity_sum.value(0), 67_524_278);
+        let source = scan.source_snapshot();
+        assert_eq!(source.projection_fetch_requests, 7);
+        assert!(source.peak_fetch_bytes <= 256 * 1_024);
+        assert_eq!(source.payload_requests, 0);
+        assert_eq!(source.payload_response_bytes, 0);
+        let provider = provider_stats.snapshot();
+        assert_eq!(provider.stripes_read, 792);
+        assert_eq!(provider.rows_emitted, 15_742);
+        assert!(provider.peak_batch_rows <= 32);
     }
 
     #[test]
