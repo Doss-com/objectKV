@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="570" viewBox="0 0 1200 570" role="img" aria-labelledby="title desc">
+  <title id="title">C5v2 immutable object closure and access paths</title>
+  <desc id="desc">The typed root names a manifest, compact index, aligned columnar projection, and opaque payload. Point reads fetch an aligned frame pair, scans read projections, and recovery authenticates the complete closure.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#757575"/></marker>
+    <style>
+      .group{fill:#fafafa;stroke:#00000014;stroke-width:1}.box{fill:#fff;stroke:#00000017;stroke-width:1}.active{fill:#fff;stroke:#1a85ff;stroke-width:1.5}.flow{fill:none;stroke:#757575;stroke-width:1.5;marker-end:url(#arrow)}.point{fill:none;stroke:#1a85ff;stroke-width:1.5;marker-end:url(#arrow)}.scan{fill:none;stroke:#757575;stroke-width:1.5;stroke-dasharray:6 4;marker-end:url(#arrow)}.title{font:600 24px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.head{font:600 15px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.text{font:400 12px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#4d4d4d}.small{font:400 11px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#6b6b6b}.status{font:600 10px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#0061d5;letter-spacing:.4px}
+    </style>
+  </defs>
+  <text class="title" x="48" y="38">C5v2 aligns point lookup and projected scan without two truths</text>
+
+  <rect class="group" x="48" y="70" width="714" height="438" rx="4"/>
+  <text class="head" x="70" y="98">Generation-pinned immutable closure</text><text class="status" x="640" y="98">GCS VERIFIED SCOPE</text>
+  <rect class="active" x="84" y="130" width="190" height="62" rx="4"/><text class="text" x="106" y="157">typed root</text><text class="small" x="106" y="176">generation + child hashes</text>
+  <rect class="box" x="336" y="116" width="190" height="62" rx="4"/><text class="text" x="358" y="143">manifest</text><text class="small" x="358" y="162">schema and inventory</text>
+  <rect class="box" x="336" y="202" width="190" height="62" rx="4"/><text class="text" x="358" y="229">compact index</text><text class="small" x="358" y="248">key to group + frame</text>
+  <rect class="active" x="588" y="116" width="142" height="112" rx="4"/><text class="text" x="610" y="143">projection.okp2</text><text class="small" x="610" y="166">ordered keys</text><text class="small" x="610" y="184">typed columns</text><text class="small" x="610" y="202">792 frames</text>
+  <rect class="active" x="588" y="252" width="142" height="112" rx="4"/><text class="text" x="610" y="279">payload.okd2</text><text class="small" x="610" y="302">opaque values</text><text class="small" x="610" y="320">tombstones</text><text class="small" x="610" y="338">792 frames</text>
+  <path class="flow" d="M274 161H310V147H336"/><path class="flow" d="M274 161H310V233H336"/>
+  <path class="flow" d="M526 147H588"/><path class="flow" d="M526 233H556V308H588"/>
+  <rect class="box" x="84" y="314" width="442" height="150" rx="4"/>
+  <text class="head" x="106" y="343">Integrity at each level</text>
+  <text class="text" x="106" y="373">root authenticates child inventory</text>
+  <text class="text" x="106" y="397">full-object SHA authenticates complete recovery</text>
+  <text class="text" x="106" y="421">frame proofs authenticate bounded point and scan reads</text>
+  <text class="small" x="106" y="447">No LIST is required to discover current state.</text>
+
+  <rect class="group" x="790" y="70" width="362" height="438" rx="4"/>
+  <text class="head" x="812" y="98">Access paths</text>
+  <rect class="box" x="826" y="130" width="290" height="84" rx="4"/><text class="head" x="848" y="157">Point read</text><text class="text" x="848" y="180">root + index + aligned frame pair</text><text class="small" x="848" y="199">0.869x C0 p99 in GCS preflight</text>
+  <rect class="box" x="826" y="236" width="290" height="84" rx="4"/><text class="head" x="848" y="263">Projected scan</text><text class="text" x="848" y="286">coalesced projection ranges only</text><text class="small" x="848" y="305">31.692x C0 rows/s in preflight</text>
+  <rect class="box" x="826" y="342" width="290" height="114" rx="4"/><text class="head" x="848" y="369">Complete recovery</text><text class="text" x="848" y="392">five named GETs, zero LIST/writes</text><text class="text" x="848" y="414">25,014 MVCC records, 792.221 ms</text><text class="small" x="848" y="437">full hydration, not point-read cost</text>
+  <path class="point" d="M730 172H790"/><path class="scan" d="M730 189H776V278H826"/><path class="flow" d="M730 308H776V399H826"/>
+  <text class="small" x="48" y="542">One closure carries ordered row identity, scan-friendly columns, opaque values, version history, and authentication metadata.</text>
+</svg>

@@ -192,6 +192,12 @@ the status authority.
 | 11 | DataFusion base-plus-tail HTAP | `[EVALUATING]` | Exact local four-row overlay uses 5,518 bytes with zero spill; source scan reaches 2.544M rows/s; scaled tail and interference curves are unmeasured | Exact snapshot; tail at most 1 percent adds at most 20 percent; materialize before 10 percent; explicit OLTP interference budget | Scale exact base-plus-tail at 0, 0.1, 1, and 10 percent tail |
 | 12 | Complete-stack economics and operations | `[PROPOSED]` | Component measurements exist; no matched complete-stack cost or failure envelope | Publish every loss and at least one material branch, restore, footprint, elasticity, HTAP, or cost advantage | Run only after the chosen profiles in rows 1 through 11 are admitted |
 
+Current architecture synthesis: the 2026-08-30
+[VLDB working paper](../papers/objectkv-vldb/objectkv-vldb.pdf) presents the
+storage-to-fabric construction, cell services, commit/read/HTAP flows, C5v2
+layout, formal boundary, infrastructure ladder, and this matrix in one stable
+artifact. It changes no row status by itself.
+
 The matrix is updated under this closeout rule:
 
 ```text

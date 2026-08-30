@@ -1,66 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
-  <title id="title">objectKV systems to infrastructure proof ladder</title>
-  <desc id="desc">A seven-rung proof ladder. Model, local files, local MinIO, and local operating-system processes have measured evidence. Independent machines and zones are not yet verified. GCP configuration is code complete while deployment is evaluating.</desc>
+  <title id="title">objectKV evidence ladder</title>
+  <desc id="desc">The evidence ladder separates finite formal models, local mechanism tests, single-cloud-machine GCS and NVMe evidence, independent-machine quorum tests, and sustained multi-zone curves.</desc>
   <defs>
     <style>
-      .bg{fill:#fafafa}.v{fill:#ecfdf5;stroke:#059669;stroke-width:2}.c{fill:#eff6ff;stroke:#2563eb;stroke-width:2}.e{fill:#fffbeb;stroke:#d97706;stroke-width:2}.f{fill:#fafafa;stroke:#a1a1aa;stroke-width:2;stroke-dasharray:8 6}.title{font:700 22px Arial,sans-serif;fill:#18181b}.label{font:700 15px Arial,sans-serif;fill:#27272a}.body{font:13px Arial,sans-serif;fill:#52525b}.small{font:11px Arial,sans-serif;fill:#71717a}.num{font:700 18px Arial,sans-serif;fill:#18181b}.axis{stroke:#a1a1aa;stroke-width:2}
+      .done{fill:#fff;stroke:#1a85ff;stroke-width:1.5}.open{fill:#fafafa;stroke:#c9c9c9;stroke-width:1;stroke-dasharray:7 5}.axis{stroke:#757575;stroke-width:1.5}.title{font:600 24px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.head{font:600 14px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.text{font:400 12px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#4d4d4d}.small{font:400 11px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#6b6b6b}.status{font:600 10px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#0061d5;letter-spacing:.4px}.num{font:600 18px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}
     </style>
   </defs>
-  <rect class="bg" x="0" y="0" width="1200" height="520"/>
-  <text class="title" x="48" y="42">What execution substrate backs each current claim?</text>
-  <line class="axis" x1="78" y1="462" x2="1120" y2="462"/>
-
-  <g transform="translate(48,76)">
-    <rect class="v" width="144" height="350" rx="4"/>
-    <text class="num" x="18" y="34">1</text>
-    <text class="label" x="18" y="68">Deterministic</text><text class="label" x="18" y="87">model</text>
-    <text class="body" x="18" y="126">MVCC, commit,</text><text class="body" x="18" y="145">HTAP, GC</text>
-    <text class="small" x="18" y="314">VERIFIED</text><text class="small" x="18" y="332">not systems proof</text>
-  </g>
-  <g transform="translate(206,118)">
-    <rect class="v" width="144" height="308" rx="4"/>
-    <text class="num" x="18" y="34">2</text>
-    <text class="label" x="18" y="68">Local files</text>
-    <text class="body" x="18" y="107">real sync calls,</text><text class="body" x="18" y="126">reopen, corruption</text>
-    <text class="small" x="18" y="272">VERIFIED</text><text class="small" x="18" y="290">one machine</text>
-  </g>
-  <g transform="translate(364,160)">
-    <rect class="v" width="144" height="266" rx="4"/>
-    <text class="num" x="18" y="34">3</text>
-    <text class="label" x="18" y="68">Local MinIO</text>
-    <text class="body" x="18" y="107">real S3-compatible</text><text class="body" x="18" y="126">protocol server</text>
-    <text class="small" x="18" y="230">VERIFIED</text><text class="small" x="18" y="248">loopback Docker</text>
-  </g>
-  <g transform="translate(522,202)">
-    <rect class="v" width="144" height="224" rx="4"/>
-    <text class="num" x="18" y="34">4</text>
-    <text class="label" x="18" y="68">OS processes</text>
-    <text class="body" x="18" y="107">TCP, SIGKILL,</text><text class="body" x="18" y="126">leader failover</text>
-    <text class="small" x="18" y="188">VERIFIED</text><text class="small" x="18" y="206">one machine</text>
-  </g>
-  <g transform="translate(680,244)">
-    <rect class="f" width="144" height="182" rx="4"/>
-    <text class="num" x="18" y="34">5</text>
-    <text class="label" x="18" y="68">Machines</text>
-    <text class="body" x="18" y="107">independent NVMe</text><text class="body" x="18" y="126">and power loss</text>
-    <text class="small" x="18" y="164">PROPOSED</text>
-  </g>
-  <g transform="translate(838,286)">
-    <rect class="e" width="144" height="140" rx="4"/>
-    <text class="num" x="18" y="34">6</text>
-    <text class="label" x="18" y="68">Zones + GCS</text>
-    <text class="body" x="18" y="105">config complete</text>
-    <text class="small" x="18" y="124">EVALUATING</text>
-  </g>
-  <g transform="translate(996,328)">
-    <rect class="f" width="144" height="98" rx="4"/>
-    <text class="num" x="18" y="34">7</text>
-    <text class="label" x="18" y="64">Sustained curves</text>
-    <text class="small" x="18" y="84">PROPOSED</text>
-  </g>
-
-  <text class="small" x="48" y="488">More realistic execution substrate →</text>
-  <rect class="v" x="812" y="468" width="14" height="14"/><text class="small" x="834" y="480">Verified</text>
-  <rect class="c" x="914" y="468" width="14" height="14"/><text class="small" x="936" y="480">Code Complete</text>
-  <rect class="e" x="1052" y="468" width="14" height="14"/><text class="small" x="1074" y="480">Evaluating</text>
+  <text class="title" x="48" y="38">Evidence becomes stronger as failure domains separate</text>
+  <line class="axis" x1="72" y1="446" x2="1128" y2="446"/>
+  <g transform="translate(48,84)"><rect class="done" width="190" height="326" rx="4"/><text class="num" x="20" y="34">1</text><text class="head" x="20" y="68">Finite formal model</text><text class="text" x="20" y="100">TLA+ transitions</text><text class="text" x="20" y="122">two healthy scopes</text><text class="text" x="20" y="144">six named poisons</text><text class="status" x="20" y="288">VERIFIED</text><text class="small" x="20" y="310">safety only</text></g>
+  <g transform="translate(258,126)"><rect class="done" width="190" height="284" rx="4"/><text class="num" x="20" y="34">2</text><text class="head" x="20" y="68">Local mechanisms</text><text class="text" x="20" y="100">files + MinIO</text><text class="text" x="20" y="122">TCP processes</text><text class="text" x="20" y="144">kill + restart</text><text class="status" x="20" y="246">VERIFIED</text><text class="small" x="20" y="268">one host</text></g>
+  <g transform="translate(468,168)"><rect class="done" width="220" height="242" rx="4"/><text class="num" x="20" y="34">3</text><text class="head" x="20" y="68">GCP NVMe + GCS</text><text class="text" x="20" y="100">matched hot reads</text><text class="text" x="20" y="122">object geometry</text><text class="text" x="20" y="144">closure recovery</text><text class="status" x="20" y="204">VERIFIED SCOPE</text><text class="small" x="20" y="226">single machine, real services</text></g>
+  <g transform="translate(708,230)"><rect class="open" width="210" height="180" rx="4"/><text class="num" x="20" y="34">4</text><text class="head" x="20" y="68">Independent machines</text><text class="text" x="20" y="100">three stable media</text><text class="text" x="20" y="122">quorum latency</text><text class="status" x="20" y="158">EVALUATING</text></g>
+  <g transform="translate(938,292)"><rect class="open" width="214" height="118" rx="4"/><text class="num" x="20" y="34">5</text><text class="head" x="20" y="64">Sustained multi-zone</text><text class="text" x="20" y="88">failure + cost curves</text><text class="status" x="20" y="108">PROPOSED</text></g>
+  <text class="small" x="48" y="480">Model confidence</text><text class="small" x="1030" y="480">Operational confidence</text>
+  <text class="small" x="48" y="504">Every verified claim remains limited to its named scope, source, topology, workload, and control.</text>
 </svg>

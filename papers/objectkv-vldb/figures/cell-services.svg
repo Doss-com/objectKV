@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">Target objectKV cell service topology</title>
+  <desc id="desc">A service map showing client sessions, read-version and commit services, resolver partitions, transaction logs, RangeEngines, materializers, and control authorities inside one bounded cell.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#757575"/></marker>
+    <style>
+      .box{fill:#ffffff;stroke:#00000017;stroke-width:1}.active{fill:#ffffff;stroke:#1a85ff;stroke-width:1.5}.future{fill:#fafafa;stroke:#c9c9c9;stroke-width:1;stroke-dasharray:7 5}.group{fill:#fafafa;stroke:#00000014;stroke-width:1}.flow{fill:none;stroke:#757575;stroke-width:1.5;marker-end:url(#arrow)}.reply{fill:none;stroke:#c9c9c9;stroke-width:1.25;stroke-dasharray:5 4;marker-end:url(#arrow)}.title{font:600 24px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.head{font:600 15px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.text{font:400 12px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#4d4d4d}.small{font:400 11px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#6b6b6b}.status{font:600 10px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#0061d5;letter-spacing:.4px}
+    </style>
+  </defs>
+  <text class="title" x="48" y="38">One cell is the distributed system</text>
+
+  <rect class="group" x="48" y="64" width="1104" height="500" rx="4"/>
+  <text class="head" x="70" y="90">cell boundary, one commit-version space and one tenant transaction domain</text>
+
+  <rect class="box" x="84" y="122" width="210" height="72" rx="4"/>
+  <text class="head" x="106" y="150">client session</text>
+  <text class="text" x="106" y="174">reads, writes, retry identity</text>
+
+  <rect class="future" x="348" y="108" width="224" height="72" rx="4"/>
+  <text class="head" x="370" y="136">read-version service</text>
+  <text class="text" x="370" y="160">choose snapshot T</text>
+  <text class="status" x="482" y="126">PROPOSED</text>
+
+  <rect class="future" x="348" y="212" width="224" height="72" rx="4"/>
+  <text class="head" x="370" y="240">commit proxy</text>
+  <text class="text" x="370" y="264">batch and order requests</text>
+  <text class="status" x="486" y="230">PROPOSED</text>
+
+  <rect class="future" x="632" y="212" width="224" height="72" rx="4"/>
+  <text class="head" x="654" y="240">resolver partitions</text>
+  <text class="text" x="654" y="264">validate conflict ranges</text>
+  <text class="status" x="766" y="230">PROPOSED</text>
+
+  <rect class="active" x="916" y="212" width="202" height="72" rx="4"/>
+  <text class="head" x="938" y="240">txLog set</text>
+  <text class="text" x="938" y="264">stable quorum suffix</text>
+  <text class="status" x="1022" y="230">L1</text>
+
+  <rect class="active" x="84" y="348" width="300" height="104" rx="4"/>
+  <text class="head" x="106" y="376">RangeEngine A</text>
+  <text class="text" x="106" y="400">range [a, m), overlay + image</text>
+  <text class="text" x="106" y="424">direct reads at admitted T</text>
+  <text class="status" x="282" y="376">SINGLE RANGE</text>
+
+  <rect class="future" x="450" y="348" width="300" height="104" rx="4"/>
+  <text class="head" x="472" y="376">RangeEngine B</text>
+  <text class="text" x="472" y="400">range [m, z), independent budget</text>
+  <text class="text" x="472" y="424">same cell transaction history</text>
+  <text class="status" x="650" y="376">PROPOSED</text>
+
+  <rect class="active" x="816" y="348" width="302" height="104" rx="4"/>
+  <text class="head" x="838" y="376">storage materializer</text>
+  <text class="text" x="838" y="400">objects + pending frontier</text>
+  <text class="text" x="838" y="424">safe pop + active frontier</text>
+  <text class="status" x="1018" y="376">EVALUATING</text>
+
+  <rect class="future" x="84" y="492" width="1034" height="48" rx="4"/>
+  <text class="head" x="106" y="521">control: generation authority · membership · assignments · recovery · rate limits</text>
+  <text class="status" x="1004" y="511">PROPOSED</text>
+
+  <path class="flow" d="M294 144H348"/>
+  <path class="flow" d="M189 194V248H348"/>
+  <path class="flow" d="M572 248H632"/>
+  <path class="flow" d="M856 248H916"/>
+  <path class="flow" d="M1017 284V320H967V348"/>
+  <path class="flow" d="M460 180V320H234V348"/>
+  <path class="flow" d="M460 180V320H600V348"/>
+  <path class="reply" d="M916 276H856"/>
+  <path class="reply" d="M348 270H294V174"/>
+  <path class="flow" d="M384 400H816"/>
+  <path class="flow" d="M750 400H816"/>
+  <text class="small" x="867" y="239">commit</text>
+  <text class="small" x="301" y="237">request</text>
+  <text class="small" x="300" y="312">read route</text>
+  <text class="small" x="506" y="390">applied tail</text>
+</svg>

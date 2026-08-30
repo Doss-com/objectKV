@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Four performance curves that characterize objectKV balance</title>
+  <desc id="desc">A two by two set of direct-labeled charts covers resident throughput, resident p99 latency, deferred cache-tail percentiles, and C5v2 object-layout leverage.</desc>
+  <defs>
+    <style>
+      .panel{fill:#fafafa;stroke:#00000014;stroke-width:1}.bar{fill:#1a85ff}.muted{fill:#c9c9c9}.risk{fill:#727272}.line{stroke:#a8a8a8;stroke-width:1}.gate{stroke:#1a85ff;stroke-width:1.5;stroke-dasharray:6 4}.title{font:600 24px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.head{font:600 15px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.text{font:400 12px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#4d4d4d}.small{font:400 11px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#6b6b6b}.value{font:600 12px ui-monospace,"SF Mono",Menlo,monospace;fill:#171717}.status{font:600 10px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#0061d5;letter-spacing:.4px}
+    </style>
+  </defs>
+  <text class="title" x="48" y="38">Four curves determine whether the architecture is balanced</text>
+
+  <rect class="panel" x="48" y="70" width="532" height="278" rx="4"/>
+  <text class="head" x="70" y="98">Resident throughput / direct RocksDB</text><text class="status" x="464" y="98">VERIFIED</text>
+  <line class="line" x1="124" y1="278" x2="548" y2="278"/><line class="gate" x1="124" y1="244" x2="548" y2="244"/>
+  <text class="small" x="72" y="248">0.80 gate</text>
+  <rect class="bar" x="178" y="130" width="74" height="148"/><text class="value" x="190" y="122">0.914x</text><text class="text" x="190" y="300">1 client</text>
+  <rect class="bar" x="310" y="136" width="74" height="142"/><text class="value" x="322" y="128">0.877x</text><text class="text" x="322" y="300">8 clients</text>
+  <rect class="bar" x="442" y="134" width="74" height="144"/><text class="value" x="454" y="126">0.885x</text><text class="text" x="450" y="300">32 clients</text>
+  <text class="small" x="70" y="328">Median of AB/BA matched-topology ratios. Higher is better.</text>
+
+  <rect class="panel" x="620" y="70" width="532" height="278" rx="4"/>
+  <text class="head" x="642" y="98">Resident p99 / direct RocksDB</text><text class="status" x="1036" y="98">VERIFIED</text>
+  <line class="line" x1="696" y1="278" x2="1120" y2="278"/><line class="gate" x1="696" y1="128" x2="1120" y2="128"/>
+  <text class="small" x="644" y="132">1.20 gate</text>
+  <rect class="bar" x="750" y="164" width="74" height="114"/><text class="value" x="762" y="156">0.913x</text><text class="text" x="762" y="300">1 client</text>
+  <rect class="bar" x="882" y="134" width="74" height="144"/><text class="value" x="894" y="126">1.153x</text><text class="text" x="894" y="300">8 clients</text>
+  <rect class="bar" x="1014" y="137" width="74" height="141"/><text class="value" x="1026" y="129">1.128x</text><text class="text" x="1018" y="300">32 clients</text>
+  <text class="small" x="642" y="328">Lower is better. All admitted points remain below 1.20x.</text>
+
+  <rect class="panel" x="48" y="380" width="532" height="278" rx="4"/>
+  <text class="head" x="70" y="408">Cache diagnostic latency / control</text><text class="status" x="446" y="408">EVALUATING</text>
+  <line class="line" x1="124" y1="588" x2="548" y2="588"/><line class="gate" x1="124" y1="520" x2="548" y2="520"/>
+  <text class="small" x="72" y="524">1.20 gate</text>
+  <rect class="bar" x="152" y="532" width="64" height="56"/><text class="value" x="160" y="524">1.026x</text><text class="text" x="166" y="610">p50</text>
+  <rect class="bar" x="248" y="526" width="64" height="62"/><text class="value" x="256" y="518">1.131x</text><text class="text" x="262" y="610">p95</text>
+  <rect class="risk" x="344" y="444" width="64" height="144"/><text class="value" x="352" y="436">1.742x</text><text class="text" x="358" y="610">p99</text>
+  <rect class="bar" x="440" y="531" width="64" height="57"/><text class="value" x="448" y="523">1.032x</text><text class="text" x="448" y="610">p99.9</text>
+  <text class="small" x="70" y="638">Ten-position diagnostic only. p99 attribution is deferred, not admitted.</text>
+
+  <rect class="panel" x="620" y="380" width="532" height="278" rx="4"/>
+  <text class="head" x="642" y="408">C5v2 object geometry / C0</text><text class="status" x="1036" y="408">VERIFIED</text>
+  <text class="text" x="664" y="458">Point-read p99</text><rect class="bar" x="822" y="442" width="139" height="24"/><text class="value" x="974" y="459">0.869x</text>
+  <text class="text" x="664" y="508">Projected scan</text><rect class="bar" x="822" y="492" width="254" height="24"/><text class="value" x="974" y="509">31.692x</text>
+  <text class="text" x="664" y="558">Object bytes</text><rect class="bar" x="822" y="542" width="167" height="24"/><text class="value" x="1002" y="559">1.043x</text>
+  <text class="small" x="822" y="478">lower is better</text><text class="small" x="822" y="528">higher is better</text><text class="small" x="822" y="578">lower is better</text>
+  <text class="small" x="642" y="638">Real GCS viewer-only preflight. Full curve verdict remains open.</text>
+
+  <text class="small" x="48" y="694">Ratios compare matched named controls. Panels summarize separate scoped receipts and do not constitute a complete-stack benchmark.</text>
+</svg>

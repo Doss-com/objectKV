@@ -1,73 +1,71 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="690" viewBox="0 0 1200 690" role="img" aria-labelledby="title desc">
-  <title id="title">The objectKV construction path from committed mutations to object state and query serving</title>
-  <desc id="desc">A layered system diagram showing clients and query engines above a transaction cell, a replicated transaction log, disposable serving workers, publication workers, and immutable row and column objects. The log retains the recovery suffix between object durable version O and commit version C.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">objectKV architecture from object storage to application fabric</title>
+  <desc id="desc">A bottom-up diagram showing immutable objects, publication and transaction logs, disposable RangeEngine serving compute, the cell transaction plane, and typed application surfaces.</desc>
   <defs>
-    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L9,4.5 L0,9 Z" fill="#52525b"/>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0L8 4L0 8Z" fill="#757575"/>
     </marker>
     <style>
-      .bg{fill:#fafafa}.panel{fill:#ffffff;stroke:#d4d4d8;stroke-width:2}.verified{fill:#ecfdf5;stroke:#059669;stroke-width:2}.code{fill:#eff6ff;stroke:#2563eb;stroke-width:2}.future{fill:#fafafa;stroke:#a1a1aa;stroke-width:2;stroke-dasharray:8 6}.title{font:700 22px Arial,sans-serif;fill:#18181b}.label{font:700 17px Arial,sans-serif;fill:#27272a}.body{font:14px Arial,sans-serif;fill:#52525b}.small{font:12px Arial,sans-serif;fill:#71717a}.mono{font:13px 'SFMono-Regular',Consolas,monospace;fill:#27272a}.flow{fill:none;stroke:#52525b;stroke-width:2.5;marker-end:url(#arrow)}.thin{fill:none;stroke:#a1a1aa;stroke-width:2;marker-end:url(#arrow)}
+      .layer{fill:#fafafa;stroke:#00000014;stroke-width:1}.node{fill:#ffffff;stroke:#00000017;stroke-width:1}.active{fill:#ffffff;stroke:#1a85ff;stroke-width:1.5}.future{fill:#fafafa;stroke:#c9c9c9;stroke-width:1;stroke-dasharray:7 5}.flow{fill:none;stroke:#757575;stroke-width:1.5;marker-end:url(#arrow)}.soft{fill:none;stroke:#c9c9c9;stroke-width:1.5;marker-end:url(#arrow)}.title{font:600 24px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717;letter-spacing:-.3px}.head{font:600 16px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.text{font:400 13px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#4d4d4d}.small{font:400 11px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#6b6b6b}.status{font:600 10px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#0061d5;letter-spacing:.4px}.mono{font:400 12px ui-monospace,"SF Mono",Menlo,monospace;fill:#4d4d4d}
     </style>
   </defs>
-  <rect class="bg" x="0" y="0" width="1200" height="690"/>
-  <text class="title" x="48" y="42">How does one committed version become durable, servable, and queryable?</text>
 
-  <rect class="future" x="48" y="72" width="1104" height="92" rx="4"/>
-  <text class="label" x="74" y="104">Serving models</text>
-  <text class="body" x="74" y="132">PostgreSQL page or row adapter</text>
-  <text class="body" x="390" y="132">Redis and search adapters</text>
-  <text class="body" x="715" y="132">DataFusion exact snapshot source</text>
-  <text class="small" x="1000" y="104">PROPOSED</text>
+  <text class="title" x="48" y="38">objectKV, one history with several physical views</text>
 
-  <rect class="panel" x="48" y="198" width="1104" height="118" rx="4"/>
-  <text class="label" x="74" y="230">One bounded transaction cell</text>
-  <rect class="future" x="74" y="250" width="240" height="42" rx="3"/>
-  <text class="body" x="92" y="276">read-version proxies</text>
-  <rect class="future" x="334" y="250" width="240" height="42" rx="3"/>
-  <text class="body" x="352" y="276">commit proxies</text>
-  <rect class="future" x="594" y="250" width="240" height="42" rx="3"/>
-  <text class="body" x="612" y="276">resolver partitions</text>
-  <rect class="future" x="854" y="250" width="270" height="42" rx="3"/>
-  <text class="body" x="872" y="276">range ownership and routing</text>
-  <text class="small" x="996" y="230">PROPOSED</text>
+  <rect class="layer" x="48" y="62" width="1104" height="112" rx="4"/>
+  <text class="head" x="70" y="88">Application fabric</text>
+  <text class="status" x="1030" y="88">PROPOSED</text>
+  <rect class="node" x="70" y="106" width="194" height="46" rx="4"/><text class="text" x="92" y="134">PostgreSQL pages</text>
+  <rect class="node" x="282" y="106" width="194" height="46" rx="4"/><text class="text" x="304" y="134">Redis-style objects</text>
+  <rect class="node" x="494" y="106" width="194" height="46" rx="4"/><text class="text" x="516" y="134">ordered logs</text>
+  <rect class="node" x="706" y="106" width="194" height="46" rx="4"/><text class="text" x="728" y="134">search and VFS</text>
+  <rect class="node" x="918" y="106" width="212" height="46" rx="4"/><text class="text" x="940" y="134">DataFusion snapshots</text>
 
-  <rect class="verified" x="48" y="352" width="320" height="130" rx="4"/>
-  <text class="label" x="72" y="384">Replicated txLog</text>
-  <text class="body" x="72" y="412">OpenRaft journal and stable frames</text>
-  <text class="mono" x="72" y="440">commit versions (O, C]</text>
-  <text class="small" x="72" y="463">VERIFIED, local processes and files</text>
+  <rect class="active" x="48" y="202" width="1104" height="82" rx="4"/>
+  <text class="head" x="70" y="232">okv-fabric</text>
+  <text class="text" x="70" y="258">read · upsert · atomic modify · delete · ordered scan · transaction envelope · snapshot version</text>
+  <text class="status" x="1002" y="232">ACTIVE WORK</text>
 
-  <rect class="future" x="440" y="352" width="320" height="130" rx="4"/>
-  <text class="label" x="464" y="384">Disposable serving worker</text>
-  <text class="body" x="464" y="412">RAM overlay + selected ServingImage</text>
-  <text class="body" x="464" y="438">SSD: RocksDB/NVMe | RAM: memory</text>
-  <text class="small" x="464" y="463">EVALUATING SSD; RAM PROPOSED</text>
+  <rect class="future" x="48" y="312" width="1104" height="112" rx="4"/>
+  <text class="head" x="70" y="338">One bounded transaction cell</text>
+  <text class="status" x="1030" y="338">PROPOSED</text>
+  <rect class="node" x="70" y="356" width="240" height="46" rx="4"/><text class="text" x="92" y="384">read-version service</text>
+  <rect class="node" x="330" y="356" width="240" height="46" rx="4"/><text class="text" x="352" y="384">commit proxy</text>
+  <rect class="node" x="590" y="356" width="240" height="46" rx="4"/><text class="text" x="612" y="384">resolver partitions</text>
+  <rect class="node" x="850" y="356" width="280" height="46" rx="4"/><text class="text" x="872" y="384">range map and assignments</text>
 
-  <rect class="verified" x="832" y="352" width="320" height="130" rx="4"/>
-  <text class="label" x="856" y="384">Publication worker</text>
-  <text class="body" x="856" y="412">Prepare → immutable PUT → Publish</text>
-  <text class="body" x="856" y="438">identity verification and recovery</text>
-  <text class="small" x="856" y="463">VERIFIED, local processes and files</text>
+  <rect class="active" x="48" y="452" width="514" height="116" rx="4"/>
+  <text class="head" x="70" y="480">RangeEngine, disposable serving compute</text>
+  <text class="text" x="70" y="508">one MVCC overlay and coverage map</text>
+  <text class="text" x="70" y="532">RAM image · native NVMe cache · RocksDB image</text>
+  <text class="status" x="438" y="480">EVALUATING</text>
 
-  <rect class="future" x="48" y="538" width="520" height="110" rx="4"/>
-  <text class="label" x="72" y="570">Transactional row objects</text>
-  <text class="body" x="72" y="598">immutable indexed segments and manifests through O</text>
-  <text class="small" x="72" y="624">PROPOSED physical format and performance curve</text>
+  <rect class="active" x="588" y="452" width="268" height="116" rx="4"/>
+  <text class="head" x="610" y="480">stable txLog</text>
+  <text class="text" x="610" y="508">ordered suffix (O, C]</text>
+  <text class="text" x="610" y="532">quorum commit depth</text>
+  <text class="status" x="744" y="480">L1 VERIFIED</text>
 
-  <rect class="future" x="632" y="538" width="520" height="110" rx="4"/>
-  <text class="label" x="656" y="570">Analytical objects</text>
-  <text class="body" x="656" y="598">Parquet or Vortex base through Wₚ plus durable tail to T</text>
-  <text class="small" x="656" y="624">EVALUATING, exact local DataFusion overlay verified</text>
+  <rect class="active" x="882" y="452" width="270" height="116" rx="4"/>
+  <text class="head" x="904" y="480">materializer</text>
+  <text class="text" x="904" y="508">build · authenticate · publish</text>
+  <text class="text" x="904" y="532">advance object frontier O</text>
+  <text class="status" x="1032" y="480">EVALUATING</text>
 
-  <path class="flow" d="M208 352 L208 318"/>
-  <path class="flow" d="M368 417 L440 417"/>
-  <path class="flow" d="M760 417 L832 417"/>
-  <path class="flow" d="M992 482 L992 516 L308 516 L308 538"/>
-  <path class="thin" d="M600 352 L600 318"/>
-  <path class="thin" d="M600 482 L600 502 L892 502 L892 538"/>
-  <path class="thin" d="M308 538 L308 516 L600 516 L600 482"/>
+  <rect class="active" x="48" y="598" width="1104" height="116" rx="4"/>
+  <text class="head" x="70" y="626">Immutable object closure, permanent reconstructable state</text>
+  <text class="mono" x="70" y="654">Database(C) = ObjectState(O) + stableTxLog(O, C]</text>
+  <text class="text" x="70" y="682">C0 indexed rows · C5v2 aligned columnar projection and opaque payload · branch roots · snapshots</text>
+  <text class="status" x="986" y="626">GCS VERIFIED SCOPE</text>
 
-  <text class="mono" x="386" y="404">apply tail</text>
-  <text class="mono" x="772" y="404">objectify</text>
-  <text class="mono" x="455" y="510">Database(C) = ObjectState(O) + txLog(O, C]</text>
+  <path class="flow" d="M600 202V174"/>
+  <path class="soft" d="M600 312V284"/>
+  <path class="flow" d="M450 452V424"/>
+  <path class="flow" d="M722 452V424"/>
+  <path class="soft" d="M1017 452V424"/>
+  <path class="flow" d="M305 598V568"/>
+  <path class="flow" d="M722 568V598"/>
+  <path class="flow" d="M1017 568V598"/>
+  <text class="small" x="574" y="192">typed views</text>
+  <text class="small" x="673" y="590">retained recovery suffix</text>
 </svg>
