@@ -155,8 +155,8 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
     <div class="kicker">
       <span>objectKV architecture</span>
       <span>branch research/native-matched-topology-r0</span>
-      <span>revision 0151768</span>
-      <span>generated 2026-08-30 03:34 UTC</span>
+      <span>revision 18e24b7</span>
+      <span>generated 2026-08-30 03:54 UTC</span>
     </div>
     <h1>The implementation architecture and its evidence boundary</h1>
     <p class="lede">objectKV today is a real single-range laboratory kernel composed from process-replicated authorities, a regional GCS object base, a retained txLog, and a disposable RocksDB read engine. Five 1 GiB provider-v1 strata passed on cloud hardware. The sixth retained a verified p99 rejection and exposed 2.0152x local-state duplication. RFC-0047 now corrects that physical layout before the full curve resumes.</p>
@@ -530,7 +530,7 @@ not called by every SingleRange commit</pre>
       ↓
 [PROPOSED] workload-facing okv-fabric, PostgreSQL, and HTAP</pre>
         </div>
-        <p>T27 remains first. Its provider-v1 evidence now includes five passes and one retained rejection across 120 fresh processes. The rejection preserved throughput, CPU/read, physical-read, amplification, correctness, pressure, identity, and OTel gates while p99 failed in both orders. RFC-0047 removes the diagnosed full-base history duplication, assigns provider v2, and replays the exact failed stratum. T28 waits until the restarted local serving curve passes, then decides how the same RangeEngine crosses into object-backed misses.</p>
+        <p>T27 remains first. Its provider-v1 evidence includes five passes and one retained rejection across 120 fresh processes. RFC-0047 provider v2 is now code complete: activation stores the object base once, and first touch seeds sparse history at the object frontier. Fifteen storage tests and 116 resident-enabled evaluator tests verify its semantic boundary. The local-byte preflight and exact failed-stratum replay remain evaluating. T28 waits until the restarted local serving curve passes.</p>
       </section>
 
       <section>
@@ -539,6 +539,7 @@ not called by every SingleRange commit</pre>
           <table>
             <thead><tr><th>Date</th><th>Change</th><th>Consequence</th></tr></thead>
             <tbody>
+              <tr><td>2026-08-30</td><td>Completed the RFC-0047 provider-v2 sparse-history implementation.</td><td>Exact local snapshots, format compatibility, missing-seed rejection, and the one-lookup current path pass. Performance status does not change until the local-byte and GCP replay gates pass.</td></tr>
               <tr><td>2026-08-28</td><td>Verified matched direct table reads on clean Linux GCP R0.</td><td>Native and control exposed 2.96 KiB of physical device reads per logical read and matched within 0.2% on bytes. D61 retains buffered reads as default and direct reads as an evaluation treatment.</td></tr>
               <tr><td>2026-08-30</td><td>Stopped provider-v1 T27 after the sixth 1 GiB stratum rejected p99.</td><td>Five strata passed. The sixth reached 1.3076x and 1.3399x control p99 with every other gate passing. Native local bytes were 2.0152x control. D67 and RFC-0047 own the sparse-history correction and exact replay.</td></tr>
               <tr><td>2026-08-29</td><td>Ran the immutable 64 MiB preflight and five exact negative controls.</td><td>Both ABBA comparisons passed throughput, p99, CPU/read, physical-read, amplification, pressure, correctness, identity, and telemetry gates. D64 verifies the plan, inventory, and missing-locator poisons.</td></tr>

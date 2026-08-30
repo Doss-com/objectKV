@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 
 const TOMBSTONE_TAG: u8 = 0;
 const VALUE_TAG: u8 = 1;
+const ABSENT_TAG: u8 = 2;
 const INSTALL_BATCH_RECORDS: usize = 4_096;
 const DEFAULT_RESIDENT_BLOCK_CACHE_BYTES: u64 = 128 * 1_024 * 1_024;
 
@@ -179,7 +180,10 @@ impl ServingImage for RocksDbServingImage {
 
 const HISTORY_CF: &str = "history";
 const METADATA_CF: &str = "metadata";
-const RESIDENT_PROVIDER: &str = "rocksdb-11.8.1-native-resident-v1";
+/// Provider identity for the sparse post-object-frontier resident format.
+pub const RESIDENT_PROVIDER: &str = "rocksdb-11.8.1-native-resident-v2";
+/// Persisted resident-engine format written by this provider.
+pub const RESIDENT_FORMAT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug)]
 struct NativeActiveImage {
@@ -198,6 +202,7 @@ struct NativeActiveImage {
 struct NativeEngineState {
     active: Option<NativeActiveImage>,
     known_keys: BTreeSet<Vec<u8>>,
+    history_seeded_keys: BTreeSet<Vec<u8>>,
     failed: bool,
 }
 
@@ -296,7 +301,7 @@ impl RocksDbResidentRangeEngine {
     /// Open one empty native resident engine with an explicit shared block
     /// cache and an explicit operating-system page-cache treatment.
     ///
-    /// `direct_reads` applies RocksDB direct I/O to table-file reads only.
+    /// `direct_reads` applies `RocksDB` direct I/O to table-file reads only.
     /// Flushes and compactions retain the portable buffered-I/O default.
     ///
     /// # Errors
@@ -401,7 +406,12 @@ impl RocksDbResidentRangeEngine {
         Ok(())
     }
 
-    fn history_get(&self, key: &[u8], read_version: u64) -> Result<ReadOutcome, String> {
+    fn history_get(
+        &self,
+        key: &[u8],
+        read_version: u64,
+        object_durable_version: u64,
+    ) -> Result<ReadOutcome, String> {
         let history = self
             .database
             .cf_handle(HISTORY_CF)
@@ -410,18 +420,27 @@ impl RocksDbResidentRangeEngine {
         let iterator = self
             .database
             .iterator_cf(history, IteratorMode::From(&prefix, Direction::Forward));
+        let mut saw_history = false;
         for item in iterator {
             let (encoded_key, encoded_value) =
                 item.map_err(|error| format!("read resident history: {error}"))?;
             if !encoded_key.starts_with(&prefix) {
                 break;
             }
+            saw_history = true;
             let commit_version = decode_history_commit(&encoded_key, prefix.len())?;
+            if commit_version < object_durable_version {
+                return Err("resident history precedes the object frontier".to_owned());
+            }
             if commit_version <= read_version {
-                return decode_value(&encoded_value);
+                return decode_history_value(&encoded_value);
             }
         }
-        Ok(ReadOutcome::Absent)
+        if saw_history {
+            Err("resident history is missing its object-frontier seed".to_owned())
+        } else {
+            self.head_get(key)
+        }
     }
 
     fn head_get(&self, key: &[u8]) -> Result<ReadOutcome, String> {
@@ -450,10 +469,6 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
         }
         let stable_epoch = begin_transition(&self.transition_epoch)?;
         let result = (|| {
-            let history = self
-                .database
-                .cf_handle(HISTORY_CF)
-                .ok_or_else(|| "native resident history column family is absent".to_owned())?;
             let metadata = self
                 .database
                 .cf_handle(METADATA_CF)
@@ -463,11 +478,6 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
             for record in &request.records {
                 let encoded = encode_value(record.value.as_deref());
                 batch.put(&record.key, &encoded);
-                batch.put_cf(
-                    history,
-                    history_key(&record.key, request.object_durable_version, 0, 0)?,
-                    encoded,
-                );
                 known_keys.insert(record.key.clone());
             }
             let mut active = NativeActiveImage {
@@ -496,6 +506,7 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
         match result {
             Ok((active, known_keys)) => {
                 state.known_keys = known_keys;
+                state.history_seeded_keys.clear();
                 state.active = Some(active.clone());
                 Ok(native_receipt(&active))
             }
@@ -534,8 +545,17 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
                 .ok_or_else(|| "native resident metadata column family is absent".to_owned())?;
             let mut batch = WriteBatch::default();
             let mut known_keys = state.known_keys.clone();
+            let mut history_seeded_keys = state.history_seeded_keys.clone();
             for transaction in &request.records {
-                apply_transaction(&mut batch, history, &mut known_keys, transaction)?;
+                apply_transaction(
+                    &self.database,
+                    &mut batch,
+                    history,
+                    &mut known_keys,
+                    &mut history_seeded_keys,
+                    active.object_durable_version,
+                    transaction,
+                )?;
             }
             let mut advanced = NativeActiveImage {
                 applied: request.end,
@@ -552,12 +572,13 @@ impl ResidentRangeEngine for RocksDbResidentRangeEngine {
                     advanced.local_bytes, self.max_local_bytes
                 ));
             }
-            Ok((advanced, known_keys))
+            Ok((advanced, known_keys, history_seeded_keys))
         })();
         finish_transition(&self.transition_epoch, stable_epoch);
         match result {
-            Ok((advanced, known_keys)) => {
+            Ok((advanced, known_keys, history_seeded_keys)) => {
                 state.known_keys = known_keys;
+                state.history_seeded_keys = history_seeded_keys;
                 state.active = Some(advanced.clone());
                 Ok(native_receipt(&advanced))
             }
@@ -656,7 +677,8 @@ impl ResidentSnapshot for RocksDbResidentSnapshot {
                 }
             }
         }
-        self.engine.history_get(key, self.read_version)
+        self.engine
+            .history_get(key, self.read_version, self.binding.object_durable_version)
     }
 }
 
@@ -675,7 +697,8 @@ struct PersistedNativeMetadata<'a> {
 
 fn encode_metadata(active: &NativeActiveImage) -> Result<Vec<u8>, String> {
     serde_json::to_vec(&PersistedNativeMetadata {
-        format_version: 1,
+        format_version: u16::try_from(RESIDENT_FORMAT_VERSION)
+            .expect("resident format version fits persisted metadata"),
         generation: active.generation,
         object_root: &active.object_root,
         object_durable_version: active.object_durable_version,
@@ -778,9 +801,12 @@ fn stamp_after_cursor(commit_version: u64, batch_order: u16, cursor: StreamCurso
 }
 
 fn apply_transaction(
+    database: &DB,
     batch: &mut WriteBatch,
     history: &impl AsColumnFamilyRef,
     known_keys: &mut BTreeSet<Vec<u8>>,
+    history_seeded_keys: &mut BTreeSet<Vec<u8>>,
+    object_durable_version: u64,
     transaction: &ResidentTransactionRecord,
 ) -> Result<(), String> {
     for (ordinal, mutation) in transaction.mutations.iter().enumerate() {
@@ -797,47 +823,101 @@ fn apply_transaction(
                     .collect::<Vec<_>>();
                 for key in cleared {
                     put_native_action(
+                        database,
                         batch,
                         history,
-                        &key,
-                        transaction.commit_version,
-                        transaction.batch_order,
-                        ordinal,
-                        None,
+                        history_seeded_keys,
+                        object_durable_version,
+                        NativeAction {
+                            key: &key,
+                            commit_version: transaction.commit_version,
+                            batch_order: transaction.batch_order,
+                            ordinal,
+                            value: None,
+                        },
                     )?;
                 }
                 continue;
             }
         };
         put_native_action(
+            database,
             batch,
             history,
-            key,
-            transaction.commit_version,
-            transaction.batch_order,
-            ordinal,
-            value,
+            history_seeded_keys,
+            object_durable_version,
+            NativeAction {
+                key,
+                commit_version: transaction.commit_version,
+                batch_order: transaction.batch_order,
+                ordinal,
+                value,
+            },
         )?;
         known_keys.insert(key.clone());
     }
     Ok(())
 }
 
-fn put_native_action(
-    batch: &mut WriteBatch,
-    history: &impl AsColumnFamilyRef,
-    key: &[u8],
+#[derive(Clone, Copy)]
+struct NativeAction<'a> {
+    key: &'a [u8],
     commit_version: u64,
     batch_order: u16,
     ordinal: u32,
-    value: Option<&[u8]>,
+    value: Option<&'a [u8]>,
+}
+
+fn put_native_action(
+    database: &DB,
+    batch: &mut WriteBatch,
+    history: &impl AsColumnFamilyRef,
+    history_seeded_keys: &mut BTreeSet<Vec<u8>>,
+    object_durable_version: u64,
+    action: NativeAction<'_>,
 ) -> Result<(), String> {
-    let encoded = encode_value(value);
-    batch.put(key, &encoded);
+    seed_history_if_needed(
+        database,
+        batch,
+        history,
+        history_seeded_keys,
+        action.key,
+        object_durable_version,
+    )?;
+    let encoded = encode_value(action.value);
+    batch.put(action.key, &encoded);
     batch.put_cf(
         history,
-        history_key(key, commit_version, batch_order, ordinal)?,
+        history_key(
+            action.key,
+            action.commit_version,
+            action.batch_order,
+            action.ordinal,
+        )?,
         encoded,
+    );
+    Ok(())
+}
+
+fn seed_history_if_needed(
+    database: &DB,
+    batch: &mut WriteBatch,
+    history: &impl AsColumnFamilyRef,
+    history_seeded_keys: &mut BTreeSet<Vec<u8>>,
+    key: &[u8],
+    object_durable_version: u64,
+) -> Result<(), String> {
+    if !history_seeded_keys.insert(key.to_vec()) {
+        return Ok(());
+    }
+    let outcome = database
+        .get(key)
+        .map_err(|error| format!("read native resident head before first mutation: {error}"))?
+        .map_or(Ok(ReadOutcome::Absent), decode_owned_value)?;
+    batch.put_cf(
+        history,
+        history_key(key, object_durable_version, 0, 0)?,
+        encode_history_value(&outcome),
     );
     Ok(())
 }
@@ -995,6 +1075,21 @@ fn decode_value(value: &[u8]) -> Result<ReadOutcome, String> {
     }
 }
 
+fn encode_history_value(outcome: &ReadOutcome) -> Vec<u8> {
+    match outcome {
+        ReadOutcome::Absent => vec![ABSENT_TAG],
+        ReadOutcome::Tombstone => encode_value(None),
+        ReadOutcome::Value(value) => encode_value(Some(value)),
+    }
+}
+
+fn decode_history_value(value: &[u8]) -> Result<ReadOutcome, String> {
+    match value {
+        [ABSENT_TAG] => Ok(ReadOutcome::Absent),
+        _ => decode_value(value),
+    }
+}
+
 fn decode_owned_value(mut value: Vec<u8>) -> Result<ReadOutcome, String> {
     match value.pop() {
         Some(TOMBSTONE_TAG) if value.is_empty() => Ok(ReadOutcome::Tombstone),
@@ -1093,7 +1188,10 @@ fn database_directory_bytes(database: &DB, root: &Path) -> Result<u64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{directory_entry, DirectoryEntry, RocksDbResidentRangeEngine, RocksDbServingImage};
+    use super::{
+        decode_history_value, directory_entry, history_key, history_prefix, DirectoryEntry,
+        RocksDbResidentRangeEngine, RocksDbServingImage, HISTORY_CF,
+    };
     use okv::{
         ReadOutcome, ResidentActivationRequest, ResidentAdvanceRequest, ResidentMutation,
         ResidentRangeBounds, ResidentRangeEngine, ResidentTransactionRecord, ServingImage,
@@ -1204,6 +1302,287 @@ mod tests {
             })
             .expect("activate native resident engine");
         (root, engine)
+    }
+
+    #[test]
+    fn native_receipt_identifies_sparse_format_v2() {
+        let (_root, engine) = native_engine();
+        assert_eq!(
+            engine.receipt().expect("read native receipt").provider,
+            "rocksdb-11.8.1-native-resident-v2"
+        );
+    }
+
+    #[test]
+    fn native_activation_materializes_no_history_rows() {
+        let (_root, engine) = native_engine();
+        let history = engine
+            .database
+            .cf_handle(HISTORY_CF)
+            .expect("history column family");
+        let history_rows = engine
+            .database
+            .iterator_cf(history, rocksdb::IteratorMode::Start)
+            .count();
+        assert_eq!(history_rows, 0);
+    }
+
+    #[test]
+    fn native_sparse_history_seeds_once_and_preserves_intermediate_versions() {
+        let (_root, engine) = native_engine();
+        engine
+            .advance(ResidentAdvanceRequest {
+                generation: 7,
+                start: StreamCursor::after_complete_version(11),
+                end: StreamCursor::after_complete_version(12),
+                target_version: 12,
+                records: vec![ResidentTransactionRecord {
+                    commit_version: 12,
+                    batch_order: 0,
+                    mutations: vec![
+                        ResidentMutation::Set {
+                            key: b"a".to_vec(),
+                            value: b"a12".to_vec(),
+                        },
+                        ResidentMutation::Set {
+                            key: b"zz".to_vec(),
+                            value: b"zz12".to_vec(),
+                        },
+                    ],
+                }],
+            })
+            .expect("apply first sparse-history version");
+        engine
+            .advance(ResidentAdvanceRequest {
+                generation: 7,
+                start: StreamCursor::after_complete_version(12),
+                end: StreamCursor::after_complete_version(13),
+                target_version: 13,
+                records: vec![ResidentTransactionRecord {
+                    commit_version: 13,
+                    batch_order: 0,
+                    mutations: vec![
+                        ResidentMutation::Set {
+                            key: b"a".to_vec(),
+                            value: b"a13".to_vec(),
+                        },
+                        ResidentMutation::Clear {
+                            key: b"zz".to_vec(),
+                        },
+                    ],
+                }],
+            })
+            .expect("apply second sparse-history version");
+
+        let at_11 = engine.clone().snapshot(7, 11).expect("snapshot at O");
+        let at_12 = engine.clone().snapshot(7, 12).expect("snapshot at 12");
+        let at_13 = engine.clone().snapshot(7, 13).expect("snapshot at 13");
+        assert_eq!(
+            at_11.get(b"a").expect("a at O"),
+            ReadOutcome::Value(b"a11".to_vec())
+        );
+        assert_eq!(at_11.get(b"zz").expect("zz at O"), ReadOutcome::Absent);
+        assert_eq!(
+            at_12.get(b"a").expect("a at 12"),
+            ReadOutcome::Value(b"a12".to_vec())
+        );
+        assert_eq!(
+            at_12.get(b"zz").expect("zz at 12"),
+            ReadOutcome::Value(b"zz12".to_vec())
+        );
+        assert_eq!(
+            at_13.get(b"a").expect("a at 13"),
+            ReadOutcome::Value(b"a13".to_vec())
+        );
+        assert_eq!(at_13.get(b"zz").expect("zz at 13"), ReadOutcome::Tombstone);
+
+        let history = engine
+            .database
+            .cf_handle(HISTORY_CF)
+            .expect("history column family");
+        for key in [b"a".as_slice(), b"zz".as_slice()] {
+            let prefix = history_prefix(key).expect("history prefix");
+            let rows = engine
+                .database
+                .iterator_cf(
+                    history,
+                    rocksdb::IteratorMode::From(&prefix, rocksdb::Direction::Forward),
+                )
+                .map_while(Result::ok)
+                .take_while(|(encoded_key, _)| encoded_key.starts_with(&prefix))
+                .count();
+            assert_eq!(rows, 3, "one frontier seed plus two mutations");
+        }
+    }
+
+    #[test]
+    fn resident_history_format_fixtures_remain_compatible() {
+        let v1: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/resident-history-v1.json"))
+                .expect("parse resident history v1 fixture");
+        let v2: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/resident-history-v2.json"))
+                .expect("parse resident history v2 fixture");
+        assert_eq!(v1["format_version"], 1);
+        assert_eq!(v2["format_version"], 2);
+        assert_eq!(
+            history_key(b"a", 11, 0, 0).expect("encode v1 history key"),
+            decode_hex(v1["history_key_hex"].as_str().expect("v1 key hex"))
+        );
+        assert_eq!(
+            decode_history_value(&decode_hex(
+                v1["value_outcome_hex"].as_str().expect("v1 value hex")
+            ))
+            .expect("decode v1 value"),
+            ReadOutcome::Value(decode_hex(
+                v1["value_hex"].as_str().expect("v1 raw value hex")
+            ))
+        );
+        assert_eq!(
+            decode_history_value(&decode_hex(
+                v1["tombstone_outcome_hex"]
+                    .as_str()
+                    .expect("v1 tombstone hex")
+            ))
+            .expect("decode v1 tombstone"),
+            ReadOutcome::Tombstone
+        );
+        assert_eq!(
+            decode_history_value(&decode_hex(
+                v2["absent_outcome_hex"].as_str().expect("v2 absence hex")
+            ))
+            .expect("decode v2 absence"),
+            ReadOutcome::Absent
+        );
+    }
+
+    #[test]
+    fn changed_key_without_frontier_seed_fails_closed() {
+        let (_root, engine) = native_engine();
+        engine
+            .advance(ResidentAdvanceRequest {
+                generation: 7,
+                start: StreamCursor::after_complete_version(11),
+                end: StreamCursor::after_complete_version(12),
+                target_version: 12,
+                records: vec![ResidentTransactionRecord {
+                    commit_version: 12,
+                    batch_order: 0,
+                    mutations: vec![ResidentMutation::Set {
+                        key: b"a".to_vec(),
+                        value: b"a12".to_vec(),
+                    }],
+                }],
+            })
+            .expect("apply changed key");
+        let history = engine
+            .database
+            .cf_handle(HISTORY_CF)
+            .expect("history column family");
+        engine
+            .database
+            .delete_cf(
+                history,
+                history_key(b"a", 11, 0, 0).expect("frontier seed key"),
+            )
+            .expect("remove frontier seed to simulate corruption");
+
+        let at_11 = engine.clone().snapshot(7, 11).expect("snapshot at O");
+        let error = at_11
+            .get(b"a")
+            .expect_err("changed key without frontier seed must fail");
+        assert!(error.contains("object-frontier seed"));
+    }
+
+    #[test]
+    fn first_touch_preserves_base_tombstones_and_range_clear_history() {
+        let root = TempDir::new().expect("temporary native resident root");
+        let engine = Arc::new(
+            RocksDbResidentRangeEngine::open(root.path(), 64 * 1_024 * 1_024)
+                .expect("open native resident engine"),
+        );
+        engine
+            .activate(ResidentActivationRequest {
+                generation: 7,
+                object_root: "manifest/sha256/tombstone-range".to_owned(),
+                object_durable_version: 11,
+                owned_range: ResidentRangeBounds::default(),
+                object_first_key: b"a".to_vec(),
+                object_last_key: b"z".to_vec(),
+                records: vec![
+                    ServingImageRecord {
+                        key: b"a".to_vec(),
+                        value: Some(b"a11".to_vec()),
+                    },
+                    ServingImageRecord {
+                        key: b"b".to_vec(),
+                        value: None,
+                    },
+                    ServingImageRecord {
+                        key: b"k".to_vec(),
+                        value: Some(b"k11".to_vec()),
+                    },
+                    ServingImageRecord {
+                        key: b"z".to_vec(),
+                        value: Some(b"z11".to_vec()),
+                    },
+                ],
+            })
+            .expect("activate tombstone fixture");
+        engine
+            .advance(ResidentAdvanceRequest {
+                generation: 7,
+                start: StreamCursor::after_complete_version(11),
+                end: StreamCursor::after_complete_version(12),
+                target_version: 12,
+                records: vec![ResidentTransactionRecord {
+                    commit_version: 12,
+                    batch_order: 0,
+                    mutations: vec![
+                        ResidentMutation::ClearRange {
+                            range: okv::ResidentKeyRange {
+                                start: b"a".to_vec(),
+                                end: b"z".to_vec(),
+                            },
+                        },
+                        ResidentMutation::Set {
+                            key: b"b".to_vec(),
+                            value: b"b12".to_vec(),
+                        },
+                    ],
+                }],
+            })
+            .expect("apply range clear and replacement");
+
+        let at_11 = engine.clone().snapshot(7, 11).expect("snapshot at O");
+        let at_12 = engine.clone().snapshot(7, 12).expect("snapshot at 12");
+        assert_eq!(
+            at_11.get(b"a").expect("a at O"),
+            ReadOutcome::Value(b"a11".to_vec())
+        );
+        assert_eq!(at_11.get(b"b").expect("b at O"), ReadOutcome::Tombstone);
+        assert_eq!(
+            at_11.get(b"k").expect("k at O"),
+            ReadOutcome::Value(b"k11".to_vec())
+        );
+        assert_eq!(at_12.get(b"a").expect("a at 12"), ReadOutcome::Tombstone);
+        assert_eq!(
+            at_12.get(b"b").expect("b at 12"),
+            ReadOutcome::Value(b"b12".to_vec())
+        );
+        assert_eq!(at_12.get(b"k").expect("k at 12"), ReadOutcome::Tombstone);
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        assert_eq!(value.len() % 2, 0, "hex fixture must contain whole bytes");
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let pair = std::str::from_utf8(pair).expect("hex fixture is UTF-8");
+                u8::from_str_radix(pair, 16).expect("hex fixture contains one byte")
+            })
+            .collect()
     }
 
     #[test]
@@ -1342,6 +1721,8 @@ mod tests {
 
     #[test]
     fn latest_snapshot_avoids_one_sst_probe_per_read_after_small_tail() {
+        const READS: u64 = 256;
+
         let root = TempDir::new().expect("temporary native resident root");
         let engine = Arc::new(
             RocksDbResidentRangeEngine::open_with_block_cache(
@@ -1395,7 +1776,6 @@ mod tests {
             );
         }
         let before = engine.metrics();
-        const READS: u64 = 256;
         for _ in 0..READS {
             assert_eq!(
                 snapshot.get(b"k/0512").expect("measured resident read"),

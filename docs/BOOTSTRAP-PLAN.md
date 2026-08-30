@@ -45,11 +45,13 @@ contributor-ready specifications, runnable examples, code, operational bounds,
 and immutable eval receipts. Until those receipts exist, objectKV remains a
 research program rather than an admitted database product.
 
-The immediate critical path is RFC-0047: remove the diagnosed full-history
-duplication, replay the retained T27 rejection under a new provider identity,
-then restart the 1 GiB cache-coverage and skew sweep if the correction passes.
-Later layers do not advance by substituting their own results for this kernel
-boundary.
+The immediate critical path is RFC-0047 V2.1 and V2.2. The sparse provider-v2
+implementation is `[CODE-COMPLETE]`, and its semantic plus format contract is
+`[VERIFIED]` by 15 storage tests and 116 resident-enabled evaluator tests. It
+must now clear the local-byte preflight and replay the retained T27 rejection
+under its new provider identity. A passing replay restarts the 1 GiB
+cache-coverage and skew sweep. Later layers do not advance by substituting
+their own results for this kernel boundary.
 
 ### Current golden-path frontier
 
@@ -173,7 +175,7 @@ the status authority.
 | # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` Provider v1 passed five complete 1 GiB strata, then `c50-z14-s3301` rejected p99 in both orders at 1.307614x and 1.339897x control. Its throughput, CPU/read, physical bytes/read, read amplification, correctness, pressure, runtime, and OTel gates passed. Native local state was 2.015239x control because activation duplicated the complete object base into head and history. The queue stopped after 120 fresh-process positions. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Implement RFC-0047, replay the exact rejection under provider v2 with local bytes at most 1.25x control, then restart all 27 strata and two sentinels if it passes |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` Provider v1 passed five complete 1 GiB strata, then `c50-z14-s3301` rejected p99 in both orders at 1.307614x and 1.339897x control. Its throughput, CPU/read, physical bytes/read, read amplification, correctness, pressure, runtime, and OTel gates passed. Native local state was 2.015239x control because activation duplicated the complete object base into head and history. `[CODE-COMPLETE]` Provider v2 removes activation-time history duplication; its V2.0 semantic and format tests pass. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Run the provider-v2 local-byte preflight, replay the exact rejection with local bytes at most 1.25x control, then restart all 27 strata and two sentinels if it passes |
 | 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Clean GCS dataset-size sweep after row 1 passes |
 | 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Local projected scan reaches 2.544M source rows/s and 4.718x indexed-row scan; clean cloud composition is unmeasured | Preserve row-class point cost, materially improve projected scans, bound resident index and compaction amplification, recover one authenticated closure | Matched row versus column object layout on the same GCS closure |
 | 4 | Native three-node replicated commit | `[EVALUATING]` | One-host G4.10b reaches 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x its one-entry control; independent-media latency is unmeasured. RFC-0045 L0 verifies deterministic protocol semantics. L1 verifies three real TCP log-node processes, synchronized local journals, restart and torn-tail repair, epoch fencing, and deterministic segment bytes across three seeds and three poisons. L1 is one-host mechanism evidence, not a performance or independent-media receipt. | One-range p99 within 1.25x matched-durability control, exact retries and conflicts, zero normal-path object operations, quorum acknowledgement on independent media | Finish rows 1 through 3, then run RFC-0045 L2 on three independent local-NVMe machines against its matched remote-block control before integrating exactly one transaction path without double logging |

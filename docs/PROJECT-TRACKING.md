@@ -19,6 +19,15 @@ It compounds the bottom-up construction, runtime ownership, read and write
 paths, current-to-target gaps, and the exact boundary between smoke evidence,
 verified mechanisms, admitted workloads, and production credibility.
 
+`[CODE-COMPLETE]` RFC-0047 now implements sparse post-object-frontier history
+under provider identity `rocksdb-11.8.1-native-resident-v2`. Activation writes
+the object base only to `head`; the first post-frontier mutation of a key seeds
+that key's value, tombstone, or explicit absence at the object frontier in the
+same atomic batch as its tail mutation and applied cursor. Fifteen storage
+tests and the 116-test resident-enabled evaluator suite pass. T27 remains
+`[EVALUATING]`; no performance claim changes until the local-byte preflight and
+the exact `c50-z14-s3301` GCP replay pass unchanged gates.
+
 ## Open the playground
 
 The tracker uses a dedicated local port so it does not collide with the

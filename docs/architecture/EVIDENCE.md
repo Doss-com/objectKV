@@ -27,9 +27,9 @@ not prove the GCS authority capability profile.
 | Layer | Matrix rows | Current proof | Missing admission evidence |
 | --- | --- | --- | --- |
 | `okv-fabric` | 9 | `okv-log`, Tetris, and Chess have bounded local semantics; unified fabric `[PROPOSED]` | Specialist log, Redis, search, and filesystem contracts and curves |
-| Public kernel | 0, 1, 7 | `[VERIFIED]` single-range resident read boundary and five passing 1 GiB provider-v1 strata; sixth stratum rejected p99; full curve `[EVALUATING]` | RFC-0047 correction and rejected-stratum replay, then a fresh provider-v2 T27 curve and multi-range transactions |
+| Public kernel | 0, 1, 7 | `[VERIFIED]` single-range resident read boundary and five passing 1 GiB provider-v1 strata; sixth stratum rejected p99; `[CODE-COMPLETE]` sparse provider v2; full curve `[EVALUATING]` | Provider-v2 local-byte preflight and rejected-stratum replay, then a fresh T27 curve and multi-range transactions |
 | Transaction plane | 4, 5, 7 | `[EVALUATING]` local OpenRaft, conflict, batching, and recovery mechanisms | Independent media, same-durability control, host loss, bounded recovery, multi-range serializability |
-| RangeEngine | 0, 1, 2, 3, 8 | `[VERIFIED]` RocksDB point-read boundary, five passing 1 GiB strata, and one retained p99 rejection traced to 2.015239x local-state duplication | Sparse-history replay, complete provider-v2 1 GiB curve, GCS cold misses, raw NVMe cache, RAM profile, handoff |
+| RangeEngine | 0, 1, 2, 3, 8 | `[VERIFIED]` RocksDB point-read boundary, five passing 1 GiB strata, one retained p99 rejection traced to 2.015239x local-state duplication, and provider-v2 sparse-history semantics; physical correction `[EVALUATING]` | Local-byte preflight, rejected-stratum replay, complete provider-v2 1 GiB curve, GCS cold misses, raw NVMe cache, RAM profile, handoff |
 | Objectification | 5, 6 | `[VERIFIED]` scoped publication recovery mechanisms; integrated service `[EVALUATING]` | Sustained `C - O`, compaction, brownout, safe reclamation, branch-size sweep |
 | Manifested object state | 2, 3, 6, 11 | `[VERIFIED]` immutable closure identity and exact GCS reuse; layouts `[EVALUATING]` | Cold geometry, clean split-run GCS, branch independence, scaled HTAP tail |
 | Object provider | 2, 3, 5, 6, 12 | `[VERIFIED]` memory and MinIO authority profiles, filesystem segment profile, scoped GCS fixture use | GCS authority conformance, provider economics, sustained faults |
@@ -126,7 +126,8 @@ This is construction and recovery evidence, not a new throughput point.
 │ primary gate  throughput ≥ 0.80x control                          │
 │ hard gates    p99 ≤ 1.20x · CPU/read ≤ 1.25x · I/O ≤ 1.25x       │
 │ v1 progress   5 pass · 1 reject · 21 unexecuted · 0 sentinels     │
-│ next          sparse history · exact rejected-stratum replay      │
+│ v2 code       sparse history semantics and format [VERIFIED]      │
+│ next          local-byte preflight · exact rejected replay        │
 │ state         [EVALUATING]                                        │
 └───────────────────────────────────────────────────────────────────┘
 ```

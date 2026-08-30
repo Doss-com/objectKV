@@ -1,6 +1,7 @@
 # RFC-0047: Sparse post-frontier resident history
 
-- Status: `[PROPOSED]`
+- Status: `[CODE-COMPLETE]`; V2.0 semantics `[VERIFIED]`, V2.1 and V2.2
+  performance `[EVALUATING]`
 - Authors: DOSS
 - Created: 2026-08-30
 - Supersedes: RFC-0040 full-history activation only
@@ -174,6 +175,14 @@ layout difference. The gate remains unchanged.
 ## Eval plan
 
 ### V2.0 semantic and format tests
+
+Status: `[VERIFIED]` locally. Fifteen `okv-serving-rocksdb` tests pass,
+including zero activation history, one seed per first-touched key, intermediate
+versions, range clears, base tombstones, explicit absence, corrupt missing-seed
+rejection, the one-lookup current path, and v1/v2 encoding fixtures. The
+resident-enabled `okv-eval` suite passes 116 library tests and two controller
+tests. This verifies the bounded semantic and format contract, not local-byte
+or tail-latency admission.
 
 The implementation begins with failing tests that require:
 

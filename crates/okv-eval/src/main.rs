@@ -70,7 +70,7 @@ use okv_eval::serving_recovery_openraft::{
     OpenRaftHotReadAccessPattern, OpenRaftHotReadNegativeControl, OpenRaftHotReadProfile,
     OpenRaftHotReadReport, OpenRaftHotReadSampleReport, OpenRaftHotReadStorageReport,
     OpenRaftHotReadSubject, OpenRaftServingObjectBackend, OpenRaftServingProcessConfig,
-    OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport,
+    OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport, NATIVE_RESIDENT_PROVIDER,
 };
 use okv_eval::staged_txlog_process::{
     run_staged_txlog_node, run_staged_txlog_process_contract, StagedTxLogNodeConfig,
@@ -3919,7 +3919,7 @@ fn openraft_serving_recovery_execution(
                 .is_some_and(|hot_read| match hot_read.subject {
                     OpenRaftHotReadSubject::NativeSnapshot => {
                         report.process.resident_engine_provider.as_deref()
-                            == Some("rocksdb-11.8.1-native-resident-v1")
+                            == Some(NATIVE_RESIDENT_PROVIDER)
                             && report.process.resident_engine_records > 0
                             && report.process.resident_engine_local_bytes > 0
                             && report.process.resident_engine_local_bytes

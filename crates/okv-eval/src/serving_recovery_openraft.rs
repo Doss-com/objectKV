@@ -53,6 +53,10 @@ const FIXTURE_BARRIER_BASE_SECONDS: u64 = 30;
 const FIXTURE_BARRIER_MIN_SECONDS: u64 = 60;
 const FIXTURE_BARRIER_MAX_SECONDS: u64 = 30 * 60;
 const FIXTURE_RECONSTRUCTION_FLOOR_BYTES_PER_SECOND: u64 = 2 * 1_024 * 1_024;
+/// Provider identity expected from the sparse post-frontier resident engine.
+pub const NATIVE_RESIDENT_PROVIDER: &str = "rocksdb-11.8.1-native-resident-v2";
+/// Persisted format bound into native resident-image identities.
+pub const NATIVE_RESIDENT_ENGINE_FORMAT_VERSION: u32 = 2;
 
 /// Frozen subject behavior for the G4.4 retained-stream recovery contract.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1100,7 +1104,7 @@ async fn run_integrated_kernel_node(
                             fixture,
                             tail_sha256,
                             OpenRaftHotReadSubject::NativeSnapshot,
-                            "rocksdb-11.8.1-native-resident-v1",
+                            NATIVE_RESIDENT_PROVIDER,
                             concurrent.target_version,
                             range.stats().resident_engine_local_bytes,
                             scratch_was_empty,
@@ -1707,6 +1711,10 @@ fn build_object_fixture_image_report_from_logical(
             content_sha256(b"okv-direct-owned-options-v1")
         }
     };
+    let engine_format_version = match subject {
+        OpenRaftHotReadSubject::NativeSnapshot => NATIVE_RESIDENT_ENGINE_FORMAT_VERSION,
+        OpenRaftHotReadSubject::DirectOwnedRocksdb => 1,
+    };
     let descriptor = ResidentImageDescriptorV1 {
         schema_version: 1,
         fixture_id: fixture.fixture_id.clone(),
@@ -1717,7 +1725,7 @@ fn build_object_fixture_image_report_from_logical(
         }
         .to_owned(),
         engine_provider: provider.to_owned(),
-        engine_format_version: 1,
+        engine_format_version,
         options_sha256,
         applied_through,
         record_count: u64::try_from(logical.len()).unwrap_or(u64::MAX),
@@ -4319,12 +4327,26 @@ mod tests {
     use super::{
         partition_operations, rocksdb_effective_options_sha256, run_matched_direct_hot_reads,
         storage_delta, HotReadStorageSnapshot, OpenRaftHotReadProfile, OpenRaftHotReadSubject,
+        NATIVE_RESIDENT_ENGINE_FORMAT_VERSION, NATIVE_RESIDENT_PROVIDER,
     };
     use crate::serving_recovery::ServingReadOutcome;
     use okv::ReadOutcome;
     use okv_consensus::{RetainedTransactionRecord, TransactionMutation};
     use okv_object::RowRecord;
     use okv_transaction::{KeyRange, TransactionCommand};
+
+    #[cfg(feature = "resident-rocksdb")]
+    #[test]
+    fn native_runtime_identity_tracks_the_storage_format() {
+        assert_eq!(
+            NATIVE_RESIDENT_PROVIDER,
+            okv_serving_rocksdb::RESIDENT_PROVIDER
+        );
+        assert_eq!(
+            NATIVE_RESIDENT_ENGINE_FORMAT_VERSION,
+            okv_serving_rocksdb::RESIDENT_FORMAT_VERSION
+        );
+    }
 
     #[test]
     fn object_fixture_barrier_timeout_scales_with_logical_bytes_and_stays_bounded() {

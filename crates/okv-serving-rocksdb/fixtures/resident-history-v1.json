@@ -1,0 +1,11 @@
+{
+  "format_version": 1,
+  "key": "a",
+  "commit_version": 11,
+  "batch_order": 0,
+  "ordinal": 0,
+  "history_key_hex": "0000000161fffffffffffffff4ffffffffffff",
+  "value_hex": "7631",
+  "value_outcome_hex": "763101",
+  "tombstone_outcome_hex": "00"
+}
