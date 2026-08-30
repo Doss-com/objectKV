@@ -731,6 +731,16 @@ become one GitHub issue.
   `docs/artifacts/eval-receipts/rfc0049-t28-aligned-preflight-gcp-r0-2026-08-30/README.md`.
   Failed admitted execution:
   `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r1-failed-gcp-r0-2026-08-30/README.md`.
+  Admission r2 completed all 90 child positions, then failed final replay
+  because the live controller and persisted validator used different scan
+  subject suffixes. Diagnostic point ratios at p50/p95/p99/p99.9 were
+  1.064x/1.082x/1.179x/1.319x C0; all 15 point blocks were below 2.00x. Scan
+  throughput was 21.523x to 33.031x C0 with a 28.426x median, and media was
+  1.043x. These are retained diagnostics, not an admitted curve. The naming
+  mismatch is corrected with one focused regression. Do not rerun the 90
+  positions for receipt-only repair; next measure complete-closure recovery,
+  compaction write amplification, and branch reference reuse. Evidence:
+  `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r2-failed-gcp-r0-2026-08-30/README.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
 

@@ -2020,9 +2020,9 @@ const fn point_subject_id(subject: T28TypedPointSubjectV1) -> &'static str {
 
 const fn scan_subject_id(subject: T28TypedScanSubjectV1) -> &'static str {
     match subject {
-        T28TypedScanSubjectV1::C0IndexedRow => "c0_indexed_row_scan",
-        T28TypedScanSubjectV1::C5ColumnarMain => "c5_columnar_main_scan",
-        T28TypedScanSubjectV1::C5v2AlignedColumnar => "c5v2_aligned_columnar_scan",
+        T28TypedScanSubjectV1::C0IndexedRow => "c0_indexed_row",
+        T28TypedScanSubjectV1::C5ColumnarMain => "c5_columnar_main",
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => "c5v2_aligned_columnar",
     }
 }
 
@@ -2059,6 +2059,22 @@ mod tests {
     };
     use crate::telemetry::TelemetryFlushReport;
     use okv_object::content_sha256;
+
+    #[test]
+    fn persisted_scan_subject_ids_match_live_controller_ids() {
+        assert_eq!(
+            super::scan_subject_id(T28TypedScanSubjectV1::C0IndexedRow),
+            "c0_indexed_row"
+        );
+        assert_eq!(
+            super::scan_subject_id(T28TypedScanSubjectV1::C5ColumnarMain),
+            "c5_columnar_main"
+        );
+        assert_eq!(
+            super::scan_subject_id(T28TypedScanSubjectV1::C5v2AlignedColumnar),
+            "c5v2_aligned_columnar"
+        );
+    }
 
     #[test]
     fn admission_plan_freezes_the_post_diagnostic_execution_contract() {

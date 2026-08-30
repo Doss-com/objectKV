@@ -1785,3 +1785,38 @@ allocation keeps objectKV p99 within 1.25x raw GCS. T38 remains unchanged.
 
 Evidence:
 `docs/artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md`.
+
+## D71. Use one executable cell model as the architecture contract
+
+Status: finite model mechanism `[VERIFIED]`; implementation refinement
+`[EVALUATING]`, 2026-08-30.
+
+Decision: maintain one integrated TLA+ state machine for the externally visible
+behavior of a complete objectKV cell. It composes concurrent conflict
+validation, generation fencing, RAM staging, stable-media quorum
+acknowledgement, exact txLog retention, authenticated object publication, safe
+txLog pop, and disposable RAM, NVMe, or Rocks serving images. Specialized
+formal models may refine a subsystem, but their visible transitions must map
+back to this cell contract.
+
+TLC 2.19 exhaustively checked one integrated three-node scope through
+2,486,430 generated states and one two-transaction concurrency scope through
+4,496,463 generated states without a safety violation. Six independent fault
+switches each produced the intended invariant counterexample. This verifies
+only the named finite model scopes. It does not prove the Rust implementation,
+unbounded operation, liveness, Raft or Paxos, or production performance.
+
+The next useful step is implementation trace refinement, not a larger state
+space. The current transaction, txLog, publication, generation, and serving
+paths should emit the model's stable transition vocabulary. One healthy trace
+and one poison trace must then be checked against allowed transitions before
+the T29 independent-media run.
+
+Optimizes for: one reviewable source of truth for cross-layer safety and a
+direct bridge from architecture diagrams to implementation and eval receipts.
+
+Gives up: treating separate subsystem models as sufficient proof of the cell or
+claiming that finite-state exploration establishes real-infrastructure
+correctness.
+
+Specification and receipt: `formal/README.md`. Design record: RFC-0050.

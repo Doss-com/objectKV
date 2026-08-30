@@ -89,6 +89,7 @@ program state is owned here rather than copied into that retired queue.
 - `docs/PRODUCT-SPEC-SHEET.md` owns atomic requirements and performance targets.
 - `docs/CONTRIBUTOR-BOARD.md` owns bounded contributor tasks.
 - `docs/DECISIONS.md` and `rfcs/` own architectural decisions.
+- `formal/` owns the executable ideal cell behavior and finite model receipts.
 - `docs/STATUS-TAXONOMY.md` owns proof-status meaning.
 - `docs/REAL-INFRA-EVALS.md` owns paired benchmark claims, GCP rungs, and the
   failure-mode matrix.
@@ -448,12 +449,15 @@ frame pairs overlapping. Its exact projection-only scan measured 31.692x C0
 rows/s, 7 versus 203 GETs, and 0.130x bytes. C5v1 remains a retained rejection.
 Admission r1 stopped at its second of 90 positions because the evaluator
 mistook the first of two valid C0 data descriptors for the only valid object.
-The failure is preserved and produced no performance verdict. Admission r2
-names the exact-key descriptor correction and retains r1 by archive digest.
-C5v2 is still `[EVALUATING]` until the r2 15-block curve, OTel confirmation,
-complete-closure recovery, compaction amplification, and branch-reference
-gates pass. Rows 1 and 2 remain explicit deferred performance debt; their
-receipts are not combined with row 3.
+Admission r2 corrected that defect and completed all 90 positions, then failed
+final replay because live and persisted scan subject names disagreed. Its
+diagnostic point p99 was 1.179x C0, all 15 blocks were below 2.00x, projected
+scan throughput had a 28.426x median, and media was 1.043x. No curve verdict or
+independent OTel admission was sealed. The exact naming mismatch is corrected;
+the program will not rerun completed cloud work for receipt-only repair. C5v2
+is still `[EVALUATING]` until complete-closure recovery, compaction
+amplification, and branch-reference gates pass. Rows 1 and 2 remain explicit
+deferred performance debt; their receipts are not combined with row 3.
 
 ## Current checkpoint
 

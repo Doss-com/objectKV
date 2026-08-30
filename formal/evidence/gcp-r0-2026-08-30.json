@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "status": "verified_finite_model_scope",
+  "date": "2026-08-30",
+  "source_commit_before_model": "0c463d5",
+  "runner": {
+    "project": "doss-objectkv-dev",
+    "zone": "us-central1-a",
+    "instance": "objectkv-bench-t27a2-r0-runner"
+  },
+  "tool": {
+    "name": "TLC",
+    "version": "2.19",
+    "tla2tools_version": "1.7.4",
+    "jar_sha1": "bee4a54f3ee3d4afc347c3240ec2d9e93b075104",
+    "java_major": 17
+  },
+  "model": {
+    "path": "formal/ObjectKVCell.tla",
+    "sha256": "cca6a66fb31c8d314f9347b6db285a231ca75324b6a0499c4e29755636470b4b"
+  },
+  "healthy_runs": [
+    {
+      "config": "formal/ObjectKVCell.cfg",
+      "config_sha256": "7f6a10459ec5883932684d6f99fa2ed55957b23b99b5925266c2ce6a25ecd8ea",
+      "nodes": 3,
+      "transactions": 1,
+      "max_generation": 2,
+      "max_media_failures": 1,
+      "generated_states": 2486430,
+      "distinct_states": 99408,
+      "search_depth": 23,
+      "queue_remaining": 0,
+      "result": "no_error"
+    },
+    {
+      "config": "formal/ObjectKVConcurrency.cfg",
+      "config_sha256": "c8b4616701fa517c9c95786b34b477b1e28cad57406524e297dea49acef5908d",
+      "nodes": 3,
+      "transactions": 2,
+      "max_generation": 2,
+      "generated_states": 4496463,
+      "distinct_states": 164668,
+      "search_depth": 28,
+      "queue_remaining": 0,
+      "result": "no_error"
+    }
+  ],
+  "negative_controls": [
+    {
+      "config": "formal/poisons/AckBeforeStableQuorum.cfg",
+      "config_sha256": "edccafe5080d4120d57cad422709cd45b13b719e4e5aafb70389ba37a6a448c5",
+      "generated_states": 183,
+      "distinct_states": 88,
+      "search_depth": 6,
+      "result": "counterexample"
+    },
+    {
+      "config": "formal/poisons/IgnoreGenerationFence.cfg",
+      "config_sha256": "00c790d8c61607a71b5817f7acb054c440baff6a88ae93663f767cad323ca655",
+      "generated_states": 12979,
+      "distinct_states": 1724,
+      "search_depth": 9,
+      "result": "counterexample"
+    },
+    {
+      "config": "formal/poisons/PopStalePendingFrontier.cfg",
+      "config_sha256": "c2b14a5c20ae1ae7342682816c498e179a877efac59851566dc5732eeaf92798",
+      "generated_states": 76683,
+      "distinct_states": 7515,
+      "search_depth": 12,
+      "result": "counterexample"
+    },
+    {
+      "config": "formal/poisons/PublishIncompleteClosure.cfg",
+      "config_sha256": "f13ade40525a0683156c61fee6de5afc831b3c3f1cf97bc96a0ddd975a6732ae",
+      "generated_states": 13752,
+      "distinct_states": 1736,
+      "search_depth": 9,
+      "result": "counterexample"
+    },
+    {
+      "config": "formal/poisons/ServeStaleImage.cfg",
+      "config_sha256": "e0247e686b96afc0e850a1975386efc4501e48ae244352d25f0f8725acebac05",
+      "generated_states": 2121,
+      "distinct_states": 275,
+      "search_depth": 6,
+      "result": "counterexample"
+    },
+    {
+      "config": "formal/poisons/SkipConflictValidation.cfg",
+      "config_sha256": "e749f9be6557deaaae202542ad41846bbb02610f227c7211eaef394520dd0c77",
+      "generated_states": 214655,
+      "distinct_states": 15098,
+      "search_depth": 15,
+      "result": "counterexample"
+    }
+  ],
+  "claims_excluded": [
+    "unbounded proof",
+    "liveness",
+    "Rust implementation refinement",
+    "Raft or Paxos correctness",
+    "object-store correctness",
+    "production performance"
+  ]
+}

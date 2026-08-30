@@ -77,6 +77,7 @@ infra/minio/        digest-pinned local S3 protocol fixture
 infra/otel/         pinned local OTel collector
 experiments/        append-only research ledger conventions
 examples/okv-tetris/ interactive API-boundary example on okv-model + okv-log
+formal/             executable TLA+ cell contract and finite model receipts
 rfcs/                architecture decisions before implementation hardens them
 program.md          autonomous research operating loop
 ```

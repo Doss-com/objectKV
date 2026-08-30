@@ -57,5 +57,6 @@ not harden until their RFC is accepted.
 | 0047 | Sparse post-frontier resident history | `[PROPOSED]` | remove the 2.015x disposable base duplication, preserve exact snapshots, and replay the rejected T27 stratum |
 | 0048 | Generation-pinned typed object-layout curve | `[EVALUATING]`, retained preflight rejection | C5v1 verified scan leverage and localized sequential point-request tail |
 | 0049 | Aligned columnar point gather | `[CODE-COMPLETE]` admission controller, immutable GCS publication and preflight `[VERIFIED]`, curve `[EVALUATING]` | C5v2 point p99 0.869x C0, scan throughput 31.692x C0; frozen admitted curve next |
+| 0050 | Executable cell reference model | `[PROPOSED]`, finite TLA+ mechanism `[VERIFIED]`, implementation refinement `[EVALUATING]` | one integrated architecture contract for concurrency, durability, publication, recovery, and serving tiers |
 
 Use `0000-template.md` for new proposals.

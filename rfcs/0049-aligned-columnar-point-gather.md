@@ -128,6 +128,25 @@ The controller is not a performance result. The RFC remains `[EVALUATING]`
 until the one frozen GCS execution and independent collector finalization seal
 either a passing or failing receipt.
 
+Admission r2 completed all 60 point and 30 projected-scan positions, then the
+evidence replayer rejected its own scan subject naming. The live controller
+sealed `c0_indexed_row` and `c5v2_aligned_columnar`; the validator expected the
+same names with a `_scan` suffix. No admission verdict was produced.
+
+The retained child receipts provide useful diagnostic direction. C5v2/C0 point
+p50, p95, p99, and p99.9 were 1.064x, 1.082x, 1.179x, and 1.319x. All 15 point
+blocks were below the frozen 2.00x p99 limit. The median projected-scan
+throughput ratio was 28.426x and all 15 scan blocks exceeded 21.5x. Stored
+media was 1.043x C0. These values are not a sealed curve and do not make the
+RFC `[VERIFIED]`.
+
+The validator now uses the live subject identifiers and has a focused exact-ID
+regression. The program will not repeat 90 completed cloud positions solely to
+repair receipt ceremony. It advances to the still-unmeasured, decision-bearing
+complete-closure recovery, compaction write amplification, and branch-reference
+gates. Retained evidence:
+`docs/artifacts/eval-receipts/rfc0049-t28-aligned-r2-failed-gcp-r0-2026-08-30/README.md`.
+
 ## Format boundary
 
 The format identity is `okv.columnar-overlay.v2`. It is an evaluation format,
