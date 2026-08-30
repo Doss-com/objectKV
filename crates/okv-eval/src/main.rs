@@ -52,6 +52,7 @@ use okv_eval::process_snapshot_compaction::{
     ProcessSnapshotCompactionProfile,
 };
 use okv_eval::program::{load_program, plan_program};
+use okv_eval::provider_attempt::ProviderAttemptBackend;
 #[cfg(feature = "resident-rocksdb")]
 use okv_eval::resident::{run_resident_profile, ResidentMode, ResidentProfile, ResidentReport};
 use okv_eval::result::{
@@ -91,7 +92,9 @@ use okv_eval::t27_plan::{
     T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
     T27PositionPoisonV1, T27PositionReceiptV1, T27StratumEvidenceV1, T27StratumRunReceiptV1,
 };
-use okv_eval::t28_cold_point::{T28CacheState, T28PointPlanV1};
+use okv_eval::t28_cold_point::{
+    T28CacheState, T28PointExecutionReceiptV1, T28PointPlanV1, T28PointSubject,
+};
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
     run_transaction_batch_contract, TransactionBatchMode, TransactionBatchProfile,
@@ -114,8 +117,8 @@ use okv_model::{
 };
 use okv_object::{
     filesystem_backend, gcs_backend_from_env, gcs_backend_from_env_no_retries, memory_backend,
-    minio_backend_from_env, prefixed_backend, run_conformance, run_publication_adapter_contract,
-    run_publication_publisher_manifest_recovery_contract,
+    minio_backend_from_env, prefixed_backend, read_planned_point, run_conformance,
+    run_publication_adapter_contract, run_publication_publisher_manifest_recovery_contract,
     run_publication_publisher_manifest_recovery_node, run_publication_publisher_process_contract,
     run_publication_publisher_process_node, run_publication_publisher_publish_recovery_contract,
     run_publication_publisher_publish_recovery_node,
@@ -144,6 +147,7 @@ use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::{info, info_span};
 use uuid::Uuid;
@@ -544,6 +548,23 @@ enum Commands {
         key_ids: Vec<u64>,
         #[arg(long)]
         output: PathBuf,
+    },
+    /// Execute one sealed T28 data range and emit its provider trace.
+    T28PointReadGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long, default_value_t = 0)]
+        ordinal: u64,
+        #[arg(long, default_value = "candidate")]
+        subject: String,
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
     /// Build one immutable T27 ABBA plan from a verified fixture placement.
     T27PlanBuild {
@@ -1299,6 +1320,99 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let plan = T28PointPlanV1::seal(&placement, cache_state, points)?;
             let bytes = serde_json::to_vec_pretty(&plan)?;
             write_new_file(&output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28PointReadGcs {
+            locator,
+            expected_envelope_sha256,
+            plan,
+            expected_plan_sha256,
+            ordinal,
+            subject,
+            output,
+        } => {
+            let placement =
+                decode_fixture_placement_locator(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let plan = T28PointPlanV1::decode(&fs::read(plan)?, &expected_plan_sha256, &placement)?;
+            if plan.cache_state != T28CacheState::MetadataWarmDataCold {
+                return Err(std::io::Error::other(
+                    "T28 point command currently requires metadata_warm_data_cold",
+                )
+                .into());
+            }
+            let subject = match subject.as_str() {
+                "candidate" => T28PointSubject::Candidate,
+                "raw_range_control" => T28PointSubject::RawRangeControl,
+                other => {
+                    return Err(std::io::Error::other(format!(
+                        "unknown T28 point subject {other}"
+                    ))
+                    .into());
+                }
+            };
+            let operation = plan
+                .operations
+                .get(usize::try_from(ordinal)?)
+                .ok_or_else(|| std::io::Error::other("T28 operation ordinal is absent"))?;
+            let configured_bucket = std::env::var("OKV_GCS_BUCKET")?;
+            if configured_bucket != placement.bucket {
+                return Err(std::io::Error::other(
+                    "T28 configured GCS bucket differs from fixture placement",
+                )
+                .into());
+            }
+            let backend =
+                prefixed_backend(gcs_backend_from_env_no_retries()?, placement.prefix.clone())?;
+            let observed = Arc::new(ProviderAttemptBackend::new(backend, subject.id())?);
+            let reader_backend: Arc<dyn okv_object::Backend> = observed.clone();
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let reader = runtime.block_on(open_generation_pinned_fixture_lazy(
+                reader_backend,
+                &placement,
+                &expected_envelope_sha256,
+                &placement.fixture.fixture_id,
+                placement.base_version,
+            ))?;
+            if subject == T28PointSubject::Candidate {
+                let derived = runtime.block_on(reader.plan_point(&operation.point.key))?;
+                if derived != operation.point {
+                    return Err(std::io::Error::other(
+                        "T28 candidate derived a range different from the sealed plan",
+                    )
+                    .into());
+                }
+            }
+            observed.clear_events();
+            let started = Instant::now();
+            let read = match subject {
+                T28PointSubject::Candidate => {
+                    runtime.block_on(reader.read_planned_point(&operation.point))?
+                }
+                T28PointSubject::RawRangeControl => runtime.block_on(read_planned_point(
+                    observed.as_ref(),
+                    &operation.point.data_key,
+                    None,
+                    &operation.point.block,
+                    &operation.point.key,
+                    operation.point.read_version,
+                ))?,
+            };
+            let elapsed_nanos = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            let receipt = T28PointExecutionReceiptV1::new(
+                &plan,
+                ordinal,
+                subject,
+                "gcs",
+                elapsed_nanos,
+                &read,
+                observed.events(),
+            )?;
+            let bytes = serde_json::to_vec_pretty(&receipt)?;
+            if let Some(output) = output {
+                write_new_file(&output, &bytes)?;
+            }
             println!("{}", String::from_utf8(bytes)?);
         }
         Commands::T27PlanBuild {

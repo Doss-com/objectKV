@@ -16,6 +16,24 @@ pub enum T28CacheState {
     MetadataWarmDataCold,
 }
 
+/// Measured T28 point-read subject.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum T28PointSubject {
+    Candidate,
+    RawRangeControl,
+}
+
+impl T28PointSubject {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Candidate => "candidate",
+            Self::RawRangeControl => "raw_range_control",
+        }
+    }
+}
+
 /// One point operation shared by the candidate and raw-range control.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -42,7 +60,46 @@ pub struct T28PointPlanV1 {
     pub plan_sha256: String,
 }
 
+/// One positive point execution bound to its provider-attempt trace.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28PointExecutionReceiptV1 {
+    pub schema_version: u32,
+    pub plan_sha256: String,
+    pub operation_ordinal: u64,
+    pub subject: T28PointSubject,
+    pub provider: String,
+    pub elapsed_nanos: u64,
+    pub value_sha256: String,
+    pub data_response_bytes: u64,
+    pub provider_attempts: u64,
+    pub correctness_anomalies: u64,
+    pub events: Vec<ProviderAttemptEventV1>,
+}
+
 impl T28PointPlanV1 {
+    /// Decode a plan and require its independent digest and fixture placement.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed JSON, a missing expected digest, digest
+    /// mismatch, or any invalid plan field.
+    pub fn decode(
+        bytes: &[u8],
+        expected_plan_sha256: &str,
+        placement: &FixturePlacementLocatorV1,
+    ) -> Result<Self, String> {
+        if !valid_sha256(expected_plan_sha256) {
+            return Err("expected T28 plan SHA-256 is invalid".to_owned());
+        }
+        let plan: Self = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        plan.validate(placement)?;
+        if plan.plan_sha256 != expected_plan_sha256 {
+            return Err("T28 plan differs from its independently supplied digest".to_owned());
+        }
+        Ok(plan)
+    }
+
     /// Seal point plans derived from authenticated indexes into one immutable plan.
     ///
     /// # Errors
@@ -174,6 +231,49 @@ impl T28PointPlanV1 {
     }
 }
 
+impl T28PointExecutionReceiptV1 {
+    /// Construct one positive receipt after applying the unchanged point oracle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the operation is absent or the value and provider
+    /// events differ from the sealed plan.
+    pub fn new(
+        plan: &T28PointPlanV1,
+        operation_ordinal: u64,
+        subject: T28PointSubject,
+        provider: &str,
+        elapsed_nanos: u64,
+        read: &PointRead,
+        events: Vec<ProviderAttemptEventV1>,
+    ) -> Result<Self, String> {
+        let operation = plan
+            .operations
+            .get(usize::try_from(operation_ordinal).unwrap_or(usize::MAX))
+            .ok_or_else(|| "T28 operation ordinal is absent".to_owned())?;
+        if operation.ordinal != operation_ordinal || elapsed_nanos == 0 {
+            return Err("T28 operation ordinal or elapsed time is invalid".to_owned());
+        }
+        evaluate_measured_point(operation, read, subject.id(), provider, &events)?;
+        let PointReadOutcome::Value(value) = &read.outcome else {
+            return Err("T28 positive receipt requires a value".to_owned());
+        };
+        Ok(Self {
+            schema_version: 1,
+            plan_sha256: plan.plan_sha256.clone(),
+            operation_ordinal,
+            subject,
+            provider: provider.to_owned(),
+            elapsed_nanos,
+            value_sha256: content_sha256(value),
+            data_response_bytes: read.data_bytes,
+            provider_attempts: 1,
+            correctness_anomalies: 0,
+            events,
+        })
+    }
+}
+
 fn valid_sha256(value: &str) -> bool {
     value.len() == 64
         && value
@@ -243,7 +343,10 @@ pub fn evaluate_measured_point(
 
 #[cfg(test)]
 mod tests {
-    use super::{evaluate_measured_point, T28CacheState, T28PointPlanV1};
+    use super::{
+        evaluate_measured_point, T28CacheState, T28PointExecutionReceiptV1, T28PointPlanV1,
+        T28PointSubject,
+    };
     use crate::object_fixture::{
         FixturePlacementLocatorV1, FixturePointPlanV1, ObjectFixtureLocatorV1,
     };
@@ -468,5 +571,25 @@ mod tests {
             plan.operations[0].expected_value_sha256,
             content_sha256(&expected)
         );
+        let encoded = serde_json::to_vec(&plan).expect("encode plan");
+        T28PointPlanV1::decode(&encoded, &plan.plan_sha256, &placement).expect("decode exact plan");
+        assert!(T28PointPlanV1::decode(&encoded, &"a".repeat(64), &placement).is_err());
+
+        let read = PointRead {
+            outcome: PointReadOutcome::Value(Bytes::from(expected)),
+            data_bytes: plan.operations[0].point.block.length,
+        };
+        let receipt = T28PointExecutionReceiptV1::new(
+            &plan,
+            0,
+            T28PointSubject::Candidate,
+            "gcs",
+            10,
+            &read,
+            successful_events(&plan.operations[0]),
+        )
+        .expect("build positive receipt");
+        assert_eq!(receipt.correctness_anomalies, 0);
+        assert_eq!(receipt.provider_attempts, 1);
     }
 }
