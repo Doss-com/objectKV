@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://objectkv.dev/evals/schema/t28-reader-iam-receipt-v1.schema.json",
+  "title": "objectKV RFC-0046 T28 reader IAM receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "observed_at", "project", "bucket", "region", "runner",
+    "principal", "token_observation", "direct_bindings", "effective_permissions",
+    "denied_write_probe", "conclusions"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "project": { "type": "string", "minLength": 1 },
+    "bucket": { "type": "string", "minLength": 1 },
+    "region": { "type": "string", "minLength": 1 },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instance_name", "instance_id", "zone"],
+      "properties": {
+        "instance_name": { "type": "string", "minLength": 1 },
+        "instance_id": { "type": "string", "pattern": "^[0-9]+$" },
+        "zone": { "type": "string", "minLength": 1 }
+      }
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "email", "unique_id", "disabled", "runtime_metadata_email_matches",
+        "credential_source", "oauth_scopes"
+      ],
+      "properties": {
+        "email": { "type": "string", "minLength": 3 },
+        "unique_id": { "type": "string", "pattern": "^[0-9]+$" },
+        "disabled": { "const": false },
+        "runtime_metadata_email_matches": { "const": true },
+        "credential_source": { "const": "gce_metadata_server" },
+        "oauth_scopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "token_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token_type", "expires_in_seconds", "observed_epoch_seconds",
+        "expires_at", "access_token_recorded"
+      ],
+      "properties": {
+        "token_type": { "const": "Bearer" },
+        "expires_in_seconds": { "type": "integer", "minimum": 900 },
+        "observed_epoch_seconds": { "type": "integer", "minimum": 1 },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "access_token_recorded": { "const": false }
+      }
+    },
+    "direct_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_roles", "bucket_roles", "storage_writer_roles"],
+      "properties": {
+        "project_roles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "bucket_roles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "const": "roles/storage.objectViewer" }
+        },
+        "storage_writer_roles": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "effective_permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storage.objects.get", "storage.objects.list", "storage.objects.create",
+        "storage.objects.delete"
+      ],
+      "properties": {
+        "storage.objects.get": { "const": "GRANTED" },
+        "storage.objects.list": { "const": "GRANTED" },
+        "storage.objects.create": { "const": "NOT_GRANTED" },
+        "storage.objects.delete": { "const": "NOT_GRANTED" }
+      }
+    },
+    "denied_write_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object", "preexisting", "create_only", "exit_code", "error_class",
+        "required_permission", "object_absent_after_probe"
+      ],
+      "properties": {
+        "object": { "type": "string", "pattern": "^gs://" },
+        "preexisting": { "const": false },
+        "create_only": { "const": true },
+        "exit_code": { "type": "integer", "minimum": 1 },
+        "error_class": { "const": "permission_denied" },
+        "required_permission": { "const": "storage.objects.create" },
+        "object_absent_after_probe": { "const": true }
+      }
+    },
+    "conclusions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact_bucket_viewer_binding", "no_direct_storage_writer_binding",
+        "effective_create_denied", "effective_delete_denied",
+        "runtime_principal_matches"
+      ],
+      "properties": {
+        "exact_bucket_viewer_binding": { "const": true },
+        "no_direct_storage_writer_binding": { "const": true },
+        "effective_create_denied": { "const": true },
+        "effective_delete_denied": { "const": true },
+        "runtime_principal_matches": { "const": true }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://objectkv.dev/evals/schema/t28-boundary-poison-receipt-v1.schema.json",
+  "title": "objectKV RFC-0046 T28 boundary poison receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "plan_sha256", "poison", "poisoned_boundary_sha256",
+    "detected", "rejection", "receipt_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "poison": {
+      "enum": [
+        "full_object_read", "list_authority", "stale_descriptor_generation",
+        "cross_fixture_index", "hidden_local_fixture", "unexpected_retry",
+        "writer_authority", "unrestricted_read_version", "overlapping_process",
+        "reused_state"
+      ]
+    },
+    "poisoned_boundary_sha256": { "$ref": "#/$defs/sha256" },
+    "detected": { "const": true },
+    "rejection": { "type": "string", "minLength": 1 },
+    "receipt_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

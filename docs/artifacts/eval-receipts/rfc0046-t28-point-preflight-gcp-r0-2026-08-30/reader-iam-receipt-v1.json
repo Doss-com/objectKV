@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-08-30T06:19:46Z",
+  "project": "doss-objectkv-dev",
+  "bucket": "doss-objectkv-dev-okv-evals",
+  "region": "us-central1",
+  "runner": {
+    "instance_name": "objectkv-bench-t27a2-r0-runner",
+    "instance_id": "141366064138072137",
+    "zone": "us-central1-a"
+  },
+  "principal": {
+    "email": "objectkv-eval-runner@doss-objectkv-dev.iam.gserviceaccount.com",
+    "unique_id": "107821436587035334226",
+    "disabled": false,
+    "runtime_metadata_email_matches": true,
+    "credential_source": "gce_metadata_server",
+    "oauth_scopes": [
+      "https://www.googleapis.com/auth/cloud-platform"
+    ]
+  },
+  "token_observation": {
+    "token_type": "Bearer",
+    "expires_in_seconds": 1883,
+    "observed_epoch_seconds": 1788070786,
+    "expires_at": "2026-08-30T06:51:09Z",
+    "access_token_recorded": false
+  },
+  "direct_bindings": {
+    "project_roles": [
+      "roles/cloudtrace.agent",
+      "roles/logging.logWriter",
+      "roles/monitoring.metricWriter"
+    ],
+    "bucket_roles": [
+      "roles/storage.objectViewer"
+    ],
+    "storage_writer_roles": []
+  },
+  "effective_permissions": {
+    "storage.objects.get": "GRANTED",
+    "storage.objects.list": "GRANTED",
+    "storage.objects.create": "NOT_GRANTED",
+    "storage.objects.delete": "NOT_GRANTED"
+  },
+  "denied_write_probe": {
+    "object": "gs://doss-objectkv-dev-okv-evals/runs/rfc0046-t28-preflight-r0-20260830/denied-write-probe-990afef-01",
+    "preexisting": false,
+    "create_only": true,
+    "exit_code": 1,
+    "error_class": "permission_denied",
+    "required_permission": "storage.objects.create",
+    "object_absent_after_probe": true
+  },
+  "conclusions": {
+    "exact_bucket_viewer_binding": true,
+    "no_direct_storage_writer_binding": true,
+    "effective_create_denied": true,
+    "effective_delete_denied": true,
+    "runtime_principal_matches": true
+  }
+}
