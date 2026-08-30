@@ -32,7 +32,7 @@ CONSTANTS
     FaultIgnoreGenerationFence,
     FaultPublishIncompleteClosure,
     FaultPopWithoutProtectedObject,
-    FaultServeWithoutRecovery
+    FaultServeBehindCommit
 
 ASSUME /\ Nodes # {}
        /\ Txns # {}
@@ -46,7 +46,7 @@ ASSUME /\ Nodes # {}
        /\ FaultIgnoreGenerationFence \in BOOLEAN
        /\ FaultPublishIncompleteClosure \in BOOLEAN
        /\ FaultPopWithoutProtectedObject \in BOOLEAN
-       /\ FaultServeWithoutRecovery \in BOOLEAN
+       /\ FaultServeBehindCommit \in BOOLEAN
 
 TxnStates == {"idle", "pending", "sequenced", "committed", "rejected"}
 ReplyStates == {"none", "buffered", "unknown", "committed"}
@@ -264,13 +264,12 @@ CommitTxn(t) ==
     LET hasStableQuorum == Cardinality(stableCopies[txnVersion[t]]) >= Quorum
         generationMatches == txnGeneration[t] = activeGeneration
         conflictFree == t \notin conflicted
-        durabilityAllowed == hasStableQuorum \/ FaultAckBeforeStableQuorum
         generationAllowed == generationMatches \/ FaultIgnoreGenerationFence
         conflictAllowed == conflictFree \/ FaultSkipConflictValidation
     IN
     /\ txnState[t] = "sequenced"
     /\ ~EarlierSequenced(t)
-    /\ durabilityAllowed
+    /\ hasStableQuorum
     /\ generationAllowed
     /\ conflictAllowed
     /\ txnState' = [txnState EXCEPT ![t] = "committed"]
@@ -283,9 +282,9 @@ CommitTxn(t) ==
     /\ conflicted' = conflicted \cup
         {other \in Txns:
             other # t /\ txnState[other] \in {"pending", "sequenced"}}
-    /\ staleCommitObserved' = staleCommitObserved \/ ~generationMatches
-    /\ conflictCommitObserved' = conflictCommitObserved \/ ~conflictFree
-    /\ earlyCommitObserved' = earlyCommitObserved \/ ~hasStableQuorum
+    /\ staleCommitObserved' = (staleCommitObserved \/ ~generationMatches)
+    /\ conflictCommitObserved' = (conflictCommitObserved \/ ~conflictFree)
+    /\ earlyCommitObserved' = (earlyCommitObserved \/ ~hasStableQuorum)
     /\ UNCHANGED <<
         activeGeneration, nextVersion, txnGeneration, txnVersion, readVersion,
         ramCopies, stableCopies, nodeEpoch, failedMedia, objectBuiltThrough,
@@ -312,9 +311,16 @@ RejectConflict(t) ==
        >>
 
 DeliverCommitted(t) ==
-    /\ txnState[t] = "committed"
+    LET validCommit == txnState[t] = "committed"
+        poisonedEarlyReply ==
+            /\ FaultAckBeforeStableQuorum
+            /\ txnState[t] = "sequenced"
+    IN
+    /\ validCommit \/ poisonedEarlyReply
     /\ reply[t] # "committed"
     /\ reply' = [reply EXCEPT ![t] = "committed"]
+    /\ earlyCommitObserved' =
+        (earlyCommitObserved \/ ~validCommit \/ ~quorumAtCommit[t])
     /\ UNCHANGED <<
         activeGeneration, nextVersion, commitVersion, txnState, txnGeneration,
         txnVersion, readVersion, conflicted, ramCopies, stableCopies,
@@ -322,7 +328,7 @@ DeliverCommitted(t) ==
         objectBuiltThrough, pendingObjectFrontier, pendingObjectGeneration,
         activeObjectFrontier, txLogFloor, servingTier, servingGeneration,
         servingThrough, servingReady, unsafeReadObserved, staleCommitObserved,
-        conflictCommitObserved, earlyCommitObserved, unsafePopObserved,
+        conflictCommitObserved, unsafePopObserved,
         incompletePublicationObserved
        >>
 
@@ -352,7 +358,7 @@ PrepareObjectFrontier(v) ==
     /\ pendingObjectFrontier' = v
     /\ pendingObjectGeneration' = activeGeneration
     /\ incompletePublicationObserved' =
-        incompletePublicationObserved \/ ~closureComplete
+        (incompletePublicationObserved \/ ~closureComplete)
     /\ UNCHANGED <<
         activeGeneration, nextVersion, commitVersion, txnState, txnGeneration,
         txnVersion, readVersion, conflicted, ramCopies, stableCopies,
@@ -374,7 +380,7 @@ PopTxLogThroughPending ==
     /\ txLogFloor' = pendingObjectFrontier
     /\ retainedTxLog' =
         {v \in retainedTxLog: v > pendingObjectFrontier}
-    /\ unsafePopObserved' = unsafePopObserved \/ ~protected
+    /\ unsafePopObserved' = (unsafePopObserved \/ ~protected)
     /\ UNCHANGED <<
         activeGeneration, nextVersion, commitVersion, txnState, txnGeneration,
         txnVersion, readVersion, conflicted, ramCopies, stableCopies,
@@ -388,6 +394,7 @@ PopTxLogThroughPending ==
 ActivateObjectFrontier ==
     /\ pendingObjectFrontier > 0
     /\ txLogFloor >= pendingObjectFrontier
+    /\ pendingObjectGeneration = activeGeneration
     /\ activeObjectFrontier' = pendingObjectFrontier
     /\ pendingObjectFrontier' = 0
     /\ pendingObjectGeneration' = 0
@@ -430,8 +437,21 @@ InstallGeneration(n) ==
        >>
 
 LoseRam(n) ==
-    /\ \E v \in Versions: n \in ramCopies[v]
+    /\ \/ servingTier[n] = "ram"
+       \/ \E v \in Versions: n \in ramCopies[v]
     /\ ramCopies' = [v \in Versions |-> ramCopies[v] \ {n}]
+    /\ servingTier' =
+        IF servingTier[n] = "ram"
+        THEN [servingTier EXCEPT ![n] = "none"]
+        ELSE servingTier
+    /\ servingGeneration' =
+        IF servingTier[n] = "ram"
+        THEN [servingGeneration EXCEPT ![n] = 0]
+        ELSE servingGeneration
+    /\ servingThrough' =
+        IF servingTier[n] = "ram"
+        THEN [servingThrough EXCEPT ![n] = 0]
+        ELSE servingThrough
     /\ servingReady' =
         IF servingTier[n] = "ram"
         THEN [servingReady EXCEPT ![n] = FALSE]
@@ -441,8 +461,7 @@ LoseRam(n) ==
         txnVersion, readVersion, conflicted, stableCopies, nodeEpoch,
         failedMedia, retainedTxLog, reply, quorumAtCommit,
         objectBuiltThrough, pendingObjectFrontier, pendingObjectGeneration,
-        activeObjectFrontier, txLogFloor, servingTier, servingGeneration,
-        servingThrough, unsafeReadObserved, staleCommitObserved,
+        activeObjectFrontier, txLogFloor, unsafeReadObserved, staleCommitObserved,
         conflictCommitObserved, earlyCommitObserved, unsafePopObserved,
         incompletePublicationObserved
        >>
@@ -452,6 +471,18 @@ LoseStableMedium(n) ==
     /\ Cardinality(failedMedia) < MaxMediaFailures
     /\ failedMedia' = failedMedia \cup {n}
     /\ stableCopies' = [v \in Versions |-> stableCopies[v] \ {n}]
+    /\ servingTier' =
+        IF servingTier[n] \in {"nvme", "rocks"}
+        THEN [servingTier EXCEPT ![n] = "none"]
+        ELSE servingTier
+    /\ servingGeneration' =
+        IF servingTier[n] \in {"nvme", "rocks"}
+        THEN [servingGeneration EXCEPT ![n] = 0]
+        ELSE servingGeneration
+    /\ servingThrough' =
+        IF servingTier[n] \in {"nvme", "rocks"}
+        THEN [servingThrough EXCEPT ![n] = 0]
+        ELSE servingThrough
     /\ servingReady' =
         IF servingTier[n] \in {"nvme", "rocks"}
         THEN [servingReady EXCEPT ![n] = FALSE]
@@ -461,8 +492,7 @@ LoseStableMedium(n) ==
         txnVersion, readVersion, conflicted, ramCopies, nodeEpoch,
         retainedTxLog, reply, quorumAtCommit, objectBuiltThrough,
         pendingObjectFrontier, pendingObjectGeneration, activeObjectFrontier,
-        txLogFloor, servingTier, servingGeneration, servingThrough,
-        unsafeReadObserved, staleCommitObserved, conflictCommitObserved,
+        txLogFloor, unsafeReadObserved, staleCommitObserved, conflictCommitObserved,
         earlyCommitObserved, unsafePopObserved, incompletePublicationObserved
        >>
 
@@ -471,7 +501,7 @@ HydrateServingImage(n, tier, v) ==
     IN
     /\ tier \in ServingTiers \ {"none"}
     /\ v \in 0..commitVersion
-    /\ reconstructable \/ FaultServeWithoutRecovery
+    /\ reconstructable
     /\ servingTier' = [servingTier EXCEPT ![n] = tier]
     /\ servingGeneration' = [servingGeneration EXCEPT ![n] = activeGeneration]
     /\ servingThrough' = [servingThrough EXCEPT ![n] = v]
@@ -489,11 +519,12 @@ HydrateServingImage(n, tier, v) ==
 ServeRead(n) ==
     LET safe ==
         /\ servingGeneration[n] = activeGeneration
+        /\ servingThrough[n] = commitVersion
         /\ CanServeThrough(servingThrough[n])
     IN
     /\ servingReady[n]
-    /\ safe \/ FaultServeWithoutRecovery
-    /\ unsafeReadObserved' = unsafeReadObserved \/ ~safe
+    /\ safe \/ FaultServeBehindCommit
+    /\ unsafeReadObserved' = (unsafeReadObserved \/ ~safe)
     /\ UNCHANGED <<
         activeGeneration, nextVersion, commitVersion, txnState, txnGeneration,
         txnVersion, readVersion, conflicted, ramCopies, stableCopies,

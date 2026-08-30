@@ -1,8 +1,8 @@
-//! Executable refinement checker for the TLA+ cell reference model.
+//! Executable trace-conformance checker for the TLA+ cell reference model.
 //!
 //! This checker does not replace TLC. It gives Rust and infrastructure runs a
-//! stable event vocabulary and rejects observed orderings that cannot refine
-//! the named actions in `formal/ObjectKVCell.tla`.
+//! stable event vocabulary and rejects observed orderings that do not conform
+//! to the named actions in `formal/ObjectKVCell.tla`.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Exact TLA+ model content checked when trace schema v1 was frozen.
 pub const OBJECT_KV_CELL_TLA_SHA256: &str =
-    "cca6a66fb31c8d314f9347b6db285a231ca75324b6a0499c4e29755636470b4b";
+    "55d5bb137b9e3c37deace42f92b4602b022a7583b0a23a801ef707f40618a3ba";
 
 const TRACE_SCHEMA_VERSION: u32 = 1;
 
@@ -37,23 +37,39 @@ impl CellTraceConfigV1 {
     ) -> Result<Self, CellTraceViolationV1> {
         let supplied = nodes.into_iter().collect::<Vec<_>>();
         let unique = supplied.iter().cloned().collect::<BTreeSet<_>>();
-        if supplied.is_empty()
-            || supplied.iter().any(String::is_empty)
-            || supplied.len() != unique.len()
-            || quorum == 0
-            || quorum > unique.len()
-            || quorum.saturating_mul(2) <= unique.len()
-            || max_media_failures >= unique.len()
-        {
+        if supplied.len() != unique.len() {
             return Err(CellTraceViolationV1::configuration(
-                "trace configuration requires unique non-empty nodes, an intersecting quorum, and a bounded media-failure budget",
+                "trace configuration requires unique node IDs",
             ));
         }
-        Ok(Self {
+        let config = Self {
             nodes: unique,
             quorum,
             max_media_failures,
-        })
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Revalidate the TLA+ constant assumptions after deserialization.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty node sets or IDs, non-intersecting quorums, and failure
+    /// budgets that can remove every node.
+    pub fn validate(&self) -> Result<(), CellTraceViolationV1> {
+        if self.nodes.is_empty()
+            || self.nodes.iter().any(String::is_empty)
+            || self.quorum == 0
+            || self.quorum > self.nodes.len()
+            || self.quorum.saturating_mul(2) <= self.nodes.len()
+            || self.max_media_failures >= self.nodes.len()
+        {
+            return Err(CellTraceViolationV1::configuration(
+                "trace configuration requires non-empty nodes, an intersecting quorum, and a bounded media-failure budget",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -196,7 +212,7 @@ impl CellTraceRefinementV1 {
     ) -> Self {
         let scope = scope.into();
         let mut state = CellTraceState::new(&config);
-        let mut violation = None;
+        let mut violation = config.validate().err();
         for (index, event) in events.iter().enumerate() {
             if let Err(detail) = state.apply(event) {
                 violation = Some(CellTraceViolationV1::event(index, event.action(), detail));
@@ -241,12 +257,14 @@ impl CellTraceRefinementV1 {
         format!("{:x}", Sha256::digest(bytes))
     }
 
-    /// Validate the receipt seal and static schema identity.
+    /// Validate the receipt seal, then independently replay every event and
+    /// assertion and compare the complete derived result.
     ///
     /// # Errors
     ///
-    /// Rejects schema, model, scope, event, and digest drift.
+    /// Rejects schema, model, scope, event, replay-result, and digest drift.
     pub fn validate(&self) -> Result<(), CellTraceViolationV1> {
+        self.config.validate()?;
         if self.schema_version != TRACE_SCHEMA_VERSION
             || self.model_sha256 != OBJECT_KV_CELL_TLA_SHA256
             || self.scope.is_empty()
@@ -256,6 +274,23 @@ impl CellTraceRefinementV1 {
         {
             return Err(CellTraceViolationV1::configuration(
                 "cell trace receipt identity or seal is invalid",
+            ));
+        }
+        let replay = Self::evaluate(
+            self.scope.clone(),
+            self.config.clone(),
+            self.events.clone(),
+            self.assertions.clone(),
+        );
+        if self.passed != replay.passed
+            || self.violation != replay.violation
+            || self.final_active_generation != replay.final_active_generation
+            || self.final_commit_version != replay.final_commit_version
+            || self.final_active_object_frontier != replay.final_active_object_frontier
+            || self.final_txlog_floor != replay.final_txlog_floor
+        {
+            return Err(CellTraceViolationV1::configuration(
+                "cell trace receipt differs from independent replay",
             ));
         }
         Ok(())
@@ -528,6 +563,7 @@ impl CellTraceState {
             CellTraceEventV1::ActivateObjectFrontier => {
                 if self.pending_object_frontier == 0
                     || self.txlog_floor < self.pending_object_frontier
+                    || self.pending_object_generation != self.active_generation
                 {
                     return Err(
                         "ActivateObjectFrontier requires prior protected txLog pop".to_owned()
@@ -552,8 +588,15 @@ impl CellTraceState {
             }
             CellTraceEventV1::LoseRam { node } => {
                 self.require_node(node)?;
-                if !self.ram_copies.values().any(|copies| copies.contains(node)) {
-                    return Err("LoseRam requires at least one RAM copy on the node".to_owned());
+                let owns_staged_ram = self.ram_copies.values().any(|copies| copies.contains(node));
+                let serves_from_ram = self
+                    .serving
+                    .get(node)
+                    .is_some_and(|image| image.tier == CellServingTierV1::Ram);
+                if !owns_staged_ram && !serves_from_ram {
+                    return Err(
+                        "LoseRam requires staged RAM or a RAM serving image on the node".to_owned(),
+                    );
                 }
                 for copies in self.ram_copies.values_mut() {
                     copies.remove(node);
@@ -563,7 +606,7 @@ impl CellTraceState {
                     .get(node)
                     .is_some_and(|image| image.tier == CellServingTierV1::Ram)
                 {
-                    self.serving.get_mut(node).expect("known image").ready = false;
+                    self.serving.remove(node);
                 }
             }
             CellTraceEventV1::LoseStableMedium { node } => {
@@ -583,7 +626,7 @@ impl CellTraceState {
                         CellServingTierV1::Nvme | CellServingTierV1::Rocks
                     )
                 }) {
-                    self.serving.get_mut(node).expect("known image").ready = false;
+                    self.serving.remove(node);
                 }
             }
             CellTraceEventV1::HydrateServingImage {
@@ -616,6 +659,7 @@ impl CellTraceState {
                     .ok_or_else(|| "ServeRead requires a serving image".to_owned())?;
                 if !image.ready
                     || image.generation != self.active_generation
+                    || image.through != self.commit_version
                     || !self.committed_through_recoverable(image.through)
                 {
                     return Err(
@@ -763,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_cell_trace_refines_the_reference_actions() {
+    fn complete_cell_trace_conforms_to_the_reference_actions() {
         let events = vec![
             CellTraceEventV1::Begin {
                 transaction: "t1".to_owned(),
@@ -852,5 +896,158 @@ mod tests {
             Some("StableQuorumAtAcknowledgement")
         );
         report.validate().expect("sealed negative trace");
+    }
+
+    #[test]
+    fn latest_read_rejects_an_image_behind_commit() {
+        let events = vec![
+            CellTraceEventV1::Begin {
+                transaction: "t1".to_owned(),
+            },
+            CellTraceEventV1::SequenceTxn {
+                transaction: "t1".to_owned(),
+                version: 1,
+            },
+            CellTraceEventV1::StageInRam {
+                transaction: "t1".to_owned(),
+                node: "n1".to_owned(),
+            },
+            CellTraceEventV1::StageInRam {
+                transaction: "t1".to_owned(),
+                node: "n2".to_owned(),
+            },
+            CellTraceEventV1::PersistOnStableMedia {
+                transaction: "t1".to_owned(),
+                node: "n1".to_owned(),
+            },
+            CellTraceEventV1::PersistOnStableMedia {
+                transaction: "t1".to_owned(),
+                node: "n2".to_owned(),
+            },
+            CellTraceEventV1::CommitTxn {
+                transaction: "t1".to_owned(),
+            },
+            CellTraceEventV1::HydrateServingImage {
+                node: "n3".to_owned(),
+                tier: CellServingTierV1::Ram,
+                through: 0,
+            },
+            CellTraceEventV1::ServeRead {
+                node: "n3".to_owned(),
+            },
+        ];
+        let report = CellTraceRefinementV1::evaluate("behind-commit", config(), events, vec![]);
+        assert!(!report.passed);
+        assert_eq!(
+            report.violation.as_ref().and_then(|error| error.index),
+            Some(8)
+        );
+        assert_eq!(
+            report
+                .violation
+                .as_ref()
+                .and_then(|error| error.action.as_deref()),
+            Some("ServeRead")
+        );
+    }
+
+    #[test]
+    fn losing_ram_discards_its_serving_image() {
+        let events = vec![
+            CellTraceEventV1::HydrateServingImage {
+                node: "n3".to_owned(),
+                tier: CellServingTierV1::Ram,
+                through: 0,
+            },
+            CellTraceEventV1::LoseRam {
+                node: "n3".to_owned(),
+            },
+            CellTraceEventV1::ServeRead {
+                node: "n3".to_owned(),
+            },
+        ];
+        let report = CellTraceRefinementV1::evaluate("ram-loss", config(), events, vec![]);
+        assert!(!report.passed);
+        assert_eq!(
+            report.violation.as_ref().and_then(|error| error.index),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn deserialized_non_intersecting_quorum_is_rejected() {
+        let invalid = CellTraceConfigV1 {
+            nodes: set(&["n1", "n2", "n3"]),
+            quorum: 1,
+            max_media_failures: 1,
+        };
+        let events = vec![CellTraceEventV1::Begin {
+            transaction: "t1".to_owned(),
+        }];
+        let report = CellTraceRefinementV1::evaluate("invalid-quorum", invalid, events, vec![]);
+        assert!(!report.passed);
+        assert_eq!(
+            report.violation.as_ref().map(|error| error.phase.as_str()),
+            Some("configuration")
+        );
+        let error = report
+            .validate()
+            .expect_err("invalid configuration must not validate");
+        assert!(error.detail.contains("intersecting quorum"));
+    }
+
+    #[test]
+    fn activation_rejects_an_old_generation_pending_frontier() {
+        let events = vec![
+            CellTraceEventV1::Begin {
+                transaction: "t1".to_owned(),
+            },
+            CellTraceEventV1::SequenceTxn {
+                transaction: "t1".to_owned(),
+                version: 1,
+            },
+            CellTraceEventV1::StageInRam {
+                transaction: "t1".to_owned(),
+                node: "n1".to_owned(),
+            },
+            CellTraceEventV1::StageInRam {
+                transaction: "t1".to_owned(),
+                node: "n2".to_owned(),
+            },
+            CellTraceEventV1::PersistOnStableMedia {
+                transaction: "t1".to_owned(),
+                node: "n1".to_owned(),
+            },
+            CellTraceEventV1::PersistOnStableMedia {
+                transaction: "t1".to_owned(),
+                node: "n2".to_owned(),
+            },
+            CellTraceEventV1::CommitTxn {
+                transaction: "t1".to_owned(),
+            },
+            CellTraceEventV1::BuildObjectClosure { through: 1 },
+            CellTraceEventV1::PrepareObjectFrontier { through: 1 },
+            CellTraceEventV1::PopTxLogThroughPending,
+            CellTraceEventV1::AdvanceGeneration,
+            CellTraceEventV1::ActivateObjectFrontier,
+        ];
+        let report = CellTraceRefinementV1::evaluate("stale-frontier", config(), events, vec![]);
+        assert!(!report.passed);
+        assert_eq!(
+            report.violation.as_ref().and_then(|error| error.index),
+            Some(11)
+        );
+    }
+
+    #[test]
+    fn validation_replays_and_rejects_resealed_derived_state() {
+        let events = vec![CellTraceEventV1::Begin {
+            transaction: "t1".to_owned(),
+        }];
+        let mut report = CellTraceRefinementV1::evaluate("tampered", config(), events, vec![]);
+        report.final_commit_version = 1;
+        report.trace_sha256 = report.calculated_sha256();
+        let error = report.validate().expect_err("replay must reject tampering");
+        assert!(error.detail.contains("differs from independent replay"));
     }
 }
