@@ -79,13 +79,14 @@ use okv_eval::staged_txlog_process::{
     StagedTxLogProcessMode,
 };
 use okv_eval::storage_layout::{
-    publish_t28_typed_layout, run_columnar_cache_admission_contract,
+    publish_t28_aligned_layout, publish_t28_typed_layout, run_columnar_cache_admission_contract,
     run_columnar_cache_admission_contract_on_backend,
     run_columnar_datafusion_contract_with_scan_fetch, run_storage_layout_contract,
     run_storage_layout_pair_contract, run_storage_layout_pair_contract_on_backend,
     ColumnarCacheAdmissionMode, ColumnarCacheAdmissionReport, ColumnarDataFusionMode,
     ColumnarDataFusionReport, StorageLayoutMode, StorageLayoutProfile, StorageLayoutReport,
-    T28OpenedTypedLayout, T28TypedLayoutExecutionPlanV1, T28TypedLayoutPlacementInput,
+    T28AlignedLayoutPlacementInput, T28OpenedTypedLayout, T28TypedLayoutExecutionPlanV1,
+    T28TypedLayoutPlacementInput,
 };
 use okv_eval::t27_plan::{
     build_t27_execution_incarnation, build_t27_execution_plan, decode_t27_execution_plan,
@@ -562,6 +563,32 @@ enum Commands {
         oracle: PathBuf,
         #[arg(long)]
         expected_oracle_sha256: String,
+        #[arg(long)]
+        locator_output: PathBuf,
+        #[arg(long)]
+        receipt_output: PathBuf,
+    },
+    /// Publish RFC-0049 C5v2 and a new root while reusing an exact RFC-0048 C0.
+    T28AlignedLayoutPrepareGcs {
+        #[arg(long)]
+        source_locator: PathBuf,
+        #[arg(long)]
+        expected_source_envelope_sha256: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long, default_value = "us-central1")]
+        region: String,
+        #[arg(long)]
+        prefix: String,
+        #[arg(
+            long,
+            default_value = "evals/oracles/t28-layout-geometry-v1-oracle.json"
+        )]
+        oracle: PathBuf,
+        #[arg(long)]
+        expected_oracle_sha256: String,
+        #[arg(long)]
+        expected_physical_plan_sha256: String,
         #[arg(long)]
         locator_output: PathBuf,
         #[arg(long)]
@@ -1457,6 +1484,46 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 },
                 &oracle,
                 &expected_oracle_sha256,
+            ))?;
+            let locator = serde_json::to_vec_pretty(&publication.locator)?;
+            let receipt = serde_json::to_vec_pretty(&publication)?;
+            fs::write(locator_output, locator)?;
+            fs::write(receipt_output, &receipt)?;
+            println!("{}", String::from_utf8(receipt)?);
+        }
+        Commands::T28AlignedLayoutPrepareGcs {
+            source_locator,
+            expected_source_envelope_sha256,
+            project,
+            region,
+            prefix,
+            oracle,
+            expected_oracle_sha256,
+            expected_physical_plan_sha256,
+            locator_output,
+            receipt_output,
+        } => {
+            let bucket = std::env::var("OKV_GCS_BUCKET")?;
+            let source_locator = decode_typed_layout_placement(
+                &fs::read(source_locator)?,
+                &expected_source_envelope_sha256,
+            )?;
+            let oracle = decode_t28_layout_oracle(&fs::read(oracle)?, &expected_oracle_sha256)?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let publication = runtime.block_on(publish_t28_aligned_layout(
+                gcs_backend_from_env()?,
+                &source_locator,
+                &T28AlignedLayoutPlacementInput {
+                    project,
+                    bucket,
+                    region,
+                    prefix,
+                },
+                &oracle,
+                &expected_oracle_sha256,
+                &expected_physical_plan_sha256,
             ))?;
             let locator = serde_json::to_vec_pretty(&publication.locator)?;
             let receipt = serde_json::to_vec_pretty(&publication)?;
