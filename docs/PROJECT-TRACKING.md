@@ -306,6 +306,19 @@ T27 remains `[EVALUATING]` with 23 direct-NVMe strata and two buffered sentinels
 open. Evidence is in
 [`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md).
 
+`[VERIFIED]` Stratum `c50-z14-s2207` then completed under the same source,
+plan, workload, execution envelope, machine incarnation, and lease. Its 20
+fresh processes produced AB and BA throughput ratios of 0.965184x and
+0.992665x direct RocksDB, p99 ratios of 1.075079x and 1.188676x, CPU/read
+ratios of 1.030645x and 1.016604x, physical-read ratios of 1.001707x in both
+orders, and read amplification of 1.000000x. All gates passed. Collector-side
+inspection found 21 log, 64 metric, and 20 trace JSONL exports for run
+`35ae65ce-69f1-4516-b174-cb6054e34f11`. The create-only evidence archive and
+standalone receipt were downloaded and hash-verified by generation. T27
+remains `[EVALUATING]` with 22 direct-NVMe strata and two buffered sentinels
+open. Evidence is in
+[`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
@@ -378,9 +391,9 @@ read-only consumer, standalone control, separate seeds, fresh-process runner,
 raw evidence, runtime binding, telemetry completion, and poison boundaries are
 `[VERIFIED]`. The final runner adds one authenticated resumable receipt per
 stratum and rejects cross-execution aggregation. Thirty-two focused T27 tests
-pass in the remote release build. Four of 27 direct-NVMe strata are now
+pass in the remote release build. Five of 27 direct-NVMe strata are now
 `[VERIFIED]` at near-RocksDB parity. The next experiment executes the remaining
-23 strata against the same plan, workload, executable, machine incarnation,
+22 strata against the same plan, workload, executable, machine incarnation,
 and infrastructure lease, then runs two buffered sentinels. The corrected
 64 MiB calibration remains the buffered regression anchor, and the direct-NVMe
 preflight remains the physical-media control.

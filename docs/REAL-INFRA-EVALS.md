@@ -385,6 +385,20 @@ host lease. T27 remains `[EVALUATING]` with 23 direct-NVMe strata and two
 buffered sentinels open. See
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md`.
 
+`[VERIFIED]` The fifth stratum, `c50-z14-s2207`, passed under the same exact
+source, executable, fixture, plan, execution envelope, machine, NVMe device,
+and lease. AB and BA throughput ratios were 0.965184x and 0.992665x direct
+RocksDB; p99 ratios were 1.075079x and 1.188676x; CPU/read ratios were
+1.030645x and 1.016604x; physical-read ratios were 1.001707x in both orders;
+and read amplification was 1.000000x. Collector inspection found 21 logs, 64
+metrics, and 20 traces carrying run ID
+`35ae65ce-69f1-4516-b174-cb6054e34f11`. The 1 hour 6 minute evidence archive
+and standalone receipt are generation-pinned in GCS. The queued runner began
+`c50-z14-s3301` only after the receipt passed and released its host lease. T27
+remains `[EVALUATING]` with 22 direct-NVMe strata and two buffered sentinels
+open. See
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7

@@ -3,16 +3,18 @@
 Status: `[EVALUATING]`, with the cross-invocation fixture, read-only consumer,
 standalone control, independent-seed boundaries, four-position 64 MiB
 preflight, 1 GiB fixture, immutable 540-position plan, retained runtime, and
-first four complete 20-position strata `[VERIFIED]`
+first five complete 20-position strata `[VERIFIED]`
 
 ## Current execution readout
 
-`[VERIFIED]` Strata `c50-z08-s1103`, `c50-z08-s2207`, `c50-z08-s3301`, and
-`c50-z14-s1103` completed against live plan `40d4559a` and workload
+`[VERIFIED]` Strata `c50-z08-s1103`, `c50-z08-s2207`, `c50-z08-s3301`,
+`c50-z14-s1103`, and `c50-z14-s2207` completed against live plan `40d4559a`
+and workload
 `7019d0e1`. All cover 50 percent block-cache coverage, eight concurrent
 readers, five fresh-process ABBA blocks, and one million measured reads per
 position. The first three cover Zipf 0.8 with independent trace seeds 1103,
-2207, and 3301. The fourth covers Zipf 1.4 with trace seed 1103.
+2207, and 3301. The fourth and fifth cover Zipf 1.4 with trace seeds 1103 and
+2207.
 
 | Stratum | Metric | AB native/control | BA native/control | Gate |
 | --- | --- | ---: | ---: | ---: |
@@ -32,11 +34,15 @@ position. The first three cover Zipf 0.8 with independent trace seeds 1103,
 | Zipf 1.4, seed 1103 | P99 latency | 0.875320x | 0.901665x | at most 1.20x |
 | Zipf 1.4, seed 1103 | CPU/read | 1.022413x | 1.024776x | at most 1.25x |
 | Zipf 1.4, seed 1103 | Physical bytes/read | 0.995322x | 0.995223x | at most 1.25x |
+| Zipf 1.4, seed 2207 | Throughput | 0.965184x | 0.992665x | at least 0.80x |
+| Zipf 1.4, seed 2207 | P99 latency | 1.075079x | 1.188676x | at most 1.20x |
+| Zipf 1.4, seed 2207 | CPU/read | 1.030645x | 1.016604x | at most 1.25x |
+| Zipf 1.4, seed 2207 | Physical bytes/read | 1.001707x | 1.001707x | at most 1.25x |
 | all | Read amplification | 1.000000x | 1.000000x | at most 1.25x |
 
-All 80 process identities, raw reports, correctness and pressure gates, and
+All 100 process identities, raw reports, correctness and pressure gates, and
 logs, metrics, and traces passed. Each stratum ran for about 1 hour 6 minutes.
-T27 remains `[EVALUATING]`: four of 27 direct-NVMe strata and zero of two
+T27 remains `[EVALUATING]`: five of 27 direct-NVMe strata and zero of two
 buffered sentinels are complete.
 
 ## Decision
@@ -542,21 +548,22 @@ treatment is not reused.
 9. `[EVALUATING]` Execute the 27 admitting strata and two buffered sentinels,
    preserve every partial failure, update the master matrix, and remove the
    leased infrastructure. Strata `c50-z08-s1103`, `c50-z08-s2207`,
-   `c50-z08-s3301`, and `c50-z14-s1103` are `[VERIFIED]`; 23 direct-NVMe
-   strata and both buffered sentinels remain.
+   `c50-z08-s3301`, `c50-z14-s1103`, and `c50-z14-s2207` are `[VERIFIED]`; 22
+   direct-NVMe strata and both buffered sentinels remain.
 
 ## Review disposition
 
 The adversarial review's six blocking findings are closed. The corrected
 phase-5 fresh-process runner, 64 MiB preflight, exact runtime retention,
-authenticated per-stratum boundary, and first four complete 1 GiB strata are
+authenticated per-stratum boundary, and first five complete 1 GiB strata are
 `[VERIFIED]`, while the full T27 curve remains `[EVALUATING]`. The live plan
 binds the measured nested worker, executable, source, lockfile, machine receipt,
 boot, NVMe device, host-global lease, independently derived oracle,
 subject-specific RocksDB topology, raw report, cache pressure, OTLP emission,
 and exporter completion. Strata `c50-z08-s1103`, `c50-z08-s2207`,
-`c50-z08-s3301`, and `c50-z14-s1103` passed every AB and BA gate. The queued
-experiment executes the remaining 23 authenticated strata against the same
+`c50-z08-s3301`, `c50-z14-s1103`, and `c50-z14-s2207` passed every AB and BA
+gate. The queued
+experiment executes the remaining 22 authenticated strata against the same
 execution envelope, then aggregates only if all 27 exist. Prior cross-invocation
 evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
@@ -574,3 +581,5 @@ The third complete stratum is in
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s3301-gcp-r0-2026-08-30/README.md`.
 The fourth complete stratum is in
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md`.
+The fifth complete stratum is in
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md`.
