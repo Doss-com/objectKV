@@ -539,6 +539,9 @@ pub fn run_staged_txlog_node(config: StagedTxLogNodeConfig) -> Result<(), String
         stream
             .set_write_timeout(Some(IO_TIMEOUT))
             .map_err(|error| error.to_string())?;
+        stream
+            .set_nodelay(true)
+            .map_err(|error| error.to_string())?;
         while let Some(request) = read_wire_optional::<NodeRequest>(&mut stream)? {
             let response = runtime.handle(request);
             write_wire(&mut stream, &response)?;
