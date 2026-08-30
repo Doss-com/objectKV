@@ -1,6 +1,6 @@
 # BtrLog implications for objectKV
 
-Status: `[EVALUATING]` primary-source architecture review. BtrLog's published
+Status: `[VERIFIED]` primary-source architecture review. BtrLog's published
 results are prior-art evidence, not objectKV performance evidence.
 
 Primary source: Maximilian Kuschewski et al., "BtrLog: Low-Latency Logging for

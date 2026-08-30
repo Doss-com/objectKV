@@ -1,0 +1,5 @@
+instance=objectkv-dev-build-r0
+projects/905754265363/machineTypes/n2-standard-8
+projects/905754265363/zones/us-central1-a
+Linux objectkv-dev-build-r0 6.6.143+ #1 SMP Fri Aug 21 09:51:23 UTC 2026 x86_64 Intel(R) Xeon(R) CPU @ 2.80GHz GenuineIntel GNU/Linux
+sha256:1dc2982f2cd4ba58fff5557629297b31e4ef59c02d8a38594afe9b02f59c4bd2

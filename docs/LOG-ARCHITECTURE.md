@@ -301,7 +301,15 @@ The cell generation authority owns writer epochs, and the existing publication
 authority owns active object roots. Object storage remains outside the normal
 append acknowledgement path and is not a coordination system.
 
+`[VERIFIED]` The L0 deterministic model now preserves acknowledged records
+through node loss and takeover, recovers unknown outcomes by immutable request
+identity, fences stale writers, rejects suffix overwrite, exposes only
+committed segments through the manifest, and bounds the publication queue.
+Each of six targeted poisons was detected across three seeds. The receipt is
+`docs/artifacts/eval-receipts/staged-txlog-l0-gcp-r0-2026-08-30/README.md`.
+
 The standalone service does not replace OpenRaft or verify transaction commit.
-T29 may integrate it only after fencing, unknown-outcome repair, bounded queues,
-segment economics, and recovery pass, and only if the complete transaction path
-does not double log.
+L0 starts no process, sends no network append, persists no NVMe record, and
+publishes no GCS segment. T29 may integrate it only after fencing,
+unknown-outcome repair, bounded queues, segment economics, and recovery pass,
+and only if the complete transaction path does not double log.

@@ -1,0 +1,109 @@
+{"timestamp":"2026-08-30T00:49:31.173479Z","level":"INFO","fields":{"message":"evaluation started","telemetry.enabled":false},"target":"okv_eval","span":{"backend":"sim-model","batch.id":"686f9a56-d44d-4e27-a036-b1d32accca9e","lane.id":"staged-txlog-correctness","profile.id":"local-process","run.id":"686f9a56-d44d-4e27-a036-b1d32accca9e","suite.id":"staged-txlog-v1","workload.id":"staged-txlog-list-authority-poison","name":"okv.eval.run"},"spans":[{"backend":"sim-model","batch.id":"686f9a56-d44d-4e27-a036-b1d32accca9e","lane.id":"staged-txlog-correctness","profile.id":"local-process","run.id":"686f9a56-d44d-4e27-a036-b1d32accca9e","suite.id":"staged-txlog-v1","workload.id":"staged-txlog-list-authority-poison","name":"okv.eval.run"}]}
+{
+  "artifact_refs": [
+    "okv-staged-txlog://trust_object_list/1103/8ccb587b0b91f621153365a6126fedbb13b641cefffafd2c5a2af76726c3d3f3",
+    "okv-staged-txlog://trust_object_list/2207/1865b5cb6228e7c0e5c7170b444d2c27908f3952d0b105789921a310e994a4fe",
+    "okv-staged-txlog://trust_object_list/3301/459d7f05318d0737d5d2d069088a8e0247fde1ef7737b8fac1ff4fdc4eb05cf6",
+    "/cargo-target/exact-efc723e/staged-txlog-list-authority-poison.json"
+  ],
+  "backend": "sim-model",
+  "batch_id": "686f9a56-d44d-4e27-a036-b1d32accca9e",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 0.001605575
+  },
+  "candidate_commit": "efc723e2722a9ad49dedab598349230a49eae51f",
+  "created_at": "2026-08-30T00:49:31.175531581+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "id": "staged_txlog.exact_seed_replay",
+      "status": "pass"
+    },
+    {
+      "detail": "acks=3, unknowns=3, takeovers=9, repairs=6, stale_rejections=3, retry_rejections=3, segments=3, ignored_orphans=0, queue_rejections=3",
+      "id": "staged_txlog.candidate_semantics_exercised",
+      "status": "pass"
+    },
+    {
+      "detail": "manifest_is_the_read_authority: published=true, visible={1, 2}",
+      "id": "staged_txlog.contract_agreement",
+      "status": "fail"
+    },
+    {
+      "detail": "control=trust_object_list",
+      "id": "staged_txlog.negative_control_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "deterministic protocol model; no process, media, latency, or transaction-commit claim",
+      "id": "staged_txlog.l0_scope_only",
+      "status": "pass"
+    }
+  ],
+  "lane": "staged-txlog-correctness",
+  "parent_commit": "daec97f1ae4bae2d7b516356cbb7838278682c13",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0,
+    "median": 1.0,
+    "name": "okv.eval.correctness.anomalies",
+    "samples": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "statistic": "total",
+    "unit": "{anomaly}",
+    "value": 3.0
+  },
+  "profile": {
+    "evidence_class": "contract",
+    "hash": "3a6397f53c1d87c87684de90ebdcc838f7c2e58b43bc9c118536a7f97bbef16e",
+    "id": "local-process",
+    "lockfile_hash": "85fd5d79ab99965dd3eac6fbba955d57045de2b48e4d2a4bc3ab1d30e2698201",
+    "machine": "x86_64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "staged txLog negative control trust_object_list was detected",
+  "run_id": "686f9a56-d44d-4e27-a036-b1d32accca9e",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 0.001605575,
+    "staged_txlog.acknowledged_appends": 3.0,
+    "staged_txlog.bounded_queue_rejections": 3.0,
+    "staged_txlog.conflicting_retries_rejected": 3.0,
+    "staged_txlog.events": 21.0,
+    "staged_txlog.orphan_objects_ignored": 0.0,
+    "staged_txlog.published_segments": 3.0,
+    "staged_txlog.recovered_unknown_outcomes": 3.0,
+    "staged_txlog.repaired_records": 6.0,
+    "staged_txlog.stale_writer_rejections": 3.0,
+    "staged_txlog.writer_takeovers": 9.0
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "staged-txlog-v1",
+  "suite_hash": "9444bd8fea826606769e31fe9b3bcfaf22d90ba7ae75412194f04eb945a1a0e2",
+  "verdict": "discard"
+}
+{"timestamp":"2026-08-30T00:49:31.248230Z","level":"INFO","fields":{"message":"evaluation finished","verdict":"Discard"},"target":"okv_eval","span":{"backend":"sim-model","batch.id":"686f9a56-d44d-4e27-a036-b1d32accca9e","lane.id":"staged-txlog-correctness","profile.id":"local-process","run.id":"686f9a56-d44d-4e27-a036-b1d32accca9e","suite.id":"staged-txlog-v1","workload.id":"staged-txlog-list-authority-poison","name":"okv.eval.run"},"spans":[{"backend":"sim-model","batch.id":"686f9a56-d44d-4e27-a036-b1d32accca9e","lane.id":"staged-txlog-correctness","profile.id":"local-process","run.id":"686f9a56-d44d-4e27-a036-b1d32accca9e","suite.id":"staged-txlog-v1","workload.id":"staged-txlog-list-authority-poison","name":"okv.eval.run"}]}

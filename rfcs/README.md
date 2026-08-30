@@ -52,6 +52,6 @@ not harden until their RFC is accepted.
 | 0042 | Native resident concurrent-read curve | `[VERIFIED]` GCP R0 at 8 and 32 clients | paired resident concurrency admission before cache pressure |
 | 0043 | Native resident cache-pressure curve | `[EVALUATING]` experiment contract frozen | explicit cache, reusable fixture, and physical-work attribution |
 | 0044 | Content-addressed object-frontier fixtures | `[EVALUATING]` | phases 0 through 4 verified; 1 GiB T27 admission remains |
-| 0045 | Staged quorum txLog and object-log publication | `[PROPOSED]` | one-round-trip log service, bounded tail, object segments, and T29 comparison |
+| 0045 | Staged quorum txLog and object-log publication | `[PROPOSED]`, L0 protocol semantics `[VERIFIED]` | one-round-trip log service, bounded tail, object segments, and T29 comparison |
 
 Use `0000-template.md` for new proposals.

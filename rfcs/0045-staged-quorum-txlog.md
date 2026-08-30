@@ -5,6 +5,18 @@
 - Created: 2026-08-30
 - Scope: `okv-wal`, the Cell v0 durability provider, and T29
 
+## Implementation state
+
+`[VERIFIED]` L0 deterministic protocol semantics now cover quorum durability,
+writer epochs, exact retry identity, suffix repair, committed segment
+visibility, manifest-only reads, and bounded queues across three seeds and six
+negative controls. The clean-source receipt is
+`docs/artifacts/eval-receipts/staged-txlog-l0-gcp-r0-2026-08-30/README.md`.
+
+`[PROPOSED]` L1 through L6 remain open. No log-node process, network append,
+NVMe persistence, GCS segment, performance curve, transaction commit, or
+OpenRaft replacement is verified by L0, so the RFC remains proposed.
+
 ## Decision
 
 Evaluate a reusable single-writer staged log service as the next physical

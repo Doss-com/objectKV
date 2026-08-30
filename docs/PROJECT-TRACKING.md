@@ -793,5 +793,21 @@ provisioning, required OTel, object-authority conformance, and the continuously
 integrated cell remain open. Local durable snapshot and journal work continues
 without weakening that external gate.
 
+`[VERIFIED]` RFC-0045 L0 now has a clean-source deterministic protocol receipt
+at `efc723e2722a9ad49dedab598349230a49eae51f`. Across seeds 1103, 2207, and
+3301, the candidate passed all nine gates with zero anomalies. It covered 21
+checks, including three acknowledged appends, three recovered unknown outcomes,
+nine writer takeovers, six repaired records, three stale-writer rejections,
+three conflicting-retry rejections, three published segments, three ignored
+orphan objects, and three bounded-queue rejections. Each of six targeted
+poisons produced one anomaly per seed and received `discard`. The receipt is
+`docs/artifacts/eval-receipts/staged-txlog-l0-gcp-r0-2026-08-30/README.md`.
+
+This result verifies only deterministic protocol semantics. It does not start
+log-node processes, synchronize NVMe, send network appends, publish GCS
+segments, measure latency or throughput, verify transaction commit, or replace
+OpenRaft. L1 process mechanics and L2 same-zone independent-machine evaluation
+are the next staged txLog rungs.
+
 Do not expand MultiRaft, PostgreSQL, or metacluster scope until the resident
 read and bounded cold-object lookup curves clear their controls.

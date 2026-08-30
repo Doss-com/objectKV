@@ -1,0 +1,109 @@
+{"timestamp":"2026-08-30T00:49:30.771037Z","level":"INFO","fields":{"message":"evaluation started","telemetry.enabled":false},"target":"okv_eval","span":{"backend":"sim-model","batch.id":"4add9a4f-9e91-4024-bc23-eb74ecf2e259","lane.id":"staged-txlog-correctness","profile.id":"local-process","run.id":"4add9a4f-9e91-4024-bc23-eb74ecf2e259","suite.id":"staged-txlog-v1","workload.id":"staged-txlog-stale-writer-poison","name":"okv.eval.run"},"spans":[{"backend":"sim-model","batch.id":"4add9a4f-9e91-4024-bc23-eb74ecf2e259","lane.id":"staged-txlog-correctness","profile.id":"local-process","run.id":"4add9a4f-9e91-4024-bc23-eb74ecf2e259","suite.id":"staged-txlog-v1","workload.id":"staged-txlog-stale-writer-poison","name":"okv.eval.run"}]}
+{
+  "artifact_refs": [
+    "okv-staged-txlog://accept_stale_epoch/1103/a84c804a1cd1a39fac7bc24d6dda09b4abde767903187304180e424299a9f859",
+    "okv-staged-txlog://accept_stale_epoch/2207/b31fbed2e5989c9e81f09eeca37088d20a20eb7080e7fb084c6a8b9447e67fa2",
+    "okv-staged-txlog://accept_stale_epoch/3301/30c7950741435280f927d4772c478f17c2302502365bb88e8bb5c878abf89a99",
+    "/cargo-target/exact-efc723e/staged-txlog-stale-writer-poison.json"
+  ],
+  "backend": "sim-model",
+  "batch_id": "4add9a4f-9e91-4024-bc23-eb74ecf2e259",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 0.001553529
+  },
+  "candidate_commit": "efc723e2722a9ad49dedab598349230a49eae51f",
+  "created_at": "2026-08-30T00:49:30.773060691+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "id": "staged_txlog.exact_seed_replay",
+      "status": "pass"
+    },
+    {
+      "detail": "acks=3, unknowns=3, takeovers=9, repairs=6, stale_rejections=0, retry_rejections=3, segments=3, ignored_orphans=3, queue_rejections=3",
+      "id": "staged_txlog.candidate_semantics_exercised",
+      "status": "pass"
+    },
+    {
+      "detail": "stale_writer_is_fenced: first=true, takeover=true, accepted=2, acknowledged=true",
+      "id": "staged_txlog.contract_agreement",
+      "status": "fail"
+    },
+    {
+      "detail": "control=accept_stale_epoch",
+      "id": "staged_txlog.negative_control_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "deterministic protocol model; no process, media, latency, or transaction-commit claim",
+      "id": "staged_txlog.l0_scope_only",
+      "status": "pass"
+    }
+  ],
+  "lane": "staged-txlog-correctness",
+  "parent_commit": "daec97f1ae4bae2d7b516356cbb7838278682c13",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0,
+    "median": 1.0,
+    "name": "okv.eval.correctness.anomalies",
+    "samples": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "statistic": "total",
+    "unit": "{anomaly}",
+    "value": 3.0
+  },
+  "profile": {
+    "evidence_class": "contract",
+    "hash": "3a6397f53c1d87c87684de90ebdcc838f7c2e58b43bc9c118536a7f97bbef16e",
+    "id": "local-process",
+    "lockfile_hash": "85fd5d79ab99965dd3eac6fbba955d57045de2b48e4d2a4bc3ab1d30e2698201",
+    "machine": "x86_64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "staged txLog negative control accept_stale_epoch was detected",
+  "run_id": "4add9a4f-9e91-4024-bc23-eb74ecf2e259",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 0.001553529,
+    "staged_txlog.acknowledged_appends": 3.0,
+    "staged_txlog.bounded_queue_rejections": 3.0,
+    "staged_txlog.conflicting_retries_rejected": 3.0,
+    "staged_txlog.events": 21.0,
+    "staged_txlog.orphan_objects_ignored": 3.0,
+    "staged_txlog.published_segments": 3.0,
+    "staged_txlog.recovered_unknown_outcomes": 3.0,
+    "staged_txlog.repaired_records": 6.0,
+    "staged_txlog.stale_writer_rejections": 0.0,
+    "staged_txlog.writer_takeovers": 9.0
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "staged-txlog-v1",
+  "suite_hash": "9444bd8fea826606769e31fe9b3bcfaf22d90ba7ae75412194f04eb945a1a0e2",
+  "verdict": "discard"
+}
+{"timestamp":"2026-08-30T00:49:30.850074Z","level":"INFO","fields":{"message":"evaluation finished","verdict":"Discard"},"target":"okv_eval","span":{"backend":"sim-model","batch.id":"4add9a4f-9e91-4024-bc23-eb74ecf2e259","lane.id":"staged-txlog-correctness","profile.id":"local-process","run.id":"4add9a4f-9e91-4024-bc23-eb74ecf2e259","suite.id":"staged-txlog-v1","workload.id":"staged-txlog-stale-writer-poison","name":"okv.eval.run"},"spans":[{"backend":"sim-model","batch.id":"4add9a4f-9e91-4024-bc23-eb74ecf2e259","lane.id":"staged-txlog-correctness","profile.id":"local-process","run.id":"4add9a4f-9e91-4024-bc23-eb74ecf2e259","suite.id":"staged-txlog-v1","workload.id":"staged-txlog-stale-writer-poison","name":"okv.eval.run"}]}

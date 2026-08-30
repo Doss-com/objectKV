@@ -702,6 +702,10 @@ become one GitHub issue.
   quorum append, writer fencing, bounded queues, object-segment publication,
   and exact hot-tail recovery. That standalone result cannot verify transaction
   commit until the unchanged strict-serializability and retry histories pass.
+  `[VERIFIED]` L0 now covers the deterministic quorum, fencing, retry,
+  publication-visibility, and queue contract across three seeds and six
+  negative controls. L1 through L5 remain open, and L0 makes no process,
+  independent-media, transaction-commit, or performance claim.
 
 ### T30. Bound objectification debt and local recovery media `[EVALUATING]`
 

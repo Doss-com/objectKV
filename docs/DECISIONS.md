@@ -1624,6 +1624,9 @@ inside one log stream, or assuming the BtrLog prototype validates objectKV's
 transaction plane. Writer fencing, unknown-outcome recovery, cross-stream
 ordering, and transaction integration remain separate gates.
 
-Evidence contract: RFC-0045 and `evals/suites/staged-txlog.toml`. The current
-status is `[PROPOSED]`; no staged-log implementation or objectKV performance
-receipt exists yet.
+Evidence contract: RFC-0045 and `evals/suites/staged-txlog.toml`. `[VERIFIED]`
+L0 deterministic protocol semantics now cover quorum acknowledgement, writer
+epochs, exact retries, suffix repair, committed segment visibility,
+manifest-only reads, and bounded queues. The service, process, independent
+media, object publication, transaction integration, and performance rungs
+remain `[PROPOSED]`.

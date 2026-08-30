@@ -1,0 +1,17 @@
+info: syncing channel updates for '1.88.0-x86_64-unknown-linux-gnu'
+info: latest update on 2025-06-26, rust version 1.88.0 (6b00bc388 2025-06-23)
+info: downloading component 'clippy'
+info: downloading component 'rustfmt'
+info: installing component 'clippy'
+info: installing component 'rustfmt'
+validated suite staged-txlog-v1 with 78 metrics, 4 lanes, 14 workloads, and 2 profiles
+validated program objectkv-golden-path-v1 with 9 phases and 23 gates
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

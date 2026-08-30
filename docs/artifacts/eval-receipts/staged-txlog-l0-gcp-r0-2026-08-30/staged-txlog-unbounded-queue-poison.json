@@ -1,0 +1,107 @@
+{
+  "artifact_refs": [
+    "okv-staged-txlog://unbounded_queue/1103/5196ad8cea3af73229da3603245a832952189222666ab61cdad5c0d7215445cc",
+    "okv-staged-txlog://unbounded_queue/2207/1d501d5551ac3c1e025085195caadefec9983bf7dbb157d9079fa9ed901fd3d3",
+    "okv-staged-txlog://unbounded_queue/3301/34e0ce5299ee9c7ea66794027ed5446b350bd6e6c6296a8b94d2f5dcce42f71f",
+    "/cargo-target/exact-efc723e/staged-txlog-unbounded-queue-poison.json"
+  ],
+  "backend": "sim-model",
+  "batch_id": "32aeae0b-5966-46bb-9d1b-a63206cae2d0",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 0.001525939
+  },
+  "candidate_commit": "efc723e2722a9ad49dedab598349230a49eae51f",
+  "created_at": "2026-08-30T00:49:31.306939870+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "id": "staged_txlog.exact_seed_replay",
+      "status": "pass"
+    },
+    {
+      "detail": "acks=3, unknowns=3, takeovers=9, repairs=6, stale_rejections=3, retry_rejections=3, segments=3, ignored_orphans=3, queue_rejections=0",
+      "id": "staged_txlog.candidate_semantics_exercised",
+      "status": "pass"
+    },
+    {
+      "detail": "publication_queue_is_bounded: first=true, second=true, third=true, depth=3",
+      "id": "staged_txlog.contract_agreement",
+      "status": "fail"
+    },
+    {
+      "detail": "control=unbounded_queue",
+      "id": "staged_txlog.negative_control_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "deterministic protocol model; no process, media, latency, or transaction-commit claim",
+      "id": "staged_txlog.l0_scope_only",
+      "status": "pass"
+    }
+  ],
+  "lane": "staged-txlog-correctness",
+  "parent_commit": "daec97f1ae4bae2d7b516356cbb7838278682c13",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0,
+    "median": 1.0,
+    "name": "okv.eval.correctness.anomalies",
+    "samples": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "statistic": "total",
+    "unit": "{anomaly}",
+    "value": 3.0
+  },
+  "profile": {
+    "evidence_class": "contract",
+    "hash": "3a6397f53c1d87c87684de90ebdcc838f7c2e58b43bc9c118536a7f97bbef16e",
+    "id": "local-process",
+    "lockfile_hash": "85fd5d79ab99965dd3eac6fbba955d57045de2b48e4d2a4bc3ab1d30e2698201",
+    "machine": "x86_64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "staged txLog negative control unbounded_queue was detected",
+  "run_id": "32aeae0b-5966-46bb-9d1b-a63206cae2d0",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 0.001525939,
+    "staged_txlog.acknowledged_appends": 3.0,
+    "staged_txlog.bounded_queue_rejections": 0.0,
+    "staged_txlog.conflicting_retries_rejected": 3.0,
+    "staged_txlog.events": 21.0,
+    "staged_txlog.orphan_objects_ignored": 3.0,
+    "staged_txlog.published_segments": 3.0,
+    "staged_txlog.recovered_unknown_outcomes": 3.0,
+    "staged_txlog.repaired_records": 6.0,
+    "staged_txlog.stale_writer_rejections": 3.0,
+    "staged_txlog.writer_takeovers": 9.0
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "staged-txlog-v1",
+  "suite_hash": "9444bd8fea826606769e31fe9b3bcfaf22d90ba7ae75412194f04eb945a1a0e2",
+  "verdict": "discard"
+}
