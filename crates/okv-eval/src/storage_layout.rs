@@ -35,8 +35,8 @@ pub use t28_typed::{
     derive_t28_typed_point_trace, publish_t28_typed_layout, t28_typed_layout_profile,
     t28_typed_point_outcome_sha256, T28ColumnarLayoutReader, T28ColumnarScan,
     T28ColumnarScanSnapshot, T28OpenedTypedLayout, T28RowLayoutReader,
-    T28TypedLayoutPlacementInput, T28TypedLayoutPublication, T28TypedPointOperationV1,
-    T28TypedPointTraceV1,
+    T28TypedLayoutExecutionPlanV1, T28TypedLayoutPlacementInput, T28TypedLayoutPublication,
+    T28TypedPointOperationV1, T28TypedPointTraceV1, T28TypedSeedOrderV1,
 };
 
 const GENERATION: u64 = 11;

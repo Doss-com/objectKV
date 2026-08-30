@@ -85,7 +85,7 @@ use okv_eval::storage_layout::{
     run_storage_layout_pair_contract, run_storage_layout_pair_contract_on_backend,
     ColumnarCacheAdmissionMode, ColumnarCacheAdmissionReport, ColumnarDataFusionMode,
     ColumnarDataFusionReport, StorageLayoutMode, StorageLayoutProfile, StorageLayoutReport,
-    T28OpenedTypedLayout, T28TypedLayoutPlacementInput,
+    T28OpenedTypedLayout, T28TypedLayoutExecutionPlanV1, T28TypedLayoutPlacementInput,
 };
 use okv_eval::t27_plan::{
     build_t27_execution_incarnation, build_t27_execution_plan, decode_t27_execution_plan,
@@ -571,6 +571,22 @@ enum Commands {
         expected_envelope_sha256: String,
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Seal the postpublication RFC-0048 operation and process plan.
+    T28TypedLayoutPlanBuildGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(
+            long,
+            default_value = "evals/oracles/t28-layout-geometry-v1-oracle.json"
+        )]
+        oracle: PathBuf,
+        #[arg(long)]
+        expected_oracle_sha256: String,
+        #[arg(long)]
+        output: PathBuf,
     },
     /// Seal T28 point ranges from one generation-pinned GCS fixture.
     T28PlanBuildGcs {
@@ -1432,6 +1448,28 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             if let Some(path) = output {
                 fs::write(path, &bytes)?;
             }
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28TypedLayoutPlanBuildGcs {
+            locator,
+            expected_envelope_sha256,
+            oracle,
+            expected_oracle_sha256,
+            output,
+        } => {
+            let locator =
+                decode_typed_layout_placement(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let oracle = decode_t28_layout_oracle(&fs::read(oracle)?, &expected_oracle_sha256)?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let opened = runtime.block_on(T28OpenedTypedLayout::open(
+                gcs_backend_from_env_no_retries()?,
+                &locator,
+            ))?;
+            let plan = T28TypedLayoutExecutionPlanV1::seal(&locator, opened.fixture(), &oracle)?;
+            let bytes = serde_json::to_vec_pretty(&plan)?;
+            fs::write(output, &bytes)?;
             println!("{}", String::from_utf8(bytes)?);
         }
         Commands::T28PlanBuildGcs {

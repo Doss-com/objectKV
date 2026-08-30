@@ -32,6 +32,7 @@ use std::sync::Arc;
 const MAX_EMITTED_ROWS: usize = 128;
 const C0_MANIFEST_KEY: &str = "layout/row/active-manifest";
 const T28_SCHEMA_ID: &str = "objectkv.t28.typed-row.v1";
+const T28_SCAN_QUERY: &str = "SELECT key, tenant, category, quantity, COUNT(*) OVER () AS row_count, SUM(quantity) OVER () AS quantity_sum FROM okv_layout ORDER BY key";
 
 /// Provider placement selected before immutable RFC-0048 publication.
 #[derive(Clone, Debug)]
@@ -70,6 +71,176 @@ pub struct T28TypedPointTraceV1 {
     pub operation_sequence_sha256: String,
     pub expected_outcomes_sha256: String,
     pub operations: Vec<T28TypedPointOperationV1>,
+}
+
+/// Frozen candidate/control process order for one trace seed.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28TypedSeedOrderV1 {
+    pub trace_seed: u64,
+    pub point_orders: Vec<String>,
+    pub scan_orders: Vec<String>,
+}
+
+/// Postpublication plan binding immutable media to every measured operation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28TypedLayoutExecutionPlanV1 {
+    pub schema_version: u32,
+    pub plan_id: String,
+    pub one_execution: bool,
+    pub fixture_id: String,
+    pub root_sha256: String,
+    pub placement_envelope_sha256: String,
+    pub oracle_sha256: String,
+    pub workload_plan_sha256: String,
+    pub covered_through_version: u64,
+    pub point_reads_per_position: u64,
+    pub point_concurrent_tasks: u64,
+    pub point_warmup_canary_reads: u64,
+    pub scan_query: String,
+    pub scan_fetch_target_bytes: u64,
+    pub scan_concurrent_fetches: u64,
+    pub preflight_point_reads_per_subject: u64,
+    pub traces: Vec<T28TypedPointTraceV1>,
+    pub orders: Vec<T28TypedSeedOrderV1>,
+    pub execution_plan_sha256: String,
+}
+
+impl T28TypedLayoutExecutionPlanV1 {
+    /// Seal the frozen workload only after exact GCS generations exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for any placement, root, oracle, trace, or workload
+    /// mismatch.
+    pub fn seal(
+        locator: &TypedLayoutPlacementLocatorV1,
+        fixture: &TypedLayoutFixtureV1,
+        oracle: &T28LayoutOracleV1,
+    ) -> Result<Self, String> {
+        locator.validate()?;
+        fixture.validate()?;
+        oracle.validate()?;
+        let traces = oracle
+            .traces
+            .iter()
+            .map(|trace| derive_t28_typed_point_trace(oracle, trace.seed))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut plan = Self {
+            schema_version: 1,
+            plan_id: format!("t28-layout-geometry-v1-{}", &fixture.fixture_id[..16]),
+            one_execution: true,
+            fixture_id: fixture.fixture_id.clone(),
+            root_sha256: fixture.root_sha256.clone(),
+            placement_envelope_sha256: locator.envelope_sha256.clone(),
+            oracle_sha256: fixture.oracle_sha256.clone(),
+            workload_plan_sha256: fixture.workload_plan_sha256.clone(),
+            covered_through_version: fixture.covered_through_version,
+            point_reads_per_position: 1_024,
+            point_concurrent_tasks: 8,
+            point_warmup_canary_reads: 128,
+            scan_query: T28_SCAN_QUERY.to_owned(),
+            scan_fetch_target_bytes: 256 * 1_024,
+            scan_concurrent_fetches: 1,
+            preflight_point_reads_per_subject: 256,
+            traces,
+            orders: frozen_orders(),
+            execution_plan_sha256: String::new(),
+        };
+        plan.execution_plan_sha256 = plan.calculated_sha256()?;
+        plan.validate(locator, fixture, oracle)?;
+        Ok(plan)
+    }
+
+    /// Decode a plan under an independently supplied plan digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed JSON or any digest, placement, fixture,
+    /// oracle, trace, order, or budget drift.
+    pub fn decode(
+        bytes: &[u8],
+        expected_sha256: &str,
+        locator: &TypedLayoutPlacementLocatorV1,
+        fixture: &TypedLayoutFixtureV1,
+        oracle: &T28LayoutOracleV1,
+    ) -> Result<Self, String> {
+        let plan: Self = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        if plan.execution_plan_sha256 != expected_sha256 {
+            return Err("RFC-0048 execution-plan identity mismatch".to_owned());
+        }
+        plan.validate(locator, fixture, oracle)?;
+        Ok(plan)
+    }
+
+    /// Recompute the plan digest with its digest field excluded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the plan cannot be serialized.
+    pub fn calculated_sha256(&self) -> Result<String, String> {
+        let mut unsigned = self.clone();
+        unsigned.execution_plan_sha256.clear();
+        serde_json::to_vec(&unsigned)
+            .map(|bytes| content_sha256(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    /// Validate the complete postpublication execution boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any media identity, operation, order, timer, or
+    /// resource budget differs from RFC-0048.
+    pub fn validate(
+        &self,
+        locator: &TypedLayoutPlacementLocatorV1,
+        fixture: &TypedLayoutFixtureV1,
+        oracle: &T28LayoutOracleV1,
+    ) -> Result<(), String> {
+        locator.validate()?;
+        fixture.validate()?;
+        oracle.validate()?;
+        if self.schema_version != 1
+            || !self.one_execution
+            || self.plan_id != format!("t28-layout-geometry-v1-{}", &fixture.fixture_id[..16])
+            || self.fixture_id != fixture.fixture_id
+            || self.root_sha256 != fixture.root_sha256
+            || self.placement_envelope_sha256 != locator.envelope_sha256
+            || self.oracle_sha256 != fixture.oracle_sha256
+            || self.workload_plan_sha256 != fixture.workload_plan_sha256
+            || self.workload_plan_sha256 != oracle.workload_plan_sha256
+            || self.covered_through_version != fixture.covered_through_version
+            || self.point_reads_per_position != 1_024
+            || self.point_concurrent_tasks != 8
+            || self.point_warmup_canary_reads != 128
+            || self.scan_query != T28_SCAN_QUERY
+            || self.scan_fetch_target_bytes != 256 * 1_024
+            || self.scan_concurrent_fetches != 1
+            || self.preflight_point_reads_per_subject != 256
+            || self.orders != frozen_orders()
+            || self.traces.len() != oracle.traces.len()
+            || self.execution_plan_sha256 != self.calculated_sha256()?
+        {
+            return Err("invalid RFC-0048 postpublication execution plan".to_owned());
+        }
+        for (actual, expected) in self.traces.iter().zip(&oracle.traces) {
+            let derived = derive_t28_typed_point_trace(oracle, expected.seed)?;
+            if actual != &derived {
+                return Err("RFC-0048 execution-plan trace drift".to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    /// Return one exact trace by its frozen seed.
+    #[must_use]
+    pub fn trace(&self, trace_seed: u64) -> Option<&T28TypedPointTraceV1> {
+        self.traces
+            .iter()
+            .find(|trace| trace.trace_seed == trace_seed)
+    }
 }
 
 /// Read-only typed root reopened from one exact provider generation.
@@ -455,6 +626,44 @@ fn child_total_bytes(child: &TypedLayoutChildV1) -> u64 {
         .objects
         .iter()
         .fold(0_u64, |total, object| total.saturating_add(object.length))
+}
+
+fn frozen_orders() -> Vec<T28TypedSeedOrderV1> {
+    vec![
+        T28TypedSeedOrderV1 {
+            trace_seed: 5_701,
+            point_orders: ["ABBA", "BAAB", "ABBA", "BAAB", "ABBA"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            scan_orders: ["AB", "BA", "AB", "BA", "AB"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        },
+        T28TypedSeedOrderV1 {
+            trace_seed: 5_702,
+            point_orders: ["BAAB", "ABBA", "BAAB", "ABBA", "BAAB"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            scan_orders: ["BA", "AB", "BA", "AB", "BA"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        },
+        T28TypedSeedOrderV1 {
+            trace_seed: 5_703,
+            point_orders: ["ABBA", "BAAB", "ABBA", "BAAB", "ABBA"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            scan_orders: ["AB", "BA", "AB", "BA", "AB"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        },
+    ]
 }
 
 fn validate_history_against_oracle(
