@@ -1658,10 +1658,10 @@ metadata growth, ABBA isolation, and the typed DataFusion closure underfrozen.
 The revised smallest slice fixes `T = O` and point reads only. A first
 re-review then required state-specific warmup, provider-SDK-attempt terminology
 instead of unverifiable physical-request claims, and one frozen 15-block p99
-aggregation. Fable returned `SHIP` on the second re-review. No GCS cold-point
-performance receipt exists yet, so T28 remains `[EVALUATING]`. D68 activates
+aggregation. Fable returned `SHIP` on the second re-review. D68 activated
 implementation while leaving the incomplete T27 tail curve explicitly
-deferred.
+deferred. D69 retains the completed curve's rejection and defines the next
+attribution step.
 
 ## D67. Correct resident history before resuming T27
 
@@ -1721,3 +1721,30 @@ claim remains limited to row 0, and the p99 defect remains explicit debt.
 
 Evidence:
 `docs/artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/README.md`.
+
+## D69. Preserve the T28 rejection and separate provider from local latency
+
+Status: `[EVALUATING]`; attribution `[CODE-COMPLETE]`, 2026-08-30.
+
+Decision: retain RFC-0046 T28's frozen every-block p99 rejection. Do not admit
+the curve from its pooled 1.048x p99 ratio and do not weaken the 1.25x
+all-block threshold after observing the result. Add exact per-operation
+end-to-end, provider, and local-residual latency to the position receipt. Any
+variance-aware addendum must be written before its execution and reported
+beside, not instead of, the rejected gate.
+
+The curve completed 15 paired blocks and 30,720 reads per subject. Thirteen
+blocks passed; two rejected at 1.2978x and 1.3775x. Their provider-only ratios
+were 1.2990x and 1.3792x. A subsequent attribution diagnostic measured
+candidate/raw local-residual p99 at 428.507/407.242 microseconds, an added
+21.265 microseconds, while its 33.335 ms end-to-end gap tracked a 33.319 ms
+provider gap.
+
+Optimizes for: preserving a falsifiable gate while measuring the code path the
+team can change separately from cloud-provider allocation variance.
+
+Gives up: calling a favorable pooled percentile an admission or repeatedly
+rerunning independent GCS positions until every block happens to pass.
+
+Evidence:
+`docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.

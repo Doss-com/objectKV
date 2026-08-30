@@ -228,6 +228,52 @@ pub struct LazyFixtureReaderV1 {
     manifest_revision: RevisionToken,
 }
 
+/// Authenticated sparse indexes retained in memory for one immutable fixture.
+pub struct PreparedFixturePointIndexesV1 {
+    fixture_id: String,
+    read_version: u64,
+    manifest: RowObjectManifestV1,
+    indexes: BTreeMap<String, RowSegmentIndex>,
+}
+
+impl PreparedFixturePointIndexesV1 {
+    /// Resolve one point from already authenticated in-memory sparse indexes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the key is outside the fixture or its selected
+    /// index was not included in the prepared metadata set.
+    pub fn plan_point(&self, key: &[u8]) -> Result<FixturePointPlanV1, String> {
+        let reference = self
+            .manifest
+            .locate(key)
+            .ok_or_else(|| "prepared fixture point key is outside the manifest".to_owned())?;
+        let index = self
+            .indexes
+            .get(&reference.index_key)
+            .ok_or_else(|| "prepared fixture point index is absent".to_owned())?;
+        let block = index
+            .plan_point(key)
+            .ok_or_else(|| "prepared fixture index omitted its point key".to_owned())?;
+        Ok(FixturePointPlanV1 {
+            fixture_id: self.fixture_id.clone(),
+            read_version: self.read_version,
+            key: key.to_vec(),
+            data_key: reference.data_key.clone(),
+            index_key: reference.index_key.clone(),
+            index_bytes: reference.index_bytes,
+            index_sha256: reference.index_sha256.clone(),
+            block,
+        })
+    }
+
+    /// Number of distinct authenticated index objects held in memory.
+    #[must_use]
+    pub fn index_count(&self) -> usize {
+        self.indexes.len()
+    }
+}
+
 impl LazyFixtureReaderV1 {
     #[must_use]
     pub fn descriptor(&self) -> &ObjectFixtureDescriptorV1 {
@@ -242,6 +288,67 @@ impl LazyFixtureReaderV1 {
     #[must_use]
     pub fn manifest_revision(&self) -> &RevisionToken {
         &self.manifest_revision
+    }
+
+    /// Fetch each selected sparse index once and retain its decoded form.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a point differs from this fixture or any selected
+    /// index fails content, range, or manifest validation.
+    pub async fn prepare_point_indexes(
+        &self,
+        points: &[FixturePointPlanV1],
+    ) -> Result<PreparedFixturePointIndexesV1, String> {
+        if points.is_empty() {
+            return Err("prepared fixture point set must not be empty".to_owned());
+        }
+        let client = ObjectClient::new(self.backend.clone());
+        let mut indexes = BTreeMap::new();
+        for point in points {
+            if point.fixture_id != self.fixture_id
+                || point.read_version != self.descriptor.base_version
+            {
+                return Err("prepared fixture point identity or version mismatch".to_owned());
+            }
+            let reference = self
+                .manifest
+                .locate(&point.key)
+                .ok_or_else(|| "prepared fixture point key is outside the manifest".to_owned())?;
+            if point.data_key != reference.data_key
+                || point.index_key != reference.index_key
+                || point.index_bytes != reference.index_bytes
+                || point.index_sha256 != reference.index_sha256
+            {
+                return Err("prepared fixture point differs from its manifest".to_owned());
+            }
+            if !indexes.contains_key(&reference.index_key) {
+                let (index_bytes, _) = client
+                    .read_full_verified(
+                        &reference.index_key,
+                        None,
+                        reference.index_bytes,
+                        &reference.index_sha256,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let index = RowSegmentIndex::decode(&index_bytes)?;
+                reference.validate_index(&index_bytes, &index)?;
+                indexes.insert(reference.index_key.clone(), index);
+            }
+        }
+        let prepared = PreparedFixturePointIndexesV1 {
+            fixture_id: self.fixture_id.clone(),
+            read_version: self.descriptor.base_version,
+            manifest: self.manifest.clone(),
+            indexes,
+        };
+        for point in points {
+            if prepared.plan_point(&point.key)? != *point {
+                return Err("prepared fixture point differs from its sealed plan".to_owned());
+            }
+        }
+        Ok(prepared)
     }
 
     /// Fetch and verify only the selected sparse index, then freeze its block range.
@@ -293,6 +400,25 @@ impl LazyFixtureReaderV1 {
     /// Returns an error when the plan differs from this fixture or the selected
     /// data range fails identity, checksum, or row decoding.
     pub async fn read_planned_point(&self, plan: &FixturePointPlanV1) -> Result<PointRead, String> {
+        self.validate_planned_point(plan)?;
+        read_planned_point(
+            self.backend.as_ref(),
+            &plan.data_key,
+            None,
+            &plan.block,
+            &plan.key,
+            plan.read_version,
+        )
+        .await
+    }
+
+    /// Validate one sealed point plan against the opened immutable fixture.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the plan identity, version, manifest reference, or
+    /// data-object identity differs from the opened fixture.
+    pub fn validate_planned_point(&self, plan: &FixturePointPlanV1) -> Result<(), String> {
         if plan.fixture_id != self.fixture_id
             || plan.read_version != self.descriptor.base_version
             || plan.read_version != self.manifest.covered_through
@@ -312,15 +438,7 @@ impl LazyFixtureReaderV1 {
         {
             return Err("fixture point plan differs from its manifested object".to_owned());
         }
-        read_planned_point(
-            self.backend.as_ref(),
-            &plan.data_key,
-            None,
-            &plan.block,
-            &plan.key,
-            plan.read_version,
-        )
-        .await
+        Ok(())
     }
 
     /// Fetch one selected index and one selected data block for an exact point.

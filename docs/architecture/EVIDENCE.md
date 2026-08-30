@@ -125,7 +125,9 @@ This is construction and recovery evidence, not a new throughput point.
 │ primary gate  every block p99 ≤ 1.25x raw-range control          │
 │ object gate   one data range GET · no LIST · no full hydration   │
 │ authority     attested read-only objectViewer principal          │
-│ next          finish IAM, poison, paired runner, and OTel gates  │
+│ result        pooled p99 1.048x; 2/15 blocks rejected at >1.25x │
+│ cause         failed end-to-end ratios track GCS provider ratios │
+│ next          exact provider/local residual attribution          │
 │ state         [EVALUATING]                                        │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -133,11 +135,22 @@ This is construction and recovery evidence, not a new throughput point.
 The immutable locator, separate writer and read-only consumers, descriptor
 generation, base-seed boundary, and one reusable 1 GiB object closure are
 `[VERIFIED]`. `[CODE-COMPLETE]` T28 now has the lazy reader, sealed block plan,
-no-retry GCS adapter, per-attempt trace, independent value oracle, and shared
-candidate/control point command. `[EVALUATING]` One real GCS pair returned the
-exact value through one 65,048-byte range attempt per subject. T28 must still
-prove read-only authority, complete every poison, run fresh paired processes,
-and bind the admitted curve to OTel.
+read-only authority binding, no-retry GCS adapter, per-attempt trace,
+independent value oracle, RAM-retained authenticated indexes, and
+fresh-process concurrent candidate/control positions. `[EVALUATING]` The
+three-seed curve completed 15 blocks and 30,720 reads per subject. Candidate
+p99 was 61.752 ms versus 58.920 ms raw control, or 1.048x when pooled. The
+frozen every-block gate rejected 2 of 15 blocks at 1.298x and 1.378x. Their
+provider-only ratios were 1.299x and 1.379x, so the observed misses follow GCS
+variance rather than measured candidate-local work. The rejection is retained;
+`[CODE-COMPLETE]` Exact per-operation attribution records end-to-end, provider,
+and local-residual latency. One fresh diagnostic measured candidate/raw
+local-residual p99 at 428.507/407.242 microseconds while its end-to-end gap
+tracked its provider gap within 16 microseconds. An admitted curve still
+requires a precommitted variance-aware addendum and OTel binding.
+
+Evidence:
+`docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.
 
 ```text
 generation-pinned locator + immutable operation plan

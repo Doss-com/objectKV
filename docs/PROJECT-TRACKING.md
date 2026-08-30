@@ -30,14 +30,25 @@ replay measured p50 1.026x, p95 1.131x, p99 1.742x, and p99.9 1.032x control.
 The complete tail curve is deferred without changing its target. RFC-0046 T28
 cold indexed GCS reads are now the active program row.
 
-`[CODE-COMPLETE]` T28 can now exact-open a generation-pinned descriptor and
-manifest without hydrating the closure, seal an authenticated point range,
-record provider-attempt boundaries, and execute the same range through the
-candidate or raw control. `[EVALUATING]` The first real 1 GiB GCS preflight
-returned one exact 65,048-byte block with one provider attempt for each
-subject. Single-shot latency was 49.220 ms candidate and 36.172 ms control.
-This diagnostic does not update the performance matrix or T38 figure; the
-fresh-process 15-block admission run remains open.
+`[CODE-COMPLETE]` T28 can exact-open a generation-pinned descriptor and
+manifest without hydrating the closure, retain selected authenticated indexes
+in RAM, seal point ranges, and run concurrent candidate and raw-control reads
+through fresh processes. `[EVALUATING]` The real 1 GiB, three-seed GCS curve
+completed 15 paired blocks and 30,720 measured reads per subject. Candidate
+versus raw-control latency was 26.760 versus 26.758 ms p50, 44.202 versus
+43.666 ms p95, 61.752 versus 58.920 ms p99, and 140.124 versus 116.206 ms
+p99.9. The pooled p99 ratio was 1.048x, but the frozen every-block gate rejected
+two blocks at 1.298x and 1.378x, so row 2 remains `[EVALUATING]`. Provider-only
+p99 ratios on those misses were 1.299x and 1.379x; the end-to-provider gap was
+about 0.35 ms on both subjects. All reads returned exact values through one
+planned range request with zero retries and zero correctness anomalies. T38 is
+unchanged because the curve was not admitted. Evidence:
+`docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.
+`[CODE-COMPLETE]` Each operation now also records its exact GCS time and local
+residual. A fresh diagnostic measured candidate/raw local-residual p99 at
+428.507/407.242 microseconds, a 21.265-microsecond candidate increment, while
+the 33.335 ms end-to-end difference tracked a 33.319 ms provider difference.
+This proves attribution, not admission.
 
 The recurring four-panel performance view is tracked with the RFC-0047
 diagnostic evidence. Each new admitted curve updates latency shape, concurrency

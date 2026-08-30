@@ -701,11 +701,18 @@ become one GitHub issue.
   active program task. Review:
   `docs/research/reviews/fable-rfc0046-preimplementation-review-2026-08-30.md`.
 - Current checkpoint: `[CODE-COMPLETE]` lazy open, sealed range plans,
-  no-retry GCS, provider-attempt events, independent value oracle, and shared
-  candidate/raw single-point execution. `[EVALUATING]` One real 1 GiB pair
-  returned the exact 65,048-byte block in one attempt per subject. This is not
-  an admitted latency curve. Evidence:
-  `docs/artifacts/eval-receipts/rfc0046-t28-point-preflight-gcp-r0-2026-08-30/README.md`.
+  authenticated indexes retained in RAM, no-retry GCS, provider-attempt
+  events, independent value oracle, and fresh-process concurrent candidate/raw
+  positions. `[EVALUATING]` The 15-block, three-seed curve completed 30,720
+  reads per subject. Pooled p99 was 1.048x raw control, but 2 of 15 blocks
+  rejected the frozen 1.25x gate at 1.298x and 1.378x. Provider-only ratios on
+  those blocks were 1.299x and 1.379x. Every read returned the exact value with
+  one planned range request, zero retries, and zero anomalies. Preserve the
+  rejection. `[CODE-COMPLETE]` Exact per-operation attribution subsequently
+  measured candidate/raw local-residual p99 at 428.507/407.242 microseconds in
+  one diagnostic pair. The next slice precommits the variance-aware addendum
+  before rerunning. Evidence:
+  `docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
 
@@ -763,7 +770,9 @@ become one GitHub issue.
 
 - Scope: implement DRAM serving behind the same `ServingImage` contract and
   compare it with the admitted SSD profile under identical history, durability,
-  RPC, concurrency, and recovery conditions.
+  RPC, concurrency, and recovery conditions. Garnet is a specialist control
+  only after the operation subset and acknowledgement depth match. Study:
+  `docs/research/garnet-storage-and-distribution-study-2026-08-30.md`.
 - Done when: RAM improves one predeclared end-to-end metric by at least 20
   percent, respects its byte budget, survives bidirectional handoff, and never
   reports volatile replication as durable commit.
@@ -774,7 +783,9 @@ become one GitHub issue.
 
 - Scope: expose application logs, the declared Redis subset, version-aligned
   inverted search, and object-catalog or virtual-filesystem metadata through one
-  version and transaction fabric.
+  version and transaction fabric. The candidate storage waist is `read`,
+  `upsert`, `modify`, `delete`, and ordered `scan`; Garnet and Valkey remain
+  controls above that waist rather than kernel dependencies.
 - Done when: each surface passes its independent semantic oracle and one frozen
   performance lane against its appropriate specialist control. No blended
   adapter score is allowed.

@@ -30,5 +30,6 @@ pub mod t27_plan;
 pub mod t28_boundary;
 pub mod t28_cold_point;
 pub mod t28_iam;
+pub mod t28_position;
 pub mod telemetry;
 pub mod transaction_batch;

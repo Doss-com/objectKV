@@ -97,6 +97,7 @@ use okv_eval::t28_cold_point::{
     T28ReaderPlanIdentityV1,
 };
 use okv_eval::t28_iam::T28ReaderIamReceiptV1;
+use okv_eval::t28_position::run_t28_point_position;
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
     run_transaction_batch_contract, TransactionBatchMode, TransactionBatchProfile,
@@ -575,6 +576,33 @@ enum Commands {
         subject: String,
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Execute one concurrent fresh-process T28 GCS position.
+    T28PositionReadGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long)]
+        iam_receipt: PathBuf,
+        #[arg(long)]
+        expected_iam_receipt_sha256: String,
+        #[arg(long)]
+        trace_seed: u64,
+        #[arg(long)]
+        block_ordinal: u64,
+        #[arg(long)]
+        position_in_block: u64,
+        #[arg(long)]
+        subject: String,
+        #[arg(long, default_value_t = 8)]
+        concurrent_clients: usize,
+        #[arg(long)]
+        output: PathBuf,
     },
     /// Build one immutable T27 ABBA plan from a verified fixture placement.
     T27PlanBuild {
@@ -1450,6 +1478,71 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             if let Some(output) = output {
                 write_new_file(&output, &bytes)?;
             }
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28PositionReadGcs {
+            locator,
+            expected_envelope_sha256,
+            plan,
+            expected_plan_sha256,
+            iam_receipt,
+            expected_iam_receipt_sha256,
+            trace_seed,
+            block_ordinal,
+            position_in_block,
+            subject,
+            concurrent_clients,
+            output,
+        } => {
+            let placement =
+                decode_fixture_placement_locator(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let iam = T28ReaderIamReceiptV1::decode(
+                &fs::read(iam_receipt)?,
+                &expected_iam_receipt_sha256,
+            )?;
+            let reader_identity =
+                T28ReaderPlanIdentityV1::from_receipt(&iam, &expected_iam_receipt_sha256)?;
+            let plan = T28PointPlanV2::decode(
+                &fs::read(plan)?,
+                &expected_plan_sha256,
+                &placement,
+                &reader_identity,
+            )?;
+            let subject = match subject.as_str() {
+                "candidate" => T28PointSubject::Candidate,
+                "raw_range_control" => T28PointSubject::RawRangeControl,
+                other => {
+                    return Err(std::io::Error::other(format!(
+                        "unknown T28 position subject {other}"
+                    ))
+                    .into());
+                }
+            };
+            let configured_bucket = std::env::var("OKV_GCS_BUCKET")?;
+            if configured_bucket != placement.bucket {
+                return Err(std::io::Error::other(
+                    "T28 configured GCS bucket differs from fixture placement",
+                )
+                .into());
+            }
+            let backend =
+                prefixed_backend(gcs_backend_from_env_no_retries()?, placement.prefix.clone())?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let receipt = runtime.block_on(run_t28_point_position(
+                backend,
+                &placement,
+                &expected_envelope_sha256,
+                &plan,
+                subject,
+                trace_seed,
+                block_ordinal,
+                position_in_block,
+                concurrent_clients,
+            ))?;
+            let bytes = serde_json::to_vec_pretty(&receipt)?;
+            write_new_file(&output, &bytes)?;
             println!("{}", String::from_utf8(bytes)?);
         }
         Commands::T27PlanBuild {
