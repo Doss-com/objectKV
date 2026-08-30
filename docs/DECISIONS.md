@@ -1833,3 +1833,29 @@ Specification: `formal/README.md`. Design record: RFC-0050. Finite-model
 receipt: `formal/evidence/gcp-r2-2026-08-30.json`. Current implementation
 trace:
 `docs/artifacts/eval-receipts/cell-trace-refinement-r2-gcp-r0-2026-08-30/README.md`.
+
+## D72. Batch physical txLog appends without weakening per-record durability
+
+Status: node batch and persistent-client preflight `[CODE-COMPLETE]`;
+independent-machine curve `[EVALUATING]`, 2026-08-30.
+
+Decision: the active writer may group consecutive ordered append requests into
+one bounded physical batch per log node. Each node validates the complete batch
+before mutation, writes all new frames, executes one shared journal sync, and
+advances its in-memory state only after that sync succeeds. A record is
+`COMMITTED` only after its containing batch has synchronized on the required
+node quorum. Exact retries do not create another frame. Batch dwell time counts
+against the record's end-to-end acknowledgement latency.
+
+The network path keeps one persistent connection from the active writer to each
+log node. The first independent-machine preflight uses one sequential batch
+stream to determine whether the media and wire shape have sufficient
+headroom. The admitted curve still requires the frozen open-loop arrival,
+queue, latency, failure, and matched-control contract.
+
+Optimizes for: amortizing NVMe synchronization and connection setup while
+preserving the logical order, exact retry, and quorum acknowledgement contract.
+
+Gives up: treating each request as an immediate independent fsync. Batching
+introduces an explicit latency versus throughput choice and requires a hard
+batch-size, dwell-time, and queue bound.

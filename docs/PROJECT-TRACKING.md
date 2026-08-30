@@ -916,6 +916,12 @@ independent-media, GCS-publication, append-latency, throughput, transaction
 commit, or OpenRaft-replacement claim. L2 same-zone independent-machine
 evaluation is the next staged txLog rung after the active read-path rows.
 
+`[CODE-COMPLETE]` The L2 prerequisite now exposes a bounded node-level append
+batch with one shared sync and a client-only three-machine preflight over
+persistent connections. The preflight reports exact node histories, batch
+acknowledgement percentiles, throughput, bytes, and topology identities. It is
+not a replacement for the frozen open-loop L2 curve.
+
 `[VERIFIED]` RFC-0050 R2 checks the integrated 3-node model through 2,484,568
 generated states and the 2-transaction concurrency scope through 4,496,463
 generated states. Six exact fault controls produced their named invariant

@@ -311,67 +311,119 @@ impl StagedLogNode {
         request_identity: StagedRequestIdentity,
         payload: &[u8],
     ) -> Result<StagedAppendOutcome, StagedLogError> {
-        if position == 0 {
-            return Err(StagedLogError::InvalidPosition(position));
-        }
-        if payload.len() > MAX_PAYLOAD_BYTES || u32::try_from(payload.len()).is_err() {
-            return Err(StagedLogError::PayloadTooLarge(payload.len()));
-        }
-        let current = self
-            .state
-            .writer_epoch
-            .ok_or(StagedLogError::WriterNotOpen)?;
-        if writer_epoch != current {
-            return Err(if writer_epoch < current {
-                StagedLogError::StaleWriter {
-                    current,
-                    proposed: writer_epoch,
-                }
-            } else {
-                StagedLogError::WriterEpochMismatch {
-                    current,
-                    proposed: writer_epoch,
-                }
-            });
-        }
-
-        if let Some(existing) = self.state.records.get(&position) {
-            if existing.request_identity == request_identity && existing.payload == payload {
-                return Ok(StagedAppendOutcome {
-                    position,
-                    frame_bytes: 0,
-                    physical_bytes: self.physical_bytes()?,
-                    replayed: true,
-                    synchronized: true,
-                });
-            }
-            return Err(StagedLogError::ConflictingRetry(position));
-        }
-
-        let expected = self.state.next_position();
-        if position != expected {
-            return Err(StagedLogError::NonConsecutive {
-                expected,
-                actual: position,
-            });
-        }
         let record = StagedLogRecord {
             writer_epoch,
             position,
             request_identity,
             payload: payload.to_vec(),
         };
-        let frame = encode_append_frame(self.log_identity, &record)?;
-        self.persist_frame(&frame)?;
-        self.state.records.insert(position, record);
-        self.recovered_torn_tail = false;
-        Ok(StagedAppendOutcome {
-            position,
-            frame_bytes: to_u64(frame.len()),
-            physical_bytes: self.physical_bytes()?,
-            replayed: false,
-            synchronized: true,
-        })
+        self.append_batch(std::slice::from_ref(&record))?
+            .into_iter()
+            .next()
+            .ok_or(StagedLogError::InvalidSegment(
+                "single append produced no outcome",
+            ))
+    }
+
+    /// Validate and append one consecutive record batch with one journal sync.
+    ///
+    /// Exact retries may be mixed with new consecutive records. The complete
+    /// batch is validated before the journal is changed. New frames are written
+    /// together and become visible in memory only after the shared sync
+    /// succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns a semantic, encoding, or filesystem error without advancing the
+    /// in-memory state.
+    pub fn append_batch(
+        &mut self,
+        records: &[StagedLogRecord],
+    ) -> Result<Vec<StagedAppendOutcome>, StagedLogError> {
+        if records.is_empty() {
+            return Ok(Vec::new());
+        }
+        let current = self
+            .state
+            .writer_epoch
+            .ok_or(StagedLogError::WriterNotOpen)?;
+        let mut expected = self.state.next_position();
+        let mut planned_records = BTreeMap::<u64, StagedLogRecord>::new();
+        let mut planned_frames = Vec::<Vec<u8>>::new();
+        let mut outcome_plan = Vec::<(u64, u64, bool)>::with_capacity(records.len());
+
+        for record in records {
+            if record.position == 0 {
+                return Err(StagedLogError::InvalidPosition(record.position));
+            }
+            if record.payload.len() > MAX_PAYLOAD_BYTES
+                || u32::try_from(record.payload.len()).is_err()
+            {
+                return Err(StagedLogError::PayloadTooLarge(record.payload.len()));
+            }
+            if record.writer_epoch != current {
+                return Err(if record.writer_epoch < current {
+                    StagedLogError::StaleWriter {
+                        current,
+                        proposed: record.writer_epoch,
+                    }
+                } else {
+                    StagedLogError::WriterEpochMismatch {
+                        current,
+                        proposed: record.writer_epoch,
+                    }
+                });
+            }
+
+            if let Some(existing) = self
+                .state
+                .records
+                .get(&record.position)
+                .or_else(|| planned_records.get(&record.position))
+            {
+                if existing.request_identity == record.request_identity
+                    && existing.payload == record.payload
+                    && existing.writer_epoch == record.writer_epoch
+                {
+                    outcome_plan.push((record.position, 0, true));
+                    continue;
+                }
+                return Err(StagedLogError::ConflictingRetry(record.position));
+            }
+
+            if record.position != expected {
+                return Err(StagedLogError::NonConsecutive {
+                    expected,
+                    actual: record.position,
+                });
+            }
+            let frame = encode_append_frame(self.log_identity, record)?;
+            outcome_plan.push((record.position, to_u64(frame.len()), false));
+            planned_frames.push(frame);
+            planned_records.insert(record.position, record.clone());
+            expected = expected.saturating_add(1);
+        }
+
+        if !planned_frames.is_empty() {
+            let mut file = OpenOptions::new().append(true).open(&self.path)?;
+            for frame in &planned_frames {
+                file.write_all(frame)?;
+            }
+            file.sync_all()?;
+            self.state.records.extend(planned_records);
+            self.recovered_torn_tail = false;
+        }
+        let physical_bytes = self.physical_bytes()?;
+        Ok(outcome_plan
+            .into_iter()
+            .map(|(position, frame_bytes, replayed)| StagedAppendOutcome {
+                position,
+                frame_bytes,
+                physical_bytes,
+                replayed,
+                synchronized: true,
+            })
+            .collect())
     }
 
     /// Return one recovered record.
@@ -938,6 +990,71 @@ mod tests {
         ));
         reopened.append(8, 2, [0x44; 32], b"next").unwrap();
         assert_eq!(reopened.next_position(), 3);
+    }
+
+    #[test]
+    fn batch_append_recovers_exactly_and_retries_without_growth() {
+        let root = TempDir::new("batch");
+        let log_identity = [0x31; LOG_IDENTITY_BYTES];
+        let mut node = StagedLogNode::open(&root.0, log_identity).unwrap();
+        node.install_writer_epoch(7).unwrap();
+        let records = (1_u64..=256)
+            .map(|position| StagedLogRecord {
+                writer_epoch: 7,
+                position,
+                request_identity: [u8::try_from(position % 251).unwrap(); 32],
+                payload: vec![u8::try_from(position % 239).unwrap(); 128],
+            })
+            .collect::<Vec<_>>();
+
+        let outcomes = node.append_batch(&records).unwrap();
+        assert_eq!(outcomes.len(), records.len());
+        assert!(outcomes.iter().all(|outcome| {
+            outcome.synchronized && !outcome.replayed && outcome.frame_bytes > 0
+        }));
+        let after_first = node.physical_bytes().unwrap();
+        let retries = node.append_batch(&records).unwrap();
+        assert!(retries
+            .iter()
+            .all(|outcome| outcome.synchronized && outcome.replayed && outcome.frame_bytes == 0));
+        assert_eq!(node.physical_bytes().unwrap(), after_first);
+
+        drop(node);
+        let recovered = StagedLogNode::open(&root.0, log_identity).unwrap();
+        assert_eq!(recovered.records(), records);
+        assert_eq!(recovered.next_position(), 257);
+    }
+
+    #[test]
+    fn invalid_batch_is_rejected_before_physical_mutation() {
+        let root = TempDir::new("invalid-batch");
+        let log_identity = [0x41; LOG_IDENTITY_BYTES];
+        let mut node = StagedLogNode::open(&root.0, log_identity).unwrap();
+        node.install_writer_epoch(7).unwrap();
+        let before = node.physical_bytes().unwrap();
+        let records = [
+            StagedLogRecord {
+                writer_epoch: 7,
+                position: 1,
+                request_identity: [0x51; 32],
+                payload: b"first".to_vec(),
+            },
+            StagedLogRecord {
+                writer_epoch: 7,
+                position: 3,
+                request_identity: [0x53; 32],
+                payload: b"gap".to_vec(),
+            },
+        ];
+        assert!(matches!(
+            node.append_batch(&records),
+            Err(StagedLogError::NonConsecutive {
+                expected: 2,
+                actual: 3
+            })
+        ));
+        assert_eq!(node.physical_bytes().unwrap(), before);
+        assert!(node.records().is_empty());
     }
 
     #[test]

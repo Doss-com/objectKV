@@ -75,8 +75,8 @@ use okv_eval::serving_recovery_openraft::{
     OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport, NATIVE_RESIDENT_PROVIDER,
 };
 use okv_eval::staged_txlog_process::{
-    run_staged_txlog_node, run_staged_txlog_process_contract, StagedTxLogNodeConfig,
-    StagedTxLogProcessMode,
+    run_staged_txlog_machine_preflight, run_staged_txlog_node, run_staged_txlog_process_contract,
+    StagedTxLogMachinePreflightConfig, StagedTxLogNodeConfig, StagedTxLogProcessMode,
 };
 use okv_eval::storage_layout::{
     publish_t28_aligned_layout, publish_t28_typed_layout, run_columnar_cache_admission_contract,
@@ -493,6 +493,11 @@ enum Commands {
         seed: u64,
         #[arg(long, default_value = "correct")]
         mode: String,
+    },
+    /// Run one bounded client-only preflight against three remote txLog nodes.
+    StagedTxLogMachinePreflight {
+        #[arg(long)]
+        config: PathBuf,
     },
     /// Emit the RFC-0044 canonical empty-anchor determinism report.
     FixtureAnchorTrace {
@@ -1353,6 +1358,12 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let mode = parse_staged_txlog_process_mode(&mode).map_err(std::io::Error::other)?;
             let executable = std::env::current_exe()?;
             let report = run_staged_txlog_process_contract(seed, mode, &executable)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::StagedTxLogMachinePreflight { config } => {
+            let config =
+                serde_json::from_slice::<StagedTxLogMachinePreflightConfig>(&fs::read(config)?)?;
+            let report = run_staged_txlog_machine_preflight(&config)?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Commands::ServingRecoveryProcessTrace {

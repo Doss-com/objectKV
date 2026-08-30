@@ -31,6 +31,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const START_ATTEMPTS: usize = 200;
 const START_RETRY_DELAY: Duration = Duration::from_millis(10);
+const MACHINE_PREFLIGHT_MAX_RECORDS: u64 = 65_536;
+const MACHINE_PREFLIGHT_MAX_BATCH_RECORDS: usize = 4_096;
+const MACHINE_PREFLIGHT_MAX_PAYLOAD_BYTES: usize = 4_096;
 
 /// Fault mode exercised by the unchanged L1 process oracle.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -119,6 +122,70 @@ pub struct StagedTxLogProcessReport {
     pub trace_sha256: String,
 }
 
+/// One independently addressed log node in the L2 machine preflight.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StagedTxLogMachineNodeConfig {
+    pub node_id: u8,
+    pub machine_id: String,
+    pub endpoint: String,
+}
+
+/// Frozen, bounded input for the first independent-machine mechanism run.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StagedTxLogMachinePreflightConfig {
+    pub schema_version: u32,
+    pub seed: u64,
+    pub writer_epoch: u64,
+    pub log_identity: StagedLogIdentity,
+    pub nodes: Vec<StagedTxLogMachineNodeConfig>,
+    pub record_bytes: usize,
+    pub record_count: u64,
+    pub batch_records: usize,
+}
+
+/// One node identity observed over the real machine network.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StagedTxLogMachineNodeObservation {
+    pub node_id: u8,
+    pub machine_id: String,
+    pub endpoint: String,
+    pub process_id: u32,
+    pub root: String,
+    pub listener: String,
+    pub final_physical_bytes: u64,
+    pub final_record_count: u64,
+}
+
+/// Diagnostic result for the bounded L2 independent-machine preflight.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StagedTxLogMachinePreflightReport {
+    pub schema_version: u32,
+    pub scope: String,
+    pub seed: u64,
+    pub writer_epoch: u64,
+    pub log_identity: StagedLogIdentity,
+    pub nodes: Vec<StagedTxLogMachineNodeObservation>,
+    pub record_bytes: u64,
+    pub requested_records: u64,
+    pub acknowledged_records: u64,
+    pub batch_records: u64,
+    pub batch_count: u64,
+    pub network_batch_requests: u64,
+    pub measurement_seconds: f64,
+    pub records_per_second: f64,
+    pub batch_ack_seconds: Vec<f64>,
+    pub batch_ack_p50_seconds: f64,
+    pub batch_ack_p95_seconds: f64,
+    pub batch_ack_p99_seconds: f64,
+    pub exact_state_nodes: u64,
+    pub object_operations: u64,
+    pub anomaly_count: u64,
+    pub first_mismatch: Option<String>,
+    pub report_sha256: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct WireRecord {
     writer_epoch: u64,
@@ -129,6 +196,17 @@ struct WireRecord {
 
 impl From<StagedLogRecord> for WireRecord {
     fn from(record: StagedLogRecord) -> Self {
+        Self {
+            writer_epoch: record.writer_epoch,
+            position: record.position,
+            request_identity: record.request_identity,
+            payload: record.payload,
+        }
+    }
+}
+
+impl From<WireRecord> for StagedLogRecord {
+    fn from(record: WireRecord) -> Self {
         Self {
             writer_epoch: record.writer_epoch,
             position: record.position,
@@ -151,6 +229,9 @@ enum NodeRequest {
         request_identity: StagedRequestIdentity,
         payload: Vec<u8>,
     },
+    AppendBatch {
+        records: Vec<WireRecord>,
+    },
     State,
     Segment {
         first_position: u64,
@@ -167,6 +248,7 @@ enum NodeResponse {
         process_id: u32,
         root: String,
         listener: String,
+        log_identity: StagedLogIdentity,
         writer_epoch: Option<u64>,
         next_position: u64,
         record_count: u64,
@@ -184,6 +266,16 @@ enum NodeResponse {
         frame_bytes: u64,
         physical_bytes: u64,
         replayed: bool,
+        synchronized: bool,
+    },
+    AppendBatch {
+        first_position: u64,
+        last_position: u64,
+        record_count: u64,
+        new_record_count: u64,
+        replayed_record_count: u64,
+        frame_bytes: u64,
+        physical_bytes: u64,
         synchronized: bool,
     },
     State {
@@ -228,6 +320,7 @@ impl NodeRuntime {
                 process_id: std::process::id(),
                 root: self.config.root.display().to_string(),
                 listener: self.listener.clone(),
+                log_identity: self.config.log_identity,
                 writer_epoch: self.node.writer_epoch(),
                 next_position: self.node.next_position(),
                 record_count: bounded_u64(self.node.records().len()),
@@ -249,6 +342,7 @@ impl NodeRuntime {
                 request_identity,
                 payload,
             } => self.append(writer_epoch, position, request_identity, &payload),
+            NodeRequest::AppendBatch { records } => self.append_batch(records),
             NodeRequest::State => NodeResponse::State {
                 writer_epoch: self.node.writer_epoch(),
                 next_position: self.node.next_position(),
@@ -366,6 +460,39 @@ impl NodeRuntime {
             synchronized: true,
         }
     }
+
+    fn append_batch(&mut self, records: Vec<WireRecord>) -> NodeResponse {
+        if records.is_empty() {
+            return NodeResponse::Error {
+                code: "empty_batch".to_owned(),
+                message: "staged txLog append batch is empty".to_owned(),
+            };
+        }
+        let records = records
+            .into_iter()
+            .map(StagedLogRecord::from)
+            .collect::<Vec<_>>();
+        let first_position = records.first().map_or(0, |record| record.position);
+        let last_position = records.last().map_or(0, |record| record.position);
+        self.node
+            .append_batch(&records)
+            .map_or_else(error_response, |outcomes| {
+                let new_record_count =
+                    bounded_u64(outcomes.iter().filter(|outcome| !outcome.replayed).count());
+                let replayed_record_count =
+                    bounded_u64(outcomes.iter().filter(|outcome| outcome.replayed).count());
+                NodeResponse::AppendBatch {
+                    first_position,
+                    last_position,
+                    record_count: bounded_u64(outcomes.len()),
+                    new_record_count,
+                    replayed_record_count,
+                    frame_bytes: outcomes.iter().map(|outcome| outcome.frame_bytes).sum(),
+                    physical_bytes: outcomes.last().map_or(0, |outcome| outcome.physical_bytes),
+                    synchronized: outcomes.iter().all(|outcome| outcome.synchronized),
+                }
+            })
+    }
 }
 
 fn append_response(outcome: StagedAppendOutcome) -> NodeResponse {
@@ -378,6 +505,7 @@ fn append_response(outcome: StagedAppendOutcome) -> NodeResponse {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn error_response(error: StagedLogError) -> NodeResponse {
     let message = error.to_string();
     let code = match error {
@@ -411,9 +539,10 @@ pub fn run_staged_txlog_node(config: StagedTxLogNodeConfig) -> Result<(), String
         stream
             .set_write_timeout(Some(IO_TIMEOUT))
             .map_err(|error| error.to_string())?;
-        let request = read_wire::<NodeRequest>(&mut stream)?;
-        let response = runtime.handle(request);
-        write_wire(&mut stream, &response)?;
+        while let Some(request) = read_wire_optional::<NodeRequest>(&mut stream)? {
+            let response = runtime.handle(request);
+            write_wire(&mut stream, &response)?;
+        }
     }
     Ok(())
 }
@@ -449,6 +578,7 @@ struct HealthObservation {
     process_id: u32,
     root: String,
     listener: String,
+    log_identity: StagedLogIdentity,
     recovered_torn_tail: bool,
 }
 
@@ -824,6 +954,389 @@ pub fn run_staged_txlog_process_contract(
     Ok(report)
 }
 
+struct ConnectedNode {
+    node_id: u8,
+    stream: TcpStream,
+}
+
+struct ParallelBatchAppend {
+    responses: Vec<(u8, Result<NodeResponse, String>)>,
+    quorum_duration_seconds: f64,
+    durable_acknowledgements: u64,
+}
+
+/// Run one bounded client-only preflight against three already-running log
+/// nodes on independently named machines.
+///
+/// This is a mechanism and batch-geometry diagnostic. It is not the frozen L2
+/// open-loop curve.
+///
+/// # Errors
+///
+/// Returns an error when the topology, connection, or epoch installation is
+/// invalid. Workload mismatches are retained in the returned report.
+#[allow(clippy::too_many_lines)]
+pub fn run_staged_txlog_machine_preflight(
+    config: &StagedTxLogMachinePreflightConfig,
+) -> Result<StagedTxLogMachinePreflightReport, String> {
+    validate_machine_preflight_config(config)?;
+    let mut health = Vec::with_capacity(config.nodes.len());
+    for node in &config.nodes {
+        match request_node(&node.endpoint, &NodeRequest::Health)? {
+            NodeResponse::Health {
+                node_id,
+                process_id,
+                root,
+                listener,
+                log_identity,
+                ..
+            } if node_id == node.node_id && log_identity == config.log_identity => {
+                health.push(HealthObservation {
+                    node_id,
+                    process_id,
+                    root,
+                    listener,
+                    log_identity,
+                    recovered_torn_tail: false,
+                });
+            }
+            other => {
+                return Err(format!(
+                    "machine {} returned unexpected health response: {other:?}",
+                    node.machine_id
+                ));
+            }
+        }
+    }
+
+    let mut nodes = config
+        .nodes
+        .iter()
+        .map(ConnectedNode::connect)
+        .collect::<Result<Vec<_>, _>>()?;
+    for (node_id, response) in request_all_connected(
+        &mut nodes,
+        &NodeRequest::InstallEpoch {
+            writer_epoch: config.writer_epoch,
+        },
+    ) {
+        match response? {
+            NodeResponse::Epoch {
+                writer_epoch,
+                synchronized: true,
+                ..
+            } if writer_epoch == config.writer_epoch => {}
+            other => {
+                return Err(format!(
+                    "node {node_id} did not install epoch {}: {other:?}",
+                    config.writer_epoch
+                ));
+            }
+        }
+    }
+
+    let mut expected = Vec::with_capacity(
+        usize::try_from(config.record_count).map_err(|error| error.to_string())?,
+    );
+    let mut acknowledged_records = 0_u64;
+    let mut network_batch_requests = 0_u64;
+    let mut batch_ack_seconds = Vec::new();
+    let measured = Instant::now();
+    let mut next_position = 1_u64;
+    while next_position <= config.record_count {
+        let remaining = config
+            .record_count
+            .saturating_sub(next_position)
+            .saturating_add(1);
+        let batch_len = usize::try_from(remaining)
+            .unwrap_or(usize::MAX)
+            .min(config.batch_records);
+        let mut batch = Vec::with_capacity(batch_len);
+        for offset in 0..batch_len {
+            let position = next_position.saturating_add(bounded_u64(offset));
+            let payload = deterministic_payload(config.seed, position, config.record_bytes);
+            batch.push(WireRecord {
+                writer_epoch: config.writer_epoch,
+                position,
+                request_identity: request_identity(config.seed, position, &payload),
+                payload,
+            });
+        }
+        let result = append_batch_parallel_connected(&mut nodes, &batch);
+        network_batch_requests =
+            network_batch_requests.saturating_add(bounded_u64(config.nodes.len()));
+        batch_ack_seconds.push(result.quorum_duration_seconds);
+        let first_position = batch.first().map_or(0, |record| record.position);
+        let last_position = batch.last().map_or(0, |record| record.position);
+        let response_exact = result.responses.iter().all(|(_, response)| {
+            matches!(
+                response,
+                Ok(NodeResponse::AppendBatch {
+                    first_position: observed_first,
+                    last_position: observed_last,
+                    record_count,
+                    synchronized: true,
+                    ..
+                }) if *observed_first == first_position
+                    && *observed_last == last_position
+                    && *record_count == bounded_u64(batch.len())
+            )
+        });
+        if result.durable_acknowledgements < bounded_u64(WRITE_QUORUM) || !response_exact {
+            break;
+        }
+        acknowledged_records = acknowledged_records.saturating_add(bounded_u64(batch.len()));
+        expected.extend(batch);
+        next_position = next_position.saturating_add(bounded_u64(batch_len));
+    }
+    let measurement_seconds = measured.elapsed().as_secs_f64();
+
+    let state_responses = request_all_connected(&mut nodes, &NodeRequest::State);
+    let mut exact_state_nodes = 0_u64;
+    let mut physical_by_node = BTreeMap::new();
+    let mut records_by_node = BTreeMap::new();
+    for (node_id, response) in state_responses {
+        if let Ok(NodeResponse::State {
+            physical_bytes,
+            records,
+            ..
+        }) = response
+        {
+            if records == expected {
+                exact_state_nodes = exact_state_nodes.saturating_add(1);
+            }
+            physical_by_node.insert(node_id, physical_bytes);
+            records_by_node.insert(node_id, bounded_u64(records.len()));
+        }
+    }
+
+    let node_observations = config
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            health
+                .iter()
+                .find(|observation| observation.node_id == node.node_id)
+                .map(|observation| StagedTxLogMachineNodeObservation {
+                    node_id: node.node_id,
+                    machine_id: node.machine_id.clone(),
+                    endpoint: node.endpoint.clone(),
+                    process_id: observation.process_id,
+                    root: observation.root.clone(),
+                    listener: observation.listener.clone(),
+                    final_physical_bytes: physical_by_node
+                        .get(&node.node_id)
+                        .copied()
+                        .unwrap_or(u64::MAX),
+                    final_record_count: records_by_node.get(&node.node_id).copied().unwrap_or(0),
+                })
+        })
+        .collect::<Vec<_>>();
+    let checks = [
+        (
+            "every requested record reached a stable quorum",
+            acknowledged_records == config.record_count,
+        ),
+        (
+            "every node reconstructed the exact requested history",
+            exact_state_nodes == bounded_u64(NODE_COUNT),
+        ),
+        (
+            "every configured machine returned one exact node identity",
+            node_observations.len() == NODE_COUNT,
+        ),
+    ];
+    let first_mismatch = checks
+        .iter()
+        .find_map(|(detail, passed)| (!passed).then(|| (*detail).to_owned()));
+    let anomaly_count = u64::from(first_mismatch.is_some());
+    let mut sorted_ack_seconds = batch_ack_seconds.clone();
+    sorted_ack_seconds.sort_by(f64::total_cmp);
+    let records_per_second = if measurement_seconds > 0.0 {
+        f64::from(u32::try_from(acknowledged_records).unwrap_or(u32::MAX)) / measurement_seconds
+    } else {
+        0.0
+    };
+    let mut report = StagedTxLogMachinePreflightReport {
+        schema_version: 1,
+        scope: "staged-txlog-l2-batched-persistent-preflight".to_owned(),
+        seed: config.seed,
+        writer_epoch: config.writer_epoch,
+        log_identity: config.log_identity,
+        nodes: node_observations,
+        record_bytes: bounded_u64(config.record_bytes),
+        requested_records: config.record_count,
+        acknowledged_records,
+        batch_records: bounded_u64(config.batch_records),
+        batch_count: bounded_u64(batch_ack_seconds.len()),
+        network_batch_requests,
+        measurement_seconds,
+        records_per_second,
+        batch_ack_p50_seconds: percentile(&sorted_ack_seconds, 50),
+        batch_ack_p95_seconds: percentile(&sorted_ack_seconds, 95),
+        batch_ack_p99_seconds: percentile(&sorted_ack_seconds, 99),
+        batch_ack_seconds,
+        exact_state_nodes,
+        object_operations: 0,
+        anomaly_count,
+        first_mismatch,
+        report_sha256: String::new(),
+    };
+    report.report_sha256 = hex_digest(
+        &serde_json::to_vec(&report).map_err(|error| format!("encode report: {error}"))?,
+    );
+    Ok(report)
+}
+
+fn validate_machine_preflight_config(
+    config: &StagedTxLogMachinePreflightConfig,
+) -> Result<(), String> {
+    if config.schema_version != 1
+        || config.writer_epoch == 0
+        || config.record_count == 0
+        || config.record_count > MACHINE_PREFLIGHT_MAX_RECORDS
+        || config.record_bytes == 0
+        || config.record_bytes > MACHINE_PREFLIGHT_MAX_PAYLOAD_BYTES
+        || config.batch_records == 0
+        || config.batch_records > MACHINE_PREFLIGHT_MAX_BATCH_RECORDS
+        || config.nodes.len() != NODE_COUNT
+    {
+        return Err("invalid staged txLog machine preflight bounds".to_owned());
+    }
+    let node_ids = config
+        .nodes
+        .iter()
+        .map(|node| node.node_id)
+        .collect::<BTreeSet<_>>();
+    let machine_ids = config
+        .nodes
+        .iter()
+        .map(|node| node.machine_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let endpoints = config
+        .nodes
+        .iter()
+        .map(|node| node.endpoint.as_str())
+        .collect::<BTreeSet<_>>();
+    if node_ids != BTreeSet::from([0, 1, 2])
+        || machine_ids.len() != NODE_COUNT
+        || machine_ids.contains("")
+        || endpoints.len() != NODE_COUNT
+        || config
+            .nodes
+            .iter()
+            .any(|node| node.endpoint.parse::<SocketAddr>().is_err())
+    {
+        return Err(
+            "machine preflight requires three exact node, machine, and endpoint identities"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
+impl ConnectedNode {
+    fn connect(config: &StagedTxLogMachineNodeConfig) -> Result<Self, String> {
+        let address = config
+            .endpoint
+            .parse::<SocketAddr>()
+            .map_err(|error| format!("invalid node address {}: {error}", config.endpoint))?;
+        let stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
+            .map_err(|error| format!("connect {}: {error}", config.endpoint))?;
+        stream
+            .set_read_timeout(Some(IO_TIMEOUT))
+            .and_then(|()| stream.set_write_timeout(Some(IO_TIMEOUT)))
+            .and_then(|()| stream.set_nodelay(true))
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            node_id: config.node_id,
+            stream,
+        })
+    }
+
+    fn request(&mut self, request: &NodeRequest) -> Result<NodeResponse, String> {
+        write_wire(&mut self.stream, request)?;
+        read_wire(&mut self.stream)
+    }
+}
+
+fn request_all_connected(
+    nodes: &mut [ConnectedNode],
+    request: &NodeRequest,
+) -> Vec<(u8, Result<NodeResponse, String>)> {
+    let (sender, receiver) = mpsc::channel();
+    thread::scope(|scope| {
+        for node in nodes {
+            let sender = sender.clone();
+            let request = request.clone();
+            scope.spawn(move || {
+                let response = node.request(&request);
+                let _ = sender.send((node.node_id, response));
+            });
+        }
+        drop(sender);
+    });
+    let mut responses = receiver.into_iter().collect::<Vec<_>>();
+    responses.sort_by_key(|(node_id, _)| *node_id);
+    responses
+}
+
+fn append_batch_parallel_connected(
+    nodes: &mut [ConnectedNode],
+    records: &[WireRecord],
+) -> ParallelBatchAppend {
+    let request = NodeRequest::AppendBatch {
+        records: records.to_vec(),
+    };
+    let started = Instant::now();
+    let (sender, receiver) = mpsc::channel();
+    let mut durable_acknowledgements = 0_u64;
+    let mut quorum_duration_seconds = None;
+    let mut responses = Vec::with_capacity(nodes.len());
+    thread::scope(|scope| {
+        for node in nodes {
+            let sender = sender.clone();
+            let request = request.clone();
+            scope.spawn(move || {
+                let response = node.request(&request);
+                let _ = sender.send((node.node_id, response, started.elapsed()));
+            });
+        }
+        drop(sender);
+        for (node_id, response, elapsed) in receiver {
+            if matches!(
+                response,
+                Ok(NodeResponse::AppendBatch {
+                    synchronized: true,
+                    ..
+                })
+            ) {
+                durable_acknowledgements = durable_acknowledgements.saturating_add(1);
+                if durable_acknowledgements == bounded_u64(WRITE_QUORUM) {
+                    quorum_duration_seconds = Some(elapsed.as_secs_f64());
+                }
+            }
+            responses.push((node_id, response));
+        }
+    });
+    responses.sort_by_key(|(node_id, _)| *node_id);
+    ParallelBatchAppend {
+        responses,
+        quorum_duration_seconds: quorum_duration_seconds
+            .unwrap_or_else(|| started.elapsed().as_secs_f64()),
+        durable_acknowledgements,
+    }
+}
+
+fn percentile(sorted: &[f64], percentile: usize) -> f64 {
+    if sorted.is_empty() {
+        return f64::NAN;
+    }
+    let maximum_index = sorted.len().saturating_sub(1);
+    let position = maximum_index.saturating_mul(percentile).saturating_add(50) / 100;
+    sorted[position.min(maximum_index)]
+}
+
 fn start_nodes(
     executable: &Path,
     configs: &[StagedTxLogNodeConfig],
@@ -865,6 +1378,7 @@ fn wait_for_health(nodes: &mut [RunningNode]) -> Result<Vec<HealthObservation>, 
                 process_id,
                 root,
                 listener,
+                log_identity,
                 recovered_torn_tail,
                 ..
             }) = request_node(&node.endpoint, &NodeRequest::Health)
@@ -874,6 +1388,7 @@ fn wait_for_health(nodes: &mut [RunningNode]) -> Result<Vec<HealthObservation>, 
                     process_id,
                     root,
                     listener,
+                    log_identity,
                     recovered_torn_tail,
                 });
                 break;
@@ -899,6 +1414,7 @@ fn health_matches_configs(
                 config.node_id == health.node_id
                     && config.root.display().to_string() == health.root
                     && config.listen_addr == health.listener
+                    && config.log_identity == health.log_identity
             })
         })
 }
@@ -1138,10 +1654,16 @@ fn write_wire<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(), Str
 }
 
 fn read_wire<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T, String> {
+    read_wire_optional(stream)?.ok_or_else(|| "wire peer closed before a response".to_owned())
+}
+
+fn read_wire_optional<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<Option<T>, String> {
     let mut header = [0_u8; 4];
-    stream
-        .read_exact(&mut header)
-        .map_err(|error| error.to_string())?;
+    match stream.read_exact(&mut header) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    }
     let length = usize::try_from(u32::from_be_bytes(header)).map_err(|error| error.to_string())?;
     if length > MAX_WIRE_BYTES {
         return Err("wire message exceeds limit".to_owned());
@@ -1150,7 +1672,9 @@ fn read_wire<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T, String> {
     stream
         .read_exact(&mut bytes)
         .map_err(|error| error.to_string())?;
-    serde_json::from_slice(&bytes).map_err(|error| error.to_string())
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 fn reserve_loopback_address() -> Result<String, String> {
@@ -1251,6 +1775,92 @@ mod tests {
             }
             _ => panic!("decoded the wrong request variant"),
         }
+    }
+
+    #[test]
+    fn wire_protocol_round_trips_append_batches() {
+        let request = NodeRequest::AppendBatch {
+            records: vec![WireRecord {
+                writer_epoch: 7,
+                position: 3,
+                request_identity: [0x22; 32],
+                payload: vec![0x33; 128],
+            }],
+        };
+        let encoded = serde_json::to_vec(&request).unwrap();
+        let decoded = serde_json::from_slice::<NodeRequest>(&encoded).unwrap();
+        match decoded {
+            NodeRequest::AppendBatch { records } => {
+                assert_eq!(records.len(), 1);
+                assert_eq!(records[0].position, 3);
+                assert_eq!(records[0].payload, vec![0x33; 128]);
+            }
+            _ => panic!("decoded the wrong request variant"),
+        }
+    }
+
+    #[test]
+    fn node_runtime_persists_one_batch_with_one_aggregate_response() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = StagedTxLogNodeConfig {
+            node_id: 0,
+            listen_addr: "127.0.0.1:0".to_owned(),
+            root: temp.path().join("node"),
+            log_identity: [0x11; 32],
+            mode: StagedTxLogProcessMode::Correct,
+        };
+        let mut runtime = NodeRuntime::open(config, "127.0.0.1:7000".to_owned()).unwrap();
+        assert!(matches!(
+            runtime.handle(NodeRequest::InstallEpoch { writer_epoch: 7 }),
+            NodeResponse::Epoch {
+                synchronized: true,
+                ..
+            }
+        ));
+        let records = (1_u64..=256)
+            .map(|position| WireRecord {
+                writer_epoch: 7,
+                position,
+                request_identity: [u8::try_from(position % 251).unwrap(); 32],
+                payload: vec![0x33; 128],
+            })
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            runtime.handle(NodeRequest::AppendBatch { records }),
+            NodeResponse::AppendBatch {
+                first_position: 1,
+                last_position: 256,
+                record_count: 256,
+                new_record_count: 256,
+                replayed_record_count: 0,
+                synchronized: true,
+                ..
+            }
+        ));
+        assert_eq!(runtime.node.records().len(), 256);
+    }
+
+    #[test]
+    fn machine_preflight_requires_three_distinct_machine_identities() {
+        let mut config = StagedTxLogMachinePreflightConfig {
+            schema_version: 1,
+            seed: 17,
+            writer_epoch: 7,
+            log_identity: [0x11; 32],
+            nodes: (0_u8..3)
+                .map(|node_id| StagedTxLogMachineNodeConfig {
+                    node_id,
+                    machine_id: format!("machine-{node_id}"),
+                    endpoint: format!("127.0.0.1:{}", 7_000_u16 + u16::from(node_id)),
+                })
+                .collect(),
+            record_bytes: 128,
+            record_count: 8_192,
+            batch_records: 256,
+        };
+        validate_machine_preflight_config(&config).unwrap();
+        config.nodes[2].machine_id = config.nodes[1].machine_id.clone();
+        assert!(validate_machine_preflight_config(&config).is_err());
     }
 
     #[test]

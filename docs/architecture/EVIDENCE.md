@@ -248,6 +248,12 @@ Evidence:
 Trace evidence:
 `docs/artifacts/eval-receipts/cell-trace-refinement-r2-gcp-r0-2026-08-30/README.md`.
 
+`[CODE-COMPLETE]` The RFC-0045 L2 preflight path validates a bounded
+consecutive record batch before physical mutation, writes its frames under one
+journal sync, advances memory only after sync, and preserves no-growth exact
+retries. The client keeps one persistent connection to each of three named
+machines. This is an unmeasured prerequisite, not independent-media evidence.
+
 ```text
 generation-pinned locator + immutable operation plan
   → fresh read-only process

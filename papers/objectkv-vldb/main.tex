@@ -325,6 +325,13 @@ version, persist to the required \txlog{} set, and only then return
 their local log stream. A lost reply is resolved by transaction identity, not by
 blindly applying the transaction again.
 
+The physical \txlog{} may group consecutive records into one bounded node
+batch. A node validates the batch before mutation, writes every new frame,
+performs one shared stable-media sync, and only then advances memory. Each
+record becomes committed only after its containing batch reaches the required
+node quorum. This trades explicit batching dwell for fsync amortization; dwell
+time remains part of the record's acknowledgement latency.
+
 The current TLA+ model captures this order. The complete multi-range protocol,
 partitioned conflict representation, and independent-media performance remain
 \evaluating{} or \proposed{}.

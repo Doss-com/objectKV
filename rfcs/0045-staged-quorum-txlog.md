@@ -375,6 +375,23 @@ Use open-loop Poisson arrivals, 64 client tasks, 256 streams, three record
 sizes, five repeats, and a measured offered-load sweep. Capture the idle
 network RTT and local-NVMe persistence distribution as the hardware floor.
 
+`[CODE-COMPLETE]` The L2 prerequisite path adds bounded node-level append
+batches and persistent client connections. A node validates the complete batch
+before physical mutation, writes every new `OKVT` frame together, performs one
+shared journal sync, and publishes the in-memory records only after that sync
+succeeds. Exact retries may share a batch with new consecutive records without
+growing the journal. Every record still becomes acknowledged only after the
+same batch has synchronized on a write quorum.
+
+The first real-machine execution is a bounded preflight, not the admitted L2
+curve. It uses one client, three exact machine identities, 128-byte records,
+256-record batches, persistent connections, and final exact-history reads from
+all nodes. It measures whether microbatching creates enough throughput headroom
+to justify implementing the open-loop writer queue. Batch dwell time, once
+added, must remain inside each record's end-to-end acknowledgement latency.
+Neither the preflight nor a batch throughput number can satisfy the 1 ms
+per-record p99 gate by itself.
+
 Primary metric: p99 `log.append.ack_duration` at the largest offered load that
 keeps success at 100 percent and queue refusal below one percent.
 
