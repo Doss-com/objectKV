@@ -1660,3 +1660,36 @@ instead of unverifiable physical-request claims, and one frozen 15-block p99
 aggregation. Fable returned `SHIP` on the second re-review. No GCS cold-point
 performance receipt exists yet, so T28 remains `[EVALUATING]` and
 implementation remains `[PROPOSED]` pending completion of T27.
+
+## D67. Correct resident history before resuming T27
+
+Status: `[PROPOSED]`, with the provider-v1 rejection `[VERIFIED]`, 2026-08-30.
+
+Decision: stop the provider-v1 T27 queue after its first retained rejection.
+Replace full object-base history duplication with one current head and sparse
+post-frontier history under a new provider-v2 identity. Seed a key's outcome at
+object frontier `O` only on its first later mutation, including explicit
+absence, then retain every post-`O` mutation. Preserve the public API,
+authoritative object and txLog formats, exact snapshot semantics, and all
+frozen T27 performance gates.
+
+The corrected provider first replays only `c50-z14-s3301` against the same 1
+GiB fixture and hardware class. It adds one local-state gate, native bytes must
+be at most 1.25x direct RocksDB. A passing replay creates a new execution plan
+and restarts all 27 direct-NVMe strata plus two buffered sentinels. Provider-v1
+and provider-v2 results are not combined.
+
+Optimizes for: one current point lookup, local state proportional to the object
+base plus changed-key history, exact snapshots throughout `[O, C]`, and an
+honest re-test of the cache-miss boundary that rejected provider v1.
+
+Gives up: the simplest historical lookup representation and reuse of five
+passing v1 strata in the final admission curve. First-touch mutation work and
+an explicit absence tag are added to disposable local state.
+
+Evidence: RFC-0047 and
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md`.
+The retained run completed 20 fresh positions. P99 was 1.307614x and 1.339897x
+control while throughput, CPU/read, physical bytes/read, read amplification,
+correctness, pressure, identity, and OTel gates passed. Native local bytes were
+2.015239x control.

@@ -8,9 +8,12 @@ clients. `[VERIFIED]` GP3.1.2 executed both a clean negative 64 MiB
 cache-pressure calibration and a corrected rerun that clears the throughput,
 p99, CPU/read, and zero physical-read bounds. `[VERIFIED]` the immutable
 fresh-process 64 MiB direct-NVMe preflight clears every paired and telemetry
-gate in both process orders. `[EVALUATING]` the complete 1 GiB T27 coverage and
-skew curve, same-durability replicated commit, and the complete transaction
-plane. No full-cell or cross-stack performance claim is `[VERIFIED]`.
+gate in both process orders. `[VERIFIED]` the first five provider-v1 T27 strata
+passed and the sixth retained a p99 rejection with complete telemetry.
+`[EVALUATING]` RFC-0047's sparse provider-v2 correction, the complete 1 GiB T27
+coverage and skew curve, same-durability replicated commit, and the complete
+transaction plane. No full-cell or cross-stack performance claim is
+`[VERIFIED]`.
 
 ## The answer we are trying to earn
 
@@ -398,6 +401,24 @@ and standalone receipt are generation-pinned in GCS. The queued runner began
 remains `[EVALUATING]` with 22 direct-NVMe strata and two buffered sentinels
 open. See
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md`.
+
+`[VERIFIED]` The sixth stratum, `c50-z14-s3301`, completed all 20 positions but
+rejected the p99 ceiling in both process orders. AB and BA throughput ratios
+were 0.995760x and 0.956539x direct RocksDB; p99 ratios were 1.307614x and
+1.339897x; CPU/read ratios were 1.017873x and 1.035078x; physical-read ratios
+were 1.006496x and 1.006547x; read amplification was 1.000000x. Correctness,
+pressure, identity, process, and all telemetry gates passed. Native local state
+was 2,215,101,820 bytes versus 1,099,175,660 bytes for control, a 2.015239x
+ratio. The complete base existed in both the native head and history column
+families, moving the native p99 cache-miss boundary ahead of control. The
+collector contains 21 logs, 63 metrics, and 20 traces for run
+`912fb7e5-35db-4f63-99db-cdd8201f23a9`. Both failed-run artifacts were uploaded
+create-only, generation-pinned, and readback hash-verified. The queue stopped
+before `c50-z20-s1103`. Provider v1 now has five passing strata, one retained
+rejection, 21 unexecuted strata, and no buffered sentinels. RFC-0047 defines a
+new sparse-history provider and requires replaying this exact stratum before a
+new 27-stratum plan begins. See
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md`.
 
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen

@@ -3,7 +3,8 @@
 Status: `[EVALUATING]`, with the cross-invocation fixture, read-only consumer,
 standalone control, independent-seed boundaries, four-position 64 MiB
 preflight, 1 GiB fixture, immutable 540-position plan, retained runtime, and
-first five complete 20-position strata `[VERIFIED]`
+first five complete 20-position strata `[VERIFIED]`. The sixth stratum is a
+`[VERIFIED]` retained p99 rejection.
 
 ## Current execution readout
 
@@ -14,7 +15,8 @@ and workload
 readers, five fresh-process ABBA blocks, and one million measured reads per
 position. The first three cover Zipf 0.8 with independent trace seeds 1103,
 2207, and 3301. The fourth and fifth cover Zipf 1.4 with trace seeds 1103 and
-2207.
+2207. Stratum `c50-z14-s3301` then completed all 20 positions but rejected the
+provider-v1 layout on p99.
 
 | Stratum | Metric | AB native/control | BA native/control | Gate |
 | --- | --- | ---: | ---: | ---: |
@@ -38,18 +40,25 @@ position. The first three cover Zipf 0.8 with independent trace seeds 1103,
 | Zipf 1.4, seed 2207 | P99 latency | 1.075079x | 1.188676x | at most 1.20x |
 | Zipf 1.4, seed 2207 | CPU/read | 1.030645x | 1.016604x | at most 1.25x |
 | Zipf 1.4, seed 2207 | Physical bytes/read | 1.001707x | 1.001707x | at most 1.25x |
+| Zipf 1.4, seed 3301 | Throughput | 0.995760x | 0.956539x | at least 0.80x |
+| Zipf 1.4, seed 3301 | P99 latency | **1.307614x** | **1.339897x** | at most 1.20x |
+| Zipf 1.4, seed 3301 | CPU/read | 1.017873x | 1.035078x | at most 1.25x |
+| Zipf 1.4, seed 3301 | Physical bytes/read | 1.006496x | 1.006547x | at most 1.25x |
 | all | Read amplification | 1.000000x | 1.000000x | at most 1.25x |
 
-All 100 process identities, raw reports, correctness and pressure gates, and
+All 120 process identities, raw reports, correctness and pressure gates, and
 logs, metrics, and traces passed. Each stratum ran for about 1 hour 6 minutes.
-T27 remains `[EVALUATING]`: five of 27 direct-NVMe strata and zero of two
-buffered sentinels are complete.
+The sixth receipt failed only the p99 constraint and stopped the queued runner
+before `c50-z20-s1103`. T27 remains `[EVALUATING]`: five of 27 provider-v1
+strata passed, one rejected, 21 were not executed, and both buffered sentinels
+remain open.
 
-The seed-2207 BA p99 result is close to the 1.20x ceiling at 1.188676x. A
+The completed
 [block-level checkpoint](t27-zipf14-tail-latency-checkpoint-2026-08-30.md)
-finds stable native throughput and absolute p99 but material direct-control
-tail movement between seeds 1103 and 2207. No gate or architecture change is
-selected before the running seed-3301 stratum resolves that ambiguity.
+localizes the rejection to subject-specific cache-miss counts at the p99 knee.
+RFC-0047 selects sparse post-frontier history as the first correction. A new
+provider identity must replay the failed stratum and then restart the complete
+curve; provider-v1 and provider-v2 results may not be aggregated.
 
 ## Decision
 
@@ -551,26 +560,29 @@ treatment is not reused.
    all 27 receipts to share the exact plan, workload, executable, source,
    lockfile, machine, and execution digests. Thirty-two focused remote release
    tests pass.
-9. `[EVALUATING]` Execute the 27 admitting strata and two buffered sentinels,
-   preserve every partial failure, update the master matrix, and remove the
-   leased infrastructure. Strata `c50-z08-s1103`, `c50-z08-s2207`,
-   `c50-z08-s3301`, `c50-z14-s1103`, and `c50-z14-s2207` are `[VERIFIED]`; 22
-   direct-NVMe strata and both buffered sentinels remain.
+9. `[VERIFIED]` Preserve every partial failure and stop on the first rejected
+   stratum. Strata `c50-z08-s1103`, `c50-z08-s2207`, `c50-z08-s3301`,
+   `c50-z14-s1103`, and `c50-z14-s2207` passed. `c50-z14-s3301` completed but
+   rejected provider v1 at 1.307614x and 1.339897x p99. The runner stopped
+   before the remaining 21 direct-NVMe strata and both buffered sentinels.
+10. `[PROPOSED]` Implement RFC-0047, replay the rejected stratum under provider
+    v2, then freeze and restart the full 27-stratum curve if the correction
+    passes.
 
 ## Review disposition
 
 The adversarial review's six blocking findings are closed. The corrected
 phase-5 fresh-process runner, 64 MiB preflight, exact runtime retention,
-authenticated per-stratum boundary, and first five complete 1 GiB strata are
-`[VERIFIED]`, while the full T27 curve remains `[EVALUATING]`. The live plan
+authenticated per-stratum boundary, first five passing 1 GiB strata, and one
+retained rejection are `[VERIFIED]`, while the full T27 curve remains
+`[EVALUATING]`. The live provider-v1 plan
 binds the measured nested worker, executable, source, lockfile, machine receipt,
 boot, NVMe device, host-global lease, independently derived oracle,
 subject-specific RocksDB topology, raw report, cache pressure, OTLP emission,
 and exporter completion. Strata `c50-z08-s1103`, `c50-z08-s2207`,
 `c50-z08-s3301`, `c50-z14-s1103`, and `c50-z14-s2207` passed every AB and BA
-gate. The queued
-experiment executes the remaining 22 authenticated strata against the same
-execution envelope, then aggregates only if all 27 exist. Prior cross-invocation
+gate. `c50-z14-s3301` rejected the p99 limit in both orders, so the queued
+experiment stopped. RFC-0047 now owns the provider-v2 corrective replay. Prior cross-invocation
 evidence is in
 `docs/artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md`.
 The preflight evidence is in
@@ -589,3 +601,5 @@ The fourth complete stratum is in
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md`.
 The fifth complete stratum is in
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md`.
+The retained sixth-stratum rejection is in
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md`.

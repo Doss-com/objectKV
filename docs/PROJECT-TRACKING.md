@@ -319,6 +319,22 @@ remains `[EVALUATING]` with 22 direct-NVMe strata and two buffered sentinels
 open. Evidence is in
 [`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md).
 
+`[VERIFIED]` Stratum `c50-z14-s3301` completed all 20 fresh-process positions
+and rejected the frozen p99 gate in both orders. AB and BA throughput were
+0.995760x and 0.956539x direct RocksDB; p99 was 1.307614x and 1.339897x;
+CPU/read was 1.017873x and 1.035078x; physical bytes/read were 1.006496x and
+1.006547x; read amplification was 1.000000x. Native local state was
+2,215,101,820 bytes versus 1,099,175,660 bytes for control, a 2.015239x ratio.
+The failure is localized to the cache-hit to cache-miss knee, where the native
+format stored the complete object base in both head and history. Collector
+evidence contains 21 logs, 63 metrics, and 20 traces for run
+`912fb7e5-35db-4f63-99db-cdd8201f23a9`. The failed evidence archive and receipt
+are create-only, generation-pinned, and readback hash-verified in GCS. The
+controller stopped before `c50-z20-s1103`. Provider v1 retains five passing
+strata, this rejection, and 21 unexecuted strata. RFC-0047 owns the sparse
+provider-v2 correction and exact failed-stratum replay. Evidence is in
+[`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
@@ -371,7 +387,9 @@ that sequence rather than maintaining a second independent plan.
 The current critical path is:
 
 ```text
-cache pressure
+RFC-0047 sparse resident history
+  -> exact rejected-stratum replay
+  -> provider-v2 cache pressure
   -> GCS cold point and object-layout geometry
   -> independent-media replicated commit
   -> objectification debt, host loss, and bounded local media
@@ -386,17 +404,19 @@ cache pressure
 
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
-stop decision for objectKV. The immediate owned task remains T27. Its locator,
+stop decision for objectKV. The immediate owned task is RFC-0047. T27's locator,
 read-only consumer, standalone control, separate seeds, fresh-process runner,
 raw evidence, runtime binding, telemetry completion, and poison boundaries are
 `[VERIFIED]`. The final runner adds one authenticated resumable receipt per
 stratum and rejects cross-execution aggregation. Thirty-two focused T27 tests
-pass in the remote release build. Five of 27 direct-NVMe strata are now
-`[VERIFIED]` at near-RocksDB parity. The next experiment executes the remaining
-22 strata against the same plan, workload, executable, machine incarnation,
-and infrastructure lease, then runs two buffered sentinels. The corrected
-64 MiB calibration remains the buffered regression anchor, and the direct-NVMe
-preflight remains the physical-media control.
+pass in the remote release build. Provider v1 has five passing strata and one
+retained p99 rejection after 120 fresh processes. The next experiment removes
+the diagnosed full-base history duplication, assigns provider v2, and replays
+only `c50-z14-s3301` with the original gates plus a 1.25x local-byte ceiling.
+If it passes, the 27 direct-NVMe strata restart under one new plan before the
+two buffered sentinels run. Provider-v1 and provider-v2 results are never
+combined. The corrected 64 MiB calibration remains the buffered regression
+anchor, and the direct-NVMe preflight remains the physical-media control.
 
 ## Current checkpoint
 

@@ -27,9 +27,9 @@ not prove the GCS authority capability profile.
 | Layer | Matrix rows | Current proof | Missing admission evidence |
 | --- | --- | --- | --- |
 | `okv-fabric` | 9 | `okv-log`, Tetris, and Chess have bounded local semantics; unified fabric `[PROPOSED]` | Specialist log, Redis, search, and filesystem contracts and curves |
-| Public kernel | 0, 1, 7 | `[VERIFIED]` single-range resident read boundary, 64 MiB preflight, and first five complete 1 GiB T27 strata; full curve `[EVALUATING]` | Remaining 22 T27 strata and two buffered sentinels, then multi-range transactions and scaling |
+| Public kernel | 0, 1, 7 | `[VERIFIED]` single-range resident read boundary and five passing 1 GiB provider-v1 strata; sixth stratum rejected p99; full curve `[EVALUATING]` | RFC-0047 correction and rejected-stratum replay, then a fresh provider-v2 T27 curve and multi-range transactions |
 | Transaction plane | 4, 5, 7 | `[EVALUATING]` local OpenRaft, conflict, batching, and recovery mechanisms | Independent media, same-durability control, host loss, bounded recovery, multi-range serializability |
-| RangeEngine | 0, 1, 2, 3, 8 | `[VERIFIED]` RocksDB single-range point-read boundary and three 1 GiB cache and skew strata at near-RocksDB parity | Complete 1 GiB cache curve, GCS cold misses, raw NVMe cache, RAM profile, handoff |
+| RangeEngine | 0, 1, 2, 3, 8 | `[VERIFIED]` RocksDB point-read boundary, five passing 1 GiB strata, and one retained p99 rejection traced to 2.015239x local-state duplication | Sparse-history replay, complete provider-v2 1 GiB curve, GCS cold misses, raw NVMe cache, RAM profile, handoff |
 | Objectification | 5, 6 | `[VERIFIED]` scoped publication recovery mechanisms; integrated service `[EVALUATING]` | Sustained `C - O`, compaction, brownout, safe reclamation, branch-size sweep |
 | Manifested object state | 2, 3, 6, 11 | `[VERIFIED]` immutable closure identity and exact GCS reuse; layouts `[EVALUATING]` | Cold geometry, clean split-run GCS, branch independence, scaled HTAP tail |
 | Object provider | 2, 3, 5, 6, 12 | `[VERIFIED]` memory and MinIO authority profiles, filesystem segment profile, scoped GCS fixture use | GCS authority conformance, provider economics, sustained faults |
@@ -116,7 +116,7 @@ This is construction and recovery evidence, not a new throughput point.
 ## Current first-unverified gate
 
 ```text
-┌─[ T27 ]────────────────────────────────────────────────────────────┐
+┌─[ RFC-0047 -> T27 V2 ]─────────────────────────────────────────────┐
 │ fixture       1 GiB logical, content addressed, one locator       │
 │ cache         50% · 20% · 5% coverage                             │
 │ skew          Zipf 0.8 · 1.4 · 2.0                               │
@@ -125,7 +125,8 @@ This is construction and recovery evidence, not a new throughput point.
 │ order         fresh-process ABBA                                  │
 │ primary gate  throughput ≥ 0.80x control                          │
 │ hard gates    p99 ≤ 1.20x · CPU/read ≤ 1.25x · I/O ≤ 1.25x       │
-│ progress      5 of 27 direct-NVMe strata · 0 of 2 sentinels       │
+│ v1 progress   5 pass · 1 reject · 21 unexecuted · 0 sentinels     │
+│ next          sparse history · exact rejected-stratum replay      │
 │ state         [EVALUATING]                                        │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -145,7 +146,12 @@ that exact evidence. The immutable 1 GiB fixture and 540-position plan are also
 native/direct treatment parity. The first five complete strata are
 `[VERIFIED]`. Across three Zipf 0.8 seeds and two Zipf 1.4 seeds, native
 throughput spans 0.965184x to 1.012558x control and p99 spans 0.875320x to
-1.188676x. The remaining 22 strata and two buffered sentinels remain open.
+1.188676x. The sixth stratum, `c50-z14-s3301`, retained a complete
+`[VERIFIED]` rejection: p99 reached 1.307614x and 1.339897x control while every
+other frozen gate passed. Native local bytes were 2.015239x control because
+provider v1 duplicated the full object base into head and history. RFC-0047
+owns the provider-v2 correction. Its exact replay must pass before a new
+27-stratum plan begins; v1 and v2 results cannot be combined.
 
 ```text
 immutable plan + independent oracle + machine envelope
@@ -201,6 +207,8 @@ layer receipt.
 - [T27 third complete 1 GiB stratum](../artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s3301-gcp-r0-2026-08-30/README.md)
 - [T27 fourth complete 1 GiB stratum](../artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md)
 - [T27 fifth complete 1 GiB stratum](../artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md)
+- [T27 sixth 1 GiB stratum, retained rejection](../artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md)
+- [RFC-0047 sparse resident history](../../rfcs/0047-sparse-resident-history.md)
 - [T27 GCS placement-boundary receipt](../artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md)
 - [Native matched single-range receipt](../artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md)
 - [Native concurrent-read receipt](../artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md)
@@ -208,6 +216,7 @@ layer receipt.
 - [Direct-read attribution preflight](../artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md)
 
 The current implementation slice adds the verified 1 GiB fixture, frozen live
-plan, authenticated resumable stratum runner, and first five passing strata.
-Master-matrix row 1 remains `[EVALUATING]` until all remaining strata and
-buffered sentinels execute and pass.
+plan, authenticated resumable stratum runner, five passing strata, and one
+retained rejection. Master-matrix row 1 remains `[EVALUATING]` while RFC-0047
+removes the diagnosed duplication, replays the rejection, and, if successful,
+restarts the complete provider-v2 curve.

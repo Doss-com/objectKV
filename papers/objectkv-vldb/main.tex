@@ -674,7 +674,7 @@ routing, and publication decisions. A dual-provider GCP harness is code
 complete but has not executed.
 
 \begin{table*}[t]
-  \caption{Selected implementation evidence as of 2026-08-29. A zero-anomaly
+  \caption{Selected implementation evidence as of 2026-08-30. A zero-anomaly
   result is scoped to the listed backend and topology.}
   \label{tab:evidence}
   \small
@@ -697,6 +697,7 @@ complete but has not executed.
     Native cache calibration & \verified{} & Private GCP R0 runner, 64 MiB values, 32 MiB cache, Zipf 1.4, eight clients, 15 samples per subject and order & Batches \texttt{gp312opt-r0-ab} and \texttt{gp312opt-r0-ba} & Throughput 0.9432x and 0.9735x control; p99 1.0441x and 0.9949x; CPU/read 1.0586x and 1.0298x; 84 workload and eight comparison gates passed \\
     Fresh-process T27 preflight & \verified{} & Private GCP R0 runner, 64 MiB generation-pinned GCS fixture, 20\% cache, Zipf 1.4, eight clients, direct NVMe, read-only GCS, OTel & Run \texttt{f7209e3e} & Throughput 0.8652x and 0.9739x control; p99 1.0048x and 0.9882x; CPU/read, physical bytes/read, and every telemetry gate passed \\
     T27 1 GiB plan boundary & \verified{} & Private GCP R0 runner, generation-pinned GCS fixture, read-only plan derivation, exact NVMe and machine envelope & Plan \texttt{b76be02a} & 266 objects, 1,101,701,925 physical bytes, 540 positions, 27 strata; performance execution remains open \\
+    T27 provider-v1 partial curve & \verified{} negative & Same private GCP R0 runner and 1 GiB fixture, fresh-process ABBA, direct NVMe, OTel & Runs through \texttt{912fb7e5} & Five strata passed; sixth rejected p99 at 1.3076x and 1.3399x control while every other gate passed; native local bytes were 2.0152x control \\
     Provider media loss & \verified{} & Sequential private source and restore VMs, distinct 100 GiB provider SSDs, regional GCS, OTel & Runs \texttt{3093a364} and \texttt{865c06d8} & Exact 950-record reconstruction after source VM and disk deletion; 16 positive gates passed; hidden-media control discarded \\
     \bottomrule
   \end{tabularx}

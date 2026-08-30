@@ -54,5 +54,6 @@ not harden until their RFC is accepted.
 | 0044 | Content-addressed object-frontier fixtures | `[EVALUATING]` | phases 0 through 4 verified; 1 GiB T27 admission remains |
 | 0045 | Staged quorum txLog and object-log publication | `[PROPOSED]`, L0 protocol and L1 process mechanics `[VERIFIED]` | one-round-trip log service, bounded tail, object segments, and T29 comparison |
 | 0046 | Generation-pinned GCS cold-point and layout curve | `[PROPOSED]` | read-only exact-open, indexed range GETs, bounded refill, and separate DataFusion scan lanes |
+| 0047 | Sparse post-frontier resident history | `[PROPOSED]` | remove the 2.015x disposable base duplication, preserve exact snapshots, and replay the rejected T27 stratum |
 
 Use `0000-template.md` for new proposals.
