@@ -7104,12 +7104,7 @@ fn record_t27_position_telemetry(
         recorder.record(
             "serving.local_bytes",
             local_bytes as f64,
-            attributes(&[
-                ("lane", lane),
-                ("workload", workload),
-                ("backend", backend),
-                ("sample", &sample),
-            ]),
+            t27_local_bytes_attributes(lane, workload, backend, &sample),
         )?;
     }
     recorder.record(
@@ -7131,6 +7126,22 @@ fn record_t27_position_telemetry(
         ]),
     )?;
     Ok(())
+}
+
+fn t27_local_bytes_attributes(
+    lane: &str,
+    workload: &str,
+    backend: &str,
+    sample: &str,
+) -> BTreeMap<String, String> {
+    attributes(&[
+        ("lane", lane),
+        ("workload", workload),
+        ("backend", backend),
+        ("cache.tier", "nvme-rocksdb"),
+        ("range.class", "complete-resident"),
+        ("sample", sample),
+    ])
 }
 
 fn acquire_t27_host_lease(
@@ -18717,7 +18728,9 @@ fn command_output(program: &str, arguments: &[&str]) -> Option<String> {
 
 #[cfg(test)]
 mod t27_controller_tests {
-    use super::{acquire_t27_host_lease_at, canonical_t27_host_lease_path};
+    use super::{
+        acquire_t27_host_lease_at, canonical_t27_host_lease_path, t27_local_bytes_attributes,
+    };
 
     #[test]
     fn machine_and_device_identity_derive_one_canonical_lease_path() {
@@ -18759,5 +18772,21 @@ mod t27_controller_tests {
         assert!(error.to_string().contains("busy"));
 
         first.release().expect("release first host lock");
+    }
+
+    #[test]
+    fn local_byte_telemetry_carries_the_complete_metric_contract() {
+        let values = t27_local_bytes_attributes(
+            "cache-pressure",
+            "t27-native-snapshot",
+            "gcs+nvme+rocksdb",
+            "0",
+        );
+
+        assert_eq!(values["cache.tier"], "nvme-rocksdb");
+        assert_eq!(values["range.class"], "complete-resident");
+        for required in ["lane", "workload", "backend", "cache.tier", "range.class"] {
+            assert!(values.contains_key(required));
+        }
     }
 }
