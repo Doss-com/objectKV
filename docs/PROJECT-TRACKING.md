@@ -936,6 +936,29 @@ control. It does not admit row 4 or replace the transaction plane.
 Receipt:
 `docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
 
+`[EVALUATING]` The first L2 open-loop matched-media diagnostic is complete. It
+used the same binary, three independent `n2-standard-8` log nodes, runner,
+network, acknowledgement rule, queue, and batch policy for local NVMe and
+dedicated `pd-ssd`. At 40k offered 128-byte records/s, local NVMe delivered
+36,890 acknowledged records/s at 5.434 ms record p99 with no refusal. Its knee
+was between 40k and 60k; saturation remained approximately 45k to 46k ack/s.
+The control saturated near 38.4k ack/s. Local-NVMe p99 was 0.404x to 0.848x the
+control and saturated throughput was approximately 1.18x, but the candidate
+missed the frozen 1 ms p99, 100k ack/s, and 1.5x throughput gates.
+
+Across ten candidate and control points plus three batch-size diagnostics,
+1,476,294 accepted records were acknowledged, all 39 final node digests were
+exact, and no anomaly or normal-path object operation occurred. Raising the
+batch cap to 512 and 1,024 left throughput below 48.3k ack/s while quorum
+service time roughly doubled with batch bytes. The next implementation slice
+shares metadata and checksum in one versioned batch journal frame, replaces
+JSON payload arrays with a binary wire frame, and records node-side encode,
+write, and sync timing. Five-repeat admission, failure, OTel, and transaction
+integration wait for that software ceiling to move.
+
+Receipt:
+`docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`.
+
 `[VERIFIED]` RFC-0050 R2 checks the integrated 3-node model through 2,484,568
 generated states and the 2-transaction concurrency scope through 4,496,463
 generated states. Six exact fault controls produced their named invariant

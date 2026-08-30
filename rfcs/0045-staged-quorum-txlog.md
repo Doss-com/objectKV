@@ -29,10 +29,16 @@ p95, 4.716 ms p99, and 5.343 ms p99.9. Median throughput was 49,028 128-byte
 records/s at 256 records per sync. Receipt:
 `docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
 
-`[EVALUATING]` The admitted L2 open-loop comparison and L3 through L6 remain
-open. L2a has no matched durable control, queue-depth sweep, failure injection,
-cross-zone envelope, transaction integration, or independent OTel. The RFC
-remains proposed.
+`[EVALUATING]` The first L2 open-loop diagnostic ran the same binary and
+topology against local NVMe and a dedicated `pd-ssd` control. The candidate
+stayed stable through 40,000 offered records/s at 5.434 ms record p99, then
+entered queue saturation between 40,000 and 60,000 records/s. Saturated
+throughput was 45,000 to 46,000 records/s, approximately 1.18x the control, but
+missed the frozen 1 ms p99, 100,000 records/s, and 1.5x throughput gates. Exact
+final digests matched on all 39 node checks across 13 named runs with zero
+anomalies. This is a one-repeat diagnostic without OTel, CPU attribution,
+failure injection, cross-zone coverage, or transaction integration. The
+admitted L2 curve and L3 through L6 remain open, and the RFC remains proposed.
 
 ## Decision
 
@@ -411,6 +417,26 @@ Batch formation dwell must remain inside each record's end-to-end
 acknowledgement latency. Neither this closed-loop batch distribution nor its
 throughput number can satisfy the 1 ms per-record p99 gate by itself. Receipt:
 `docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
+
+`[EVALUATING]` The first bounded open-loop diagnostic used 64 Poisson producer
+threads, 256 streams, a 32,768-record queue, a 256-record or 250 us batch close,
+and 131,072 attempted records at each 20k, 40k, 60k, 80k, and 100k offered-load
+point. The same three machines then reran the curve against dedicated `pd-ssd`
+devices. Candidate record p99 was 4.157 ms at 20k and 5.434 ms at 40k. At 60k,
+queue dwell accounted for 534.928 ms of 539.902 ms record p99 and the candidate
+saturated near 45k to 46k acknowledged records/s. The control saturated near
+38.4k records/s. Candidate/control p99 ratios ranged from 0.404x to 0.848x;
+saturated throughput ratios ranged from 1.166x to 1.184x.
+
+Increasing the batch cap to 512 and 1,024 raised quorum p99 from approximately
+4.8 ms to 9.0 ms and 17.9 ms while acknowledged throughput remained below
+48.3k records/s. The current `OKVT` layout writes one 128-byte envelope around
+each 128-byte payload, and the JSON protocol represents payload bytes as
+numeric arrays. This makes a shared batch journal frame, binary wire framing,
+and node-side encode, write, and sync timing the next implementation slice.
+The evidence is consistent with per-record software work, but lacks the CPU
+profile required to assign the cost to one component. Receipt:
+`docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`.
 
 Primary metric: p99 `log.append.ack_duration` at the largest offered load that
 keeps success at 100 percent and queue refusal below one percent.

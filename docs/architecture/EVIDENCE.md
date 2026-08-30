@@ -40,8 +40,8 @@ not prove the GCS authority capability profile.
 
 ```text
 ┌─[ ROW 0 · RESIDENT NVME POINT READS ]──────────────────────────────┐
-│ throughput     0.873x–0.920x of matched direct RocksDB            │
-│ p99            0.913x–1.184x of matched direct RocksDB            │
+│ throughput     0.873x to 0.920x of matched direct RocksDB         │
+│ p99            0.913x to 1.184x of matched direct RocksDB         │
 │ workload       24,000,000 reads, 1/8/32-client boundary           │
 │ object I/O     zero measured-window object operations             │
 │ result         [VERIFIED]                                         │
@@ -108,7 +108,7 @@ This is construction and recovery evidence, not a new throughput point.
 | Matrix row | Measurement | Why it remains `[EVALUATING]` |
 | ---: | --- | --- |
 | 3 | DataFusion range source reached 2.544M source rows/s and reduced projection requests from 1,761 to 54 | Dirty local diagnostic; no exact live-tail, complete-memory, OTel, or GCS curve |
-| 4 | L2a reached 49,028 128-byte records/s median and 4.716 ms combined batch p99 across three independent same-zone NVMe nodes with exact final state | Closed-loop microbatches have no matched durable control, batching dwell, failure injection, transaction resolver, or OTel |
+| 4 | The first open-loop matched-media diagnostic stayed stable through 40k offered records/s at 5.434 ms record p99, saturated near 45k to 46k ack/s, and reached approximately 1.18x dedicated `pd-ssd` saturation throughput. All 39 node checks across 13 named runs were exact | One repeat, no CPU or OTel attribution, frozen 1 ms and 100k targets missed, no failure injection or transaction resolver |
 | 5 | Exact object-base plus txLog-suffix recovery works | Sustained debt, physical bounds, brownout, and host-loss curves are open |
 | 6 | Local branch, replay, and empty replacement worker are exact | Parent-size independence and GCS request curve are open |
 | 11 | Streaming base-plus-tail operator is exact on bounded fixtures | Tail-size, query-memory, GCS, and OLTP-interference curves are open |
@@ -262,6 +262,21 @@ failure, transaction, and independent OTel gates pass.
 Evidence:
 `docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
 
+`[EVALUATING]` The first RFC-0045 L2 open-loop diagnostic ran 64 Poisson
+producers and 256 streams through one bounded active-writer queue. The local
+NVMe candidate remained unsaturated at 40k offered records/s, where record p99
+was 5.434 ms and the maximum queue was 153 records. At 60k, it reached 45,451
+acknowledged records/s while queue dwell contributed 534.928 ms of 539.902 ms
+record p99. Dedicated `pd-ssd` saturated near 38.4k records/s; local NVMe
+improved saturated throughput by approximately 1.18x and p99 by 0.404x to
+0.848x across the sweep. Increasing the batch cap to 512 and 1,024 did not move
+throughput above 48.3k records/s and approximately doubled quorum service time
+with each doubling. The next falsifier is therefore batch journal framing plus
+binary wire framing, with node-side stage timing, not a larger batch.
+
+Evidence:
+`docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`.
+
 ```text
 generation-pinned locator + immutable operation plan
   → fresh read-only process
@@ -286,11 +301,11 @@ attribution; it does not block T28 under D68.
 │                                                                   │
 │ row 2 cold read [deferred tail] → row 3 object layout [active]    │
 │   ↓                                                               │
-│ rows 4–6 commit, bounded recovery, and branching                  │
+│ rows 4 to 6 commit, bounded recovery, and branching               │
 │   ↓                                                               │
-│ rows 7–8 multi-range cell and RAM profile                         │
+│ rows 7 to 8 multi-range cell and RAM profile                      │
 │   ↓                                                               │
-│ rows 9–11 fabric workloads, PostgreSQL, and HTAP                  │
+│ rows 9 to 11 fabric workloads, PostgreSQL, and HTAP               │
 │   ↓                                                               │
 │ row 12 complete-stack economics                                   │
 └───────────────────────────────────────────────────────────────────┘

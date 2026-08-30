@@ -52,7 +52,7 @@ not harden until their RFC is accepted.
 | 0042 | Native resident concurrent-read curve | `[VERIFIED]` GCP R0 at 8 and 32 clients | paired resident concurrency admission before cache pressure |
 | 0043 | Native resident cache-pressure curve | `[EVALUATING]` experiment contract frozen | explicit cache, reusable fixture, and physical-work attribution |
 | 0044 | Content-addressed object-frontier fixtures | `[EVALUATING]` | phases 0 through 4 verified; 1 GiB T27 admission remains |
-| 0045 | Staged quorum txLog and object-log publication | `[PROPOSED]`, L0 protocol, L1 process mechanics, and L2a three-machine closed-loop path `[VERIFIED]`; admitted L2 curve `[EVALUATING]` | one-round-trip log service, bounded tail, object segments, and T29 comparison |
+| 0045 | Staged quorum txLog and object-log publication | `[PROPOSED]`, L0 protocol, L1 process mechanics, and L2a three-machine path `[VERIFIED]`; first open-loop matched-media diagnostic `[EVALUATING]` | one-round-trip log service, bounded tail, object segments, and T29 comparison |
 | 0046 | Generation-pinned GCS cold-point and layout curve | `[PROPOSED]` | read-only exact-open, indexed range GETs, bounded refill, and separate DataFusion scan lanes |
 | 0047 | Sparse post-frontier resident history | `[PROPOSED]` | remove the 2.015x disposable base duplication, preserve exact snapshots, and replay the rejected T27 stratum |
 | 0048 | Generation-pinned typed object-layout curve | `[EVALUATING]`, retained preflight rejection | C5v1 verified scan leverage and localized sequential point-request tail |

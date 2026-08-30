@@ -1874,3 +1874,37 @@ batch-size, dwell-time, and queue bound.
 
 Evidence:
 `docs/artifacts/eval-receipts/staged-txlog-l2a-gcp-r1-2026-08-30/README.md`.
+
+## D73. Optimize the staged log at the batch-frame and binary-wire waist
+
+Status: `[EVALUATING]`, 2026-08-30.
+
+Decision: preserve the current quorum, writer-epoch, consecutive-position,
+exact-retry, and bounded-queue semantics while replacing the physical
+per-record overhead on the hot path. The next candidate uses one versioned,
+checksummed journal frame for a consecutive batch and a binary client-node wire
+frame. The node must separately report decode, validation, encoding, write, and
+sync duration before the open-loop curve is repeated.
+
+The first one-repeat matched-media diagnostic found the local-NVMe knee between
+40k and 60k offered 128-byte records/s. Candidate saturation was approximately
+45k to 46k acknowledged records/s versus 38.4k for dedicated `pd-ssd`. Local
+NVMe p99 was 0.404x to 0.848x the control, but the result missed the frozen 1 ms
+p99, 100k ack/s, and 1.5x throughput gates. Increasing batch capacity from 256
+to 512 and 1,024 approximately doubled quorum service time while throughput
+remained below 48.3k ack/s. A larger batch is therefore not the next design.
+
+The current `OKVT` representation places a separate 128-byte envelope around
+each 128-byte payload, and the JSON protocol expands byte arrays into numeric
+values. The evidence is consistent with per-record encode, wire, hash, or frame
+work, but the missing CPU profile prevents assigning the ceiling to one stage.
+
+Optimizes for: moving the measured software ceiling without weakening the
+durability contract or hiding queue saturation behind larger batches.
+
+Gives up: treating the first journal frame and JSON protocol as durable external
+formats. Compatibility begins at the explicitly versioned batch format, with
+the L1 fixtures retained as migration inputs.
+
+Evidence:
+`docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`.
