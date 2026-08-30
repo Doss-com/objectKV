@@ -168,6 +168,19 @@ treated as optimization references. The quorum state, watermarks, writer token,
 segment offsets, conditional publication, and tail-repair model are protocol
 references.
 
+### Repository boundary
+
+The reproducibility package is research material, not a dependency candidate.
+The GitHub repository does not declare a license and its root tree contains no
+`LICENSE` file, so objectKV may study the mechanisms but must not copy source
+until the authors publish reuse terms.
+
+The non-default `fuse` branch diverges from `master` by seven implementation
+commits. It contains fixes for late segment-hole retries and concurrent flush
+evaluation, plus an explicitly experimental switch to unbounded S3 work
+queues. These changes identify useful adversarial cases for objectKV, but the
+branch is `[EVALUATING]` work rather than production evidence.
+
 ## Proposed objectKV evaluation additions
 
 Do not interrupt T27. Add these after the current admission curve establishes
