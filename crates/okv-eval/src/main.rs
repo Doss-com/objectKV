@@ -83,10 +83,10 @@ use okv_eval::storage_layout::{
     run_columnar_cache_admission_contract_on_backend,
     run_columnar_datafusion_contract_with_scan_fetch, run_storage_layout_contract,
     run_storage_layout_pair_contract, run_storage_layout_pair_contract_on_backend,
-    ColumnarCacheAdmissionMode, ColumnarCacheAdmissionReport, ColumnarDataFusionMode,
-    ColumnarDataFusionReport, StorageLayoutMode, StorageLayoutProfile, StorageLayoutReport,
-    T28AlignedLayoutPlacementInput, T28OpenedTypedLayout, T28TypedLayoutExecutionPlanV1,
-    T28TypedLayoutPlacementInput,
+    run_t28_aligned_media_gates, ColumnarCacheAdmissionMode, ColumnarCacheAdmissionReport,
+    ColumnarDataFusionMode, ColumnarDataFusionReport, StorageLayoutMode, StorageLayoutProfile,
+    StorageLayoutReport, T28AlignedLayoutPlacementInput, T28OpenedTypedLayout,
+    T28TypedLayoutExecutionPlanV1, T28TypedLayoutPlacementInput,
 };
 use okv_eval::t27_plan::{
     build_t27_execution_incarnation, build_t27_execution_plan, decode_t27_execution_plan,
@@ -678,6 +678,30 @@ enum Commands {
         locator: PathBuf,
         #[arg(long)]
         expected_envelope_sha256: String,
+        #[arg(long)]
+        candidate_commit: String,
+        #[arg(long, default_value = "Cargo.lock")]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Measure C5v2 compaction bytes and metadata-only branch reuse on GCS.
+    T28AlignedLayoutMediaGatesGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(
+            long,
+            default_value = "evals/oracles/t28-layout-geometry-v1-oracle.json"
+        )]
+        oracle: PathBuf,
+        #[arg(long)]
+        expected_oracle_sha256: String,
+        #[arg(long)]
+        branch_prefix: String,
+        #[arg(long)]
+        compaction_prefix: String,
         #[arg(long)]
         candidate_commit: String,
         #[arg(long, default_value = "Cargo.lock")]
@@ -1848,6 +1872,40 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let receipt = runtime.block_on(run_t28_aligned_closure_recovery(
                 gcs_backend_from_env_no_retries()?,
                 &locator,
+                candidate_commit,
+                executable_sha256,
+                cargo_lock_sha256,
+            ))?;
+            let bytes = serde_json::to_vec_pretty(&receipt)?;
+            fs::write(output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28AlignedLayoutMediaGatesGcs {
+            locator,
+            expected_envelope_sha256,
+            oracle,
+            expected_oracle_sha256,
+            branch_prefix,
+            compaction_prefix,
+            candidate_commit,
+            runtime_cargo_lock,
+            output,
+        } => {
+            let locator =
+                decode_typed_layout_placement(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let oracle = decode_t28_layout_oracle(&fs::read(oracle)?, &expected_oracle_sha256)?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let executable_sha256 = sha256(&fs::read(std::env::current_exe()?)?);
+            let cargo_lock_sha256 = sha256(&fs::read(runtime_cargo_lock)?);
+            let receipt = runtime.block_on(run_t28_aligned_media_gates(
+                gcs_backend_from_env_no_retries()?,
+                &locator,
+                &oracle,
+                &expected_oracle_sha256,
+                &branch_prefix,
+                &compaction_prefix,
                 candidate_commit,
                 executable_sha256,
                 cargo_lock_sha256,

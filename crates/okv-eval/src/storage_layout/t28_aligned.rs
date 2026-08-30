@@ -63,7 +63,7 @@ pub struct T28AlignedChildV1 {
 
 impl T28AlignedChildV1 {
     #[allow(clippy::too_many_arguments)]
-    fn seal(
+    pub(super) fn seal(
         prefix: String,
         bucket: String,
         canonical_history_sha256: String,
@@ -319,7 +319,7 @@ pub struct T28AlignedScan {
 }
 
 impl T28AlignedLayoutReader {
-    async fn open(
+    pub(super) async fn open(
         backend: Arc<dyn Backend>,
         child: &T28AlignedChildV1,
         read_version: u64,

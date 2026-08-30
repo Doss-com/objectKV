@@ -466,7 +466,16 @@ pub(super) async fn prepare_t28_aligned_columnar_layout(
     history: &LogicalHistory,
     backend: &dyn Backend,
 ) -> Result<Vec<(String, TypedLayoutObjectRoleV1)>, String> {
-    let encoded = encode_aligned_layout(&history.records, profile.opaque_payload_bytes)?;
+    prepare_t28_aligned_columnar_records(profile, &history.records, backend).await
+}
+
+/// Publish one immutable C5v2 run for an already ordered set of MVCC records.
+pub(super) async fn prepare_t28_aligned_columnar_records(
+    profile: &StorageLayoutProfile,
+    records: &[RowRecord],
+    backend: &dyn Backend,
+) -> Result<Vec<(String, TypedLayoutObjectRoleV1)>, String> {
+    let encoded = encode_aligned_layout(records, profile.opaque_payload_bytes)?;
     for (key, bytes) in [
         (PROJECTION_KEY, encoded.projection.bytes),
         (PAYLOAD_KEY, encoded.payload.bytes),
@@ -487,6 +496,34 @@ pub(super) async fn prepare_t28_aligned_columnar_layout(
         ),
         (PAYLOAD_KEY.to_owned(), TypedLayoutObjectRoleV1::Payload),
     ])
+}
+
+/// Return all bytes written by the frozen base, delta, and final-compaction
+/// sequence without trusting provider accounting.
+pub(super) fn aligned_compaction_written_bytes(
+    profile: &StorageLayoutProfile,
+    history: &LogicalHistory,
+) -> Result<u64, String> {
+    let mut total = aligned_media_bytes(profile, &history.base_records)?;
+    for delta in &history.delta_records {
+        if !delta.is_empty() {
+            total = total.saturating_add(aligned_media_bytes(profile, delta)?);
+        }
+    }
+    total = total.saturating_add(aligned_media_bytes(profile, &history.records)?);
+    Ok(total)
+}
+
+fn aligned_media_bytes(
+    profile: &StorageLayoutProfile,
+    records: &[RowRecord],
+) -> Result<u64, String> {
+    let encoded = encode_aligned_layout(records, profile.opaque_payload_bytes)?;
+    Ok(u64::try_from(encoded.manifest_bytes.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(encoded.index_bytes.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(encoded.projection.bytes.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(encoded.payload.bytes.len()).unwrap_or(u64::MAX)))
 }
 
 impl T28AlignedColumnarCore {
