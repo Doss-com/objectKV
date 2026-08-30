@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 const MAX_EMITTED_ROWS: usize = 128;
 const C0_MANIFEST_KEY: &str = "layout/row/active-manifest";
-const T28_SCHEMA_ID: &str = "objectkv.t28.typed-row.v1";
+pub(super) const T28_SCHEMA_ID: &str = "objectkv.t28.typed-row.v1";
 const T28_SCAN_QUERY: &str = "SELECT key, tenant, category, quantity, COUNT(*) OVER () AS row_count, SUM(quantity) OVER () AS quantity_sum FROM okv_layout ORDER BY key";
 
 /// Provider placement selected before immutable RFC-0048 publication.
@@ -589,7 +589,7 @@ impl T28OpenedTypedLayout {
     }
 }
 
-async fn capture_identity(
+pub(super) async fn capture_identity(
     backend: &dyn Backend,
     key: &str,
     role: TypedLayoutObjectRoleV1,
@@ -612,7 +612,7 @@ async fn capture_identity(
     })
 }
 
-fn numeric_generation(revision: &okv_object::RevisionToken) -> Result<String, String> {
+pub(super) fn numeric_generation(revision: &okv_object::RevisionToken) -> Result<String, String> {
     let generation = revision
         .version
         .as_ref()
@@ -621,7 +621,7 @@ fn numeric_generation(revision: &okv_object::RevisionToken) -> Result<String, St
     Ok(generation.clone())
 }
 
-fn child_total_bytes(child: &TypedLayoutChildV1) -> u64 {
+pub(super) fn child_total_bytes(child: &TypedLayoutChildV1) -> u64 {
     child
         .objects
         .iter()
@@ -666,7 +666,7 @@ fn frozen_orders() -> Vec<T28TypedSeedOrderV1> {
     ]
 }
 
-fn validate_history_against_oracle(
+pub(super) fn validate_history_against_oracle(
     history: &LogicalHistory,
     oracle: &T28LayoutOracleV1,
 ) -> Result<(), String> {

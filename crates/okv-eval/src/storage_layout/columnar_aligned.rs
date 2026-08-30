@@ -2,11 +2,19 @@
 
 #![allow(dead_code)]
 
-use super::{content_sha256, key_u64, PointReadOutcome, RowRecord, ValueFields};
+use super::{
+    content_sha256, key_u64, Backend, LogicalHistory, PointReadOutcome, RowRecord,
+    StorageLayoutProfile, ValueFields, WriteCondition,
+};
+use crate::t28_layout::{
+    GenerationPinnedChildBackend, TypedLayoutObjectIdentityV1, TypedLayoutObjectRoleV1,
+};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::ops::Range;
+use std::sync::Arc;
 
 const FORMAT_VERSION: u16 = 2;
 const FORMAT_GENERATION: u64 = 1;
@@ -26,9 +34,10 @@ const PROJECTION_RECORD_BYTES: usize = 57;
 const FRAME_HEADER_BYTES: usize = 28;
 const MAX_GROUPS: usize = 1_000_000;
 
-const PROJECTION_KEY: &str = "layout/columnar-v2/projection.okp2";
-const PAYLOAD_KEY: &str = "layout/columnar-v2/payload.okv2";
-const INDEX_KEY: &str = "layout/columnar-v2/index.oki2";
+pub(super) const PROJECTION_KEY: &str = "layout/columnar-v2/projection.okp2";
+pub(super) const PAYLOAD_KEY: &str = "layout/columnar-v2/payload.okv2";
+pub(super) const INDEX_KEY: &str = "layout/columnar-v2/index.oki2";
+pub(super) const MANIFEST_KEY: &str = "layout/columnar-v2/active-manifest";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AlignedIndexEntry {
@@ -341,6 +350,288 @@ struct EncodedAlignedLayout {
     manifest_bytes: Vec<u8>,
     group_records: Vec<usize>,
     maximum_frame_pair_bytes: usize,
+}
+
+struct PreparedAlignedLayout {
+    index: AlignedIndex,
+    manifest: AlignedManifest,
+    manifest_bytes: u64,
+    index_bytes: u64,
+}
+
+/// Metadata-warm C5v2 reader over a generation-pinned immutable inventory.
+pub(super) struct T28AlignedColumnarCore {
+    backend: Arc<dyn Backend>,
+    prepared: Arc<PreparedAlignedLayout>,
+    read_version: u64,
+}
+
+/// Publish the independently frozen C5v2 bytes through a create-only backend.
+pub(super) async fn prepare_t28_aligned_columnar_layout(
+    profile: &StorageLayoutProfile,
+    history: &LogicalHistory,
+    backend: &dyn Backend,
+) -> Result<Vec<(String, TypedLayoutObjectRoleV1)>, String> {
+    let encoded = encode_aligned_layout(&history.records, profile.opaque_payload_bytes)?;
+    for (key, bytes) in [
+        (PROJECTION_KEY, encoded.projection.bytes),
+        (PAYLOAD_KEY, encoded.payload.bytes),
+        (INDEX_KEY, encoded.index_bytes),
+        (MANIFEST_KEY, encoded.manifest_bytes),
+    ] {
+        backend
+            .put(key, Bytes::from(bytes), WriteCondition::Create)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(vec![
+        (MANIFEST_KEY.to_owned(), TypedLayoutObjectRoleV1::Manifest),
+        (INDEX_KEY.to_owned(), TypedLayoutObjectRoleV1::Index),
+        (
+            PROJECTION_KEY.to_owned(),
+            TypedLayoutObjectRoleV1::Projection,
+        ),
+        (PAYLOAD_KEY.to_owned(), TypedLayoutObjectRoleV1::Payload),
+    ])
+}
+
+impl T28AlignedColumnarCore {
+    pub(super) async fn open(
+        inner: Arc<dyn Backend>,
+        objects: &[TypedLayoutObjectIdentityV1],
+        covered_through_version: u64,
+        read_version: u64,
+    ) -> Result<Self, String> {
+        if read_version == 0 || read_version > covered_through_version {
+            return Err("invalid RFC-0049 C5v2 reader version".to_owned());
+        }
+        let backend: Arc<dyn Backend> = Arc::new(GenerationPinnedChildBackend::from_inventory(
+            inner,
+            "c5v2_aligned_columnar_main",
+            objects,
+        )?);
+        let prepared = Arc::new(reopen_aligned_layout(backend.as_ref()).await?);
+        if prepared.manifest.covered_through != covered_through_version {
+            return Err("RFC-0049 C5v2 manifest coverage differs from its root".to_owned());
+        }
+        validate_inventory(objects, &prepared)?;
+        Ok(Self {
+            backend,
+            prepared,
+            read_version,
+        })
+    }
+
+    pub(super) async fn point(
+        &self,
+        key: u64,
+        read_version: u64,
+    ) -> Result<PointReadOutcome, String> {
+        if read_version == 0 || read_version > self.read_version {
+            return Err("RFC-0049 C5v2 point version exceeds the opened snapshot".to_owned());
+        }
+        let Some(ordinal) = self.prepared.index.locate(key) else {
+            return Ok(PointReadOutcome::Absent);
+        };
+        let projection_range = self.prepared.index.projection_range(ordinal)?;
+        let payload_range = self.prepared.index.payload_range(ordinal)?;
+        let pair_bytes = projection_range
+            .len()
+            .checked_add(payload_range.len())
+            .ok_or_else(|| "RFC-0049 C5v2 point byte count overflow".to_owned())?;
+        if pair_bytes > MAX_FRAME_PAIR_BYTES {
+            return Err("RFC-0049 C5v2 frame pair exceeds the point byte ceiling".to_owned());
+        }
+        let projection_request =
+            self.backend
+                .get(PROJECTION_KEY, Some(to_u64_range(projection_range)?), None);
+        let payload_request =
+            self.backend
+                .get(PAYLOAD_KEY, Some(to_u64_range(payload_range)?), None);
+        let (projection_read, payload_read) = tokio::try_join!(projection_request, payload_request)
+            .map_err(|error| error.to_string())?;
+        decode_point_pair(
+            &self.prepared.index,
+            ordinal,
+            &projection_read.bytes,
+            &payload_read.bytes,
+            key,
+            read_version,
+        )
+    }
+
+    pub(super) fn resident_metadata_bytes(&self) -> u64 {
+        self.prepared
+            .manifest_bytes
+            .saturating_add(self.prepared.index_bytes)
+    }
+}
+
+async fn reopen_aligned_layout(backend: &dyn Backend) -> Result<PreparedAlignedLayout, String> {
+    let manifest_read = backend
+        .get(MANIFEST_KEY, None, None)
+        .await
+        .map_err(|error| error.to_string())?;
+    let manifest = AlignedManifest::decode(&manifest_read.bytes)?;
+    let index_read = backend
+        .get(INDEX_KEY, None, None)
+        .await
+        .map_err(|error| error.to_string())?;
+    if u64::try_from(index_read.bytes.len()).unwrap_or(u64::MAX) != manifest.index_bytes
+        || content_sha256(&index_read.bytes) != manifest.index_sha256
+    {
+        return Err("RFC-0049 C5v2 manifest selected the wrong index".to_owned());
+    }
+    let index = AlignedIndex::decode(&index_read.bytes)?;
+    if index.projection_length != manifest.projection_bytes
+        || index.payload_length != manifest.payload_bytes
+        || digest_hex(&index.projection_root) != manifest.projection_merkle_root
+        || digest_hex(&index.payload_root) != manifest.payload_merkle_root
+    {
+        return Err("RFC-0049 C5v2 manifest and index closure differ".to_owned());
+    }
+    Ok(PreparedAlignedLayout {
+        index,
+        manifest,
+        manifest_bytes: u64::try_from(manifest_read.bytes.len()).unwrap_or(u64::MAX),
+        index_bytes: u64::try_from(index_read.bytes.len()).unwrap_or(u64::MAX),
+    })
+}
+
+fn validate_inventory(
+    objects: &[TypedLayoutObjectIdentityV1],
+    prepared: &PreparedAlignedLayout,
+) -> Result<(), String> {
+    let expected = [
+        (
+            MANIFEST_KEY,
+            TypedLayoutObjectRoleV1::Manifest,
+            prepared.manifest_bytes,
+            None,
+        ),
+        (
+            INDEX_KEY,
+            TypedLayoutObjectRoleV1::Index,
+            prepared.manifest.index_bytes,
+            Some(prepared.manifest.index_sha256.as_str()),
+        ),
+        (
+            PROJECTION_KEY,
+            TypedLayoutObjectRoleV1::Projection,
+            prepared.manifest.projection_bytes,
+            Some(prepared.manifest.projection_sha256.as_str()),
+        ),
+        (
+            PAYLOAD_KEY,
+            TypedLayoutObjectRoleV1::Payload,
+            prepared.manifest.payload_bytes,
+            Some(prepared.manifest.payload_sha256.as_str()),
+        ),
+    ];
+    let expected_keys = expected.iter().map(|row| row.0).collect::<BTreeSet<_>>();
+    let actual_keys = objects
+        .iter()
+        .map(|object| object.key.as_str())
+        .collect::<BTreeSet<_>>();
+    if expected_keys != actual_keys {
+        return Err("RFC-0049 C5v2 inventory has unreachable or missing media".to_owned());
+    }
+    for (key, role, length, sha256) in expected {
+        let object = objects
+            .iter()
+            .find(|object| object.key == key && object.role == role)
+            .ok_or_else(|| "RFC-0049 C5v2 object role is absent".to_owned())?;
+        if object.length != length || sha256.is_some_and(|expected| object.sha256 != expected) {
+            return Err("RFC-0049 C5v2 inventory differs from its manifest".to_owned());
+        }
+    }
+    let manifest = objects
+        .iter()
+        .find(|object| object.key == MANIFEST_KEY)
+        .ok_or_else(|| "RFC-0049 C5v2 manifest identity is absent".to_owned())?;
+    if manifest.sha256
+        != prepared
+            .manifest
+            .encode()
+            .map(|bytes| content_sha256(&bytes))?
+    {
+        return Err("RFC-0049 C5v2 manifest identity differs from its bytes".to_owned());
+    }
+    Ok(())
+}
+
+fn decode_point_pair(
+    index: &AlignedIndex,
+    ordinal: usize,
+    projection_frame: &[u8],
+    payload_frame: &[u8],
+    key: u64,
+    read_version: u64,
+) -> Result<PointReadOutcome, String> {
+    let (projection_count, projection_content) = decode_frame(
+        FrameKind::Projection,
+        projection_frame,
+        ordinal,
+        index.entries.len(),
+        &index.projection_root,
+    )?;
+    let (payload_count, payload_content) = decode_frame(
+        FrameKind::Payload,
+        payload_frame,
+        ordinal,
+        index.entries.len(),
+        &index.payload_root,
+    )?;
+    if projection_count != payload_count {
+        return Err("columnar v2 paired frame record counts differ".to_owned());
+    }
+    outcome_from_contents(
+        projection_content,
+        projection_count,
+        payload_content,
+        key,
+        read_version,
+    )
+}
+
+fn outcome_from_contents(
+    projection_content: &[u8],
+    projection_count: usize,
+    payload_content: &[u8],
+    key: u64,
+    read_version: u64,
+) -> Result<PointReadOutcome, String> {
+    let records = decode_projection_content(projection_content, projection_count)?;
+    let Some(record) = records
+        .iter()
+        .find(|record| record.key == key && record.version <= read_version)
+    else {
+        return Ok(PointReadOutcome::Absent);
+    };
+    let Some(fields) = record.fields.clone() else {
+        return Ok(PointReadOutcome::Tombstone);
+    };
+    let start = usize::try_from(record.payload_offset).map_err(|error| error.to_string())?;
+    let end = start
+        .checked_add(usize::try_from(record.payload_length).map_err(|error| error.to_string())?)
+        .ok_or_else(|| "columnar v2 payload slice overflow".to_owned())?;
+    let payload = payload_content
+        .get(start..end)
+        .ok_or_else(|| "columnar v2 payload slice is outside its frame".to_owned())?;
+    Ok(PointReadOutcome::Value(Bytes::from(
+        ValueFields {
+            payload: payload.to_vec(),
+            ..fields
+        }
+        .encode(),
+    )))
+}
+
+fn to_u64_range(range: Range<usize>) -> Result<Range<u64>, String> {
+    Ok(
+        u64::try_from(range.start).map_err(|error| error.to_string())?
+            ..u64::try_from(range.end).map_err(|error| error.to_string())?,
+    )
 }
 
 fn encode_aligned_layout(

@@ -265,7 +265,7 @@ impl TypedLayoutObjectIdentityV1 {
         }
     }
 
-    fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self) -> Result<(), String> {
         if !valid_object_key(&self.key)
             || self.generation.is_empty()
             || !self.generation.bytes().all(|byte| byte.is_ascii_digit())
@@ -660,7 +660,7 @@ impl TypedLayoutPlacementLocatorV1 {
 /// provider generation preconditions.
 pub struct GenerationPinnedChildBackend {
     inner: Arc<dyn Backend>,
-    subject: TypedLayoutSubjectV1,
+    subject: String,
     objects: BTreeMap<String, TypedLayoutObjectIdentityV1>,
 }
 
@@ -682,15 +682,38 @@ impl GenerationPinnedChildBackend {
     /// Returns an error when the child descriptor is invalid.
     pub fn new(inner: Arc<dyn Backend>, child: &TypedLayoutChildV1) -> Result<Self, String> {
         child.validate()?;
+        Self::from_inventory(inner, child.subject.id(), &child.objects)
+    }
+
+    /// Wrap an RFC-reviewed object inventory that is not represented by the
+    /// RFC-0048 child enum.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty label, invalid object identity, or a
+    /// duplicate object key.
+    pub(crate) fn from_inventory(
+        inner: Arc<dyn Backend>,
+        subject: &str,
+        objects: &[TypedLayoutObjectIdentityV1],
+    ) -> Result<Self, String> {
+        if subject.is_empty() || objects.is_empty() {
+            return Err("generation-pinned object inventory is empty".to_owned());
+        }
+        let mut inventory = BTreeMap::new();
+        for object in objects {
+            object.validate()?;
+            if inventory
+                .insert(object.key.clone(), object.clone())
+                .is_some()
+            {
+                return Err("generation-pinned object inventory is duplicated".to_owned());
+            }
+        }
         Ok(Self {
             inner,
-            subject: child.subject,
-            objects: child
-                .objects
-                .iter()
-                .cloned()
-                .map(|object| (object.key.clone(), object))
-                .collect(),
+            subject: subject.to_owned(),
+            objects: inventory,
         })
     }
 
