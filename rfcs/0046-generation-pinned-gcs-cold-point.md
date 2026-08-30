@@ -1,12 +1,13 @@
 # RFC-0046: Generation-pinned GCS cold-point and layout curve
 
-- Status: `[PROPOSED]`
+- Status: `[EVALUATING]`; design `[VERIFIED]`, implementation `[PROPOSED]`
 - Authors: DOSS
 - Created: 2026-08-30
 - Scope: T28, `okv-object`, `okv-eval`, and the RangeEngine object-refill path
 
 Pre-implementation review: `[VERIFIED]` Fable `SHIP` after two adversarial
-passes. Implementation remains `[PROPOSED]` until T27 admission completes.
+passes. D68 activates implementation after the bounded T27 provider-v2
+diagnostic while leaving T27 tail performance `[EVALUATING]`.
 
 ## Decision
 

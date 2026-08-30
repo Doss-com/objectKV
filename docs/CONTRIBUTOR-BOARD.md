@@ -684,9 +684,10 @@ become one GitHub issue.
 - Done when: cold reads use bounded named requests and bytes independent of
   database size; point and projected-scan lanes each receive a clean paired
   GCS receipt with required OTel; complete split-closure recovery passes.
-- Dependency: T27 freezes the cache budget, fixture identity, and physical-read
-  treatment. The two
-  performance lanes remain separate even when they share provisioning.
+- Dependency: T27 froze the cache budget, fixture identity, and physical-read
+  treatment. D68 explicitly permits T28 to advance while the provider-v2 tail
+  curve remains deferred. The two performance lanes remain separate even when
+  they share provisioning.
 - Pre-implementation contract: RFC-0046 requires a generation-pinned existing
   fixture and a fresh read-only consumer. The current local-filesystem cold-read
   runner cannot be relabeled as GCS evidence because it republishes its fixture
@@ -696,8 +697,8 @@ become one GitHub issue.
   provider-SDK-attempt accounting, and separate metadata and data budgets. A
   first re-review also required state-specific warmup and a frozen 15-block p99
   aggregation. Refill, dataset-size independence, and C5 remain `[PROPOSED]`.
-  Fable returned `SHIP` on the second re-review. Implementation starts after
-  T27 admission completes. Review:
+  Fable returned `SHIP` on the second re-review. Implementation is now the
+  active program task. Review:
   `docs/research/reviews/fable-rfc0046-preimplementation-review-2026-08-30.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
@@ -800,6 +801,19 @@ become one GitHub issue.
   every lane, including losses. It selects implementation profiles rather than
   deciding whether objectKV continues.
 - Dependency: T36 and the complete immutable receipt chain.
+
+### T38. Maintain the four-panel performance balance figure `[EVALUATING]`
+
+- Scope: keep one research figure current across latency percentiles,
+  concurrency scaling, resident footprint, and the RAM, NVMe, and object tier
+  evidence ladder.
+- Done when: every admitted curve updates its panel from immutable receipts;
+  missing direct GCS, RAM RocksDB, TiKV or MultiRaft, and FoundationDB
+  performance controls remain visibly blank until matched measurements exist.
+- Dependency: cross-cutting. T28 fills the next object-tier point; T29 adds the
+  first same-durability distributed-system control.
+- Current figure:
+  `docs/artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/okv-performance-balance-2x2.svg`.
 
 ## Opens after Gate 1
 

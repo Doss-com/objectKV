@@ -27,9 +27,9 @@ not prove the GCS authority capability profile.
 | Layer | Matrix rows | Current proof | Missing admission evidence |
 | --- | --- | --- | --- |
 | `okv-fabric` | 9 | `okv-log`, Tetris, and Chess have bounded local semantics; unified fabric `[PROPOSED]` | Specialist log, Redis, search, and filesystem contracts and curves |
-| Public kernel | 0, 1, 7 | `[VERIFIED]` single-range resident read boundary and five passing 1 GiB provider-v1 strata; sixth stratum rejected p99; `[CODE-COMPLETE]` sparse provider v2; full curve `[EVALUATING]` | Provider-v2 local-byte preflight and rejected-stratum replay, then a fresh T27 curve and multi-range transactions |
+| Public kernel | 0, 1, 7 | `[VERIFIED]` single-range resident read boundary and provider-v2 physical footprint; tail curve `[EVALUATING]` with p99 1.742x control in the bounded replay | Deferred hit/miss attribution and complete T27 curve, then multi-range transactions |
 | Transaction plane | 4, 5, 7 | `[EVALUATING]` local OpenRaft, conflict, batching, and recovery mechanisms | Independent media, same-durability control, host loss, bounded recovery, multi-range serializability |
-| RangeEngine | 0, 1, 2, 3, 8 | `[VERIFIED]` RocksDB point-read boundary, five passing 1 GiB strata, one retained p99 rejection traced to 2.015239x local-state duplication, and provider-v2 sparse-history semantics; physical correction `[EVALUATING]` | Local-byte preflight, rejected-stratum replay, complete provider-v2 1 GiB curve, GCS cold misses, raw NVMe cache, RAM profile, handoff |
+| RangeEngine | 0, 1, 2, 3, 8 | `[VERIFIED]` RocksDB point-read boundary and provider-v2 sparse history at 1.000037x control local bytes; bounded tail diagnostic `[EVALUATING]` | GCS cold point and layout curves now; deferred T27 tail attribution; raw NVMe cache, RAM profile, and handoff later |
 | Objectification | 5, 6 | `[VERIFIED]` scoped publication recovery mechanisms; integrated service `[EVALUATING]` | Sustained `C - O`, compaction, brownout, safe reclamation, branch-size sweep |
 | Manifested object state | 2, 3, 6, 11 | `[VERIFIED]` immutable closure identity and exact GCS reuse; layouts `[EVALUATING]` | Cold geometry, clean split-run GCS, branch independence, scaled HTAP tail |
 | Object provider | 2, 3, 5, 6, 12 | `[VERIFIED]` memory and MinIO authority profiles, filesystem segment profile, scoped GCS fixture use | GCS authority conformance, provider economics, sustained faults |
@@ -116,59 +116,40 @@ This is construction and recovery evidence, not a new throughput point.
 ## Current first-unverified gate
 
 ```text
-┌─[ RFC-0047 -> T27 V2 ]─────────────────────────────────────────────┐
-│ fixture       1 GiB logical, content addressed, one locator       │
-│ cache         50% · 20% · 5% coverage                             │
-│ skew          Zipf 0.8 · 1.4 · 2.0                               │
-│ clients       8                                                    │
-│ subjects      native RangeEngine · matched direct RocksDB         │
-│ order         fresh-process ABBA                                  │
-│ primary gate  throughput ≥ 0.80x control                          │
-│ hard gates    p99 ≤ 1.20x · CPU/read ≤ 1.25x · I/O ≤ 1.25x       │
-│ v1 progress   5 pass · 1 reject · 21 unexecuted · 0 sentinels     │
-│ v2 code       sparse history semantics and format [VERIFIED]      │
-│ next          local-byte preflight · exact rejected replay        │
+┌─[ RFC-0046 -> T28.0 / T28.1 ]─────────────────────────────────────┐
+│ fixture       existing 1 GiB generation-pinned GCS closure       │
+│ version       exact object frontier T = O                        │
+│ states        empty reader · metadata warm, data cold            │
+│ subjects      indexed objectKV block · precomputed raw GCS range │
+│ order         three seeds · 15 fresh-process paired blocks       │
+│ primary gate  every block p99 ≤ 1.25x raw-range control          │
+│ object gate   one data range GET · no LIST · no full hydration   │
+│ authority     attested read-only objectViewer principal          │
+│ next          implement T28.0 decoder and poison boundary        │
 │ state         [EVALUATING]                                        │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-The immutable locator, separate writer and read-only consumers, standalone
-direct control, descriptor generation, and base-seed boundary are `[VERIFIED]`.
-The fresh-process ABBA controller and its 64 MiB GCS plus direct-NVMe preflight
-are `[VERIFIED]`. Native throughput was 0.8652x and 0.9739x direct RocksDB;
-p99, CPU/read, physical bytes/read, and read amplification passed in both
-orders. The controller flushed and shut down logs, metrics, and traces before
-sealing their six outcomes into the admission receipt; collector inspection
-found the run ID in every required signal. Failed comparison or exporter
-completion persists a sealed failure receipt before exit. The five isolated
-plan, position-inventory, and missing-locator poisons are `[VERIFIED]` against
-that exact evidence. The immutable 1 GiB fixture and 540-position plan are also
-`[VERIFIED]`: 266 objects, 1,101,701,925 physical bytes, 27 strata, and exact
-native/direct treatment parity. The first five complete strata are
-`[VERIFIED]`. Across three Zipf 0.8 seeds and two Zipf 1.4 seeds, native
-throughput spans 0.965184x to 1.012558x control and p99 spans 0.875320x to
-1.188676x. The sixth stratum, `c50-z14-s3301`, retained a complete
-`[VERIFIED]` rejection: p99 reached 1.307614x and 1.339897x control while every
-other frozen gate passed. Native local bytes were 2.015239x control because
-provider v1 duplicated the full object base into head and history. RFC-0047
-owns the provider-v2 correction. Its exact replay must pass before a new
-27-stratum plan begins; v1 and v2 results cannot be combined.
+The immutable locator, separate writer and read-only consumers, descriptor
+generation, base-seed boundary, and one reusable 1 GiB object closure are
+`[VERIFIED]`. T28 must add a lazy reader that opens only named metadata, index,
+and block ranges. It must prove read-only authority, count provider attempts by
+stage, compare against the same raw GCS byte ranges, and reject full-object,
+LIST, stale-generation, retry, and hidden-local-state poisons.
 
 ```text
-immutable plan + independent oracle + machine envelope
-  -> host-global lease
-     -> fresh position wrapper
-        -> measured replacement worker
-           -> raw report + worker PID/boot/start identity
-        -> sealed position receipt
-     -> AB and BA median gates + cache-pressure gate
-     -> one bound OTLP logs, metrics, and traces run
-  -> sealed run receipt
+generation-pinned locator + immutable operation plan
+  → fresh read-only process
+    → lazy descriptor and manifest open
+      → selected index range
+        → one checksummed data-block range
+          → exact value at T = O
 ```
 
-The wrapper manages one position. The nested replacement worker owns the
-measured RocksDB instance and read window. Receipts name both processes and
-bind the latter to the worker identity reported inside the raw result.
+Row 1 remains `[EVALUATING]` as deferred performance debt. Provider v2 fixed
+local footprint at 1.000037x control, but its bounded replay measured p99 at
+1.742x control. Its complete cache-pressure sweep resumes after hit/miss
+attribution; it does not block T28 under D68.
 
 ## Layer unlocks
 
@@ -176,9 +157,9 @@ bind the latter to the worker identity reported inside the raw result.
 ┌─[ PERFORMANCE DEPENDENCIES ]───────────────────────────────────────┐
 │ row 0 resident read                                               │
 │   ↓                                                               │
-│ row 1 cache pressure                                              │
-│   ↓                                                               │
-│ rows 2–3 cold read and object layout                              │
+│ row 1 cache pressure [deferred debt]                              │
+│                                                                   │
+│ row 2 cold read → row 3 object layout [active path]               │
 │   ↓                                                               │
 │ rows 4–6 commit, bounded recovery, and branching                  │
 │   ↓                                                               │
@@ -209,6 +190,7 @@ layer receipt.
 - [T27 fourth complete 1 GiB stratum](../artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md)
 - [T27 fifth complete 1 GiB stratum](../artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/README.md)
 - [T27 sixth 1 GiB stratum, retained rejection](../artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md)
+- [RFC-0047 provider-v2 footprint and tail diagnostic](../artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/README.md)
 - [RFC-0047 sparse resident history](../../rfcs/0047-sparse-resident-history.md)
 - [T27 GCS placement-boundary receipt](../artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md)
 - [Native matched single-range receipt](../artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md)
@@ -216,8 +198,7 @@ layer receipt.
 - [Corrected cache calibration](../artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md)
 - [Direct-read attribution preflight](../artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md)
 
-The current implementation slice adds the verified 1 GiB fixture, frozen live
-plan, authenticated resumable stratum runner, five passing strata, and one
-retained rejection. Master-matrix row 1 remains `[EVALUATING]` while RFC-0047
-removes the diagnosed duplication, replays the rejection, and, if successful,
-restarts the complete provider-v2 curve.
+The current implementation slice adds a `[VERIFIED]` provider-v2 footprint
+correction and an `[EVALUATING]` bounded tail diagnostic. Master-matrix row 1
+remains deferred and unverified because p99 is 1.742x control. The active
+frontier is row 2, generation-pinned cold indexed reads from GCS.

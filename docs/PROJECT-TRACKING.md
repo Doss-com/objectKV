@@ -19,14 +19,20 @@ It compounds the bottom-up construction, runtime ownership, read and write
 paths, current-to-target gaps, and the exact boundary between smoke evidence,
 verified mechanisms, admitted workloads, and production credibility.
 
-`[CODE-COMPLETE]` RFC-0047 now implements sparse post-object-frontier history
+`[CODE-COMPLETE]` RFC-0047 implements sparse post-object-frontier history
 under provider identity `rocksdb-11.8.1-native-resident-v2`. Activation writes
 the object base only to `head`; the first post-frontier mutation of a key seeds
 that key's value, tombstone, or explicit absence at the object frontier in the
-same atomic batch as its tail mutation and applied cursor. Fifteen storage
-tests and the 116-test resident-enabled evaluator suite pass. T27 remains
-`[EVALUATING]`; no performance claim changes until the local-byte preflight and
-the exact `c50-z14-s3301` GCP replay pass unchanged gates.
+same atomic batch as its tail mutation and applied cursor. `[VERIFIED]` The
+V2.1 preflight and 1 GiB diagnostic reduce native local bytes from 2.015239x to
+1.000037x direct RocksDB. `[EVALUATING]` A bounded five-native, five-control
+replay measured p50 1.026x, p95 1.131x, p99 1.742x, and p99.9 1.032x control.
+The complete tail curve is deferred without changing its target. RFC-0046 T28
+cold indexed GCS reads are now the active program row.
+
+The recurring four-panel performance view is tracked with the RFC-0047
+diagnostic evidence. Each new admitted curve updates latency shape, concurrency
+scaling, footprint, or tier evidence. Unmeasured external controls remain blank.
 
 ## Open the playground
 
@@ -116,8 +122,8 @@ destroyed. The performance claim failed decisively. Native retained 0.5968x
 and 0.5659x direct RocksDB throughput; p99 was 1.3312x and 1.5567x control.
 CPU time was 1.6685x and 1.7460x control. Both subjects reported zero physical
 read bytes, so this is a combined RocksDB plus operating-system-cache curve,
-not an isolated NVMe curve. T27 remains `[EVALUATING]`; the 1 GiB admission is
-blocked on the current v2 rerun and actual cross-subject fixture reuse.
+not an isolated NVMe curve. T27 remains `[EVALUATING]`; its complete 1 GiB
+admission is deferred after the bounded provider-v2 diagnostic.
 Evidence is in
 [`docs/artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md`](artifacts/eval-receipts/native-resident-cache-pressure-gcp-r0-2026-08-28/README.md).
 
@@ -396,10 +402,8 @@ that sequence rather than maintaining a second independent plan.
 The current critical path is:
 
 ```text
-RFC-0047 sparse resident history
-  -> exact rejected-stratum replay
-  -> provider-v2 cache pressure
-  -> GCS cold point and object-layout geometry
+RFC-0046 generation-pinned GCS cold point
+  -> object-layout geometry
   -> independent-media replicated commit
   -> objectification debt, host loss, and bounded local media
   -> metadata branch and lazy reopen
@@ -409,23 +413,25 @@ RFC-0047 sparse resident history
   -> PostgreSQL OLTP
   -> DataFusion HTAP
   -> comparative economics
+
+deferred
+  -> row-1 cache hit/miss attribution
+  -> complete provider-v2 cache-pressure curve
 ```
 
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
-stop decision for objectKV. The immediate owned task is RFC-0047. T27's locator,
+stop decision for objectKV. The immediate owned task is RFC-0046 T28. T27's locator,
 read-only consumer, standalone control, separate seeds, fresh-process runner,
 raw evidence, runtime binding, telemetry completion, and poison boundaries are
 `[VERIFIED]`. The final runner adds one authenticated resumable receipt per
-stratum and rejects cross-execution aggregation. Thirty-two focused T27 tests
-pass in the remote release build. Provider v1 has five passing strata and one
-retained p99 rejection after 120 fresh processes. The next experiment removes
-the diagnosed full-base history duplication, assigns provider v2, and replays
-only `c50-z14-s3301` with the original gates plus a 1.25x local-byte ceiling.
-If it passes, the 27 direct-NVMe strata restart under one new plan before the
-two buffered sentinels run. Provider-v1 and provider-v2 results are never
-combined. The corrected 64 MiB calibration remains the buffered regression
-anchor, and the direct-NVMe preflight remains the physical-media control.
+stratum and rejects cross-execution aggregation. The exact provider-v2 release
+build passes 122 library and three controller tests. Provider v1 has five
+passing strata and one retained p99 rejection after 120 fresh processes.
+Provider v2 fixes the footprint and leaves one localized p99 gap in a bounded
+diagnostic. The 27 direct-NVMe strata and two sentinels are deferred.
+Provider-v1 and provider-v2 results are never combined. T28 now owns the next
+clean cloud comparison against direct indexed GCS.
 
 ## Current checkpoint
 

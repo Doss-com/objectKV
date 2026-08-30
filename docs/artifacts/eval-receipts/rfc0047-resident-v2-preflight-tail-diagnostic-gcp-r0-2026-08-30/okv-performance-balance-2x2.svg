@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 950" role="img" aria-labelledby="title desc">
+  <title id="title">objectKV performance balance, current GCP evidence</title>
+  <desc id="desc">Four panels compare the native objectKV resident path with direct RocksDB, show throughput retention with concurrency, local image amplification before and after provider v2, and the evidence status of RAM, NVMe, and object tiers.</desc>
+  <rect width="1400" height="950" fill="#0a0a0a"/>
+  <style>
+    text { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ededed; }
+    .title { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
+    .subtitle { font-size: 14px; fill: #a1a1a1; }
+    .panel-title { font-size: 16px; font-weight: 600; }
+    .axis { font-size: 12px; fill: #a1a1a1; }
+    .value { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+    .note { font-size: 12px; fill: #a1a1a1; }
+    .card { fill: #ffffff; fill-opacity: 0.03; stroke: #ffffff; stroke-opacity: 0.14; stroke-width: 1; rx: 6; }
+    .grid { stroke: #ffffff; stroke-opacity: 0.09; stroke-width: 1; }
+    .native { stroke: #1a85ff; fill: none; stroke-width: 2.5; }
+    .control { stroke: #a1a1a1; fill: none; stroke-width: 2; }
+    .native-dot { fill: #1a85ff; }
+    .control-dot { fill: #a1a1a1; }
+    .accent-label { fill: #1a85ff; }
+    .control-label { fill: #a1a1a1; }
+    .warning-label { fill: #f5a623; }
+  </style>
+
+  <text x="60" y="58" class="title">objectKV performance balance</text>
+  <text x="60" y="86" class="subtitle">Current GCP evidence at 077b006. Direct RocksDB is the only matched performance control so far.</text>
+  <text x="1340" y="58" text-anchor="end" class="axis">2026-08-30</text>
+
+  <!-- Panel A -->
+  <rect x="60" y="120" width="620" height="350" class="card"/>
+  <text x="84" y="154" class="panel-title">A. Resident latency curve, 1 GiB and 50% cache</text>
+  <text x="84" y="176" class="note">Median of five fresh processes per subject, log scale</text>
+  <line x1="130" y1="420" x2="640" y2="420" class="grid"/>
+  <line x1="130" y1="332" x2="640" y2="332" class="grid"/>
+  <line x1="130" y1="245" x2="640" y2="245" class="grid"/>
+  <line x1="130" y1="210" x2="640" y2="210" class="grid"/>
+  <text x="116" y="424" text-anchor="end" class="axis">1</text>
+  <text x="116" y="336" text-anchor="end" class="axis">10</text>
+  <text x="116" y="249" text-anchor="end" class="axis">100</text>
+  <text x="116" y="214" text-anchor="end" class="axis">250 µs</text>
+  <polyline points="160,371 310,348 460,262 610,218" class="native"/>
+  <polyline points="160,372 310,353 460,283 610,220" class="control"/>
+  <g class="native-dot"><circle cx="160" cy="371" r="4"/><circle cx="310" cy="348" r="4"/><circle cx="460" cy="262" r="5"/><circle cx="610" cy="218" r="4"/></g>
+  <g class="control-dot"><circle cx="160" cy="372" r="3.5"/><circle cx="310" cy="353" r="3.5"/><circle cx="460" cy="283" r="3.5"/><circle cx="610" cy="220" r="3.5"/></g>
+  <text x="160" y="444" text-anchor="middle" class="axis">p50</text>
+  <text x="310" y="444" text-anchor="middle" class="axis">p95</text>
+  <text x="460" y="444" text-anchor="middle" class="axis">p99</text>
+  <text x="610" y="444" text-anchor="middle" class="axis">p99.9</text>
+  <text x="468" y="252" class="value warning-label">1.742x at p99</text>
+  <text x="602" y="201" text-anchor="end" class="value accent-label">objectKV</text>
+  <text x="602" y="238" text-anchor="end" class="value control-label">RocksDB</text>
+
+  <!-- Panel B -->
+  <rect x="720" y="120" width="620" height="350" class="card"/>
+  <text x="744" y="154" class="panel-title">B. Hot-read throughput retention</text>
+  <text x="744" y="176" class="note">Normalized to matched direct RocksDB, mean of AB and BA orders</text>
+  <line x1="790" y1="420" x2="1300" y2="420" class="grid"/>
+  <line x1="790" y1="372" x2="1300" y2="372" class="grid"/>
+  <line x1="790" y1="324" x2="1300" y2="324" class="grid"/>
+  <line x1="790" y1="276" x2="1300" y2="276" class="grid"/>
+  <line x1="790" y1="229" x2="1300" y2="229" class="grid"/>
+  <text x="776" y="424" text-anchor="end" class="axis">0.80x</text>
+  <text x="776" y="376" text-anchor="end" class="axis">0.85x</text>
+  <text x="776" y="328" text-anchor="end" class="axis">0.90x</text>
+  <text x="776" y="280" text-anchor="end" class="axis">0.95x</text>
+  <text x="776" y="233" text-anchor="end" class="axis">1.00x</text>
+  <polyline points="830,311 1035,347 1240,338" class="native"/>
+  <polyline points="830,229 1035,229 1240,229" class="control"/>
+  <g class="native-dot"><circle cx="830" cy="311" r="4"/><circle cx="1035" cy="347" r="4"/><circle cx="1240" cy="338" r="4"/></g>
+  <text x="830" y="302" text-anchor="middle" class="value">0.914x</text>
+  <text x="1035" y="338" text-anchor="middle" class="value">0.877x</text>
+  <text x="1240" y="329" text-anchor="middle" class="value">0.885x</text>
+  <text x="830" y="444" text-anchor="middle" class="axis">1 client</text>
+  <text x="1035" y="444" text-anchor="middle" class="axis">8 clients</text>
+  <text x="1240" y="444" text-anchor="middle" class="axis">32 clients</text>
+  <text x="1290" y="220" text-anchor="end" class="value control-label">RocksDB 1.00x</text>
+
+  <!-- Panel C -->
+  <rect x="60" y="500" width="620" height="390" class="card"/>
+  <text x="84" y="534" class="panel-title">C. Resident image amplification</text>
+  <text x="84" y="556" class="note">Local bytes normalized to direct RocksDB on the same 1 GiB image</text>
+  <line x1="130" y1="830" x2="640" y2="830" class="grid"/>
+  <line x1="130" y1="716" x2="640" y2="716" class="grid"/>
+  <line x1="130" y1="603" x2="640" y2="603" class="grid"/>
+  <text x="116" y="834" text-anchor="end" class="axis">0x</text>
+  <text x="116" y="720" text-anchor="end" class="axis">1x</text>
+  <text x="116" y="607" text-anchor="end" class="axis">2x</text>
+  <rect x="165" y="716" width="100" height="114" fill="#a1a1a1" rx="2"/>
+  <rect x="335" y="601" width="100" height="229" fill="#f5a623" rx="2"/>
+  <rect x="505" y="716" width="100" height="114" fill="#1a85ff" rx="2"/>
+  <text x="215" y="704" text-anchor="middle" class="value">1.000x</text>
+  <text x="385" y="589" text-anchor="middle" class="value">2.015x</text>
+  <text x="555" y="704" text-anchor="middle" class="value">1.00004x</text>
+  <text x="215" y="855" text-anchor="middle" class="axis">Direct RocksDB</text>
+  <text x="385" y="855" text-anchor="middle" class="axis">objectKV v1</text>
+  <text x="555" y="855" text-anchor="middle" class="axis">objectKV v2</text>
+  <text x="385" y="875" text-anchor="middle" class="note">rejected</text>
+  <text x="555" y="875" text-anchor="middle" class="note">footprint fixed</text>
+
+  <!-- Panel D -->
+  <rect x="720" y="500" width="620" height="390" class="card"/>
+  <text x="744" y="534" class="panel-title">D. Tier performance evidence</text>
+  <text x="744" y="556" class="note">Serving tiers are switchable. Evidence status is not a latency estimate.</text>
+  <line x1="820" y1="690" x2="1240" y2="690" stroke="#454545" stroke-width="1.5"/>
+  <circle cx="830" cy="690" r="10" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.24"/>
+  <circle cx="1035" cy="690" r="10" fill="#1a85ff"/>
+  <circle cx="1240" cy="690" r="10" fill="#12a594"/>
+  <text x="830" y="630" text-anchor="middle" class="panel-title">RAM</text>
+  <text x="830" y="654" text-anchor="middle" class="note">[PROPOSED]</text>
+  <text x="830" y="726" text-anchor="middle" class="value">latency pending</text>
+  <text x="830" y="746" text-anchor="middle" class="note">control: RAM RocksDB</text>
+  <text x="1035" y="630" text-anchor="middle" class="panel-title">NVMe / Rocks</text>
+  <text x="1035" y="654" text-anchor="middle" class="note">row 0 [VERIFIED]</text>
+  <text x="1035" y="726" text-anchor="middle" class="value">3.60 µs p50</text>
+  <text x="1035" y="746" text-anchor="middle" class="note">row 1 tail [EVALUATING]</text>
+  <text x="1240" y="630" text-anchor="middle" class="panel-title">Objects</text>
+  <text x="1240" y="654" text-anchor="middle" class="note">[EVALUATING]</text>
+  <text x="1240" y="726" text-anchor="middle" class="value">cold curve next</text>
+  <text x="1240" y="746" text-anchor="middle" class="note">target: 1 to 3 data GETs</text>
+  <rect x="758" y="786" width="544" height="82" fill="#ffffff" fill-opacity="0.03" stroke="#ffffff" stroke-opacity="0.14" rx="4"/>
+  <text x="778" y="809" class="note">Measured control: direct RocksDB</text>
+  <text x="778" y="831" class="note">Next controls: direct GCS, then TiKV or MultiRaft</text>
+  <text x="778" y="853" class="note">FoundationDB: semantic oracle, no matched performance point</text>
+</svg>

@@ -1,7 +1,7 @@
 # RFC-0047: Sparse post-frontier resident history
 
-- Status: `[CODE-COMPLETE]`; V2.0 semantics `[VERIFIED]`, V2.1 and V2.2
-  performance `[EVALUATING]`
+- Status: `[CODE-COMPLETE]`; V2.0 semantics and V2.1 physical footprint
+  `[VERIFIED]`; V2.2 tail performance `[EVALUATING]` and deferred
 - Authors: DOSS
 - Created: 2026-08-30
 - Supersedes: RFC-0040 full-history activation only
@@ -200,6 +200,12 @@ The implementation begins with failing tests that require:
 
 ### V2.1 local physical preflight
 
+Status: `[VERIFIED]`. On the 64 MiB preflight, native local bytes were
+1.000703x control and every semantic, pressure, runtime, zero-object-operation,
+and OTel gate passed. On the 1 GiB replay image, native local bytes were
+1.000037x control. This closes the physical-layout correction, not tail-latency
+admission.
+
 Using one fixed logical base and sparse tail:
 
 - native local bytes must be at most 1.25x direct RocksDB;
@@ -209,6 +215,13 @@ Using one fixed logical base and sparse tail:
 - exact snapshots must pass at `O`, every tail commit, and `C`.
 
 ### V2.2 failed-stratum replay
+
+Status: `[EVALUATING]` and deferred after a bounded diagnostic. Five native and
+five direct RocksDB fresh processes measured native/control p50 1.026x, p95
+1.131x, p99 1.742x, and p99.9 1.032x. The controller was intentionally stopped
+before a complete stratum. No admission receipt was produced, and the 1.20x
+p99 target remains unchanged. A future replay must first attribute individual
+samples to cache hits and misses.
 
 Build a new provider identity and execution plan, then replay only
 `c50-z14-s3301` on the same 1 GiB fixture and hardware class. Keep the original

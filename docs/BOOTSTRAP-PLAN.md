@@ -45,13 +45,14 @@ contributor-ready specifications, runnable examples, code, operational bounds,
 and immutable eval receipts. Until those receipts exist, objectKV remains a
 research program rather than an admitted database product.
 
-The immediate critical path is RFC-0047 V2.1 and V2.2. The sparse provider-v2
-implementation is `[CODE-COMPLETE]`, and its semantic plus format contract is
-`[VERIFIED]` by 15 storage tests and 116 resident-enabled evaluator tests. It
-must now clear the local-byte preflight and replay the retained T27 rejection
-under its new provider identity. A passing replay restarts the 1 GiB
-cache-coverage and skew sweep. Later layers do not advance by substituting
-their own results for this kernel boundary.
+The immediate critical path is RFC-0046 T28, generation-pinned cold indexed
+reads from GCS. RFC-0047 V2.1 is `[VERIFIED]`: provider v2 removed full-base
+history duplication and measured 1.000037x direct RocksDB local bytes on the 1
+GiB image. Its bounded V2.2 diagnostic leaves tail latency `[EVALUATING]`.
+P50, p95, and p99.9 were 1.026x, 1.131x, and 1.032x control, while p99 was
+1.742x. The program intentionally defers the complete 27-stratum replay and
+cache-hit versus cache-miss attribution so that cold-read and object-layout
+leverage can be evaluated next. The original 1.20x p99 target remains unchanged.
 
 ### Current golden-path frontier
 
@@ -175,8 +176,8 @@ the status authority.
 | # | Workload curve | Status | Current measured position | Admission target | Next experiment |
 |---:|---|---|---|---|---|
 | 0 | Resident NVMe point reads, 1, 8, and 32 clients | `[VERIFIED]` | Native retains 0.873x to 0.920x direct RocksDB throughput; p99 is 0.913x to 1.184x; 24 million concurrency reads issue zero object operations | At least 0.80x throughput, at most 1.20x p99, exact values, bounded bytes | Keep as regression control for row 1 |
-| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` Provider v1 passed five complete 1 GiB strata, then `c50-z14-s3301` rejected p99 in both orders at 1.307614x and 1.339897x control. Its throughput, CPU/read, physical bytes/read, read amplification, correctness, pressure, runtime, and OTel gates passed. Native local state was 2.015239x control because activation duplicated the complete object base into head and history. `[CODE-COMPLETE]` Provider v2 removes activation-time history duplication; its V2.0 semantic and format tests pass. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Run the provider-v2 local-byte preflight, replay the exact rejection with local bytes at most 1.25x control, then restart all 27 strata and two sentinels if it passes |
-| 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Clean GCS dataset-size sweep after row 1 passes |
+| 1 | Cache coverage, skew, and eviction | `[EVALUATING]` | `[VERIFIED]` Provider v2 fixes resident footprint: 1.000037x control at 1 GiB and 1.000703x at the 64 MiB preflight. A bounded 10-position diagnostic measured native/control p50 1.026x, p95 1.131x, p99 1.742x, and p99.9 1.032x. It is not a complete stratum or admission receipt. | At least 0.80x throughput, at most 1.20x p99 and 1.25x CPU/read across the coverage and skew sweep; exact values, bounded cache, named physical-read behavior | Deferred: attribute individual samples to cache hit or miss, then resume the frozen provider-v2 sweep without weakening the p99 gate |
+| 2 | Cold indexed point reads and cache refill on GCS | `[EVALUATING]` | Local mechanism reaches one 64 KiB-class block through a 64 MiB assigned range; no admitted cloud curve | One bounded metadata path plus one to three named data requests; bytes and decode independent of database size; no LIST authority | Execute RFC-0046 T28 against one generation-pinned GCS fixture and direct indexed-GCS control |
 | 3 | Object-layout point and projected-scan geometry | `[EVALUATING]` | Local projected scan reaches 2.544M source rows/s and 4.718x indexed-row scan; clean cloud composition is unmeasured | Preserve row-class point cost, materially improve projected scans, bound resident index and compaction amplification, recover one authenticated closure | Matched row versus column object layout on the same GCS closure |
 | 4 | Native three-node replicated commit | `[EVALUATING]` | One-host G4.10b reaches 1,075.343 resolved outcomes/s and 104.274 ms maximum p99, 28.776x its one-entry control; independent-media latency is unmeasured. RFC-0045 L0 verifies deterministic protocol semantics. L1 verifies three real TCP log-node processes, synchronized local journals, restart and torn-tail repair, epoch fencing, and deterministic segment bytes across three seeds and three poisons. L1 is one-host mechanism evidence, not a performance or independent-media receipt. | One-range p99 within 1.25x matched-durability control, exact retries and conflicts, zero normal-path object operations, quorum acknowledgement on independent media | Finish rows 1 through 3, then run RFC-0045 L2 on three independent local-NVMe machines against its matched remote-block control before integrating exactly one transaction path without double logging |
 | 5 | Objectification, brownout, host loss, and local-media bounds | `[EVALUATING]` | Exact object-base plus txLog-suffix recovery and local failover exist on one host; sustained debt and physical bounds are unmeasured | Stable `C - O` lag, bounded txLog, at most 8x local state, exact host-loss recovery, declared brownout backpressure | Sustained write plus publication run with object-store fault schedule |
@@ -198,8 +199,9 @@ implementation or experiment
   -> one next experiment, owned by the first unverified critical-path row
 ```
 
-The active row is 1. Its control is direct owned-value RocksDB under the same
-recovered topology. `[VERIFIED]` The first bounded correction removed the
+The active row is 2. Row 1 remains `[EVALUATING]` under an explicit deferral,
+not a passing admission. Its control is direct owned-value RocksDB under the
+same recovered topology. `[VERIFIED]` The first bounded correction removed the
 forced post-advance flush that produced a second SST probe on latest reads.
 The focused R0 regression returned exactly one cache lookup per read, all eight
 RangeEngine package tests passed, and the 60-million-read rerun cleared all
@@ -239,7 +241,7 @@ txLog, and all reproduced one complete logical image with zero measured-window
 object requests. The candidate and reuse-bypass poison returned `keep`; both
 run IDs occur in OTel traces, metrics, and logs. Evidence is under
 `docs/artifacts/eval-receipts/object-fixture-gcs-preflight-gcp-r0-2026-08-28/`.
-This execution produced five passing 1 GiB admission points and one retained
+Provider v1 produced five passing 1 GiB admission points and one retained
 rejection. Row 1 remains `[EVALUATING]`. Provider v1 has five passing strata,
 one rejected stratum, 21 unexecuted strata, and zero of two buffered sentinels.
 The passing strata are under
@@ -251,6 +253,13 @@ and
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s2207-gcp-r0-2026-08-30/`.
 The retained rejection is under
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/`.
+Provider v2 then passed its physical-footprint preflight and reduced the 1 GiB
+local-byte ratio to 1.000037x control. Its intentionally bounded five-native,
+five-control diagnostic measured p50 1.026x, p95 1.131x, p99 1.742x, and
+p99.9 1.032x control. The p99 issue remains open; the full replay stopped by
+program decision so row 2 can advance. Evidence and the recurring four-panel
+performance figure are under
+`docs/artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/`.
 Their immutable GCS evidence binds plan `40d4559a`, workload `7019d0e1`, exact
 runtime executable `aac675c7`, machine instance `141366064138072137`, 120
 position receipts, and all three OTel signals. The phase-5 cross-invocation
@@ -259,7 +268,8 @@ correctness receipt remains under
 Rows 2 through 7 contain useful mechanism evidence, but none may advance past
 `[EVALUATING]` while its own admission receipt is missing.
 
-The critical path is rows 1 through 7. Row 8 is optional and cannot delay the
+The critical path is rows 2 through 7, with row 1 retained as deferred
+performance debt. Row 8 is optional and cannot delay the
 SSD-backed cell. Rows 9 through 11 begin only after the cell contract is stable
 enough that adapter work cannot conceal kernel defects. Row 12 selects profiles
 and documents tradeoffs; it is not a stop decision for the project.
@@ -267,10 +277,8 @@ and documents tradeoffs; it is not a stop decision for the project.
 The first executable sequence is:
 
 ```text
-RFC-0047 sparse resident history
-  -> exact rejected-stratum replay
-  -> T27 provider-v2 cache-pressure curve
-  -> GCS cold point and physical-layout curves
+RFC-0046 generation-pinned GCS cold point
+  -> matched object-layout curves
   -> independent-media replicated commit
   -> objectification debt, host loss, and media bounds
   -> branch and lazy reopen
@@ -280,7 +288,20 @@ RFC-0047 sparse resident history
   -> PostgreSQL OLTP
   -> exact DataFusion HTAP
   -> comparative economics
+
+deferred side loop
+  -> cache hit/miss attribution
+  -> T27 provider-v2 cache-pressure curve
 ```
+
+### Recurring performance figure
+
+The program maintains one four-panel view covering latency shape, throughput
+scaling, resident footprint, and tier evidence. Every admitted experiment must
+update its relevant panel. Missing RAM, GCS, TiKV, MultiRaft, or FoundationDB
+performance controls remain visibly unmeasured rather than receiving estimated
+points. The current figure is in
+[`docs/artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/README.md`](artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/README.md).
 
 ### What the goal optimizes for
 

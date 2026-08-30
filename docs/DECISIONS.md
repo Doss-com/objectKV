@@ -1636,7 +1636,8 @@ object publication, transaction integration, and performance rungs remain
 
 ## D66. Separate generation-pinned GCS cold reads from fixture publication
 
-Status: `[PROPOSED]`, 2026-08-30.
+Status: `[EVALUATING]`; design `[VERIFIED]`, implementation `[PROPOSED]`,
+2026-08-30.
 
 Decision: T28 reuses an existing RFC-0044 content-addressed fixture through its
 exact placement locator and descriptor generation. A fresh consumer runs under
@@ -1658,12 +1659,14 @@ The revised smallest slice fixes `T = O` and point reads only. A first
 re-review then required state-specific warmup, provider-SDK-attempt terminology
 instead of unverifiable physical-request claims, and one frozen 15-block p99
 aggregation. Fable returned `SHIP` on the second re-review. No GCS cold-point
-performance receipt exists yet, so T28 remains `[EVALUATING]` and
-implementation remains `[PROPOSED]` pending completion of T27.
+performance receipt exists yet, so T28 remains `[EVALUATING]`. D68 activates
+implementation while leaving the incomplete T27 tail curve explicitly
+deferred.
 
 ## D67. Correct resident history before resuming T27
 
-Status: `[PROPOSED]`, with the provider-v1 rejection `[VERIFIED]`, 2026-08-30.
+Status: `[CODE-COMPLETE]`; V2.1 footprint `[VERIFIED]`, V2.2 tail
+`[EVALUATING]`, 2026-08-30.
 
 Decision: stop the provider-v1 T27 queue after its first retained rejection.
 Replace full object-base history duplication with one current head and sparse
@@ -1693,3 +1696,28 @@ The retained run completed 20 fresh positions. P99 was 1.307614x and 1.339897x
 control while throughput, CPU/read, physical bytes/read, read amplification,
 correctness, pressure, identity, and OTel gates passed. Native local bytes were
 2.015239x control.
+
+## D68. Defer the row-1 p99 investigation after fixing resident footprint
+
+Status: `[EVALUATING]`, 2026-08-30.
+
+Decision: accept RFC-0047 V2.1 as a verified physical-layout correction while
+leaving T27 V2.2 and master-matrix row 1 `[EVALUATING]`. Stop the 1 GiB replay
+after ten complete fresh processes, preserve the partial receipts as diagnostic
+evidence, and activate RFC-0046 T28 cold indexed GCS reads. Do not weaken the
+1.20x p99 gate or combine provider-v1 and provider-v2 samples.
+
+The bounded provider-v2 curve is close to direct RocksDB at p50, p95, and
+p99.9, with ratios of 1.026x, 1.131x, and 1.032x. P99 remains 1.742x. A future
+row-1 slice begins with cache-hit versus cache-miss attribution before another
+engine correction or full 27-stratum replay.
+
+Optimizes for: learning whether object-native cold reads and layouts provide
+material product leverage instead of spending the next program interval on one
+resident percentile.
+
+Gives up: a complete cache-coverage admission curve now. The resident hot-path
+claim remains limited to row 0, and the p99 defect remains explicit debt.
+
+Evidence:
+`docs/artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/README.md`.

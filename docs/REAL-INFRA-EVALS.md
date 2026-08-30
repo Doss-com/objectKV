@@ -10,8 +10,11 @@ p99, CPU/read, and zero physical-read bounds. `[VERIFIED]` the immutable
 fresh-process 64 MiB direct-NVMe preflight clears every paired and telemetry
 gate in both process orders. `[VERIFIED]` the first five provider-v1 T27 strata
 passed and the sixth retained a p99 rejection with complete telemetry.
-`[EVALUATING]` RFC-0047's sparse provider-v2 correction, the complete 1 GiB T27
-coverage and skew curve, same-durability replicated commit, and the complete
+`[VERIFIED]` RFC-0047 V2.1 reduces native local bytes to 1.000037x direct
+RocksDB at 1 GiB. `[EVALUATING]` Its bounded V2.2 diagnostic leaves p99 at
+1.742x control while p50, p95, and p99.9 are 1.026x, 1.131x, and 1.032x.
+The complete T27 curve is explicitly deferred. `[EVALUATING]` RFC-0046 T28,
+same-durability replicated commit, and the complete
 transaction plane. No full-cell or cross-stack performance claim is
 `[VERIFIED]`.
 
@@ -415,10 +418,13 @@ collector contains 21 logs, 63 metrics, and 20 traces for run
 `912fb7e5-35db-4f63-99db-cdd8201f23a9`. Both failed-run artifacts were uploaded
 create-only, generation-pinned, and readback hash-verified. The queue stopped
 before `c50-z20-s1103`. Provider v1 now has five passing strata, one retained
-rejection, 21 unexecuted strata, and no buffered sentinels. RFC-0047 defines a
-new sparse-history provider and requires replaying this exact stratum before a
-new 27-stratum plan begins. See
-`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md`.
+rejection, 21 unexecuted strata, and no buffered sentinels. Provider v2 later
+verified the physical-footprint correction. Its bounded 10-position diagnostic
+exposed a localized p99 gap and was intentionally stopped before a complete
+stratum. Row 1 remains `[EVALUATING]`; row 2 is now active. See
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s3301-failed-gcp-r0-2026-08-30/README.md`
+and
+`docs/artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/README.md`.
 
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
