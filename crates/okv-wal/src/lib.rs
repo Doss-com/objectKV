@@ -5,8 +5,13 @@
 //! leader election, replication transport, or independent failure domains.
 
 mod node_journal;
+mod staged;
 
 pub use node_journal::{JournalCompaction, JournalError, JournalMarker, JournalState, NodeJournal};
+pub use staged::{
+    decode_staged_segment, StagedAppendOutcome, StagedEpochOutcome, StagedLogError,
+    StagedLogIdentity, StagedLogNode, StagedLogRecord, StagedLogSegment, StagedRequestIdentity,
+};
 
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
