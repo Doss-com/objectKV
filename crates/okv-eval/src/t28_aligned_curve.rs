@@ -236,7 +236,12 @@ impl T28AlignedBuildReceiptV1 {
         Ok(receipt)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    /// Recompute the build identity and receipt digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for source, artifact, profile, or digest drift.
+    pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1
             || !valid_git_commit(&self.candidate_parent_commit)
             || !valid_git_commit(&self.candidate_commit)

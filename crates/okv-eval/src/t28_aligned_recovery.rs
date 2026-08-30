@@ -4,6 +4,7 @@ use crate::provider_attempt::{
     ProviderAttemptBackend, ProviderAttemptEventV1, ProviderAttemptPhase,
 };
 use crate::storage_layout::T28OpenedAlignedLayout;
+use crate::t28_aligned_curve::T28AlignedBuildReceiptV1;
 use crate::t28_layout::{TypedLayoutObjectIdentityV1, TypedLayoutPlacementLocatorV1};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -12,6 +13,7 @@ use okv_object::{
     RevisionToken, StoreError, WriteCondition,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -30,6 +32,10 @@ const PROJECTION_SHA256: &str = "dd67841b2c27a935273478d202d3bb00a506a7fecf52224
 const POISON_ID: &str = "projection_full_object_byte_0_xor_0x80";
 const REJECTION_STAGE: &str = "generation_pinned_child_full_object_sha256";
 const REJECTION_ERROR: &str = "corrupt: RFC-0048 generation-pinned child read identity mismatch";
+const POSITIVE_RECOVERY_FILE_SHA256: &str =
+    "cd407fcbafe8d8635b1add2bf381b7483ec3357946c2af00e9bdf2867be04805";
+const POSITIVE_RECOVERY_RECEIPT_SHA256: &str =
+    "ed60cc0fc01b1c989b7af8346a2769ba0e076bf47a3990fb653a3a26a0969e6c";
 
 /// One provider operation aggregate retained inside the recovery receipt.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -98,6 +104,8 @@ pub struct T28AlignedClosureRecoveryReceiptV1 {
 pub struct T28AlignedRecoveryInjectionV1 {
     pub provider_key: String,
     pub response_bytes: u64,
+    pub unpoisoned_first_byte: u8,
+    pub poisoned_first_byte: u8,
     pub unpoisoned_sha256: String,
     pub poisoned_sha256: String,
 }
@@ -111,11 +119,25 @@ pub struct T28AlignedClosureRecoveryPoisonReceiptV1 {
     pub fixture_id: String,
     pub root_sha256: String,
     pub root_generation: String,
+    pub root_key: String,
+    pub root_object_sha256: String,
+    pub locator_envelope_sha256: String,
+    pub project: String,
+    pub bucket: String,
+    pub region: String,
     pub candidate_closure_sha256: String,
     pub candidate_prefix: String,
-    pub target_object: TypedLayoutObjectIdentityV1,
+    pub candidate_objects: Vec<TypedLayoutObjectIdentityV1>,
     pub root_bytes: u64,
     pub candidate_total_bytes: u64,
+    pub provider_id: String,
+    pub provider_driver: String,
+    pub provider_driver_version: String,
+    pub provider_server_version: String,
+    pub build_receipt_sha256: String,
+    pub candidate_parent_commit: String,
+    pub positive_recovery_file_sha256: String,
+    pub positive_recovery_receipt_sha256: String,
     pub source_commit: String,
     pub executable_sha256: String,
     pub cargo_lock_sha256: String,
@@ -285,69 +307,26 @@ impl T28AlignedClosureRecoveryPoisonReceiptV1 {
     /// Returns an error when the poison identity, provider ledger, rejection
     /// boundary, or receipt digest differs from the frozen contract.
     pub fn validate(&self) -> Result<(), String> {
+        let target_object = self
+            .candidate_objects
+            .iter()
+            .find(|object| object.key == PROJECTION_KEY)
+            .ok_or_else(|| "RFC-0049 poison target is absent from the receipt".to_owned())?;
         let expected_provider_key = format!(
             "{}/{}",
             self.candidate_prefix.trim_end_matches('/'),
             PROJECTION_KEY
         );
-        let provider_response_bytes = self
-            .provider_requests
-            .iter()
-            .filter(|request| request.api == "get" && request.result == "ok")
-            .fold(0_u64, |total, request| {
-                total.saturating_add(request.response_bytes)
-            });
         let provider_ledger_exact = self.provider_requests.len() == 1
             && self.provider_requests[0].api == "get"
             && self.provider_requests[0].result == "ok"
             && self.provider_requests[0].count == 5
             && self.provider_requests[0].request_bytes == 0
-            && provider_response_bytes == self.object_response_bytes;
-        let provider_attempts_exact = self.provider_attempts.len() == 10
-            && self
-                .provider_attempts
-                .iter()
-                .filter(|event| event.phase == ProviderAttemptPhase::Started)
-                .count()
-                == 5
-            && self
-                .provider_attempts
-                .iter()
-                .filter(|event| {
-                    event.phase == ProviderAttemptPhase::Completed
-                        && event.api == "get"
-                        && event.requested_range.is_none()
-                        && event.result.as_deref() == Some("ok")
-                        && event.returned_range.as_ref().is_some_and(|range| {
-                            range.start == 0
-                                && Some(range.end) == event.object_length
-                                && range.end == event.response_payload_bytes
-                        })
-                })
-                .count()
-                == 5;
-        let completed_target = self.provider_attempts.iter().filter(|event| {
-            event.phase == ProviderAttemptPhase::Completed
-                && event.api == "get"
-                && event.object_key == self.injection.provider_key
-                && event.result.as_deref() == Some("ok")
-                && event.requested_range.is_none()
-                && event.expected_revision.as_ref().is_some_and(|revision| {
-                    revision.version.as_deref() == Some(self.target_object.generation.as_str())
-                })
-                && event.returned_revision.as_ref().is_some_and(|revision| {
-                    revision.version.as_deref() == Some(self.target_object.generation.as_str())
-                })
-                && event.object_length == Some(self.target_object.length)
-                && event.returned_range.as_ref().is_some_and(|range| {
-                    range.start == 0
-                        && Some(range.end) == event.object_length
-                        && range.end == self.injection.response_bytes
-                })
-        });
+            && self.provider_requests[0].response_bytes == self.object_response_bytes;
         let corruption_injected = self.injection.provider_key == expected_provider_key
-            && self.injection.response_bytes == self.target_object.length
-            && self.injection.unpoisoned_sha256 == self.target_object.sha256
+            && self.injection.response_bytes == target_object.length
+            && self.injection.poisoned_first_byte == (self.injection.unpoisoned_first_byte ^ 0x80)
+            && self.injection.unpoisoned_sha256 == target_object.sha256
             && self.injection.unpoisoned_sha256 == PROJECTION_SHA256
             && valid_sha256(&self.injection.poisoned_sha256)
             && self.injection.poisoned_sha256 != self.injection.unpoisoned_sha256;
@@ -361,12 +340,31 @@ impl T28AlignedClosureRecoveryPoisonReceiptV1 {
             || self.fixture_id.len() != 64
             || self.root_sha256.len() != 64
             || self.root_generation.is_empty()
+            || self.root_key.trim_matches('/').is_empty()
+            || !valid_sha256(&self.root_object_sha256)
+            || !valid_sha256(&self.locator_envelope_sha256)
+            || self.project.trim().is_empty()
+            || self.bucket.trim().is_empty()
+            || self.region.trim().is_empty()
             || self.candidate_closure_sha256.len() != 64
             || self.candidate_prefix.trim_matches('/').is_empty()
-            || self.target_object.key != PROJECTION_KEY
-            || self.target_object.validate().is_err()
+            || self.candidate_objects.len() != 4
+            || self
+                .candidate_objects
+                .iter()
+                .any(|object| object.validate().is_err())
+            || !exact_candidate_inventory(&self.candidate_objects)
             || self.root_bytes == 0
             || self.candidate_total_bytes != 13_695_766
+            || self.provider_id != "gcs"
+            || self.provider_driver != "apache-object_store"
+            || self.provider_driver_version != okv_object::OBJECT_STORE_DRIVER_VERSION
+            || self.provider_server_version.trim().is_empty()
+            || !valid_sha256(&self.build_receipt_sha256)
+            || self.candidate_parent_commit.len() != 40
+            || !valid_lower_hex(&self.candidate_parent_commit)
+            || self.positive_recovery_file_sha256 != POSITIVE_RECOVERY_FILE_SHA256
+            || self.positive_recovery_receipt_sha256 != POSITIVE_RECOVERY_RECEIPT_SHA256
             || self.source_commit.len() != 40
             || !valid_lower_hex(&self.source_commit)
             || !valid_sha256(&self.executable_sha256)
@@ -378,8 +376,7 @@ impl T28AlignedClosureRecoveryPoisonReceiptV1 {
             || self.object_response_bytes
                 != self.root_bytes.saturating_add(self.candidate_total_bytes)
             || !provider_ledger_exact
-            || !provider_attempts_exact
-            || completed_target.count() != 1
+            || !provider_attempts_match(self)
             || self.corruption_injected != corruption_injected
             || self.corruption_rejected != corruption_rejected
             || self.list_free != list_free
@@ -457,11 +454,15 @@ impl Backend for ExactObjectCorruptionBackend {
         {
             let unpoisoned_sha256 = content_sha256(&read.bytes);
             let mut bytes = read.bytes.to_vec();
+            let unpoisoned_first_byte = bytes[0];
             bytes[0] ^= 0x80;
+            let poisoned_first_byte = bytes[0];
             read.bytes = Bytes::from(bytes);
             let injection = T28AlignedRecoveryInjectionV1 {
                 provider_key: key.to_owned(),
                 response_bytes: u64::try_from(read.bytes.len()).unwrap_or(u64::MAX),
+                unpoisoned_first_byte,
+                poisoned_first_byte,
                 unpoisoned_sha256,
                 poisoned_sha256: content_sha256(&read.bytes),
             };
@@ -626,10 +627,35 @@ pub async fn run_t28_aligned_closure_recovery(
 pub async fn run_t28_aligned_closure_recovery_poison(
     backend: Arc<dyn Backend>,
     locator: &TypedLayoutPlacementLocatorV1,
+    build_receipt: &T28AlignedBuildReceiptV1,
+    positive_recovery: &T28AlignedClosureRecoveryReceiptV1,
+    positive_recovery_file_sha256: String,
     source_commit: String,
     executable_sha256: String,
     cargo_lock_sha256: String,
 ) -> Result<T28AlignedClosureRecoveryPoisonReceiptV1, String> {
+    locator.validate()?;
+    build_receipt.validate()?;
+    positive_recovery.validate()?;
+    let provider = backend.descriptor();
+    let configured_bucket = std::env::var("OKV_GCS_BUCKET").map_err(|error| error.to_string())?;
+    if provider.id != "gcs"
+        || provider.driver != "apache-object_store"
+        || configured_bucket != locator.bucket
+        || build_receipt.candidate_commit != source_commit
+        || build_receipt.executable_sha256 != executable_sha256
+        || build_receipt.cargo_lock_sha256 != cargo_lock_sha256
+        || positive_recovery.fixture_id != locator.fixture_id
+        || positive_recovery.root_sha256 != locator.root_sha256
+        || positive_recovery.root_generation != locator.root_generation
+        || !positive_recovery.passed
+        || !valid_sha256(&positive_recovery_file_sha256)
+    {
+        return Err(
+            "RFC-0049 poison build, positive recovery, GCS, or locator identity mismatch"
+                .to_owned(),
+        );
+    }
     let attempts = Arc::new(ProviderAttemptBackend::new(
         backend,
         "c5v2_complete_closure_recovery_projection_poison",
@@ -645,6 +671,11 @@ pub async fn run_t28_aligned_closure_recovery_poison(
     let started = Instant::now();
     let opened = T28OpenedAlignedLayout::open(measured_backend, locator).await?;
     let fixture = opened.fixture().clone();
+    if positive_recovery.candidate_closure_sha256 != fixture.candidate.closure_sha256
+        || positive_recovery.candidate_objects != fixture.candidate.objects
+    {
+        return Err("RFC-0049 poison closure differs from positive recovery".to_owned());
+    }
     let target_object = fixture
         .candidate
         .objects
@@ -691,11 +722,25 @@ pub async fn run_t28_aligned_closure_recovery_poison(
         fixture_id: fixture.fixture_id,
         root_sha256: fixture.root_sha256,
         root_generation: locator.root_generation.clone(),
+        root_key: locator.root_key.clone(),
+        root_object_sha256: locator.root_object_sha256.clone(),
+        locator_envelope_sha256: locator.envelope_sha256.clone(),
+        project: locator.project.clone(),
+        bucket: locator.bucket.clone(),
+        region: locator.region.clone(),
         candidate_closure_sha256: fixture.candidate.closure_sha256,
         candidate_prefix: fixture.candidate.prefix,
-        target_object,
+        candidate_objects: fixture.candidate.objects,
         root_bytes: locator.root_length,
         candidate_total_bytes,
+        provider_id: provider.id,
+        provider_driver: provider.driver,
+        provider_driver_version: provider.driver_version,
+        provider_server_version: provider.server_version,
+        build_receipt_sha256: build_receipt.receipt_sha256.clone(),
+        candidate_parent_commit: build_receipt.candidate_parent_commit.clone(),
+        positive_recovery_file_sha256,
+        positive_recovery_receipt_sha256: positive_recovery.receipt_sha256.clone(),
         source_commit,
         executable_sha256,
         cargo_lock_sha256,
@@ -767,6 +812,114 @@ fn expected_object(
         .any(|object| object.key == key && object.length == length && object.sha256 == sha256)
 }
 
+fn exact_candidate_inventory(objects: &[TypedLayoutObjectIdentityV1]) -> bool {
+    expected_object(
+        objects,
+        "layout/columnar-v2/active-manifest",
+        1_028,
+        "82d8dfa5f7f1741b8488238f33dc7508c86cbaae916880e0276c5f18736ffa71",
+    ) && expected_object(
+        objects,
+        "layout/columnar-v2/index.oki2",
+        19_148,
+        "cf358d542ab3a790a713317f66ffc88d2c395d538d162c9852c1ab2dd2477faa",
+    ) && expected_object(objects, PROJECTION_KEY, 1_701_414, PROJECTION_SHA256)
+        && expected_object(
+            objects,
+            "layout/columnar-v2/payload.okv2",
+            11_974_176,
+            "2b01f7a8544b5f886dc1a02d6aacd8d96ecdb4310498e9156981194d7e11673d",
+        )
+}
+
+fn provider_attempts_match(receipt: &T28AlignedClosureRecoveryPoisonReceiptV1) -> bool {
+    if receipt.provider_attempts.len() != 10
+        || receipt
+            .provider_attempts
+            .iter()
+            .enumerate()
+            .any(|(index, event)| {
+                event.schema_version != 1
+                    || event.sequence != u64::try_from(index).unwrap_or(u64::MAX) + 1
+                    || event.provider != "gcs"
+                    || event.subject != "c5v2_complete_closure_recovery_projection_poison"
+                    || event.api != "get"
+                    || event.attempt_ordinal != 1
+                    || event.requested_range.is_some()
+            })
+    {
+        return false;
+    }
+
+    let mut expected = BTreeMap::from([(
+        receipt.root_key.clone(),
+        (receipt.root_generation.clone(), receipt.root_bytes),
+    )]);
+    for object in &receipt.candidate_objects {
+        let provider_key = format!(
+            "{}/{}",
+            receipt.candidate_prefix.trim_end_matches('/'),
+            object.key
+        );
+        if expected
+            .insert(provider_key, (object.generation.clone(), object.length))
+            .is_some()
+        {
+            return false;
+        }
+    }
+
+    let starts = receipt
+        .provider_attempts
+        .iter()
+        .filter(|event| event.phase == ProviderAttemptPhase::Started)
+        .map(|event| (event.operation_id, event))
+        .collect::<BTreeMap<_, _>>();
+    let completed = receipt
+        .provider_attempts
+        .iter()
+        .filter(|event| event.phase == ProviderAttemptPhase::Completed)
+        .map(|event| (event.operation_id, event))
+        .collect::<BTreeMap<_, _>>();
+    if starts.len() != 5 || completed.len() != 5 || starts.keys().ne(completed.keys()) {
+        return false;
+    }
+
+    let mut observed_keys = BTreeSet::new();
+    for (operation_id, start) in starts {
+        let Some(done) = completed.get(&operation_id) else {
+            return false;
+        };
+        let Some((generation, length)) = expected.get(&start.object_key) else {
+            return false;
+        };
+        let expected_revision_matches = start
+            .expected_revision
+            .as_ref()
+            .is_some_and(|revision| revision.version.as_deref() == Some(generation.as_str()));
+        let returned_revision_matches = done
+            .returned_revision
+            .as_ref()
+            .is_some_and(|revision| revision.version.as_deref() == Some(generation.as_str()));
+        if !observed_keys.insert(start.object_key.clone())
+            || start.sequence >= done.sequence
+            || start.result.is_some()
+            || start.object_key != done.object_key
+            || start.expected_revision != done.expected_revision
+            || !expected_revision_matches
+            || done.result.as_deref() != Some("ok")
+            || !returned_revision_matches
+            || done.object_length != Some(*length)
+            || done.returned_range != Some(0..*length)
+            || done.request_payload_bytes != 0
+            || done.response_payload_bytes != *length
+        {
+            return false;
+        }
+    }
+    observed_keys == expected.into_keys().collect()
+}
+
 fn request_count(stats: &RequestStats, api: &str) -> u64 {
     stats
         .requests
@@ -835,6 +988,10 @@ mod tests {
         assert_eq!(poisoned.object_length, original.len() as u64);
         let injection = corrupting.injection().expect("injection");
         assert_eq!(injection.provider_key, provider_key);
+        assert_eq!(
+            injection.poisoned_first_byte,
+            injection.unpoisoned_first_byte ^ 0x80
+        );
         assert_eq!(injection.unpoisoned_sha256, content_sha256(&original));
         assert_eq!(injection.poisoned_sha256, content_sha256(&poisoned.bytes));
 

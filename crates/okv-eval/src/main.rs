@@ -693,6 +693,12 @@ enum Commands {
         expected_envelope_sha256: String,
         #[arg(long)]
         candidate_commit: String,
+        #[arg(long)]
+        build_receipt: PathBuf,
+        #[arg(long)]
+        positive_recovery_receipt: PathBuf,
+        #[arg(long)]
+        expected_positive_recovery_file_sha256: String,
         #[arg(long, default_value = "Cargo.lock")]
         runtime_cargo_lock: PathBuf,
         #[arg(long)]
@@ -1854,6 +1860,9 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             locator,
             expected_envelope_sha256,
             candidate_commit,
+            build_receipt,
+            positive_recovery_receipt,
+            expected_positive_recovery_file_sha256,
             runtime_cargo_lock,
             output,
         } => {
@@ -1864,9 +1873,21 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 .build()?;
             let executable_sha256 = sha256(&fs::read(std::env::current_exe()?)?);
             let cargo_lock_sha256 = sha256(&fs::read(runtime_cargo_lock)?);
+            let build_receipt = T28AlignedBuildReceiptV1::decode(&fs::read(build_receipt)?)?;
+            let positive_recovery_bytes = fs::read(positive_recovery_receipt)?;
+            if sha256(&positive_recovery_bytes) != expected_positive_recovery_file_sha256 {
+                return Err(std::io::Error::other(
+                    "RFC-0049 positive recovery file identity mismatch",
+                )
+                .into());
+            }
+            let positive_recovery = serde_json::from_slice(&positive_recovery_bytes)?;
             let receipt = runtime.block_on(run_t28_aligned_closure_recovery_poison(
                 gcs_backend_from_env_no_retries()?,
                 &locator,
+                &build_receipt,
+                &positive_recovery,
+                expected_positive_recovery_file_sha256,
                 candidate_commit,
                 executable_sha256,
                 cargo_lock_sha256,
