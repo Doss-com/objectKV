@@ -54,9 +54,10 @@ pub use row_manifest::{
     content_sha256, encode_row_object_set, RowObjectManifestV1, RowObjectReference,
 };
 pub use row_segment::{
-    decode_full_row_object, encode_row_segment, read_indexed_point, read_planned_point,
-    read_point_from_full_object, scan_full_object_for_point, validate_full_row_object,
-    EncodedRowSegment, PointBlockPlanV1, PointRead, PointReadOutcome, RowRecord, RowSegmentIndex,
+    decode_full_row_object, encode_row_segment, read_indexed_point, read_planned_block,
+    read_planned_point, read_point_from_full_object, scan_full_object_for_point,
+    validate_full_row_object, EncodedRowSegment, PointBlockPlanV1, PointRead, PointReadOutcome,
+    RowRecord, RowSegmentIndex,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

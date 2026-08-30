@@ -6,6 +6,8 @@ mod streaming;
 pub use range_stripe::{
     RangeStripeScanSnapshot, RangeStripeScanStats, RangeStripeSource, RangeStripeTableProvider,
 };
+/// C0 semantic name for the shared bounded, single-partition batch scheduler.
+pub type RangeRowTableProvider = RangeStripeTableProvider;
 pub use streaming::{run_streaming_overlay_contract, StreamingOverlayMode, StreamingOverlayReport};
 
 use arrow::array::{Array, ArrayRef, StringArray, UInt32Array, UInt64Array, UInt8Array};

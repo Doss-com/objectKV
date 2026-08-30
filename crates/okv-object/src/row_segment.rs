@@ -233,7 +233,20 @@ impl RowSegmentIndex {
     #[must_use]
     pub fn plan_point(&self, key: &[u8]) -> Option<PointBlockPlanV1> {
         let block = self.locate(key)?;
-        Some(PointBlockPlanV1 {
+        Some(self.plan_block(block))
+    }
+
+    /// Freeze every independently checksummed block in physical object order.
+    #[must_use]
+    pub fn block_plans(&self) -> Vec<PointBlockPlanV1> {
+        self.blocks
+            .iter()
+            .map(|block| self.plan_block(block))
+            .collect()
+    }
+
+    fn plan_block(&self, block: &BlockIndex) -> PointBlockPlanV1 {
+        PointBlockPlanV1 {
             object_length: self.object_length,
             data_sha256: self.data_sha256(),
             offset: block.offset,
@@ -243,7 +256,7 @@ impl RowSegmentIndex {
             min_version: block.min_version,
             max_version: block.max_version,
             block_sha256: encode_digest(block.digest),
-        })
+        }
     }
 }
 
@@ -443,6 +456,25 @@ pub async fn read_planned_point(
     if read_version == 0 || key < plan.first_key.as_slice() || key > plan.last_key.as_slice() {
         return Err("row planned point key or version is outside its bounds".to_owned());
     }
+    let records = read_planned_block(backend, data_key, expected, plan).await?;
+    Ok(PointRead {
+        outcome: select_version(&records, key, read_version),
+        data_bytes: plan.length,
+    })
+}
+
+/// Fetch and decode one independently checksummed row block.
+///
+/// # Errors
+///
+/// Returns an error for a malformed plan, object identity mismatch, short
+/// response, corrupt checksum, or malformed record.
+pub async fn read_planned_block(
+    backend: &dyn Backend,
+    data_key: &str,
+    expected: Option<&RevisionToken>,
+    plan: &PointBlockPlanV1,
+) -> Result<Vec<RowRecord>, String> {
     let digest = plan.validate()?;
     let range = plan.range()?;
     let read = backend
@@ -464,11 +496,7 @@ pub async fn read_planned_point(
         max_version: plan.max_version,
         digest,
     };
-    let records = decode_block(&read.bytes, &block)?;
-    Ok(PointRead {
-        outcome: select_version(&records, key, read_version),
-        data_bytes: plan.length,
-    })
+    decode_block(&read.bytes, &block)
 }
 
 /// Deliberately scan the complete object for one point. This exists as the
@@ -867,8 +895,9 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_full_row_object, encode_row_segment, read_indexed_point, read_planned_point,
-        scan_full_object_for_point, PointReadOutcome, RowRecord, RowSegmentIndex,
+        decode_full_row_object, encode_row_segment, read_indexed_point, read_planned_block,
+        read_planned_point, scan_full_object_for_point, PointReadOutcome, RowRecord,
+        RowSegmentIndex,
     };
     use crate::{memory_backend, Backend, ObservedBackend, WriteCondition};
     use bytes::Bytes;
@@ -951,6 +980,26 @@ mod tests {
         assert_eq!(stats.requests[0].api, "get.range");
         assert_eq!(stats.requests[0].count, 1);
         assert_eq!(stats.requests[0].response_bytes, plan.length);
+    }
+
+    #[tokio::test]
+    async fn block_plan_iterator_reconstructs_complete_object_without_full_get() {
+        let encoded = encode_row_segment(7, &records(), 4_096).expect("encode row segment");
+        let index = RowSegmentIndex::decode(&encoded.index).expect("decode row index");
+        let backend = memory_backend();
+        let revision = backend
+            .put("rows/data", encoded.data, WriteCondition::Create)
+            .await
+            .expect("put row data");
+        let mut decoded = Vec::new();
+        for plan in index.block_plans() {
+            decoded.extend(
+                read_planned_block(backend.as_ref(), "rows/data", Some(&revision), &plan)
+                    .await
+                    .expect("read planned block"),
+            );
+        }
+        assert_eq!(decoded, records());
     }
 
     #[tokio::test]
