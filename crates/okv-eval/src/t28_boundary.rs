@@ -1,7 +1,7 @@
 //! Falsification boundary for RFC-0046 cold-point execution evidence.
 
 use crate::object_fixture::FixturePlacementLocatorV1;
-use crate::t28_cold_point::{T28CacheState, T28PointOperationV1, T28PointPlanV1, T28PointSubject};
+use crate::t28_cold_point::{T28CacheState, T28PointOperationV1, T28PointPlanV2, T28PointSubject};
 use okv_object::content_sha256;
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
@@ -125,7 +125,7 @@ impl T28ExecutionBoundaryV1 {
     pub fn validate(
         &self,
         placement: &FixturePlacementLocatorV1,
-        plan: &T28PointPlanV1,
+        plan: &T28PointPlanV2,
     ) -> Result<(), String> {
         plan.validate(placement)?;
         let operation = plan
@@ -145,21 +145,26 @@ impl T28ExecutionBoundaryV1 {
         {
             return Err("T28 boundary plan, fixture, version, or digest mismatch".to_owned());
         }
-        self.validate_authority(placement)?;
+        self.validate_authority(placement, plan)?;
         self.validate_request(operation)?;
         self.validate_process()?;
         Ok(())
     }
 
-    fn validate_authority(&self, placement: &FixturePlacementLocatorV1) -> Result<(), String> {
+    fn validate_authority(
+        &self,
+        placement: &FixturePlacementLocatorV1,
+        plan: &T28PointPlanV2,
+    ) -> Result<(), String> {
         let identity_invalid = self.provider != "gcs"
-            || self.project.trim().is_empty()
+            || self.project != plan.reader.project
             || self.bucket != placement.bucket
-            || self.region.trim().is_empty()
-            || self.principal_email.trim().is_empty()
-            || self.principal_unique_id.trim().is_empty()
-            || self.credential_source != "gce_metadata_server"
-            || !valid_sha256(&self.iam_receipt_sha256)
+            || self.bucket != plan.reader.bucket
+            || self.region != plan.reader.region
+            || self.principal_email != plan.reader.principal_email
+            || self.principal_unique_id != plan.reader.principal_unique_id
+            || self.credential_source != plan.reader.credential_source
+            || self.iam_receipt_sha256 != plan.reader.iam_receipt_sha256
             || self.reader_role_bindings != [VIEWER_ROLE]
             || self.denied_write_probe_error_class != "permission_denied"
             || !self.denied_write_probe_object_absent;
@@ -261,7 +266,7 @@ impl T28BoundaryPoisonReceiptV1 {
 /// detected, or the resulting receipt cannot be sealed.
 pub fn verify_t28_boundary_poison(
     placement: &FixturePlacementLocatorV1,
-    plan: &T28PointPlanV1,
+    plan: &T28PointPlanV2,
     correct: &T28ExecutionBoundaryV1,
     poison: T28BoundaryPoisonV1,
 ) -> Result<(T28ExecutionBoundaryV1, T28BoundaryPoisonReceiptV1), String> {
@@ -288,7 +293,7 @@ pub fn verify_t28_boundary_poison(
 
 fn apply_poison(
     boundary: &mut T28ExecutionBoundaryV1,
-    plan: &T28PointPlanV1,
+    plan: &T28PointPlanV2,
     poison: T28BoundaryPoisonV1,
 ) -> Result<(), String> {
     match poison {
@@ -352,7 +357,8 @@ mod tests {
     use crate::object_fixture::{
         FixturePlacementLocatorV1, FixturePointPlanV1, ObjectFixtureLocatorV1,
     };
-    use crate::t28_cold_point::{T28CacheState, T28PointPlanV1, T28PointSubject};
+    use crate::t28_cold_point::T28ReaderPlanIdentityV1;
+    use crate::t28_cold_point::{T28CacheState, T28PointPlanV2, T28PointSubject};
     use okv_object::PointBlockPlanV1;
     use std::collections::BTreeSet;
 
@@ -391,9 +397,19 @@ mod tests {
         placement
     }
 
-    fn plan(placement: &FixturePlacementLocatorV1) -> T28PointPlanV1 {
-        T28PointPlanV1::seal(
+    fn plan(placement: &FixturePlacementLocatorV1) -> T28PointPlanV2 {
+        T28PointPlanV2::seal(
             placement,
+            T28ReaderPlanIdentityV1 {
+                project: "doss-objectkv-dev".to_owned(),
+                bucket: placement.bucket.clone(),
+                region: "us-central1".to_owned(),
+                principal_email: "objectkv-reader@test-project.iam.gserviceaccount.com".to_owned(),
+                principal_unique_id: "123456789".to_owned(),
+                credential_source: "gce_metadata_server".to_owned(),
+                iam_receipt_sha256: "a".repeat(64),
+                token_expiry_floor_seconds: 900,
+            },
             T28CacheState::MetadataWarmDataCold,
             vec![(
                 17,
@@ -424,7 +440,7 @@ mod tests {
 
     fn correct_boundary(
         placement: &FixturePlacementLocatorV1,
-        plan: &T28PointPlanV1,
+        plan: &T28PointPlanV2,
     ) -> T28ExecutionBoundaryV1 {
         let operation = &plan.operations[0];
         let mut boundary = T28ExecutionBoundaryV1 {
@@ -438,13 +454,13 @@ mod tests {
             subject: T28PointSubject::Candidate,
             operation_ordinal: 0,
             provider: "gcs".to_owned(),
-            project: "doss-objectkv-dev".to_owned(),
+            project: plan.reader.project.clone(),
             bucket: placement.bucket.clone(),
-            region: "us-central1".to_owned(),
-            principal_email: "objectkv-reader@example.invalid".to_owned(),
-            principal_unique_id: "123456789".to_owned(),
-            credential_source: "gce_metadata_server".to_owned(),
-            iam_receipt_sha256: "a".repeat(64),
+            region: plan.reader.region.clone(),
+            principal_email: plan.reader.principal_email.clone(),
+            principal_unique_id: plan.reader.principal_unique_id.clone(),
+            credential_source: plan.reader.credential_source.clone(),
+            iam_receipt_sha256: plan.reader.iam_receipt_sha256.clone(),
             reader_role_bindings: vec![VIEWER_ROLE.to_owned()],
             token_expires_unix_nanos: 2_000_000_000_000,
             denied_write_probe_error_class: "permission_denied".to_owned(),

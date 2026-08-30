@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://objectkv.dev/evals/schema/t28-point-plan-v2.schema.json",
+  "title": "objectKV RFC-0046 T28 generation-pinned point plan v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "placement_envelope_sha256", "fixture_id",
+    "descriptor_generation", "read_version", "reader", "cache_state",
+    "object_store_max_retries", "max_data_range_bytes", "operations",
+    "plan_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "placement_envelope_sha256": { "$ref": "#/$defs/sha256" },
+    "fixture_id": { "$ref": "#/$defs/sha256" },
+    "descriptor_generation": { "type": "string", "pattern": "^[0-9]+$" },
+    "read_version": { "type": "integer", "minimum": 1 },
+    "reader": { "$ref": "#/$defs/reader" },
+    "cache_state": { "enum": ["empty_reader", "metadata_warm_data_cold"] },
+    "object_store_max_retries": { "const": 0 },
+    "max_data_range_bytes": { "const": 65536 },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/operation" }
+    },
+    "plan_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "bytes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+    },
+    "reader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project", "bucket", "region", "principal_email",
+        "principal_unique_id", "credential_source", "iam_receipt_sha256",
+        "token_expiry_floor_seconds"
+      ],
+      "properties": {
+        "project": { "type": "string", "minLength": 1 },
+        "bucket": { "type": "string", "minLength": 1 },
+        "region": { "type": "string", "minLength": 1 },
+        "principal_email": {
+          "type": "string",
+          "pattern": "^[^@]+@[^@]+\\.iam\\.gserviceaccount\\.com$"
+        },
+        "principal_unique_id": { "type": "string", "pattern": "^[0-9]+$" },
+        "credential_source": { "const": "gce_metadata_server" },
+        "iam_receipt_sha256": { "$ref": "#/$defs/sha256" },
+        "token_expiry_floor_seconds": { "const": 900 }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "key_id", "expected_value_sha256", "point"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 0 },
+        "key_id": { "type": "integer", "minimum": 0 },
+        "expected_value_sha256": { "$ref": "#/$defs/sha256" },
+        "point": { "$ref": "#/$defs/point" }
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture_id", "read_version", "key", "data_key", "index_key",
+        "index_bytes", "index_sha256", "block"
+      ],
+      "properties": {
+        "fixture_id": { "$ref": "#/$defs/sha256" },
+        "read_version": { "type": "integer", "minimum": 1 },
+        "key": { "$ref": "#/$defs/bytes" },
+        "data_key": { "type": "string", "minLength": 1 },
+        "index_key": { "type": "string", "minLength": 1 },
+        "index_bytes": { "type": "integer", "minimum": 1 },
+        "index_sha256": { "$ref": "#/$defs/sha256" },
+        "block": { "$ref": "#/$defs/block" }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_length", "data_sha256", "offset", "length", "first_key",
+        "last_key", "min_version", "max_version", "block_sha256"
+      ],
+      "properties": {
+        "object_length": { "type": "integer", "minimum": 1 },
+        "data_sha256": { "$ref": "#/$defs/sha256" },
+        "offset": { "type": "integer", "minimum": 0 },
+        "length": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "first_key": { "$ref": "#/$defs/bytes" },
+        "last_key": { "$ref": "#/$defs/bytes" },
+        "min_version": { "type": "integer", "minimum": 1 },
+        "max_version": { "type": "integer", "minimum": 1 },
+        "block_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

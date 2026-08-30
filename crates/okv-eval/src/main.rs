@@ -93,8 +93,10 @@ use okv_eval::t27_plan::{
     T27PositionPoisonV1, T27PositionReceiptV1, T27StratumEvidenceV1, T27StratumRunReceiptV1,
 };
 use okv_eval::t28_cold_point::{
-    T28CacheState, T28PointExecutionReceiptV1, T28PointPlanV1, T28PointSubject,
+    T28CacheState, T28PointExecutionReceiptV1, T28PointPlanV2, T28PointSubject,
+    T28ReaderPlanIdentityV1,
 };
+use okv_eval::t28_iam::T28ReaderIamReceiptV1;
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
     run_transaction_batch_contract, TransactionBatchMode, TransactionBatchProfile,
@@ -542,6 +544,10 @@ enum Commands {
         locator: PathBuf,
         #[arg(long)]
         expected_envelope_sha256: String,
+        #[arg(long)]
+        iam_receipt: PathBuf,
+        #[arg(long)]
+        expected_iam_receipt_sha256: String,
         #[arg(long, default_value = "metadata_warm_data_cold")]
         cache_state: String,
         #[arg(long = "key-id", value_delimiter = ',', num_args = 1..)]
@@ -559,6 +565,10 @@ enum Commands {
         plan: PathBuf,
         #[arg(long)]
         expected_plan_sha256: String,
+        #[arg(long)]
+        iam_receipt: PathBuf,
+        #[arg(long)]
+        expected_iam_receipt_sha256: String,
         #[arg(long, default_value_t = 0)]
         ordinal: u64,
         #[arg(long, default_value = "candidate")]
@@ -1272,16 +1282,30 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
         Commands::T28PlanBuildGcs {
             locator,
             expected_envelope_sha256,
+            iam_receipt,
+            expected_iam_receipt_sha256,
             cache_state,
             key_ids,
             output,
         } => {
             let placement =
                 decode_fixture_placement_locator(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let iam = T28ReaderIamReceiptV1::decode(
+                &fs::read(iam_receipt)?,
+                &expected_iam_receipt_sha256,
+            )?;
+            let reader_identity =
+                T28ReaderPlanIdentityV1::from_receipt(&iam, &expected_iam_receipt_sha256)?;
             let configured_bucket = std::env::var("OKV_GCS_BUCKET")?;
             if configured_bucket != placement.bucket {
                 return Err(std::io::Error::other(
                     "T28 configured GCS bucket differs from fixture placement",
+                )
+                .into());
+            }
+            if reader_identity.bucket != placement.bucket {
+                return Err(std::io::Error::other(
+                    "T28 IAM receipt bucket differs from fixture placement",
                 )
                 .into());
             }
@@ -1317,7 +1341,7 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 }
                 Ok::<_, String>(points)
             })?;
-            let plan = T28PointPlanV1::seal(&placement, cache_state, points)?;
+            let plan = T28PointPlanV2::seal(&placement, reader_identity, cache_state, points)?;
             let bytes = serde_json::to_vec_pretty(&plan)?;
             write_new_file(&output, &bytes)?;
             println!("{}", String::from_utf8(bytes)?);
@@ -1327,13 +1351,26 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             expected_envelope_sha256,
             plan,
             expected_plan_sha256,
+            iam_receipt,
+            expected_iam_receipt_sha256,
             ordinal,
             subject,
             output,
         } => {
             let placement =
                 decode_fixture_placement_locator(&fs::read(locator)?, &expected_envelope_sha256)?;
-            let plan = T28PointPlanV1::decode(&fs::read(plan)?, &expected_plan_sha256, &placement)?;
+            let iam = T28ReaderIamReceiptV1::decode(
+                &fs::read(iam_receipt)?,
+                &expected_iam_receipt_sha256,
+            )?;
+            let reader_identity =
+                T28ReaderPlanIdentityV1::from_receipt(&iam, &expected_iam_receipt_sha256)?;
+            let plan = T28PointPlanV2::decode(
+                &fs::read(plan)?,
+                &expected_plan_sha256,
+                &placement,
+                &reader_identity,
+            )?;
             if plan.cache_state != T28CacheState::MetadataWarmDataCold {
                 return Err(std::io::Error::other(
                     "T28 point command currently requires metadata_warm_data_cold",
