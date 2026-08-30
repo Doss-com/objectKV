@@ -1443,6 +1443,7 @@ pub fn run_staged_txlog_machine_curve(
         let record_bytes = config.record_bytes;
         let task_count = config.client_tasks;
         let stream_count = config.stream_count;
+        let queue_capacity_records = config.queue_capacity_records;
         let offered_per_task = config.offered_records_per_second
             / f64::from(u32::try_from(task_count).unwrap_or(u32::MAX));
         producer_handles.push(thread::spawn(move || {
@@ -1467,7 +1468,10 @@ pub fn run_staged_txlog_machine_curve(
                 }) {
                     Ok(()) => {
                         enqueued.fetch_add(1, Ordering::Relaxed);
-                        update_atomic_max(&max_depth, depth);
+                        update_atomic_max(
+                            &max_depth,
+                            depth.min(bounded_u64(queue_capacity_records)),
+                        );
                     }
                     Err(mpsc::TrySendError::Full(_) | mpsc::TrySendError::Disconnected(_)) => {
                         queued.fetch_sub(1, Ordering::AcqRel);
