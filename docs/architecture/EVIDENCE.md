@@ -152,6 +152,19 @@ original end-to-end gate remains rejected.
 Evidence:
 `docs/artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md`.
 
+`[VERIFIED]` RFC-0048 now has one real GCS root over matched C0 indexed-row
+and C5 columnar-main children. All nine child objects and the root are bound to
+numeric generations. A fresh objectViewer-only process reopened both closures
+and returned the same point value. C5 stored 1.009x C0 total bytes and retained
+1.170x C0 metadata; its projection object is 0.116x C0 total bytes. These are
+publication and media-shape results, not admitted point or scan performance.
+The runtime's objectCreator grant was removed and a new create-only attempt was
+denied without leaving an object. Point, scan, full recovery, compaction, and
+branch gates remain `[EVALUATING]`.
+
+Evidence:
+`docs/artifacts/eval-receipts/rfc0048-t28-layout-publication-gcp-r0-2026-08-30/README.md`.
+
 ```text
 generation-pinned locator + immutable operation plan
   → fresh read-only process
@@ -210,12 +223,13 @@ layer receipt.
 - [RFC-0047 sparse resident history](../../rfcs/0047-sparse-resident-history.md)
 - [T27 GCS placement-boundary receipt](../artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md)
 - [T28 corrected GCS point curve](../artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md)
+- [RFC-0048 typed GCS publication](../artifacts/eval-receipts/rfc0048-t28-layout-publication-gcp-r0-2026-08-30/README.md)
 - [Native matched single-range receipt](../artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md)
 - [Native concurrent-read receipt](../artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md)
 - [Corrected cache calibration](../artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md)
 - [Direct-read attribution preflight](../artifacts/eval-receipts/native-resident-direct-read-preflight-gcp-r0-2026-08-28/README.md)
 
-The current implementation slice adds a `[VERIFIED]` provider-v2 footprint
-correction and an `[EVALUATING]` bounded tail diagnostic. Master-matrix row 1
-remains deferred and unverified because p99 is 1.742x control. The active
-frontier is row 2, generation-pinned cold indexed reads from GCS.
+The current implementation slice adds a `[VERIFIED]` typed C0/C5 GCS
+publication and read-only generation-pinned reopen. Master-matrix row 1 remains
+deferred and unverified because p99 is 1.742x control. The active frontier is
+row 3, the fresh-process matched point and projected-scan curve.
