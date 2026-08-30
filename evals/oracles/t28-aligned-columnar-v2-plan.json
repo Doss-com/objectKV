@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "generator": "evals/oracles/t28-aligned-columnar-v2.mjs",
+  "format_id": "okv.columnar-overlay.v2",
+  "format_version": 2,
+  "logical_oracle_sha256": "b09eeeb482509b24ccb5e7f0c4a4d905983a612b0dbac2253519d9d82a98df86",
+  "canonical_history_sha256": "d4be64434f6b69990a2787876f514c6036727b41dcf1c5e120f91b6ce968ecd4",
+  "reused_c0": {
+    "fixture_id": "5d933648e3190b3bd6768c36c1d9022596c69c621c2347fa648a0754dc5431b0",
+    "typed_root_generation": "1788079307536563",
+    "maximum_point_bytes": 65524,
+    "resident_metadata_bytes": 19229,
+    "total_media_bytes": 13125073
+  },
+  "grouping": {
+    "algorithm": "ordered-key-chain-greedy-v1",
+    "target_records": 32,
+    "maximum_versions_per_key": 32,
+    "key_chain_split_allowed": false
+  },
+  "merkle": {
+    "hash": "sha256",
+    "projection_leaf_domain_hex": "6f6b762d633576322d70726f6a656374696f6e2d6c6561662d763100",
+    "payload_leaf_domain_hex": "6f6b762d633576322d7061796c6f61642d6c6561662d763100",
+    "node_domain_hex": "6f6b762d633576322d6d65726b6c652d6e6f64652d763100",
+    "proof_order": "leaf-to-root",
+    "direction": "derived-from-zero-based-group-ordinal",
+    "odd_leaf": "duplicate-self",
+    "root_for_one_leaf": "leaf-hash"
+  },
+  "wire": {
+    "byte_order": "big-endian",
+    "index_magic_hex": "4f4b4932",
+    "projection_magic_hex": "4f4b5032",
+    "payload_magic_hex": "4f4b5632",
+    "manifest_magic_hex": "4f4b56434d32",
+    "index_entry_bytes": 24,
+    "projection_record_bytes": 57,
+    "frame_header_bytes": 28,
+    "full_digest_bytes": 32
+  },
+  "expected_media": {
+    "group_count": 792,
+    "record_count": 25014,
+    "minimum_group_records": 5,
+    "maximum_group_records": 32,
+    "proof_depth": 10,
+    "index_entry_bytes": 24,
+    "projection_record_bytes": 57,
+    "frame_header_bytes": 28,
+    "index_bytes": 19148,
+    "index_sha256": "cf358d542ab3a790a713317f66ffc88d2c395d538d162c9852c1ab2dd2477faa",
+    "projection_bytes": 1701414,
+    "projection_sha256": "dd67841b2c27a935273478d202d3bb00a506a7fecf522241df369669bb98e24c",
+    "projection_merkle_root": "8ba5ef51dab48e91be7e408878c6134a937878668327f506bf5cab7e7a8c2828",
+    "payload_bytes": 11974176,
+    "payload_sha256": "2b01f7a8544b5f886dc1a02d6aacd8d96ecdb4310498e9156981194d7e11673d",
+    "payload_merkle_root": "0953e8ae2472e108f896e3be59c1881c29a5399f0cc299a9c75e3e4a0a5c34f3",
+    "manifest_bytes": 1028,
+    "manifest_sha256": "82d8dfa5f7f1741b8488238f33dc7508c86cbaae916880e0276c5f18736ffa71",
+    "total_media_bytes": 13695766,
+    "maximum_frame_pair_bytes": 17880,
+    "c0_maximum_point_bytes": 65524,
+    "frame_pair_byte_ratio_millionths": 272878,
+    "absolute_frame_pair_ceiling_bytes": 32762
+  }
+}

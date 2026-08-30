@@ -55,5 +55,7 @@ not harden until their RFC is accepted.
 | 0045 | Staged quorum txLog and object-log publication | `[PROPOSED]`, L0 protocol and L1 process mechanics `[VERIFIED]` | one-round-trip log service, bounded tail, object segments, and T29 comparison |
 | 0046 | Generation-pinned GCS cold-point and layout curve | `[PROPOSED]` | read-only exact-open, indexed range GETs, bounded refill, and separate DataFusion scan lanes |
 | 0047 | Sparse post-frontier resident history | `[PROPOSED]` | remove the 2.015x disposable base duplication, preserve exact snapshots, and replay the rejected T27 stratum |
+| 0048 | Generation-pinned typed object-layout curve | `[EVALUATING]`, retained preflight rejection | C5v1 verified scan leverage and localized sequential point-request tail |
+| 0049 | Aligned columnar point gather | `[PROPOSED]`, pre-implementation review SHIP | C5v2 aligned projection and payload frames with concurrent generation-pinned point reads |
 
 Use `0000-template.md` for new proposals.

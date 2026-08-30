@@ -1,0 +1,216 @@
+schema_version = 1
+plan_id = "t28-aligned-columnar-v2"
+status = "proposed"
+one_execution = true
+contract = "../../rfcs/0049-aligned-columnar-point-gather.md"
+object_store = "gcs"
+project = "doss-objectkv-dev"
+bucket = "doss-objectkv-dev-okv-evals"
+region = "us-central1"
+candidate = "c5v2_aligned_columnar_main"
+control = "c0_indexed_row_object"
+read_version = 5
+
+[logical_oracle]
+artifact = "../oracles/t28-layout-geometry-v1-oracle.json"
+artifact_sha256 = "b09eeeb482509b24ccb5e7f0c4a4d905983a612b0dbac2253519d9d82a98df86"
+generator = "../oracles/t28-layout-geometry-v1.mjs"
+generator_sha256 = "c1b06252161baf973c459757905db63198c1fc046e62d0272f6d3df693b84e4c"
+workload_plan_sha256 = "fa337ae95089b7c9e5771575568480769267468c271778e6781e18b99de337e1"
+canonical_history_sha256 = "d4be64434f6b69990a2787876f514c6036727b41dcf1c5e120f91b6ce968ecd4"
+
+[physical_oracle]
+artifact = "../oracles/t28-aligned-columnar-v2-plan.json"
+artifact_sha256 = "f2c2417eea48aa9c30e0c15554e5edb14aaff078e00cd2133066be3a21853b65"
+generator = "../oracles/t28-aligned-columnar-v2.mjs"
+generator_sha256 = "be32d0ac4374f2f39e8ef7873d396ffef4e95eeeb17dfb5b8a21bfe87273e980"
+positive_fixture = "../../crates/okv-eval/fixtures/columnar-overlay-v2.json"
+positive_fixture_sha256 = "83e97b71674ad93c2359bbdb54628b5ab09ed64fc4021efa230f50a33862304d"
+corrupt_fixture = "../../crates/okv-eval/fixtures/columnar-overlay-v2-corrupt.json"
+corrupt_fixture_sha256 = "40223d127ef436d9453ee05558a43e71332804d95966e4e8c43bbb7058fc5da0"
+
+[reused_c0]
+source_fixture_id = "5d933648e3190b3bd6768c36c1d9022596c69c621c2347fa648a0754dc5431b0"
+source_root_sha256 = "1d4f5ec6ab42e75015f362cea781e9d252c02c1549b4332c82380e0e0e974e7f"
+source_root_generation = "1788079307536563"
+placement_envelope_sha256 = "1d9ddeff4a4885511f3a4e7cdf11507a45cd47e17525911448e0f094a6343f69"
+maximum_point_bytes = 65524
+resident_metadata_bytes = 19229
+total_media_bytes = 13125073
+require_exact_child_descriptor_reuse = true
+allow_c0_republication = false
+
+[format]
+format_id = "okv.columnar-overlay.v2"
+format_version = 2
+byte_order = "big-endian"
+grouping_algorithm = "ordered-key-chain-greedy-v1"
+group_target_records = 32
+maximum_versions_per_key = 32
+key_chain_split_allowed = false
+index_magic_hex = "4f4b4932"
+projection_magic_hex = "4f4b5032"
+payload_magic_hex = "4f4b5632"
+manifest_magic_hex = "4f4b56434d32"
+index_entry_bytes = 24
+projection_record_bytes = 57
+frame_header_bytes = 28
+
+[merkle]
+hash = "sha256"
+projection_leaf_domain_hex = "6f6b762d633576322d70726f6a656374696f6e2d6c6561662d763100"
+payload_leaf_domain_hex = "6f6b762d633576322d7061796c6f61642d6c6561662d763100"
+node_domain_hex = "6f6b762d633576322d6d65726b6c652d6e6f64652d763100"
+proof_order = "leaf-to-root"
+direction = "derived-from-zero-based-group-ordinal"
+odd_leaf = "duplicate-self"
+root_for_one_leaf = "leaf-hash"
+
+[expected_candidate_media]
+group_count = 792
+record_count = 25014
+minimum_group_records = 5
+maximum_group_records = 32
+proof_depth = 10
+index_bytes = 19148
+index_sha256 = "cf358d542ab3a790a713317f66ffc88d2c395d538d162c9852c1ab2dd2477faa"
+projection_bytes = 1701414
+projection_sha256 = "dd67841b2c27a935273478d202d3bb00a506a7fecf522241df369669bb98e24c"
+projection_merkle_root = "8ba5ef51dab48e91be7e408878c6134a937878668327f506bf5cab7e7a8c2828"
+payload_bytes = 11974176
+payload_sha256 = "2b01f7a8544b5f886dc1a02d6aacd8d96ecdb4310498e9156981194d7e11673d"
+payload_merkle_root = "0953e8ae2472e108f896e3be59c1881c29a5399f0cc299a9c75e3e4a0a5c34f3"
+manifest_bytes = 1028
+manifest_sha256 = "82d8dfa5f7f1741b8488238f33dc7508c86cbaae916880e0276c5f18736ffa71"
+total_media_bytes = 13695766
+maximum_frame_pair_bytes = 17880
+absolute_frame_pair_ceiling_bytes = 32762
+frame_pair_byte_ratio_millionths = 272878
+
+[authority]
+publisher_roles = ["roles/storage.objectCreator", "roles/storage.objectViewer"]
+consumer_role = "roles/storage.objectViewer"
+require_writer_revocation_receipt = true
+require_denied_create_probe = true
+measured_put_max = 0
+measured_delete_max = 0
+measured_list_max = 0
+
+[cache]
+state = "metadata_warm_data_cold"
+metadata_bytes_max = 8388608
+data_bytes_max = 0
+fetch_buffer_bytes_max = 262144
+cross_position_reuse = false
+
+[transport]
+provider_retries_max = 0
+sdk_attempts_per_request = 1
+logical_point_concurrency = 8
+control_provider_fanout_max = 8
+candidate_provider_fanout_max = 16
+require_expected_generation_on_every_read = true
+require_returned_generation_match = true
+require_attempt_lifecycle_overlap_evidence = true
+candidate_emitted_timestamps_are_authoritative = false
+
+[point_lane]
+blocks_per_seed = 5
+positions_per_block = 4
+reads_per_position = 1024
+concurrent_tasks = 8
+warmup_transport_canary_reads = 128
+percentile = 99
+nearest_rank = true
+candidate_p99_ratio_millionths_max = 2000000
+candidate_sdk_attempts_per_indexed_point = 2
+candidate_projection_attempts_per_indexed_point = 1
+candidate_payload_attempts_per_indexed_point = 1
+control_sdk_attempts_per_point = 1
+require_pair_overlap_for_every_indexed_point = true
+candidate_bytes_ratio_millionths_max = 500000
+candidate_full_object_gets_max = 0
+
+[[point_lane.seed_orders]]
+seed = 5701
+orders = ["ABBA", "BAAB", "ABBA", "BAAB", "ABBA"]
+
+[[point_lane.seed_orders]]
+seed = 5702
+orders = ["BAAB", "ABBA", "BAAB", "ABBA", "BAAB"]
+
+[[point_lane.seed_orders]]
+seed = 5703
+orders = ["ABBA", "BAAB", "ABBA", "BAAB", "ABBA"]
+
+[scan_lane]
+blocks_per_seed = 5
+positions_per_block = 2
+scans_per_position = 1
+concurrent_range_fetches = 1
+observed_peak_range_fetches = 1
+candidate_median_rows_per_second_ratio_millionths_min = 2000000
+paired_ratio_count = 15
+paired_ratio_statistic = "nearest_rank_median"
+timer_boundary = "before_sql_parse_through_final_batch_digest"
+query = "SELECT key, tenant, category, quantity, COUNT(*) OVER () AS row_count, SUM(quantity) OVER () AS quantity_sum FROM okv_layout ORDER BY key"
+candidate_gets_per_complete_projection_max = 64
+candidate_response_bytes_ratio_millionths_max = 500000
+candidate_opaque_payload_requests_max = 0
+candidate_opaque_payload_bytes_max = 0
+candidate_full_object_gets_max = 0
+peak_fetch_bytes_max = 262144
+peak_arrow_batch_rows_max = 128
+
+[preflight]
+seed = 5701
+point_reads_per_subject = 256
+point_concurrent_tasks = 8
+scans_per_subject = 1
+candidate_point_p99_ratio_millionths_max = 2500000
+candidate_scan_rows_per_second_ratio_millionths_min = 1250000
+samples_are_ineligible_for_admission = true
+
+[[scan_lane.seed_orders]]
+seed = 5701
+orders = ["AB", "BA", "AB", "BA", "AB"]
+
+[[scan_lane.seed_orders]]
+seed = 5702
+orders = ["BA", "AB", "BA", "AB", "BA"]
+
+[[scan_lane.seed_orders]]
+seed = 5703
+orders = ["AB", "BA", "AB", "BA", "AB"]
+
+[media]
+candidate_storage_amplification_ratio_millionths_max = 1100000
+candidate_compaction_write_amplification_ratio_millionths_max = 1100000
+candidate_resident_metadata_ratio_millionths_max = 2000000
+require_complete_child_closure_recovery = true
+require_canonical_history_digest_match = true
+require_branch_reference_reuse = true
+
+[telemetry]
+protocol = "otlp-http"
+require_logs = true
+require_metrics = true
+require_traces = true
+require_exporter_flush_and_shutdown = true
+require_independent_collector_confirmation = true
+
+[poisons]
+missing_or_stale_generation = true
+projection_content_bit_flip = true
+wrong_group_merkle_proof = true
+paired_group_ordinal_mismatch = true
+paired_group_record_count_mismatch = true
+invalid_or_nonclosing_offset_directory = true
+split_key_history = true
+version_chain_overflow = true
+payload_slice_out_of_frame = true
+nonzero_tombstone_payload_reference = true
+projected_scan_payload_fetch = true
+sequential_candidate_pair = true
+runtime_writer_authority = true
+fixture_binary_plan_or_root_mismatch = true
