@@ -32,7 +32,9 @@ mod columnar_overlay;
 mod t28_typed;
 
 pub use t28_typed::{
-    T28ColumnarLayoutReader, T28ColumnarScan, T28ColumnarScanSnapshot, T28RowLayoutReader,
+    publish_t28_typed_layout, t28_typed_layout_profile, T28ColumnarLayoutReader, T28ColumnarScan,
+    T28ColumnarScanSnapshot, T28OpenedTypedLayout, T28RowLayoutReader,
+    T28TypedLayoutPlacementInput, T28TypedLayoutPublication,
 };
 
 const GENERATION: u64 = 11;

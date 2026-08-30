@@ -39,6 +39,23 @@ const PROJECTION_RECORD_BYTES: usize = 61;
 const MAX_COLUMNAR_ENTRIES: usize = 1_000_000;
 const PAYLOAD_PAGE_ROWS: usize = 32;
 
+pub(super) async fn prepare_t28_columnar_layout(
+    profile: &StorageLayoutProfile,
+    history: &LogicalHistory,
+    backend: &dyn Backend,
+) -> Result<Vec<(String, TypedLayoutObjectRoleV1)>, String> {
+    prepare_columnar_layout(profile, history, backend).await?;
+    Ok(vec![
+        (MANIFEST_KEY.to_owned(), TypedLayoutObjectRoleV1::Manifest),
+        (INDEX_KEY.to_owned(), TypedLayoutObjectRoleV1::Index),
+        (PAYLOAD_KEY.to_owned(), TypedLayoutObjectRoleV1::Payload),
+        (
+            PROJECTION_KEY.to_owned(),
+            TypedLayoutObjectRoleV1::Projection,
+        ),
+    ])
+}
+
 pub(super) fn minimum_overlay_cache_bytes(profile: &StorageLayoutProfile) -> Result<usize, String> {
     let payload_page = profile
         .opaque_payload_bytes

@@ -1,25 +1,401 @@
 //! RFC-0048 generation-pinned C0 row reader and matched `DataFusion` source.
 
-use super::columnar_overlay::{T28ColumnarLayoutCore, T28ColumnarScanCore};
-use super::{project_snapshot, ProjectedRow};
+use super::columnar_overlay::{
+    prepare_t28_columnar_layout, T28ColumnarLayoutCore, T28ColumnarScanCore,
+};
+use super::{
+    prepare_row_layout, project_snapshot, LogicalHistory, ProjectedRow, StorageLayoutProfile,
+};
 use crate::t28_layout::{
-    GenerationPinnedChildBackend, TypedLayoutChildV1, TypedLayoutObjectRoleV1, TypedLayoutSubjectV1,
+    decode_typed_layout_fixture, GenerationPinnedChildBackend, T28LayoutOracleV1,
+    TypedLayoutCapabilityV1, TypedLayoutChildV1, TypedLayoutFixtureV1, TypedLayoutObjectIdentityV1,
+    TypedLayoutObjectRoleV1, TypedLayoutPlacementLocatorV1, TypedLayoutSubjectV1,
 };
 use arrow::array::{ArrayRef, Int64Array, UInt16Array, UInt32Array, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::{RecordBatch, RecordBatchOptions};
 use async_trait::async_trait;
+use bytes::Bytes;
 use datafusion::common::{DataFusionError, Result as DataFusionResult};
 use okv_htap::{RangeRowTableProvider, RangeStripeSource};
 use okv_object::{
-    read_indexed_point, read_planned_block, Backend, PointBlockPlanV1, PointRead, PointReadOutcome,
-    RowObjectManifestV1, RowSegmentIndex,
+    content_sha256, prefixed_backend, read_indexed_point, read_planned_block, Backend,
+    PointBlockPlanV1, PointRead, PointReadOutcome, RowObjectManifestV1, RowSegmentIndex,
+    WriteCondition,
 };
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 const MAX_EMITTED_ROWS: usize = 128;
+const C0_MANIFEST_KEY: &str = "layout/row/active-manifest";
+const T28_SCHEMA_ID: &str = "objectkv.t28.typed-row.v1";
+
+/// Provider placement selected before immutable RFC-0048 publication.
+#[derive(Clone, Debug)]
+pub struct T28TypedLayoutPlacementInput {
+    pub project: String,
+    pub bucket: String,
+    pub region: String,
+    pub prefix: String,
+}
+
+/// Immutable typed root and exact GCS generation returned by publication.
+#[derive(Clone, Debug, Serialize)]
+pub struct T28TypedLayoutPublication {
+    pub fixture: TypedLayoutFixtureV1,
+    pub locator: TypedLayoutPlacementLocatorV1,
+    pub c0_total_bytes: u64,
+    pub c5_total_bytes: u64,
+    pub root_bytes: u64,
+}
+
+/// Read-only typed root reopened from one exact provider generation.
+pub struct T28OpenedTypedLayout {
+    fixture: TypedLayoutFixtureV1,
+    backend: Arc<dyn Backend>,
+}
+
+/// Return the one dataset profile frozen by RFC-0048.
+#[must_use]
+pub fn t28_typed_layout_profile() -> StorageLayoutProfile {
+    StorageLayoutProfile {
+        key_count: 16_384,
+        canonical_live_row_bytes: 512,
+        opaque_payload_bytes: 480,
+        base_version: 1,
+        delta_cycles: 4,
+        update_fraction: 0.125,
+        delete_fraction: 0.01,
+        point_operations: 1_024,
+        target_run_object_bytes: 8 * 1_024 * 1_024,
+        row_block_bytes: 64 * 1_024,
+        columnar_block_rows: 128,
+        overlay_cache_bytes: 8 * 1_024 * 1_024,
+        seeds: vec![5_699],
+        repeats: 1,
+    }
+}
+
+/// Publish C0 and C5 from one independently verified logical history.
+///
+/// The backend is unscoped because the returned locator binds a fully
+/// qualified root key. Child objects are written through the placement prefix
+/// and recorded relative to it.
+///
+/// # Errors
+///
+/// Returns an error for oracle drift, invalid placement, publication failure,
+/// an omitted numeric GCS generation, or any failed pinned reopen.
+#[allow(clippy::too_many_lines)]
+pub async fn publish_t28_typed_layout(
+    backend: Arc<dyn Backend>,
+    placement: &T28TypedLayoutPlacementInput,
+    oracle: &T28LayoutOracleV1,
+    oracle_sha256: &str,
+) -> Result<T28TypedLayoutPublication, String> {
+    oracle.validate()?;
+    let profile = t28_typed_layout_profile();
+    let history = LogicalHistory::generate(&profile, oracle.fixture.seed)?;
+    validate_history_against_oracle(&history, oracle)?;
+    let scoped = prefixed_backend(Arc::clone(&backend), placement.prefix.clone())
+        .map_err(|error| error.to_string())?;
+
+    let row = prepare_row_layout(&profile, &history, scoped.as_ref()).await?;
+    let mut c0_objects = Vec::new();
+    for reference in &row.manifest.segments {
+        c0_objects.push(
+            capture_identity(
+                scoped.as_ref(),
+                &reference.data_key,
+                TypedLayoutObjectRoleV1::Data,
+            )
+            .await?,
+        );
+        c0_objects.push(
+            capture_identity(
+                scoped.as_ref(),
+                &reference.index_key,
+                TypedLayoutObjectRoleV1::Index,
+            )
+            .await?,
+        );
+    }
+    c0_objects.push(
+        capture_identity(
+            scoped.as_ref(),
+            C0_MANIFEST_KEY,
+            TypedLayoutObjectRoleV1::Manifest,
+        )
+        .await?,
+    );
+    c0_objects.sort();
+    let c0 = TypedLayoutChildV1::seal(
+        TypedLayoutSubjectV1::C0IndexedRow,
+        placement.bucket.clone(),
+        history.canonical_sha256.clone(),
+        T28_SCHEMA_ID.to_owned(),
+        oracle.schema_sha256.clone(),
+        oracle.fixture.covered_through_version,
+        C0_MANIFEST_KEY.to_owned(),
+        vec![
+            TypedLayoutCapabilityV1::Point,
+            TypedLayoutCapabilityV1::ProjectedScan,
+        ],
+        c0_objects,
+    )?;
+
+    let c5_media = prepare_t28_columnar_layout(&profile, &history, scoped.as_ref()).await?;
+    let mut c5_objects = Vec::with_capacity(c5_media.len());
+    for (key, role) in c5_media {
+        c5_objects.push(capture_identity(scoped.as_ref(), &key, role).await?);
+    }
+    c5_objects.sort();
+    let c5 = TypedLayoutChildV1::seal(
+        TypedLayoutSubjectV1::C5ColumnarMain,
+        placement.bucket.clone(),
+        history.canonical_sha256.clone(),
+        T28_SCHEMA_ID.to_owned(),
+        oracle.schema_sha256.clone(),
+        oracle.fixture.covered_through_version,
+        "layout/columnar/active-manifest".to_owned(),
+        vec![
+            TypedLayoutCapabilityV1::Point,
+            TypedLayoutCapabilityV1::ProjectedScan,
+            TypedLayoutCapabilityV1::OpaquePayloadSplit,
+        ],
+        c5_objects,
+    )?;
+
+    T28RowLayoutReader::open(
+        Arc::clone(&scoped),
+        &c0,
+        oracle.fixture.covered_through_version,
+    )
+    .await?;
+    T28ColumnarLayoutReader::open(
+        Arc::clone(&scoped),
+        &c5,
+        oracle.fixture.covered_through_version,
+    )
+    .await?;
+
+    let c0_total_bytes = child_total_bytes(&c0);
+    let c5_total_bytes = child_total_bytes(&c5);
+    let fixture = TypedLayoutFixtureV1::seal(
+        oracle.fixture.seed,
+        oracle.fixture.key_count,
+        oracle.fixture.record_count,
+        oracle.fixture.live_row_count,
+        history.canonical_sha256,
+        T28_SCHEMA_ID.to_owned(),
+        oracle.schema_sha256.clone(),
+        oracle.fixture.covered_through_version,
+        oracle_sha256.to_owned(),
+        oracle.workload_plan_sha256.clone(),
+        placement.project.clone(),
+        placement.bucket.clone(),
+        placement.region.clone(),
+        vec![c0, c5],
+    )?;
+    let root = serde_json::to_vec(&fixture).map_err(|error| error.to_string())?;
+    let root_bytes = u64::try_from(root.len()).unwrap_or(u64::MAX);
+    let root_object_sha256 = content_sha256(&root);
+    let root_key = format!(
+        "{}/roots/sha256/{}.json",
+        placement.prefix, root_object_sha256
+    );
+    let revision = backend
+        .put(&root_key, Bytes::from(root.clone()), WriteCondition::Create)
+        .await
+        .map_err(|error| error.to_string())?;
+    let root_generation = numeric_generation(&revision)?;
+    let root_read = backend
+        .get(&root_key, None, Some(&revision))
+        .await
+        .map_err(|error| error.to_string())?;
+    if root_read.object_length != root_bytes
+        || root_read.returned_range != (0..root_bytes)
+        || root_read.bytes.as_ref() != root.as_slice()
+        || root_read.revision.version.as_deref() != Some(root_generation.as_str())
+    {
+        return Err("RFC-0048 root publication identity mismatch".to_owned());
+    }
+    let locator = TypedLayoutPlacementLocatorV1::seal(
+        fixture.fixture_id.clone(),
+        fixture.root_sha256.clone(),
+        placement.project.clone(),
+        placement.bucket.clone(),
+        placement.region.clone(),
+        placement.prefix.clone(),
+        root_key,
+        root_generation,
+        root_bytes,
+        root_object_sha256,
+    )?;
+    Ok(T28TypedLayoutPublication {
+        fixture,
+        locator,
+        c0_total_bytes,
+        c5_total_bytes,
+        root_bytes,
+    })
+}
+
+impl T28OpenedTypedLayout {
+    /// Reopen one typed root and bind every later child read to its generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for locator drift, root generation or content drift,
+    /// cross-placement identity, or an invalid child closure.
+    pub async fn open(
+        backend: Arc<dyn Backend>,
+        locator: &TypedLayoutPlacementLocatorV1,
+    ) -> Result<Self, String> {
+        locator.validate()?;
+        let read = backend
+            .get(&locator.root_key, None, Some(&locator.root_revision()))
+            .await
+            .map_err(|error| error.to_string())?;
+        if read.object_length != locator.root_length
+            || read.returned_range != (0..locator.root_length)
+            || read.revision.version.as_deref() != Some(locator.root_generation.as_str())
+            || content_sha256(&read.bytes) != locator.root_object_sha256
+        {
+            return Err("RFC-0048 typed root provider identity mismatch".to_owned());
+        }
+        let fixture = decode_typed_layout_fixture(&read.bytes, &locator.root_sha256)?;
+        if fixture.fixture_id != locator.fixture_id
+            || fixture.project != locator.project
+            || fixture.bucket != locator.bucket
+            || fixture.region != locator.region
+        {
+            return Err("RFC-0048 typed root placement identity mismatch".to_owned());
+        }
+        let scoped =
+            prefixed_backend(backend, locator.prefix.clone()).map_err(|error| error.to_string())?;
+        Ok(Self {
+            fixture,
+            backend: scoped,
+        })
+    }
+
+    /// Return the authenticated shared root.
+    #[must_use]
+    pub const fn fixture(&self) -> &TypedLayoutFixtureV1 {
+        &self.fixture
+    }
+
+    /// Open the C0 control at the root's exact version.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the C0 closure is absent or cannot be reopened.
+    pub async fn c0(&self) -> Result<T28RowLayoutReader, String> {
+        let child = self
+            .fixture
+            .child(TypedLayoutSubjectV1::C0IndexedRow)
+            .ok_or_else(|| "RFC-0048 typed root omits C0".to_owned())?;
+        T28RowLayoutReader::open(
+            Arc::clone(&self.backend),
+            child,
+            self.fixture.covered_through_version,
+        )
+        .await
+    }
+
+    /// Open the C5 candidate at the root's exact version.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the C5 closure is absent or cannot be reopened.
+    pub async fn c5(&self) -> Result<T28ColumnarLayoutReader, String> {
+        let child = self
+            .fixture
+            .child(TypedLayoutSubjectV1::C5ColumnarMain)
+            .ok_or_else(|| "RFC-0048 typed root omits C5".to_owned())?;
+        T28ColumnarLayoutReader::open(
+            Arc::clone(&self.backend),
+            child,
+            self.fixture.covered_through_version,
+        )
+        .await
+    }
+}
+
+async fn capture_identity(
+    backend: &dyn Backend,
+    key: &str,
+    role: TypedLayoutObjectRoleV1,
+) -> Result<TypedLayoutObjectIdentityV1, String> {
+    let read = backend
+        .get(key, None, None)
+        .await
+        .map_err(|error| error.to_string())?;
+    if read.returned_range != (0..read.object_length)
+        || u64::try_from(read.bytes.len()).unwrap_or(u64::MAX) != read.object_length
+    {
+        return Err("RFC-0048 published child full-read framing mismatch".to_owned());
+    }
+    Ok(TypedLayoutObjectIdentityV1 {
+        role,
+        key: key.to_owned(),
+        generation: numeric_generation(&read.revision)?,
+        length: read.object_length,
+        sha256: content_sha256(&read.bytes),
+    })
+}
+
+fn numeric_generation(revision: &okv_object::RevisionToken) -> Result<String, String> {
+    let generation = revision
+        .version
+        .as_ref()
+        .filter(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+        .ok_or_else(|| "RFC-0048 provider omitted numeric object generation".to_owned())?;
+    Ok(generation.clone())
+}
+
+fn child_total_bytes(child: &TypedLayoutChildV1) -> u64 {
+    child
+        .objects
+        .iter()
+        .fold(0_u64, |total, object| total.saturating_add(object.length))
+}
+
+fn validate_history_against_oracle(
+    history: &LogicalHistory,
+    oracle: &T28LayoutOracleV1,
+) -> Result<(), String> {
+    let rows = history.final_rows(oracle.fixture.covered_through_version);
+    let quantity_sum = rows.iter().fold(0_i128, |total, row| {
+        total.saturating_add(i128::from(row.quantity))
+    });
+    if history.canonical_sha256 != oracle.fixture.canonical_history_sha256
+        || u64::try_from(history.records.len()).unwrap_or(u64::MAX) != oracle.fixture.record_count
+        || u64::try_from(rows.len()).unwrap_or(u64::MAX) != oracle.fixture.live_row_count
+        || ordered_projection_sha256(&rows) != oracle.fixture.ordered_projection_sha256
+        || quantity_sum.to_string() != oracle.fixture.aggregate.quantity_sum
+    {
+        return Err("RFC-0048 Rust history differs from the independent oracle".to_owned());
+    }
+    Ok(())
+}
+
+fn ordered_projection_sha256(rows: &[ProjectedRow]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"okv-t28-ordered-projection-v1\0");
+    digest.update(u64::try_from(rows.len()).unwrap_or(u64::MAX).to_be_bytes());
+    for row in rows {
+        digest.update(row.key.to_be_bytes());
+        digest.update(row.tenant.to_be_bytes());
+        digest.update(row.category.to_be_bytes());
+        digest.update(row.quantity.to_be_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
 
 /// C5-specific object-fetch counters for one matched projected scan.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

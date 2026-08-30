@@ -79,11 +79,13 @@ use okv_eval::staged_txlog_process::{
     StagedTxLogProcessMode,
 };
 use okv_eval::storage_layout::{
-    run_columnar_cache_admission_contract, run_columnar_cache_admission_contract_on_backend,
+    publish_t28_typed_layout, run_columnar_cache_admission_contract,
+    run_columnar_cache_admission_contract_on_backend,
     run_columnar_datafusion_contract_with_scan_fetch, run_storage_layout_contract,
     run_storage_layout_pair_contract, run_storage_layout_pair_contract_on_backend,
     ColumnarCacheAdmissionMode, ColumnarCacheAdmissionReport, ColumnarDataFusionMode,
     ColumnarDataFusionReport, StorageLayoutMode, StorageLayoutProfile, StorageLayoutReport,
+    T28OpenedTypedLayout, T28TypedLayoutPlacementInput,
 };
 use okv_eval::t27_plan::{
     build_t27_execution_incarnation, build_t27_execution_plan, decode_t27_execution_plan,
@@ -98,6 +100,7 @@ use okv_eval::t28_cold_point::{
 };
 use okv_eval::t28_curve::{T28CurvePlanV1, T28CurveRunReceiptV1};
 use okv_eval::t28_iam::T28ReaderIamReceiptV1;
+use okv_eval::t28_layout::{decode_t28_layout_oracle, decode_typed_layout_placement};
 use okv_eval::t28_position::{run_t28_point_position, T28PointPositionReceiptV2};
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
@@ -539,6 +542,35 @@ enum Commands {
         block_cache_bytes: u64,
         #[arg(long, default_value_t = false)]
         direct_reads: bool,
+    },
+    /// Publish the RFC-0048 typed C0/C5 fixture and generation-pinned root.
+    T28TypedLayoutPrepareGcs {
+        #[arg(long)]
+        project: String,
+        #[arg(long, default_value = "us-central1")]
+        region: String,
+        #[arg(long)]
+        prefix: String,
+        #[arg(
+            long,
+            default_value = "evals/oracles/t28-layout-geometry-v1-oracle.json"
+        )]
+        oracle: PathBuf,
+        #[arg(long)]
+        expected_oracle_sha256: String,
+        #[arg(long)]
+        locator_output: PathBuf,
+        #[arg(long)]
+        receipt_output: PathBuf,
+    },
+    /// Reopen both typed layouts from one exact root generation.
+    T28TypedLayoutReopenGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
     /// Seal T28 point ranges from one generation-pinned GCS fixture.
     T28PlanBuildGcs {
@@ -1330,6 +1362,77 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 true,
             )?;
             println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::T28TypedLayoutPrepareGcs {
+            project,
+            region,
+            prefix,
+            oracle,
+            expected_oracle_sha256,
+            locator_output,
+            receipt_output,
+        } => {
+            let bucket = std::env::var("OKV_GCS_BUCKET")?;
+            let oracle = decode_t28_layout_oracle(&fs::read(oracle)?, &expected_oracle_sha256)?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let publication = runtime.block_on(publish_t28_typed_layout(
+                gcs_backend_from_env()?,
+                &T28TypedLayoutPlacementInput {
+                    project,
+                    bucket,
+                    region,
+                    prefix,
+                },
+                &oracle,
+                &expected_oracle_sha256,
+            ))?;
+            let locator = serde_json::to_vec_pretty(&publication.locator)?;
+            let receipt = serde_json::to_vec_pretty(&publication)?;
+            fs::write(locator_output, locator)?;
+            fs::write(receipt_output, &receipt)?;
+            println!("{}", String::from_utf8(receipt)?);
+        }
+        Commands::T28TypedLayoutReopenGcs {
+            locator,
+            expected_envelope_sha256,
+            output,
+        } => {
+            let locator =
+                decode_typed_layout_placement(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let opened = runtime.block_on(T28OpenedTypedLayout::open(
+                gcs_backend_from_env_no_retries()?,
+                &locator,
+            ))?;
+            let c0 = runtime.block_on(opened.c0())?;
+            let c5 = runtime.block_on(opened.c5())?;
+            let c0_point =
+                runtime.block_on(c0.point(7, opened.fixture().covered_through_version))?;
+            let c5_point =
+                runtime.block_on(c5.point(7, opened.fixture().covered_through_version))?;
+            if c0_point.outcome != c5_point {
+                return Err("RFC-0048 C0 and C5 pinned reopen point outcomes differ".into());
+            }
+            let summary = serde_json::json!({
+                "schema_version": 1,
+                "fixture_id": opened.fixture().fixture_id,
+                "root_sha256": opened.fixture().root_sha256,
+                "covered_through_version": opened.fixture().covered_through_version,
+                "c0_resident_metadata_bytes": c0.resident_metadata_bytes(),
+                "c5_resident_metadata_bytes": c5.resident_metadata_bytes(),
+                "point_key": 7,
+                "point_equal": true,
+                "c0_point_data_bytes": c0_point.data_bytes,
+            });
+            let bytes = serde_json::to_vec_pretty(&summary)?;
+            if let Some(path) = output {
+                fs::write(path, &bytes)?;
+            }
+            println!("{}", String::from_utf8(bytes)?);
         }
         Commands::T28PlanBuildGcs {
             locator,
