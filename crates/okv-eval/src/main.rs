@@ -40,8 +40,9 @@ use okv_eval::frontiered_process_snapshot::{
     FrontieredProcessSnapshotProfile, FrontieredProcessSnapshotReport,
 };
 use okv_eval::object_fixture::{
-    decode_fixture_placement_locator, prepare_fixture_placement, run_object_fixture_contract,
-    FixturePlacementBuildEnvelopeV1, ObjectFixtureMode, ObjectFixtureProfile, ObjectFixtureReport,
+    decode_fixture_placement_locator, open_generation_pinned_fixture_lazy,
+    prepare_fixture_placement, run_object_fixture_contract, FixturePlacementBuildEnvelopeV1,
+    ObjectFixtureMode, ObjectFixtureProfile, ObjectFixtureReport,
 };
 use okv_eval::object_frontier::{
     run_object_frontier_contract, ObjectFrontierMode, ObjectFrontierReport,
@@ -90,6 +91,7 @@ use okv_eval::t27_plan::{
     T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
     T27PositionPoisonV1, T27PositionReceiptV1, T27StratumEvidenceV1, T27StratumRunReceiptV1,
 };
+use okv_eval::t28_cold_point::{T28CacheState, T28PointPlanV1};
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
 use okv_eval::transaction_batch::{
     run_transaction_batch_contract, TransactionBatchMode, TransactionBatchProfile,
@@ -111,8 +113,8 @@ use okv_model::{
     PublicationGcMode, Version,
 };
 use okv_object::{
-    filesystem_backend, gcs_backend_from_env, memory_backend, minio_backend_from_env,
-    prefixed_backend, run_conformance, run_publication_adapter_contract,
+    filesystem_backend, gcs_backend_from_env, gcs_backend_from_env_no_retries, memory_backend,
+    minio_backend_from_env, prefixed_backend, run_conformance, run_publication_adapter_contract,
     run_publication_publisher_manifest_recovery_contract,
     run_publication_publisher_manifest_recovery_node, run_publication_publisher_process_contract,
     run_publication_publisher_process_node, run_publication_publisher_publish_recovery_contract,
@@ -529,6 +531,19 @@ enum Commands {
         block_cache_bytes: u64,
         #[arg(long, default_value_t = false)]
         direct_reads: bool,
+    },
+    /// Seal T28 point ranges from one generation-pinned GCS fixture.
+    T28PlanBuildGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long, default_value = "metadata_warm_data_cold")]
+        cache_state: String,
+        #[arg(long = "key-id", value_delimiter = ',', num_args = 1..)]
+        key_ids: Vec<u64>,
+        #[arg(long)]
+        output: PathBuf,
     },
     /// Build one immutable T27 ABBA plan from a verified fixture placement.
     T27PlanBuild {
@@ -1232,6 +1247,59 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
                 true,
             )?;
             println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::T28PlanBuildGcs {
+            locator,
+            expected_envelope_sha256,
+            cache_state,
+            key_ids,
+            output,
+        } => {
+            let placement =
+                decode_fixture_placement_locator(&fs::read(locator)?, &expected_envelope_sha256)?;
+            let configured_bucket = std::env::var("OKV_GCS_BUCKET")?;
+            if configured_bucket != placement.bucket {
+                return Err(std::io::Error::other(
+                    "T28 configured GCS bucket differs from fixture placement",
+                )
+                .into());
+            }
+            let cache_state = match cache_state.as_str() {
+                "empty_reader" => T28CacheState::EmptyReader,
+                "metadata_warm_data_cold" => T28CacheState::MetadataWarmDataCold,
+                other => {
+                    return Err(
+                        std::io::Error::other(format!("unknown T28 cache state {other}")).into(),
+                    );
+                }
+            };
+            let backend =
+                prefixed_backend(gcs_backend_from_env_no_retries()?, placement.prefix.clone())?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let reader = runtime.block_on(open_generation_pinned_fixture_lazy(
+                backend,
+                &placement,
+                &expected_envelope_sha256,
+                &placement.fixture.fixture_id,
+                placement.base_version,
+            ))?;
+            let points = runtime.block_on(async {
+                let mut points = Vec::with_capacity(key_ids.len());
+                for key_id in key_ids {
+                    if key_id >= placement.key_count {
+                        return Err("T28 key ID is outside the fixture".to_owned());
+                    }
+                    let point = reader.plan_point(&key_id.to_be_bytes()).await?;
+                    points.push((key_id, point));
+                }
+                Ok::<_, String>(points)
+            })?;
+            let plan = T28PointPlanV1::seal(&placement, cache_state, points)?;
+            let bytes = serde_json::to_vec_pretty(&plan)?;
+            write_new_file(&output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
         }
         Commands::T27PlanBuild {
             locator,
