@@ -75,7 +75,8 @@ use okv_eval::serving_recovery_openraft::{
     OpenRaftServingRecoveryMode, OpenRaftServingRecoveryReport, NATIVE_RESIDENT_PROVIDER,
 };
 use okv_eval::staged_txlog_process::{
-    run_staged_txlog_machine_preflight, run_staged_txlog_node, run_staged_txlog_process_contract,
+    run_staged_txlog_machine_curve, run_staged_txlog_machine_preflight, run_staged_txlog_node,
+    run_staged_txlog_process_contract, StagedTxLogMachineCurveConfig,
     StagedTxLogMachinePreflightConfig, StagedTxLogNodeConfig, StagedTxLogProcessMode,
 };
 use okv_eval::storage_layout::{
@@ -496,6 +497,11 @@ enum Commands {
     },
     /// Run one bounded client-only preflight against three remote txLog nodes.
     StagedTxLogMachinePreflight {
+        #[arg(long)]
+        config: PathBuf,
+    },
+    /// Run one bounded open-loop curve point against three remote txLog nodes.
+    StagedTxLogMachineCurve {
         #[arg(long)]
         config: PathBuf,
     },
@@ -1364,6 +1370,12 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let config =
                 serde_json::from_slice::<StagedTxLogMachinePreflightConfig>(&fs::read(config)?)?;
             let report = run_staged_txlog_machine_preflight(&config)?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Commands::StagedTxLogMachineCurve { config } => {
+            let config =
+                serde_json::from_slice::<StagedTxLogMachineCurveConfig>(&fs::read(config)?)?;
+            let report = run_staged_txlog_machine_curve(&config)?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Commands::ServingRecoveryProcessTrace {

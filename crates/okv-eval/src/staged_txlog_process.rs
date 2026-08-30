@@ -16,7 +16,8 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -34,6 +35,12 @@ const START_RETRY_DELAY: Duration = Duration::from_millis(10);
 const MACHINE_PREFLIGHT_MAX_RECORDS: u64 = 65_536;
 const MACHINE_PREFLIGHT_MAX_BATCH_RECORDS: usize = 4_096;
 const MACHINE_PREFLIGHT_MAX_PAYLOAD_BYTES: usize = 4_096;
+const MACHINE_CURVE_MAX_RECORDS: u64 = 1_048_576;
+const MACHINE_CURVE_MAX_CLIENT_TASKS: usize = 256;
+const MACHINE_CURVE_MAX_STREAMS: usize = 4_096;
+const MACHINE_CURVE_MAX_QUEUE_RECORDS: usize = 1_048_576;
+const MACHINE_CURVE_MAX_DWELL_MICROS: u64 = 100_000;
+const MACHINE_CURVE_MAX_OFFERED_RECORDS_PER_SECOND: f64 = 2_000_000.0;
 
 /// Fault mode exercised by the unchanged L1 process oracle.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -186,6 +193,102 @@ pub struct StagedTxLogMachinePreflightReport {
     pub report_sha256: String,
 }
 
+/// Frozen input for one open-loop L2 staged-log curve point.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StagedTxLogMachineCurveConfig {
+    pub schema_version: u32,
+    pub seed: u64,
+    pub writer_epoch: u64,
+    pub log_identity: StagedLogIdentity,
+    pub nodes: Vec<StagedTxLogMachineNodeConfig>,
+    pub record_bytes: usize,
+    pub record_count: u64,
+    pub max_batch_records: usize,
+    pub max_batch_dwell_micros: u64,
+    pub offered_records_per_second: f64,
+    pub client_tasks: usize,
+    pub stream_count: usize,
+    pub queue_capacity_records: usize,
+    pub node_queue_capacity_batches: usize,
+}
+
+/// Final digest and physical state observed from one L2 log node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StagedTxLogMachineCurveNodeObservation {
+    pub node_id: u8,
+    pub machine_id: String,
+    pub endpoint: String,
+    pub process_id: u32,
+    pub root: String,
+    pub listener: String,
+    pub final_physical_bytes: u64,
+    pub final_record_count: u64,
+    pub final_records_sha256: String,
+}
+
+/// One physical batch in the open-loop L2 staged-log curve.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StagedTxLogMachineBatchSample {
+    pub batch_id: u64,
+    pub record_count: u64,
+    pub first_position: u64,
+    pub last_position: u64,
+    pub queue_depth_before_dispatch: u64,
+    pub oldest_queue_dwell_seconds: f64,
+    pub quorum_duration_seconds: f64,
+}
+
+/// Result for one bounded open-loop L2 staged-log curve point.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StagedTxLogMachineCurveReport {
+    pub schema_version: u32,
+    pub scope: String,
+    pub seed: u64,
+    pub writer_epoch: u64,
+    pub log_identity: StagedLogIdentity,
+    pub nodes: Vec<StagedTxLogMachineCurveNodeObservation>,
+    pub record_bytes: u64,
+    pub requested_records: u64,
+    pub enqueued_records: u64,
+    pub refused_records: u64,
+    pub acknowledged_records: u64,
+    pub offered_records_per_second: f64,
+    pub realized_offered_records_per_second: f64,
+    pub acknowledged_records_per_second: f64,
+    pub client_tasks: u64,
+    pub stream_count: u64,
+    pub queue_capacity_records: u64,
+    pub max_queue_depth_records: u64,
+    pub max_batch_records: u64,
+    pub max_batch_dwell_micros: u64,
+    pub batch_count: u64,
+    pub mean_batch_records: f64,
+    pub max_observed_batch_records: u64,
+    pub network_batch_requests: u64,
+    pub producer_seconds: f64,
+    pub measurement_seconds: f64,
+    pub record_ack_p50_seconds: f64,
+    pub record_ack_p95_seconds: f64,
+    pub record_ack_p99_seconds: f64,
+    pub record_ack_p999_seconds: f64,
+    pub queue_dwell_p50_seconds: f64,
+    pub queue_dwell_p95_seconds: f64,
+    pub queue_dwell_p99_seconds: f64,
+    pub queue_dwell_p999_seconds: f64,
+    pub quorum_p50_seconds: f64,
+    pub quorum_p95_seconds: f64,
+    pub quorum_p99_seconds: f64,
+    pub quorum_p999_seconds: f64,
+    pub batch_samples: Vec<StagedTxLogMachineBatchSample>,
+    pub expected_records_sha256: String,
+    pub exact_state_nodes: u64,
+    pub object_operations: u64,
+    pub anomaly_count: u64,
+    pub first_mismatch: Option<String>,
+    pub report_sha256: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct WireRecord {
     writer_epoch: u64,
@@ -233,6 +336,7 @@ enum NodeRequest {
         records: Vec<WireRecord>,
     },
     State,
+    StateDigest,
     Segment {
         first_position: u64,
         last_position: u64,
@@ -284,6 +388,14 @@ enum NodeResponse {
         physical_bytes: u64,
         recovered_torn_tail: bool,
         records: Vec<WireRecord>,
+    },
+    StateDigest {
+        writer_epoch: Option<u64>,
+        next_position: u64,
+        physical_bytes: u64,
+        recovered_torn_tail: bool,
+        record_count: u64,
+        records_sha256: String,
     },
     Segment {
         bytes: Vec<u8>,
@@ -355,6 +467,22 @@ impl NodeRuntime {
                     .map(WireRecord::from)
                     .collect(),
             },
+            NodeRequest::StateDigest => {
+                let records = self
+                    .node
+                    .records()
+                    .into_iter()
+                    .map(WireRecord::from)
+                    .collect::<Vec<_>>();
+                NodeResponse::StateDigest {
+                    writer_epoch: self.node.writer_epoch(),
+                    next_position: self.node.next_position(),
+                    physical_bytes: self.node.physical_bytes().unwrap_or(u64::MAX),
+                    recovered_torn_tail: self.node.recovered_torn_tail(),
+                    record_count: bounded_u64(records.len()),
+                    records_sha256: wire_records_digest(records.iter()),
+                }
+            }
             NodeRequest::Segment {
                 first_position,
                 last_position,
@@ -1191,6 +1319,591 @@ pub fn run_staged_txlog_machine_preflight(
     Ok(report)
 }
 
+struct CurveArrival {
+    ordinal: u64,
+    enqueued_at: Instant,
+    payload: Vec<u8>,
+}
+
+#[derive(Clone)]
+struct NodeBatchWork {
+    batch_id: u64,
+    records: Arc<Vec<WireRecord>>,
+}
+
+struct NodeBatchReply {
+    batch_id: u64,
+    node_id: u8,
+    response: Result<NodeResponse, String>,
+}
+
+struct BatchProgress {
+    first_position: u64,
+    last_position: u64,
+    record_count: u64,
+    response_count: u64,
+    durable_acknowledgements: u64,
+    responding_nodes: BTreeSet<u8>,
+}
+
+struct DeterministicPoisson {
+    state: u64,
+}
+
+impl DeterministicPoisson {
+    const fn new(seed: u64) -> Self {
+        Self { state: seed | 1 }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut value = self.state;
+        value ^= value >> 12;
+        value ^= value << 25;
+        value ^= value >> 27;
+        self.state = value;
+        value.wrapping_mul(2_685_821_657_736_338_717)
+    }
+
+    fn exponential_delay(&mut self, rate_per_second: f64) -> Duration {
+        let high = u32::try_from(self.next_u64() >> 32).unwrap_or(u32::MAX);
+        let unit = (f64::from(high) + 1.0) / (f64::from(u32::MAX) + 2.0);
+        Duration::from_secs_f64(-unit.ln() / rate_per_second)
+    }
+}
+
+/// Run one bounded open-loop curve point against three already-running log
+/// nodes on independently named machines.
+///
+/// Producer threads submit Poisson arrivals to one bounded active-writer queue.
+/// The writer closes a batch at the record or dwell limit, sends it over one
+/// persistent connection per node, and acknowledges after an exact stable
+/// quorum. All node responses are drained before final state digests are read.
+///
+/// # Errors
+///
+/// Returns an error when the topology, connection, epoch, queue, or wire path
+/// cannot complete the frozen point.
+#[allow(clippy::too_many_lines)]
+pub fn run_staged_txlog_machine_curve(
+    config: &StagedTxLogMachineCurveConfig,
+) -> Result<StagedTxLogMachineCurveReport, String> {
+    validate_machine_curve_config(config)?;
+    let health = machine_health(&config.nodes, config.log_identity)?;
+    let mut nodes = config
+        .nodes
+        .iter()
+        .map(ConnectedNode::connect)
+        .collect::<Result<Vec<_>, _>>()?;
+    install_machine_epoch(&mut nodes, config.writer_epoch)?;
+
+    let (node_reply_sender, node_reply_receiver) = mpsc::channel::<NodeBatchReply>();
+    let mut node_senders = Vec::with_capacity(nodes.len());
+    let mut node_handles = Vec::with_capacity(nodes.len());
+    for mut node in nodes {
+        let (sender, receiver) =
+            mpsc::sync_channel::<NodeBatchWork>(config.node_queue_capacity_batches);
+        let reply_sender = node_reply_sender.clone();
+        node_senders.push(sender);
+        node_handles.push(thread::spawn(move || {
+            for work in receiver {
+                let response = node.request(&NodeRequest::AppendBatch {
+                    records: work.records.as_ref().clone(),
+                });
+                let _ = reply_sender.send(NodeBatchReply {
+                    batch_id: work.batch_id,
+                    node_id: node.node_id,
+                    response,
+                });
+            }
+            node
+        }));
+    }
+    drop(node_reply_sender);
+
+    let (arrival_sender, arrival_receiver) =
+        mpsc::sync_channel::<CurveArrival>(config.queue_capacity_records);
+    let attempted_records = Arc::new(AtomicU64::new(0));
+    let enqueued_records = Arc::new(AtomicU64::new(0));
+    let refused_records = Arc::new(AtomicU64::new(0));
+    let queued_records = Arc::new(AtomicU64::new(0));
+    let max_queue_depth = Arc::new(AtomicU64::new(0));
+    let producer_finished_nanos = Arc::new(AtomicU64::new(0));
+    let start_at = Instant::now() + Duration::from_millis(250);
+    let mut producer_handles = Vec::with_capacity(config.client_tasks);
+    for task_index in 0..config.client_tasks {
+        let sender = arrival_sender.clone();
+        let attempted = Arc::clone(&attempted_records);
+        let enqueued = Arc::clone(&enqueued_records);
+        let refused = Arc::clone(&refused_records);
+        let queued = Arc::clone(&queued_records);
+        let max_depth = Arc::clone(&max_queue_depth);
+        let producer_finished = Arc::clone(&producer_finished_nanos);
+        let seed = config.seed;
+        let record_count = config.record_count;
+        let record_bytes = config.record_bytes;
+        let task_count = config.client_tasks;
+        let stream_count = config.stream_count;
+        let offered_per_task = config.offered_records_per_second
+            / f64::from(u32::try_from(task_count).unwrap_or(u32::MAX));
+        producer_handles.push(thread::spawn(move || {
+            let mut rng = DeterministicPoisson::new(
+                seed ^ bounded_u64(task_index).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+            );
+            let mut target = start_at;
+            let mut ordinal = bounded_u64(task_index);
+            while ordinal < record_count {
+                target += rng.exponential_delay(offered_per_task);
+                if let Some(delay) = target.checked_duration_since(Instant::now()) {
+                    thread::sleep(delay);
+                }
+                attempted.fetch_add(1, Ordering::Relaxed);
+                let stream_id = ordinal % bounded_u64(stream_count);
+                let payload = deterministic_payload(seed ^ stream_id, ordinal + 1, record_bytes);
+                let depth = queued.fetch_add(1, Ordering::AcqRel).saturating_add(1);
+                match sender.try_send(CurveArrival {
+                    ordinal,
+                    enqueued_at: Instant::now(),
+                    payload,
+                }) {
+                    Ok(()) => {
+                        enqueued.fetch_add(1, Ordering::Relaxed);
+                        update_atomic_max(&max_depth, depth);
+                    }
+                    Err(mpsc::TrySendError::Full(_) | mpsc::TrySendError::Disconnected(_)) => {
+                        queued.fetch_sub(1, Ordering::AcqRel);
+                        refused.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                ordinal = ordinal.saturating_add(bounded_u64(task_count));
+            }
+            update_atomic_max(&producer_finished, duration_nanos_u64(start_at.elapsed()));
+        }));
+    }
+    drop(arrival_sender);
+
+    let dwell_limit = Duration::from_micros(config.max_batch_dwell_micros);
+    let mut next_position = 1_u64;
+    let mut next_batch_id = 1_u64;
+    let mut acknowledged_records = 0_u64;
+    let mut network_batch_requests = 0_u64;
+    let mut received_node_responses = 0_u64;
+    let mut node_response_anomalies = 0_u64;
+    let mut progress = BTreeMap::<u64, BatchProgress>::new();
+    let mut record_ack_seconds = Vec::new();
+    let mut queue_dwell_seconds = Vec::new();
+    let mut quorum_seconds = Vec::new();
+    let mut batch_samples = Vec::new();
+    let mut expected_hasher = Sha256::new();
+
+    while let Ok(first) = arrival_receiver.recv() {
+        queued_records.fetch_sub(1, Ordering::AcqRel);
+        let deadline = first.enqueued_at + dwell_limit;
+        let mut arrivals = vec![first];
+        while arrivals.len() < config.max_batch_records {
+            match arrival_receiver.try_recv() {
+                Ok(arrival) => {
+                    queued_records.fetch_sub(1, Ordering::AcqRel);
+                    arrivals.push(arrival);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => break,
+                Err(mpsc::TryRecvError::Empty) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        break;
+                    };
+                    match arrival_receiver.recv_timeout(remaining) {
+                        Ok(arrival) => {
+                            queued_records.fetch_sub(1, Ordering::AcqRel);
+                            arrivals.push(arrival);
+                        }
+                        Err(
+                            mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected,
+                        ) => {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let dispatch_at = Instant::now();
+        let first_position = next_position;
+        let mut records = Vec::with_capacity(arrivals.len());
+        for (offset, arrival) in arrivals.iter().enumerate() {
+            let position = next_position.saturating_add(bounded_u64(offset));
+            let identity_seed = config.seed ^ arrival.ordinal.rotate_left(17);
+            records.push(WireRecord {
+                writer_epoch: config.writer_epoch,
+                position,
+                request_identity: request_identity(identity_seed, position, &arrival.payload),
+                payload: arrival.payload.clone(),
+            });
+            queue_dwell_seconds.push(
+                dispatch_at
+                    .saturating_duration_since(arrival.enqueued_at)
+                    .as_secs_f64(),
+            );
+        }
+        let last_position = records
+            .last()
+            .map_or(first_position, |record| record.position);
+        for record in &records {
+            update_wire_record_digest(&mut expected_hasher, record);
+        }
+        let records = Arc::new(records);
+        progress.insert(
+            next_batch_id,
+            BatchProgress {
+                first_position,
+                last_position,
+                record_count: bounded_u64(records.len()),
+                response_count: 0,
+                durable_acknowledgements: 0,
+                responding_nodes: BTreeSet::new(),
+            },
+        );
+        for sender in &node_senders {
+            sender
+                .send(NodeBatchWork {
+                    batch_id: next_batch_id,
+                    records: Arc::clone(&records),
+                })
+                .map_err(|_| "staged txLog node worker queue disconnected".to_owned())?;
+            network_batch_requests = network_batch_requests.saturating_add(1);
+        }
+
+        let quorum_started = Instant::now();
+        loop {
+            let reply = node_reply_receiver
+                .recv_timeout(IO_TIMEOUT + IO_TIMEOUT)
+                .map_err(|error| format!("wait for staged txLog quorum: {error}"))?;
+            received_node_responses = received_node_responses.saturating_add(1);
+            let batch_progress = progress
+                .get_mut(&reply.batch_id)
+                .ok_or_else(|| format!("response for unknown batch {}", reply.batch_id))?;
+            let unique_node = batch_progress.responding_nodes.insert(reply.node_id);
+            let exact = unique_node
+                && matches!(
+                    reply.response,
+                    Ok(NodeResponse::AppendBatch {
+                        first_position: observed_first,
+                        last_position: observed_last,
+                        record_count,
+                        synchronized: true,
+                        ..
+                    }) if observed_first == batch_progress.first_position
+                        && observed_last == batch_progress.last_position
+                        && record_count == batch_progress.record_count
+                );
+            batch_progress.response_count = batch_progress.response_count.saturating_add(1);
+            if exact {
+                batch_progress.durable_acknowledgements =
+                    batch_progress.durable_acknowledgements.saturating_add(1);
+            } else {
+                node_response_anomalies = node_response_anomalies.saturating_add(1);
+            }
+            if reply.batch_id == next_batch_id
+                && batch_progress.durable_acknowledgements >= bounded_u64(WRITE_QUORUM)
+            {
+                break;
+            }
+            if reply.batch_id == next_batch_id
+                && batch_progress.response_count == bounded_u64(NODE_COUNT)
+            {
+                return Err(format!(
+                    "batch {next_batch_id} did not reach an exact stable quorum"
+                ));
+            }
+        }
+        let acknowledged_at = Instant::now();
+        let quorum_duration_seconds = quorum_started.elapsed().as_secs_f64();
+        quorum_seconds.push(quorum_duration_seconds);
+        for arrival in &arrivals {
+            record_ack_seconds.push(
+                acknowledged_at
+                    .saturating_duration_since(arrival.enqueued_at)
+                    .as_secs_f64(),
+            );
+        }
+        batch_samples.push(StagedTxLogMachineBatchSample {
+            batch_id: next_batch_id,
+            record_count: bounded_u64(arrivals.len()),
+            first_position,
+            last_position,
+            queue_depth_before_dispatch: queued_records.load(Ordering::Acquire),
+            oldest_queue_dwell_seconds: arrivals
+                .iter()
+                .map(|arrival| {
+                    dispatch_at
+                        .saturating_duration_since(arrival.enqueued_at)
+                        .as_secs_f64()
+                })
+                .fold(0.0, f64::max),
+            quorum_duration_seconds,
+        });
+        acknowledged_records = acknowledged_records.saturating_add(bounded_u64(arrivals.len()));
+        next_position = next_position.saturating_add(bounded_u64(arrivals.len()));
+        next_batch_id = next_batch_id.saturating_add(1);
+    }
+
+    for handle in producer_handles {
+        handle
+            .join()
+            .map_err(|_| "staged txLog curve producer panicked".to_owned())?;
+    }
+    while received_node_responses < network_batch_requests {
+        let reply = node_reply_receiver
+            .recv_timeout(IO_TIMEOUT + IO_TIMEOUT)
+            .map_err(|error| format!("drain staged txLog node responses: {error}"))?;
+        received_node_responses = received_node_responses.saturating_add(1);
+        let batch_progress = progress
+            .get_mut(&reply.batch_id)
+            .ok_or_else(|| format!("response for unknown batch {}", reply.batch_id))?;
+        let unique_node = batch_progress.responding_nodes.insert(reply.node_id);
+        batch_progress.response_count = batch_progress.response_count.saturating_add(1);
+        if unique_node
+            && matches!(
+                reply.response,
+                Ok(NodeResponse::AppendBatch {
+                    first_position,
+                    last_position,
+                    record_count,
+                    synchronized: true,
+                    ..
+                }) if first_position == batch_progress.first_position
+                    && last_position == batch_progress.last_position
+                    && record_count == batch_progress.record_count
+            )
+        {
+            batch_progress.durable_acknowledgements =
+                batch_progress.durable_acknowledgements.saturating_add(1);
+        } else {
+            node_response_anomalies = node_response_anomalies.saturating_add(1);
+        }
+    }
+    drop(node_senders);
+    let mut nodes = node_handles
+        .into_iter()
+        .map(|handle| {
+            handle
+                .join()
+                .map_err(|_| "staged txLog node connection worker panicked".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    nodes.sort_by_key(|node| node.node_id);
+
+    let expected_records_sha256 = format!("{:x}", expected_hasher.finalize());
+    let state_responses = request_all_connected(&mut nodes, &NodeRequest::StateDigest);
+    let mut exact_state_nodes = 0_u64;
+    let mut node_observations = Vec::new();
+    for node in &config.nodes {
+        let Some(observation) = health
+            .iter()
+            .find(|observation| observation.node_id == node.node_id)
+        else {
+            continue;
+        };
+        let Some((_, response)) = state_responses
+            .iter()
+            .find(|(node_id, _)| *node_id == node.node_id)
+        else {
+            continue;
+        };
+        if let Ok(NodeResponse::StateDigest {
+            writer_epoch,
+            next_position: observed_next,
+            physical_bytes,
+            record_count,
+            records_sha256,
+            ..
+        }) = response
+        {
+            if *writer_epoch == Some(config.writer_epoch)
+                && *observed_next == next_position
+                && *record_count == acknowledged_records
+                && records_sha256 == &expected_records_sha256
+            {
+                exact_state_nodes = exact_state_nodes.saturating_add(1);
+            }
+            node_observations.push(StagedTxLogMachineCurveNodeObservation {
+                node_id: node.node_id,
+                machine_id: node.machine_id.clone(),
+                endpoint: node.endpoint.clone(),
+                process_id: observation.process_id,
+                root: observation.root.clone(),
+                listener: observation.listener.clone(),
+                final_physical_bytes: *physical_bytes,
+                final_record_count: *record_count,
+                final_records_sha256: records_sha256.clone(),
+            });
+        }
+    }
+
+    let attempted = attempted_records.load(Ordering::Acquire);
+    let enqueued = enqueued_records.load(Ordering::Acquire);
+    let refused = refused_records.load(Ordering::Acquire);
+    let producer_seconds =
+        Duration::from_nanos(producer_finished_nanos.load(Ordering::Acquire)).as_secs_f64();
+    let measurement_seconds = start_at.elapsed().as_secs_f64();
+    record_ack_seconds.sort_by(f64::total_cmp);
+    queue_dwell_seconds.sort_by(f64::total_cmp);
+    quorum_seconds.sort_by(f64::total_cmp);
+    let checks = [
+        (
+            "every requested arrival was attempted",
+            attempted == config.record_count,
+        ),
+        (
+            "every attempted arrival was enqueued or refused",
+            attempted == enqueued.saturating_add(refused),
+        ),
+        (
+            "every enqueued record reached a stable quorum",
+            acknowledged_records == enqueued,
+        ),
+        (
+            "every node retained the exact acknowledged history",
+            exact_state_nodes == bounded_u64(NODE_COUNT),
+        ),
+        (
+            "every node response was synchronized",
+            node_response_anomalies == 0,
+        ),
+        (
+            "the active-writer queue remained bounded",
+            max_queue_depth.load(Ordering::Acquire) <= bounded_u64(config.queue_capacity_records),
+        ),
+    ];
+    let first_mismatch = checks
+        .iter()
+        .find_map(|(detail, passed)| (!passed).then(|| (*detail).to_owned()));
+    let anomaly_count = u64::from(first_mismatch.is_some());
+    let acknowledged_as_f64 = f64::from(u32::try_from(acknowledged_records).unwrap_or(u32::MAX));
+    let attempted_as_f64 = f64::from(u32::try_from(attempted).unwrap_or(u32::MAX));
+    let batch_count = bounded_u64(batch_samples.len());
+    let mut report = StagedTxLogMachineCurveReport {
+        schema_version: 1,
+        scope: "staged-txlog-l2-open-loop-curve-point".to_owned(),
+        seed: config.seed,
+        writer_epoch: config.writer_epoch,
+        log_identity: config.log_identity,
+        nodes: node_observations,
+        record_bytes: bounded_u64(config.record_bytes),
+        requested_records: config.record_count,
+        enqueued_records: enqueued,
+        refused_records: refused,
+        acknowledged_records,
+        offered_records_per_second: config.offered_records_per_second,
+        realized_offered_records_per_second: if producer_seconds > 0.0 {
+            attempted_as_f64 / producer_seconds
+        } else {
+            0.0
+        },
+        acknowledged_records_per_second: if measurement_seconds > 0.0 {
+            acknowledged_as_f64 / measurement_seconds
+        } else {
+            0.0
+        },
+        client_tasks: bounded_u64(config.client_tasks),
+        stream_count: bounded_u64(config.stream_count),
+        queue_capacity_records: bounded_u64(config.queue_capacity_records),
+        max_queue_depth_records: max_queue_depth.load(Ordering::Acquire),
+        max_batch_records: bounded_u64(config.max_batch_records),
+        max_batch_dwell_micros: config.max_batch_dwell_micros,
+        batch_count,
+        mean_batch_records: if batch_count > 0 {
+            acknowledged_as_f64 / f64::from(u32::try_from(batch_count).unwrap_or(u32::MAX))
+        } else {
+            0.0
+        },
+        max_observed_batch_records: batch_samples
+            .iter()
+            .map(|sample| sample.record_count)
+            .max()
+            .unwrap_or(0),
+        network_batch_requests,
+        producer_seconds,
+        measurement_seconds,
+        record_ack_p50_seconds: percentile_per_mille(&record_ack_seconds, 500),
+        record_ack_p95_seconds: percentile_per_mille(&record_ack_seconds, 950),
+        record_ack_p99_seconds: percentile_per_mille(&record_ack_seconds, 990),
+        record_ack_p999_seconds: percentile_per_mille(&record_ack_seconds, 999),
+        queue_dwell_p50_seconds: percentile_per_mille(&queue_dwell_seconds, 500),
+        queue_dwell_p95_seconds: percentile_per_mille(&queue_dwell_seconds, 950),
+        queue_dwell_p99_seconds: percentile_per_mille(&queue_dwell_seconds, 990),
+        queue_dwell_p999_seconds: percentile_per_mille(&queue_dwell_seconds, 999),
+        quorum_p50_seconds: percentile_per_mille(&quorum_seconds, 500),
+        quorum_p95_seconds: percentile_per_mille(&quorum_seconds, 950),
+        quorum_p99_seconds: percentile_per_mille(&quorum_seconds, 990),
+        quorum_p999_seconds: percentile_per_mille(&quorum_seconds, 999),
+        batch_samples,
+        expected_records_sha256,
+        exact_state_nodes,
+        object_operations: 0,
+        anomaly_count,
+        first_mismatch,
+        report_sha256: String::new(),
+    };
+    report.report_sha256 = hex_digest(
+        &serde_json::to_vec(&report).map_err(|error| format!("encode curve report: {error}"))?,
+    );
+    Ok(report)
+}
+
+fn machine_health(
+    nodes: &[StagedTxLogMachineNodeConfig],
+    log_identity: StagedLogIdentity,
+) -> Result<Vec<HealthObservation>, String> {
+    let mut health = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match request_node(&node.endpoint, &NodeRequest::Health)? {
+            NodeResponse::Health {
+                node_id,
+                process_id,
+                root,
+                listener,
+                log_identity: observed_identity,
+                ..
+            } if node_id == node.node_id && observed_identity == log_identity => {
+                health.push(HealthObservation {
+                    node_id,
+                    process_id,
+                    root,
+                    listener,
+                    log_identity: observed_identity,
+                    recovered_torn_tail: false,
+                });
+            }
+            other => {
+                return Err(format!(
+                    "machine {} returned unexpected health response: {other:?}",
+                    node.machine_id
+                ));
+            }
+        }
+    }
+    Ok(health)
+}
+
+fn install_machine_epoch(nodes: &mut [ConnectedNode], writer_epoch: u64) -> Result<(), String> {
+    for (node_id, response) in
+        request_all_connected(nodes, &NodeRequest::InstallEpoch { writer_epoch })
+    {
+        match response? {
+            NodeResponse::Epoch {
+                writer_epoch: observed_epoch,
+                synchronized: true,
+                ..
+            } if observed_epoch == writer_epoch => {}
+            other => {
+                return Err(format!(
+                    "node {node_id} did not install epoch {writer_epoch}: {other:?}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_machine_preflight_config(
     config: &StagedTxLogMachinePreflightConfig,
 ) -> Result<(), String> {
@@ -1206,18 +1919,49 @@ fn validate_machine_preflight_config(
     {
         return Err("invalid staged txLog machine preflight bounds".to_owned());
     }
-    let node_ids = config
-        .nodes
+    validate_machine_topology(&config.nodes)
+}
+
+fn validate_machine_curve_config(config: &StagedTxLogMachineCurveConfig) -> Result<(), String> {
+    if config.schema_version != 1
+        || config.writer_epoch == 0
+        || config.record_count == 0
+        || config.record_count > MACHINE_CURVE_MAX_RECORDS
+        || config.record_bytes == 0
+        || config.record_bytes > MACHINE_PREFLIGHT_MAX_PAYLOAD_BYTES
+        || config.max_batch_records == 0
+        || config.max_batch_records > MACHINE_PREFLIGHT_MAX_BATCH_RECORDS
+        || config.max_batch_dwell_micros > MACHINE_CURVE_MAX_DWELL_MICROS
+        || !config.offered_records_per_second.is_finite()
+        || config.offered_records_per_second <= 0.0
+        || config.offered_records_per_second > MACHINE_CURVE_MAX_OFFERED_RECORDS_PER_SECOND
+        || config.client_tasks == 0
+        || config.client_tasks > MACHINE_CURVE_MAX_CLIENT_TASKS
+        || config.stream_count == 0
+        || config.stream_count > MACHINE_CURVE_MAX_STREAMS
+        || config.queue_capacity_records == 0
+        || config.queue_capacity_records > MACHINE_CURVE_MAX_QUEUE_RECORDS
+        || config.node_queue_capacity_batches == 0
+        || config.node_queue_capacity_batches > MACHINE_PREFLIGHT_MAX_BATCH_RECORDS
+    {
+        return Err("invalid staged txLog machine curve bounds".to_owned());
+    }
+    validate_machine_topology(&config.nodes)
+}
+
+fn validate_machine_topology(nodes: &[StagedTxLogMachineNodeConfig]) -> Result<(), String> {
+    if nodes.len() != NODE_COUNT {
+        return Err("machine topology requires exactly three nodes".to_owned());
+    }
+    let node_ids = nodes
         .iter()
         .map(|node| node.node_id)
         .collect::<BTreeSet<_>>();
-    let machine_ids = config
-        .nodes
+    let machine_ids = nodes
         .iter()
         .map(|node| node.machine_id.as_str())
         .collect::<BTreeSet<_>>();
-    let endpoints = config
-        .nodes
+    let endpoints = nodes
         .iter()
         .map(|node| node.endpoint.as_str())
         .collect::<BTreeSet<_>>();
@@ -1225,14 +1969,12 @@ fn validate_machine_preflight_config(
         || machine_ids.len() != NODE_COUNT
         || machine_ids.contains("")
         || endpoints.len() != NODE_COUNT
-        || config
-            .nodes
+        || nodes
             .iter()
             .any(|node| node.endpoint.parse::<SocketAddr>().is_err())
     {
         return Err(
-            "machine preflight requires three exact node, machine, and endpoint identities"
-                .to_owned(),
+            "machine curve requires three exact node, machine, and endpoint identities".to_owned(),
         );
     }
     Ok(())
@@ -1338,6 +2080,30 @@ fn percentile(sorted: &[f64], percentile: usize) -> f64 {
     let maximum_index = sorted.len().saturating_sub(1);
     let position = maximum_index.saturating_mul(percentile).saturating_add(50) / 100;
     sorted[position.min(maximum_index)]
+}
+
+fn percentile_per_mille(sorted: &[f64], per_mille: usize) -> f64 {
+    if sorted.is_empty() {
+        return f64::NAN;
+    }
+    let maximum_index = sorted.len().saturating_sub(1);
+    let position = maximum_index.saturating_mul(per_mille).saturating_add(500) / 1_000;
+    sorted[position.min(maximum_index)]
+}
+
+fn update_atomic_max(value: &AtomicU64, candidate: u64) {
+    let mut current = value.load(Ordering::Relaxed);
+    while candidate > current {
+        match value.compare_exchange_weak(current, candidate, Ordering::Relaxed, Ordering::Relaxed)
+        {
+            Ok(_) => break,
+            Err(observed) => current = observed,
+        }
+    }
+}
+
+fn duration_nanos_u64(duration: Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
 fn start_nodes(
@@ -1746,6 +2512,22 @@ fn hex_digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+fn wire_records_digest<'a>(records: impl IntoIterator<Item = &'a WireRecord>) -> String {
+    let mut hasher = Sha256::new();
+    for record in records {
+        update_wire_record_digest(&mut hasher, record);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn update_wire_record_digest(hasher: &mut Sha256, record: &WireRecord) {
+    hasher.update(record.writer_epoch.to_be_bytes());
+    hasher.update(record.position.to_be_bytes());
+    hasher.update(record.request_identity);
+    hasher.update(bounded_u64(record.payload.len()).to_be_bytes());
+    hasher.update(&record.payload);
+}
+
 fn bounded_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
@@ -1828,8 +2610,11 @@ mod tests {
                 payload: vec![0x33; 128],
             })
             .collect::<Vec<_>>();
+        let expected_digest = wire_records_digest(records.iter());
         assert!(matches!(
-            runtime.handle(NodeRequest::AppendBatch { records }),
+            runtime.handle(NodeRequest::AppendBatch {
+                records: records.clone()
+            }),
             NodeResponse::AppendBatch {
                 first_position: 1,
                 last_position: 256,
@@ -1841,6 +2626,16 @@ mod tests {
             }
         ));
         assert_eq!(runtime.node.records().len(), 256);
+        assert!(matches!(
+            runtime.handle(NodeRequest::StateDigest),
+            NodeResponse::StateDigest {
+                writer_epoch: Some(7),
+                next_position: 257,
+                record_count: 256,
+                records_sha256,
+                ..
+            } if records_sha256 == expected_digest
+        ));
     }
 
     #[test]
@@ -1864,6 +2659,47 @@ mod tests {
         validate_machine_preflight_config(&config).unwrap();
         config.nodes[2].machine_id = config.nodes[1].machine_id.clone();
         assert!(validate_machine_preflight_config(&config).is_err());
+    }
+
+    #[test]
+    fn machine_curve_freezes_open_loop_and_queue_bounds() {
+        let mut config = StagedTxLogMachineCurveConfig {
+            schema_version: 1,
+            seed: 17,
+            writer_epoch: 7,
+            log_identity: [0x11; 32],
+            nodes: (0_u8..3)
+                .map(|node_id| StagedTxLogMachineNodeConfig {
+                    node_id,
+                    machine_id: format!("machine-{node_id}"),
+                    endpoint: format!("127.0.0.1:{}", 7_000_u16 + u16::from(node_id)),
+                })
+                .collect(),
+            record_bytes: 128,
+            record_count: 65_536,
+            max_batch_records: 256,
+            max_batch_dwell_micros: 250,
+            offered_records_per_second: 100_000.0,
+            client_tasks: 64,
+            stream_count: 256,
+            queue_capacity_records: 65_536,
+            node_queue_capacity_batches: 1_024,
+        };
+        validate_machine_curve_config(&config).unwrap();
+        config.queue_capacity_records = 0;
+        assert!(validate_machine_curve_config(&config).is_err());
+    }
+
+    #[test]
+    fn deterministic_poisson_delay_is_positive_and_repeatable() {
+        let mut first = DeterministicPoisson::new(17);
+        let mut second = DeterministicPoisson::new(17);
+        for _ in 0..32 {
+            let left = first.exponential_delay(100_000.0);
+            let right = second.exponential_delay(100_000.0);
+            assert_eq!(left, right);
+            assert!(!left.is_zero());
+        }
     }
 
     #[test]
