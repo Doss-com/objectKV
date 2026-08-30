@@ -13,8 +13,11 @@ passed and the sixth retained a p99 rejection with complete telemetry.
 `[VERIFIED]` RFC-0047 V2.1 reduces native local bytes to 1.000037x direct
 RocksDB at 1 GiB. `[EVALUATING]` Its bounded V2.2 diagnostic leaves p99 at
 1.742x control while p50, p95, and p99.9 are 1.026x, 1.131x, and 1.032x.
-The complete T27 curve is explicitly deferred. `[EVALUATING]` RFC-0046 T28,
-same-durability replicated commit, and the complete
+The complete T27 curve is explicitly deferred. `[EVALUATING]` RFC-0046 T28's
+original cloud-latency and refill gates. `[VERIFIED]` Its corrected local
+addendum passed all 15 blocks with a maximum 1.078x ratio and 33.932-us
+increment. Matched object-layout geometry is now active. `[EVALUATING]`
+same-durability replicated commit and the complete
 transaction plane. No full-cell or cross-stack performance claim is
 `[VERIFIED]`.
 

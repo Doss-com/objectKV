@@ -189,7 +189,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
       <span>objectKV</span>
       <span>Technical program tracker</span>
       <span>Branch research/native-matched-topology-r0</span>
-      <span>Base 18e24b7</span>
+      <span>Base afbfb69</span>
     </div>
     <h1>Build the hot KV first. Prove the object advantage second.</h1>
     <p class="lede">Provider v1 passed five complete 1 GiB T27 strata, then the sixth rejected the frozen p99 gate at 1.3076x and 1.3399x direct RocksDB. Every other gate passed across 120 fresh processes. RFC-0047 provider v2 is now code complete: it stores the object base once and seeds history only for post-frontier changes. Performance remains evaluating until the local-byte preflight and exact failed-stratum replay pass.</p>
@@ -227,7 +227,7 @@ tbody tr:hover { background: var(--ds-gray-alpha-100); }
 <a href="#decisions"><span>10</span>Active decisions</a>
 <a href="#work-log"><span>11</span>Work in progress log</a>
 <a href="#next-review"><span>12</span>Next architecture review</a></nav>
-      <p class="side-note">Generated 2026-08-30 03:54 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
+      <p class="side-note">Generated 2026-08-30 07:41 UTC from the current working tree and append-only experiment ledger. A status applies only to its named suite, backend, and topology.</p>
     </aside>
 
     <article class="content">
@@ -428,16 +428,16 @@ Arrow batches at T</pre></article>
         <h2 id="receipts"><span class="section-id">[09]</span>Recent measured receipts</h2>
         <div class="table-wrap"><table>
           <thead><tr><th>Date</th><th>Lane</th><th>Status</th><th>Backend</th><th>Primary metric</th><th>Receipt</th></tr></thead>
-          <tbody><tr><td>2026-08-30</td><td>native-resident-cache-pressure</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+rocksdb-native-resident-v1-vs-direct-rocksdb</td><td><code>p99_latency_ratio</code></td><td><code>912fb7e5-35d</code><br><span class="muted">95dedb0249</span></td></tr>
+          <tbody><tr><td>2026-08-30</td><td>gcs-cold-indexed-point</td><td><span class="status verified">VERIFIED</span></td><td>generation-pinned-gcs-range-read</td><td><code>recorded result</code></td><td><code>not recorded</code><br><span class="muted">8c0b39a</span></td></tr>
+<tr><td>2026-08-30</td><td>native-resident-cache-pressure</td><td><span class="status proposed">PROPOSED</span></td><td>unknown</td><td><code>recorded result</code></td><td><code>not recorded</code><br><span class="muted">077b0062e5</span></td></tr>
+<tr><td>2026-08-30</td><td>native-resident-cache-pressure</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+rocksdb-native-resident-v1-vs-direct-rocksdb</td><td><code>p99_latency_ratio</code></td><td><code>912fb7e5-35d</code><br><span class="muted">95dedb0249</span></td></tr>
 <tr><td>2026-08-29</td><td>object-fixture-gcs-preflight</td><td><span class="status verified">VERIFIED</span></td><td>object-store-gcs+data-openraft-local-process+rocksdb-resident+persisted-fixture</td><td><code>okv.eval.object_fixture.setup_seconds.maximum = 11.6963</code></td><td><code>multiple</code><br><span class="muted">6f812ddf3d</span></td></tr>
 <tr><td>2026-08-28</td><td>native-resident-direct-read-preflight</td><td><span class="status verified">VERIFIED</span></td><td>object-store-local-fs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-local-nvme-direct-reads</td><td><code>okv.eval.operation.throughput_ratio.single_sample = 1.04481</code></td><td><code>multiple</code><br><span class="muted">a56c838947</span></td></tr>
 <tr><td>2026-08-28</td><td>native-resident-cache-pressure</td><td><span class="status verified">VERIFIED</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme</td><td><code>okv.eval.operation.throughput_ratio.minimum = 0.943189</code></td><td><code>multiple</code><br><span class="muted">a4cf9a8a8d</span></td></tr>
 <tr><td>2026-08-28</td><td>native-resident-cache-pressure</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme</td><td><code>okv.eval.operation.throughput_ratio.minimum = 0.565927</code></td><td><code>multiple</code><br><span class="muted">76d2cae98d</span></td></tr>
 <tr><td>2026-08-27</td><td>hot-ssd-native-concurrency</td><td><span class="status verified">VERIFIED</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme</td><td><code>okv.eval.operation.throughput_ratio.minimum = 0.873379</code></td><td><code>multiple</code><br><span class="muted">e478806314</span></td></tr>
 <tr><td>2026-08-27</td><td>single-range-ssd-admission</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-native-resident-nvme</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">3c4cae96fe</span></td></tr>
-<tr><td>2026-08-27</td><td>single-range-ssd-admission</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-nvme</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">88e221b9d1</span></td></tr>
-<tr><td>2026-08-27</td><td>single-range-ssd-admission</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-nvme</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">19ea46fc44</span></td></tr>
-<tr><td>2026-08-27</td><td>single-range-ssd-smoke</td><td><span class="status proposed">PROPOSED</span></td><td>unknown</td><td><code>recorded result</code></td><td><code>not recorded</code><br><span class="muted">working tr</span></td></tr></tbody>
+<tr><td>2026-08-27</td><td>single-range-ssd-admission</td><td><span class="status evaluating">EVALUATING</span></td><td>object-store-gcs+authority-openraft-local-process+data-openraft-local-process+rocksdb-nvme</td><td><code>okv.eval.operation.throughput</code></td><td><code>multiple</code><br><span class="muted">88e221b9d1</span></td></tr></tbody>
         </table></div>
       </section>
 
@@ -503,7 +503,7 @@ Arrow batches at T</pre></article>
     </article>
   </div>
 
-  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-30 03:54 UTC</span></footer>
+  <footer class="foot"><span>Canonical program sources: docs, RFCs, eval suites, and experiments/ledger.jsonl</span><span>Generated 2026-08-30 07:41 UTC</span></footer>
 </main>
 
 </body>

@@ -113,7 +113,7 @@ This is construction and recovery evidence, not a new throughput point.
 | 6 | Local branch, replay, and empty replacement worker are exact | Parent-size independence and GCS request curve are open |
 | 11 | Streaming base-plus-tail operator is exact on bounded fixtures | Tail-size, query-memory, GCS, and OLTP-interference curves are open |
 
-## Current first-unverified gate
+## Latest lower-layer result
 
 ```text
 ┌─[ RFC-0046 -> T28.0 / T28.1 ]─────────────────────────────────────┐
@@ -125,9 +125,10 @@ This is construction and recovery evidence, not a new throughput point.
 │ primary gate  every block p99 ≤ 1.25x raw-range control          │
 │ object gate   one data range GET · no LIST · no full hydration   │
 │ authority     attested read-only objectViewer principal          │
-│ result        pooled p99 1.048x; 2/15 blocks rejected at >1.25x │
+│ result        corrected pooled p99 1.094x; 2/15 blocks rejected  │
+│ local         15/15 pass; max ratio 1.078x; max delta 33.932 us  │
 │ cause         failed end-to-end ratios track GCS provider ratios │
-│ next          exact provider/local residual attribution          │
+│ next          matched row-versus-column object geometry          │
 │ state         [EVALUATING]                                        │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -138,20 +139,18 @@ generation, base-seed boundary, and one reusable 1 GiB object closure are
 read-only authority binding, no-retry GCS adapter, per-attempt trace,
 independent value oracle, RAM-retained authenticated indexes, and
 fresh-process concurrent candidate/control positions. `[EVALUATING]` The
-three-seed curve completed 15 blocks and 30,720 reads per subject. Candidate
-p99 was 61.752 ms versus 58.920 ms raw control, or 1.048x when pooled. The
-frozen every-block gate rejected 2 of 15 blocks at 1.298x and 1.378x. Their
-provider-only ratios were 1.299x and 1.379x, so the observed misses follow GCS
-variance rather than measured candidate-local work. The script also failed to
-invert seed 2207's starting order, making the run ineligible. The result is retained;
-`[CODE-COMPLETE]` Exact per-operation attribution records end-to-end, provider,
-and local-residual latency. One fresh diagnostic measured candidate/raw
-local-residual p99 at 428.507/407.242 microseconds while its end-to-end gap
-tracked its provider gap within 16 microseconds. An admitted curve still
-requires a precommitted variance-aware addendum and OTel binding.
+corrected three-seed execution completed 15 blocks and 30,720 reads per
+subject. Candidate/raw pooled p99 was 62.304/56.964 ms, or 1.094x. The original
+gate rejected two blocks at 1.595x and 1.383x; their provider ratios were
+1.598x and 1.386x. `[VERIFIED]` The precommitted local addendum passed all 15
+blocks with candidate/raw pooled local-residual p99 at 446.575/439.678
+microseconds, a maximum 1.078x block ratio, and a maximum 33.932-microsecond
+increment. All 61,440 reads were exact with one range GET and zero retries.
+The independent collector contains the run in logs, metrics, and traces. The
+original end-to-end gate remains rejected.
 
 Evidence:
-`docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.
+`docs/artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md`.
 
 ```text
 generation-pinned locator + immutable operation plan
@@ -175,7 +174,7 @@ attribution; it does not block T28 under D68.
 │   ↓                                                               │
 │ row 1 cache pressure [deferred debt]                              │
 │                                                                   │
-│ row 2 cold read → row 3 object layout [active path]               │
+│ row 2 cold read [deferred tail] → row 3 object layout [active]    │
 │   ↓                                                               │
 │ rows 4–6 commit, bounded recovery, and branching                  │
 │   ↓                                                               │
@@ -187,7 +186,8 @@ attribution; it does not block T28 under D68.
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-The active program advances the first unverified dependency. Upper-layer code
+The active program advances row 3, the first objectKV-controlled layout
+uncertainty after row 2 verified bounded local point overhead. Upper-layer code
 may be built as a semantic probe, but it cannot substitute for a missing lower
 layer receipt.
 
@@ -209,6 +209,7 @@ layer receipt.
 - [RFC-0047 provider-v2 footprint and tail diagnostic](../artifacts/eval-receipts/rfc0047-resident-v2-preflight-tail-diagnostic-gcp-r0-2026-08-30/README.md)
 - [RFC-0047 sparse resident history](../../rfcs/0047-sparse-resident-history.md)
 - [T27 GCS placement-boundary receipt](../artifacts/eval-receipts/t27-gcs-placement-boundary-gcp-r0-2026-08-28/README.md)
+- [T28 corrected GCS point curve](../artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md)
 - [Native matched single-range receipt](../artifacts/eval-receipts/single-range-native-matched-gcp-r0-2026-08-27/README.md)
 - [Native concurrent-read receipt](../artifacts/eval-receipts/single-range-native-concurrency-gcp-r0-2026-08-27/README.md)
 - [Corrected cache calibration](../artifacts/eval-receipts/native-resident-cache-pressure-optimized-gcp-r0-2026-08-28/README.md)

@@ -1754,3 +1754,34 @@ rerunning independent GCS positions until every block happens to pass.
 
 Evidence:
 `docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.
+
+## D70. Advance to object-layout geometry after the T28 local addendum
+
+Status: local-overhead mechanism `[VERIFIED]`; row 2 `[EVALUATING]`, 2026-08-30.
+
+Decision: preserve the corrected T28 execution's original every-block
+end-to-end rejection, verify only the precommitted local-residual addendum, and
+advance the active program frontier to matched row-versus-column object-layout
+geometry. Do not repeat the same provider-allocation comparison or weaken its
+1.25x threshold. Return to row 2 for cache refill and a deliberate
+provider-tail strategy after row 3 determines the permanent object
+representation.
+
+The corrected single execution used the frozen ABBA/BAAB seed rotation and
+completed 15 blocks. Thirteen passed the original gate; two rejected at
+1.594936x and 1.383290x. Their provider ratios were 1.597901x and 1.385882x.
+All 15 blocks passed the local addendum. Candidate/raw pooled local-residual
+p99 was 446.575/439.678 microseconds; the maximum block ratio was 1.078302x and
+the maximum positive difference was 33.932 microseconds. All 61,440 reads were
+exact, each used one planned range GET, and the independent collector found
+the run in logs, metrics, and traces.
+
+Optimizes for: spending the next program interval on the objectKV-controlled
+layout decision that determines point, projected scan, recovery, and HTAP
+costs.
+
+Gives up: admitting the cold GCS end-to-end curve or claiming that every cloud
+allocation keeps objectKV p99 within 1.25x raw GCS. T38 remains unchanged.
+
+Evidence:
+`docs/artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md`.

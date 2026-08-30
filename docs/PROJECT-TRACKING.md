@@ -27,31 +27,26 @@ same atomic batch as its tail mutation and applied cursor. `[VERIFIED]` The
 V2.1 preflight and 1 GiB diagnostic reduce native local bytes from 2.015239x to
 1.000037x direct RocksDB. `[EVALUATING]` A bounded five-native, five-control
 replay measured p50 1.026x, p95 1.131x, p99 1.742x, and p99.9 1.032x control.
-The complete tail curve is deferred without changing its target. RFC-0046 T28
-cold indexed GCS reads are now the active program row.
+The complete tail curve is deferred without changing its target. RFC-0046 row
+3, matched row-versus-column object layout on GCS, is now the active program
+row.
 
-`[CODE-COMPLETE]` T28 can exact-open a generation-pinned descriptor and
-manifest without hydrating the closure, retain selected authenticated indexes
-in RAM, seal point ranges, and run concurrent candidate and raw-control reads
-through fresh processes. `[EVALUATING]` The real 1 GiB, three-seed GCS curve
-completed 15 paired blocks and 30,720 measured reads per subject. Candidate
-versus raw-control latency was 26.760 versus 26.758 ms p50, 44.202 versus
-43.666 ms p95, 61.752 versus 58.920 ms p99, and 140.124 versus 116.206 ms
-p99.9. The pooled p99 ratio was 1.048x, but the frozen every-block gate rejected
-two blocks at 1.298x and 1.378x, so row 2 remains `[EVALUATING]`. Provider-only
-p99 ratios on those misses were 1.299x and 1.379x; the end-to-provider gap was
-about 0.35 ms on both subjects. All reads returned exact values through one
-planned range request with zero retries and zero correctness anomalies. T38 is
-unchanged because the curve was not admitted. Evidence:
-`docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.
-`[CODE-COMPLETE]` Each operation now also records its exact GCS time and local
-residual. A fresh diagnostic measured candidate/raw local-residual p99 at
-428.507/407.242 microseconds, a 21.265-microsecond candidate increment, while
-the 33.335 ms end-to-end difference tracked a 33.319 ms provider difference.
-This proves attribution, not admission. The prior 15-block script also failed
-to invert seed 2207's starting order, making it ineligible independently of its
-two threshold misses. The corrected subject matrix and local-residual addendum
-are now frozen before execution.
+`[CODE-COMPLETE]` T28 exact-opens a generation-pinned descriptor and manifest
+without hydrating the closure, retains selected authenticated indexes in RAM,
+seals point ranges, and runs concurrent candidate and raw-control reads through
+fresh processes. `[EVALUATING]` The corrected 1 GiB, three-seed GCS execution
+completed 15 paired blocks and 30,720 reads per subject. Pooled candidate/raw
+p99 was 62.304/56.964 ms, or 1.094x, but the original every-block gate rejected
+two blocks at 1.595x and 1.383x. Their provider-only ratios were 1.598x and
+1.386x. `[VERIFIED]` The precommitted local addendum passed all 15 blocks;
+pooled candidate/raw local-residual p99 was 446.575/439.678 microseconds, its
+maximum block ratio was 1.078x, and its maximum positive increment was 33.932
+microseconds. Every read returned the exact value through one planned range
+GET with zero retries and zero anomalies. Independent OTel inspection found
+the run in logs, metrics, and traces. Row 2 remains `[EVALUATING]`, T38 is
+unchanged, and matched row-versus-column object geometry is now the active
+frontier. Evidence:
+`docs/artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md`.
 
 The recurring four-panel performance view is tracked with the RFC-0047
 diagnostic evidence. Each new admitted curve updates latency shape, concurrency
@@ -425,8 +420,7 @@ that sequence rather than maintaining a second independent plan.
 The current critical path is:
 
 ```text
-RFC-0046 generation-pinned GCS cold point
-  -> object-layout geometry
+RFC-0046 object-layout geometry
   -> independent-media replicated commit
   -> objectification debt, host loss, and bounded local media
   -> metadata branch and lazy reopen
@@ -440,11 +434,13 @@ RFC-0046 generation-pinned GCS cold point
 deferred
   -> row-1 cache hit/miss attribution
   -> complete provider-v2 cache-pressure curve
+  -> row-2 GCS provider-tail strategy and cache refill
 ```
 
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
-stop decision for objectKV. The immediate owned task is RFC-0046 T28. T27's locator,
+stop decision for objectKV. The immediate owned task is RFC-0046 row 3,
+matched row-versus-column object geometry. T27's locator,
 read-only consumer, standalone control, separate seeds, fresh-process runner,
 raw evidence, runtime binding, telemetry completion, and poison boundaries are
 `[VERIFIED]`. The final runner adds one authenticated resumable receipt per
@@ -453,8 +449,9 @@ build passes 122 library and three controller tests. Provider v1 has five
 passing strata and one retained p99 rejection after 120 fresh processes.
 Provider v2 fixes the footprint and leaves one localized p99 gap in a bounded
 diagnostic. The 27 direct-NVMe strata and two sentinels are deferred.
-Provider-v1 and provider-v2 results are never combined. T28 now owns the next
-clean cloud comparison against direct indexed GCS.
+Provider-v1 and provider-v2 results are never combined. T28's corrected local
+addendum verifies bounded indexed-read overhead; its original cloud gate and
+cache-refill lane remain explicit deferred debt.
 
 ## Current checkpoint
 

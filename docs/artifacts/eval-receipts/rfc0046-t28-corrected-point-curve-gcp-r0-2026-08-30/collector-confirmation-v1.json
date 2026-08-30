@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-08-30T07:38:26Z",
+  "controller_run_id": "e393cc6f-f121-45de-9ef1-baebe0443d71",
+  "collector": {
+    "machine_id": "28067e589c35768e490933db60979082",
+    "boot_id": "94c9e994-0daa-46d0-92d9-3790b209f403",
+    "container_name": "objectkv-otel",
+    "image": "otel/opentelemetry-collector-contrib:0.157.0",
+    "image_id": "sha256:498c59b440c4ba5ea061c73a68ad14cf6d192acad52334a85a5126774f7ee759",
+    "started_at": "2026-08-29T16:55:18.800617343Z",
+    "health": "Server available"
+  },
+  "signals": {
+    "logs": {
+      "run_id_records": 61,
+      "file_bytes": 367768,
+      "file_sha256": "29664a527c10d581355729949267e8d252674e7ea81edbd16e9f701ac970628f"
+    },
+    "metrics": {
+      "run_id_records": 8,
+      "file_bytes": 15024713,
+      "file_sha256": "5dceaad36de6981bb80f1801d5a4ceaa85e3ac28dc7bb074b9d02bd052336f7b"
+    },
+    "traces": {
+      "run_id_records": 60,
+      "file_bytes": 561387,
+      "file_sha256": "e9570efd5382ddbb51cd1cca74da5633470e0cfc9f36dd922e6c4be4b8122113"
+    }
+  },
+  "all_signals_present": true
+}

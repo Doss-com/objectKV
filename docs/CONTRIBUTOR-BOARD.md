@@ -703,19 +703,16 @@ become one GitHub issue.
 - Current checkpoint: `[CODE-COMPLETE]` lazy open, sealed range plans,
   authenticated indexes retained in RAM, no-retry GCS, provider-attempt
   events, independent value oracle, and fresh-process concurrent candidate/raw
-  positions. `[EVALUATING]` The 15-block, three-seed curve completed 30,720
-  reads per subject. Pooled p99 was 1.048x raw control, but 2 of 15 blocks
-  rejected the frozen 1.25x gate at 1.298x and 1.378x. Provider-only ratios on
-  those blocks were 1.299x and 1.379x. The script did not invert seed 2207's
-  starting order, so it is ineligible independently of those misses. Every
-  read returned the exact value with
-  one planned range request, zero retries, and zero anomalies. Preserve the
-  rejection. `[CODE-COMPLETE]` Exact per-operation attribution subsequently
-  measured candidate/raw local-residual p99 at 428.507/407.242 microseconds in
-  one diagnostic pair. The corrected subject matrix and local-residual
-  addendum are frozen in
-  `evals/plans/t28-point-curve-addendum-v1.toml` before rerunning. Evidence:
-  `docs/artifacts/eval-receipts/rfc0046-t28-point-curve-gcp-r0-2026-08-30/README.md`.
+  positions. `[EVALUATING]` The corrected 15-block execution measured pooled
+  candidate/raw p99 at 62.304/56.964 ms and rejected two blocks at 1.595x and
+  1.383x. The corresponding provider ratios were 1.598x and 1.386x.
+  `[VERIFIED]` Its precommitted local addendum passed 15/15 blocks with pooled
+  local-residual p99 at 446.575/439.678 microseconds, a maximum 1.078x block
+  ratio, and a maximum 33.932-microsecond increment. All 61,440 reads returned
+  exact values through one range GET with zero retries or anomalies; all three
+  OTel signals contain the run. Preserve the original rejection and advance
+  the active work to matched row-versus-column object geometry. Evidence:
+  `docs/artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
 
