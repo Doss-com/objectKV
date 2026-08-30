@@ -700,6 +700,12 @@ become one GitHub issue.
   Fable returned `SHIP` on the second re-review. Implementation is now the
   active program task. Review:
   `docs/research/reviews/fable-rfc0046-preimplementation-review-2026-08-30.md`.
+- Current checkpoint: `[CODE-COMPLETE]` lazy open, sealed range plans,
+  no-retry GCS, provider-attempt events, independent value oracle, and shared
+  candidate/raw single-point execution. `[EVALUATING]` One real 1 GiB pair
+  returned the exact 65,048-byte block in one attempt per subject. This is not
+  an admitted latency curve. Evidence:
+  `docs/artifacts/eval-receipts/rfc0046-t28-point-preflight-gcp-r0-2026-08-30/README.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
 

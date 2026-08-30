@@ -30,6 +30,15 @@ replay measured p50 1.026x, p95 1.131x, p99 1.742x, and p99.9 1.032x control.
 The complete tail curve is deferred without changing its target. RFC-0046 T28
 cold indexed GCS reads are now the active program row.
 
+`[CODE-COMPLETE]` T28 can now exact-open a generation-pinned descriptor and
+manifest without hydrating the closure, seal an authenticated point range,
+record provider-attempt boundaries, and execute the same range through the
+candidate or raw control. `[EVALUATING]` The first real 1 GiB GCS preflight
+returned one exact 65,048-byte block with one provider attempt for each
+subject. Single-shot latency was 49.220 ms candidate and 36.172 ms control.
+This diagnostic does not update the performance matrix or T38 figure; the
+fresh-process 15-block admission run remains open.
+
 The recurring four-panel performance view is tracked with the RFC-0047
 diagnostic evidence. Each new admitted curve updates latency shape, concurrency
 scaling, footprint, or tier evidence. Unmeasured external controls remain blank.

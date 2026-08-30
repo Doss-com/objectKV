@@ -1,6 +1,6 @@
 # RFC-0046: Generation-pinned GCS cold-point and layout curve
 
-- Status: `[EVALUATING]`; design `[VERIFIED]`, implementation `[PROPOSED]`
+- Status: `[EVALUATING]`; design `[VERIFIED]`, implementation `[EVALUATING]`
 - Authors: DOSS
 - Created: 2026-08-30
 - Scope: T28, `okv-object`, `okv-eval`, and the RangeEngine object-refill path
@@ -8,6 +8,15 @@
 Pre-implementation review: `[VERIFIED]` Fable `SHIP` after two adversarial
 passes. D68 activates implementation after the bounded T27 provider-v2
 diagnostic while leaving T27 tail performance `[EVALUATING]`.
+
+Implementation checkpoint: `[CODE-COMPLETE]` commits `1d67897` through
+`8c0b39a` add lazy descriptor and manifest open, authenticated block plans,
+no-retry GCS construction, provider-attempt events, an independent value
+oracle, and candidate plus raw-range single-point commands. `[EVALUATING]` A
+real 1 GiB fixture preflight returned the exact value through one 65,048-byte
+GCS range attempt for each subject. This is mechanism evidence only. The
+read-only identity receipt, complete poison set, fresh-process paired runner,
+OTel receipt, and admission curve remain open.
 
 ## Decision
 

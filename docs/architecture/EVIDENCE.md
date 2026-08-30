@@ -125,17 +125,19 @@ This is construction and recovery evidence, not a new throughput point.
 │ primary gate  every block p99 ≤ 1.25x raw-range control          │
 │ object gate   one data range GET · no LIST · no full hydration   │
 │ authority     attested read-only objectViewer principal          │
-│ next          implement T28.0 decoder and poison boundary        │
+│ next          finish IAM, poison, paired runner, and OTel gates  │
 │ state         [EVALUATING]                                        │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
 The immutable locator, separate writer and read-only consumers, descriptor
 generation, base-seed boundary, and one reusable 1 GiB object closure are
-`[VERIFIED]`. T28 must add a lazy reader that opens only named metadata, index,
-and block ranges. It must prove read-only authority, count provider attempts by
-stage, compare against the same raw GCS byte ranges, and reject full-object,
-LIST, stale-generation, retry, and hidden-local-state poisons.
+`[VERIFIED]`. `[CODE-COMPLETE]` T28 now has the lazy reader, sealed block plan,
+no-retry GCS adapter, per-attempt trace, independent value oracle, and shared
+candidate/control point command. `[EVALUATING]` One real GCS pair returned the
+exact value through one 65,048-byte range attempt per subject. T28 must still
+prove read-only authority, complete every poison, run fresh paired processes,
+and bind the admitted curve to OTel.
 
 ```text
 generation-pinned locator + immutable operation plan
