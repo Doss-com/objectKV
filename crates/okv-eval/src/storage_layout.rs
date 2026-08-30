@@ -34,9 +34,9 @@ mod t28_aligned;
 mod t28_typed;
 
 pub use t28_aligned::{
-    publish_t28_aligned_layout, T28AlignedLayoutPlacementInput, T28AlignedLayoutPublication,
-    T28AlignedLayoutReader, T28AlignedPointGatherSnapshot, T28AlignedScan, T28AlignedScanSnapshot,
-    T28OpenedAlignedLayout,
+    publish_t28_aligned_layout, T28AlignedFixtureV1, T28AlignedLayoutPlacementInput,
+    T28AlignedLayoutPublication, T28AlignedLayoutReader, T28AlignedPointGatherSnapshot,
+    T28AlignedScan, T28AlignedScanSnapshot, T28OpenedAlignedLayout,
 };
 pub use t28_typed::{
     derive_t28_typed_point_trace, publish_t28_typed_layout, t28_typed_layout_profile,

@@ -6,10 +6,30 @@ use okv_object::{
     Backend, BackendDescriptor, BackendRead, RevisionToken, StoreError, WriteCondition,
 };
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+tokio::task_local! {
+    static LOGICAL_OPERATION_ID: u64;
+}
+
+/// Run one future with a logical operation identity visible to every provider
+/// attempt issued by that future.
+///
+/// Nested provider calls retain their own provider operation IDs. This scoped
+/// identity only correlates those attempts with the application operation that
+/// caused them.
+pub async fn scope_logical_operation<F>(logical_operation_id: u64, future: F) -> F::Output
+where
+    F: Future,
+{
+    LOGICAL_OPERATION_ID
+        .scope(logical_operation_id, future)
+        .await
+}
 
 /// Lifecycle phase for one provider call.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -26,6 +46,8 @@ pub struct ProviderAttemptEventV1 {
     pub schema_version: u32,
     pub sequence: u64,
     pub operation_id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_operation_id: Option<u64>,
     pub attempt_ordinal: u32,
     pub subject: String,
     pub provider: String,
@@ -35,6 +57,7 @@ pub struct ProviderAttemptEventV1 {
     pub requested_range: Option<Range<u64>>,
     pub expected_revision: Option<RevisionToken>,
     pub started_unix_nanos: u64,
+    pub started_monotonic_nanos: u64,
     pub result: Option<String>,
     pub returned_revision: Option<RevisionToken>,
     pub object_length: Option<u64>,
@@ -52,6 +75,7 @@ pub struct ProviderAttemptBackend {
     provider: String,
     next_operation_id: AtomicU64,
     next_sequence: AtomicU64,
+    monotonic_epoch: Instant,
     events: Mutex<Vec<ProviderAttemptEventV1>>,
 }
 
@@ -73,6 +97,7 @@ impl ProviderAttemptBackend {
             provider,
             next_operation_id: AtomicU64::new(1),
             next_sequence: AtomicU64::new(1),
+            monotonic_epoch: Instant::now(),
             events: Mutex::new(Vec::new()),
         })
     }
@@ -104,20 +129,30 @@ impl ProviderAttemptBackend {
     ) -> AttemptContext {
         let operation_id = self.next_operation_id.fetch_add(1, Ordering::SeqCst);
         let started_unix_nanos = unix_nanos();
+        let started = Instant::now();
+        let started_monotonic_nanos = u64::try_from(
+            started
+                .saturating_duration_since(self.monotonic_epoch)
+                .as_nanos(),
+        )
+        .unwrap_or(u64::MAX);
         let context = AttemptContext {
             operation_id,
+            logical_operation_id: LOGICAL_OPERATION_ID.try_with(|value| *value).ok(),
             api: api.to_owned(),
             object_key: object_key.to_owned(),
             requested_range,
             expected_revision: expected_revision.cloned(),
             request_payload_bytes,
             started_unix_nanos,
-            started: Instant::now(),
+            started_monotonic_nanos,
+            started,
         };
         self.push_event(ProviderAttemptEventV1 {
             schema_version: 1,
             sequence: self.next_sequence.fetch_add(1, Ordering::SeqCst),
             operation_id,
+            logical_operation_id: context.logical_operation_id,
             attempt_ordinal: 1,
             subject: self.subject.clone(),
             provider: self.provider.clone(),
@@ -127,6 +162,7 @@ impl ProviderAttemptBackend {
             requested_range: context.requested_range.clone(),
             expected_revision: context.expected_revision.clone(),
             started_unix_nanos,
+            started_monotonic_nanos,
             result: None,
             returned_revision: None,
             object_length: None,
@@ -200,6 +236,7 @@ impl ProviderAttemptBackend {
             schema_version: 1,
             sequence: self.next_sequence.fetch_add(1, Ordering::SeqCst),
             operation_id: context.operation_id,
+            logical_operation_id: context.logical_operation_id,
             attempt_ordinal: 1,
             subject: self.subject.clone(),
             provider: self.provider.clone(),
@@ -209,6 +246,7 @@ impl ProviderAttemptBackend {
             requested_range: context.requested_range,
             expected_revision: context.expected_revision,
             started_unix_nanos: context.started_unix_nanos,
+            started_monotonic_nanos: context.started_monotonic_nanos,
             result: Some(result),
             returned_revision,
             object_length,
@@ -230,12 +268,14 @@ impl ProviderAttemptBackend {
 #[derive(Debug)]
 struct AttemptContext {
     operation_id: u64,
+    logical_operation_id: Option<u64>,
     api: String,
     object_key: String,
     requested_range: Option<Range<u64>>,
     expected_revision: Option<RevisionToken>,
     request_payload_bytes: u64,
     started_unix_nanos: u64,
+    started_monotonic_nanos: u64,
     started: Instant,
 }
 
@@ -300,7 +340,7 @@ fn unix_nanos() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProviderAttemptBackend, ProviderAttemptPhase};
+    use super::{scope_logical_operation, ProviderAttemptBackend, ProviderAttemptPhase};
     use bytes::Bytes;
     use okv_object::{memory_backend, Backend, WriteCondition};
     use std::sync::Arc;
@@ -349,5 +389,40 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[1].result.as_deref(), Some("not_found"));
         assert_eq!(events[1].response_payload_bytes, 0);
+    }
+
+    #[tokio::test]
+    async fn binds_provider_attempts_to_the_scoped_logical_operation() {
+        let backend = Arc::new(
+            ProviderAttemptBackend::new(memory_backend(), "candidate").expect("observed backend"),
+        );
+        let revision = backend
+            .put(
+                "fixture/data",
+                Bytes::from_static(b"0123456789"),
+                WriteCondition::Create,
+            )
+            .await
+            .expect("put");
+        backend.clear_events();
+
+        scope_logical_operation(77, async {
+            backend
+                .get("fixture/data", Some(1..3), Some(&revision))
+                .await
+                .expect("first range");
+            backend
+                .get("fixture/data", Some(4..6), Some(&revision))
+                .await
+                .expect("second range");
+        })
+        .await;
+
+        let events = backend.events();
+        assert_eq!(events.len(), 4);
+        assert!(events
+            .iter()
+            .all(|event| event.logical_operation_id == Some(77)));
+        assert_ne!(events[0].operation_id, events[2].operation_id);
     }
 }

@@ -713,6 +713,17 @@ become one GitHub issue.
   OTel signals contain the run. Preserve the original rejection and advance
   the active work to matched row-versus-column object geometry. Evidence:
   `docs/artifacts/eval-receipts/rfc0046-t28-corrected-point-curve-gcp-r0-2026-08-30/README.md`.
+- RFC-0049 checkpoint: `[VERIFIED]` C5v2 immutable media, exact C0 closure
+  reuse, viewer-only fresh-process preflight, 256/256 overlapping point pairs,
+  0.869x C0 point p99, 0.267x point bytes, 31.692x C0 projected-scan
+  throughput, 7 versus 203 scan GETs, and zero scan payload reads.
+  `[CODE-COMPLETE]` The 90-position controller, persisted evidence replay,
+  export-derived OTel confirmation, build provenance, failure receipt, and
+  locator-generation poison passed 155 of 155 GCP-runner tests, strict Clippy,
+  and Fable review. The C5v2 15-block admission curve, OTel confirmation,
+  recovery, compaction, and branch-reference gates remain `[EVALUATING]`.
+  Evidence:
+  `docs/artifacts/eval-receipts/rfc0049-t28-aligned-preflight-gcp-r0-2026-08-30/README.md`.
 
 ### T29. Verify native replicated commit on independent media `[EVALUATING]`
 

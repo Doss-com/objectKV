@@ -177,6 +177,29 @@ index exposes both point ranges for concurrent gather.
 Evidence:
 `docs/artifacts/eval-receipts/rfc0048-t28-layout-preflight-gcp-r0-2026-08-30/README.md`.
 
+`[VERIFIED]` RFC-0049 now has one immutable GCS C5v2 closure that reuses the
+exact RFC-0048 C0 child. Its viewer-only preflight measured C5v2/C0 point
+p50/p95/p99/p99.9 at 1.037x/0.793x/0.869x/0.541x, moved 0.267x point bytes,
+and observed all 256 projection/payload pairs overlapping. Its exact
+projection-only DataFusion scan measured 59,758 versus 1,886 rows/s, 31.692x,
+with 7 versus 203 GETs, 0.130x bytes, and zero payload reads. The runtime
+objectCreator role was revoked before measurement and a fresh create probe was
+denied. C5v2 admission remains `[EVALUATING]` pending the frozen 15-block curve
+and OTel confirmation.
+
+Evidence:
+`docs/artifacts/eval-receipts/rfc0049-t28-aligned-preflight-gcp-r0-2026-08-30/README.md`.
+
+`[CODE-COMPLETE]` The RFC-0049 admission controller now executes 60 point and
+30 scan positions in fresh processes, validates every provider attempt against
+persisted object descriptors, derives OTel counts from the raw JSONL exports,
+and replays the complete persisted evidence graph before finalization. It binds
+the candidate parent and commit, executable, `Cargo.lock`, machine, read-only
+IAM, both locators, object generations, oracle, media, children, and telemetry.
+The GCP runner passed 155 of 155 evaluator tests and strict changed-surface
+Clippy; Fable returned `SHIP`. This establishes evaluator integrity, not the
+performance claim. The admitted GCS curve remains `[EVALUATING]`.
+
 ```text
 generation-pinned locator + immutable operation plan
   → fresh read-only process

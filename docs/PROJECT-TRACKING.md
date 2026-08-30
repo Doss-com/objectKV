@@ -439,19 +439,17 @@ deferred
 
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
-stop decision for objectKV. The immediate owned task is RFC-0046 row 3,
-matched row-versus-column object geometry. T27's locator,
-read-only consumer, standalone control, separate seeds, fresh-process runner,
-raw evidence, runtime binding, telemetry completion, and poison boundaries are
-`[VERIFIED]`. The final runner adds one authenticated resumable receipt per
-stratum and rejects cross-execution aggregation. The exact provider-v2 release
-build passes 122 library and three controller tests. Provider v1 has five
-passing strata and one retained p99 rejection after 120 fresh processes.
-Provider v2 fixes the footprint and leaves one localized p99 gap in a bounded
-diagnostic. The 27 direct-NVMe strata and two sentinels are deferred.
-Provider-v1 and provider-v2 results are never combined. T28's corrected local
-addendum verifies bounded indexed-read overhead; its original cloud gate and
-cache-refill lane remain explicit deferred debt.
+stop decision for objectKV. The immediate owned task is the RFC-0049 row-3
+C5v2 admission curve. `[CODE-COMPLETE]` Its Rust controller and full evidence
+graph passed 155 of 155 remote evaluator tests, strict changed-surface Clippy,
+and Fable's final `SHIP` review. `[VERIFIED]` Its immutable GCS preflight
+measured point p99 at 0.869x C0, 0.267x point bytes, and all 256 concurrent
+frame pairs overlapping. Its exact projection-only scan measured 31.692x C0
+rows/s, 7 versus 203 GETs, and 0.130x bytes. C5v1 remains a retained rejection.
+C5v2 is still `[EVALUATING]` until the frozen 15-block curve, OTel confirmation,
+complete-closure recovery, compaction amplification, and branch-reference
+gates pass. Rows 1 and 2 remain explicit deferred performance debt; their
+receipts are not combined with row 3.
 
 ## Current checkpoint
 

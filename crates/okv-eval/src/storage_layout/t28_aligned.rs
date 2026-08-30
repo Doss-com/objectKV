@@ -298,7 +298,7 @@ pub struct T28AlignedPointGatherSnapshot {
     pub overlapping_point_pairs: u64,
 }
 
-/// One C5v2 DataFusion provider and its source counters.
+/// One C5v2 `DataFusion` provider and its source counters.
 pub struct T28AlignedScan {
     inner: T28AlignedColumnarScanCore,
 }
@@ -357,7 +357,7 @@ impl T28AlignedLayoutReader {
 }
 
 impl T28AlignedScan {
-    /// Return the provider registered in one fresh DataFusion context.
+    /// Return the provider registered in one fresh `DataFusion` context.
     #[must_use]
     pub fn provider(&self) -> Arc<okv_htap::RangeStripeTableProvider> {
         self.inner.provider()

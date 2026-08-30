@@ -95,6 +95,13 @@ use okv_eval::t27_plan::{
     T27PlanProfileV1, T27PlanRunReceiptV1, T27PlanSubjectV1, T27PositionObservationV1,
     T27PositionPoisonV1, T27PositionReceiptV1, T27StratumEvidenceV1, T27StratumRunReceiptV1,
 };
+use okv_eval::t28_aligned_curve::{
+    decode_t28_aligned_machine_identity, LoadedT28AlignedAdmissionPlanV1,
+    LoadedT28AlignedCurvePlanV1, T28AlignedAdmissionPlanV1, T28AlignedBuildReceiptV1,
+    T28AlignedChildBindingV1, T28AlignedChildLaneV1, T28AlignedCollectorConfirmationV1,
+    T28AlignedCurvePlanV1, T28AlignedFailedRunReceiptV1, T28AlignedPerformanceRunReceiptV1,
+    T28AlignedVerifiedRunReceiptV1,
+};
 use okv_eval::t28_cold_point::{
     T28CacheState, T28PointExecutionReceiptV1, T28PointPlanV2, T28PointSubject,
     T28ReaderPlanIdentityV1,
@@ -103,8 +110,11 @@ use okv_eval::t28_curve::{T28CurvePlanV1, T28CurveRunReceiptV1};
 use okv_eval::t28_iam::T28ReaderIamReceiptV1;
 use okv_eval::t28_layout::{decode_t28_layout_oracle, decode_typed_layout_placement};
 use okv_eval::t28_layout_position::{
-    run_t28_aligned_point_position, run_t28_aligned_scan_position, run_t28_typed_point_position,
-    run_t28_typed_scan_position, T28TypedPointSubjectV1, T28TypedScanSubjectV1,
+    inspect_t28_aligned_media, run_t28_aligned_point_position, run_t28_aligned_scan_position,
+    run_t28_typed_point_position, run_t28_typed_scan_position,
+    validate_t28_aligned_candidate_locator, T28AlignedMediaObservationV1,
+    T28AlignedPointPositionReceiptV2, T28TypedPointSubjectV1, T28TypedScanPositionReceiptV1,
+    T28TypedScanSubjectV1,
 };
 use okv_eval::t28_position::{run_t28_point_position, T28PointPositionReceiptV2};
 use okv_eval::telemetry::{MetricRecorder, RunResource, Telemetry, TelemetryFlushReport};
@@ -649,6 +659,94 @@ enum Commands {
         subject: String,
         #[arg(long)]
         trace_seed: u64,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Execute the frozen RFC-0049 point and scan curve in fresh processes.
+    T28AlignedLayoutCurveRunGcs {
+        #[arg(long)]
+        locator: PathBuf,
+        #[arg(long)]
+        expected_envelope_sha256: String,
+        #[arg(long)]
+        source_locator: PathBuf,
+        #[arg(long)]
+        expected_source_envelope_sha256: String,
+        #[arg(
+            long,
+            default_value = "evals/oracles/t28-layout-geometry-v1-oracle.json"
+        )]
+        oracle: PathBuf,
+        #[arg(long)]
+        expected_oracle_sha256: String,
+        #[arg(long, default_value = "evals/plans/t28-aligned-columnar-v2.toml")]
+        plan: PathBuf,
+        #[arg(long)]
+        expected_plan_sha256: String,
+        #[arg(long)]
+        position_execution_plan: PathBuf,
+        #[arg(long)]
+        expected_position_execution_plan_sha256: String,
+        #[arg(
+            long,
+            default_value = "evals/plans/t28-aligned-columnar-v2-admission-r1.toml"
+        )]
+        admission_plan: PathBuf,
+        #[arg(long)]
+        expected_admission_plan_sha256: String,
+        #[arg(long, default_value = "Cargo.lock")]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long)]
+        build_receipt: PathBuf,
+        #[arg(long)]
+        machine_receipt: PathBuf,
+        #[arg(long)]
+        expected_machine_receipt_sha256: String,
+        #[arg(long)]
+        reader_iam_receipt: PathBuf,
+        #[arg(long)]
+        candidate_commit: String,
+        #[arg(long)]
+        output_dir: PathBuf,
+    },
+    /// Seal the exact RFC-0049 source, executable, and lockfile build edge.
+    T28AlignedBuildReceiptSeal {
+        #[arg(long)]
+        candidate_parent_commit: String,
+        #[arg(long)]
+        candidate_commit: String,
+        #[arg(long)]
+        executable: PathBuf,
+        #[arg(long)]
+        runtime_cargo_lock: PathBuf,
+        #[arg(long, default_value = "release")]
+        build_profile: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Seal an independent OTel collector query for one RFC-0049 run.
+    T28AlignedCollectorConfirmationSeal {
+        #[arg(long)]
+        performance_run: PathBuf,
+        #[arg(long)]
+        collector_runtime_evidence: PathBuf,
+        #[arg(long)]
+        logs_export: PathBuf,
+        #[arg(long)]
+        metrics_export: PathBuf,
+        #[arg(long)]
+        traces_export: PathBuf,
+        #[arg(long)]
+        output_dir: PathBuf,
+    },
+    /// Join RFC-0049 performance and collector receipts into a final verdict.
+    T28AlignedLayoutCurveFinalize {
+        #[arg(long)]
+        evidence_dir: PathBuf,
+        #[arg(long)]
+        performance_run: PathBuf,
+        #[arg(long)]
+        collector_confirmation: PathBuf,
         #[arg(long)]
         output: PathBuf,
     },
@@ -1684,6 +1782,144 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
             let bytes = serde_json::to_vec_pretty(&receipt)?;
             fs::write(output, &bytes)?;
             println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28AlignedLayoutCurveRunGcs {
+            locator,
+            expected_envelope_sha256,
+            source_locator,
+            expected_source_envelope_sha256,
+            oracle,
+            expected_oracle_sha256,
+            plan,
+            expected_plan_sha256,
+            position_execution_plan,
+            expected_position_execution_plan_sha256,
+            admission_plan,
+            expected_admission_plan_sha256,
+            runtime_cargo_lock,
+            build_receipt,
+            machine_receipt,
+            expected_machine_receipt_sha256,
+            reader_iam_receipt,
+            candidate_commit,
+            output_dir,
+        } => {
+            let receipt = run_t28_aligned_curve_controller(
+                &locator,
+                &expected_envelope_sha256,
+                &source_locator,
+                &expected_source_envelope_sha256,
+                &oracle,
+                &expected_oracle_sha256,
+                &plan,
+                &expected_plan_sha256,
+                &position_execution_plan,
+                &expected_position_execution_plan_sha256,
+                &admission_plan,
+                &expected_admission_plan_sha256,
+                &runtime_cargo_lock,
+                &build_receipt,
+                &machine_receipt,
+                &expected_machine_receipt_sha256,
+                &reader_iam_receipt,
+                &candidate_commit,
+                &output_dir,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
+            if !receipt.performance_eligible_pending_collector_confirmation {
+                return Err(std::io::Error::other(format!(
+                    "RFC-0049 performance curve failed a frozen gate; evidence is at {}",
+                    output_dir.join("performance-run.json").display()
+                ))
+                .into());
+            }
+        }
+        Commands::T28AlignedBuildReceiptSeal {
+            candidate_parent_commit,
+            candidate_commit,
+            executable,
+            runtime_cargo_lock,
+            build_profile,
+            output,
+        } => {
+            let receipt = T28AlignedBuildReceiptV1::seal(
+                candidate_parent_commit,
+                candidate_commit,
+                sha256(&fs::read(executable)?),
+                sha256(&fs::read(runtime_cargo_lock)?),
+                build_profile,
+            )?;
+            let bytes = serde_json::to_vec_pretty(&receipt)?;
+            write_new_file(&output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28AlignedCollectorConfirmationSeal {
+            performance_run,
+            collector_runtime_evidence,
+            logs_export,
+            metrics_export,
+            traces_export,
+            output_dir,
+        } => {
+            let performance =
+                T28AlignedPerformanceRunReceiptV1::decode(&fs::read(performance_run)?)?;
+            let runtime_evidence = fs::read(collector_runtime_evidence)?;
+            let logs = fs::read(logs_export)?;
+            let metrics = fs::read(metrics_export)?;
+            let traces = fs::read(traces_export)?;
+            let confirmation = T28AlignedCollectorConfirmationV1::from_collector_exports(
+                &performance,
+                &runtime_evidence,
+                &logs,
+                &metrics,
+                &traces,
+            )?;
+            let bytes = serde_json::to_vec_pretty(&confirmation)?;
+            write_new_file(
+                &output_dir.join("collector-runtime-evidence.json"),
+                &runtime_evidence,
+            )?;
+            write_new_file(&output_dir.join("otel-logs.jsonl"), &logs)?;
+            write_new_file(&output_dir.join("otel-metrics.jsonl"), &metrics)?;
+            write_new_file(&output_dir.join("otel-traces.jsonl"), &traces)?;
+            write_new_file(&output_dir.join("collector-confirmation.json"), &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+        }
+        Commands::T28AlignedLayoutCurveFinalize {
+            evidence_dir,
+            performance_run,
+            collector_confirmation,
+            output,
+        } => {
+            let performance =
+                T28AlignedPerformanceRunReceiptV1::decode(&fs::read(performance_run)?)?;
+            replay_t28_aligned_evidence_graph(&evidence_dir, &performance)?;
+            let collector =
+                T28AlignedCollectorConfirmationV1::decode(&fs::read(collector_confirmation)?)?;
+            let replayed_collector = T28AlignedCollectorConfirmationV1::from_collector_exports(
+                &performance,
+                &fs::read(evidence_dir.join("collector-runtime-evidence.json"))?,
+                &fs::read(evidence_dir.join("otel-logs.jsonl"))?,
+                &fs::read(evidence_dir.join("otel-metrics.jsonl"))?,
+                &fs::read(evidence_dir.join("otel-traces.jsonl"))?,
+            )?;
+            if replayed_collector.receipt_sha256 != collector.receipt_sha256 {
+                return Err(std::io::Error::other(
+                    "RFC-0049 collector exports do not reproduce the confirmation receipt",
+                )
+                .into());
+            }
+            let verified = T28AlignedVerifiedRunReceiptV1::finalize(&performance, &collector)?;
+            let bytes = serde_json::to_vec_pretty(&verified)?;
+            write_new_file(&output, &bytes)?;
+            println!("{}", String::from_utf8(bytes)?);
+            if !verified.verified {
+                return Err(std::io::Error::other(format!(
+                    "RFC-0049 verification gates failed; sealed verdict is at {}",
+                    output.display()
+                ))
+                .into());
+            }
         }
         Commands::T28TypedLayoutReopenGcs {
             locator,
@@ -7761,6 +7997,919 @@ fn run_t28_curve_controller(
         &serde_json::to_vec_pretty(&receipt)?,
     )?;
     Ok(receipt)
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn run_t28_aligned_curve_controller(
+    locator_path: &Path,
+    expected_envelope_sha256: &str,
+    source_locator_path: &Path,
+    expected_source_envelope_sha256: &str,
+    oracle_path: &Path,
+    expected_oracle_sha256: &str,
+    plan_path: &Path,
+    expected_plan_sha256: &str,
+    position_execution_plan_path: &Path,
+    expected_position_execution_plan_sha256: &str,
+    admission_plan_path: &Path,
+    expected_admission_plan_sha256: &str,
+    runtime_cargo_lock: &Path,
+    build_receipt_path: &Path,
+    machine_receipt_path: &Path,
+    expected_machine_receipt_sha256: &str,
+    reader_iam_receipt_path: &Path,
+    candidate_commit: &str,
+    output_dir: &Path,
+) -> Result<T28AlignedPerformanceRunReceiptV1, Box<dyn Error>> {
+    let plan_bytes = fs::read(plan_path)?;
+    let loaded = T28AlignedCurvePlanV1::decode(&plan_bytes, expected_plan_sha256)?;
+    let admission_plan_bytes = fs::read(admission_plan_path)?;
+    let admission =
+        T28AlignedAdmissionPlanV1::decode(&admission_plan_bytes, expected_admission_plan_sha256)?;
+    if admission.plan.physical_plan_sha256 != loaded.raw_sha256 {
+        return Err(std::io::Error::other(
+            "RFC-0049 admission plan does not bind the selected physical plan",
+        )
+        .into());
+    }
+    let position_execution_plan_bytes = fs::read(position_execution_plan_path)?;
+    let position_execution_plan: T28TypedLayoutExecutionPlanV1 =
+        serde_json::from_slice(&position_execution_plan_bytes)?;
+    if position_execution_plan.execution_plan_sha256 != expected_position_execution_plan_sha256
+        || position_execution_plan.calculated_sha256()? != expected_position_execution_plan_sha256
+        || admission.plan.position_execution_plan_sha256 != expected_position_execution_plan_sha256
+    {
+        return Err(
+            std::io::Error::other("RFC-0049 position execution plan identity mismatch").into(),
+        );
+    }
+    let locator =
+        decode_typed_layout_placement(&fs::read(locator_path)?, expected_envelope_sha256)?;
+    let source_locator = decode_typed_layout_placement(
+        &fs::read(source_locator_path)?,
+        expected_source_envelope_sha256,
+    )?;
+    let oracle_bytes = fs::read(oracle_path)?;
+    let oracle = decode_t28_layout_oracle(&oracle_bytes, expected_oracle_sha256)?;
+    let configured_bucket = std::env::var("OKV_GCS_BUCKET")?;
+    if configured_bucket != loaded.plan.bucket
+        || locator.bucket != loaded.plan.bucket
+        || source_locator.bucket != loaded.plan.bucket
+        || locator.project != loaded.plan.project
+        || source_locator.project != loaded.plan.project
+        || locator.region != loaded.plan.region
+        || source_locator.region != loaded.plan.region
+    {
+        return Err(std::io::Error::other(
+            "RFC-0049 plan, GCS configuration, and fixture placement differ",
+        )
+        .into());
+    }
+    let media_runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let media_observation = media_runtime.block_on(inspect_t28_aligned_media(
+        gcs_backend_from_env_no_retries()?,
+        &locator,
+        &source_locator,
+        &oracle,
+        &position_execution_plan_bytes,
+        expected_position_execution_plan_sha256,
+    ))?;
+    let executable = std::env::current_exe()?;
+    let executable_sha256 = sha256(&fs::read(&executable)?);
+    let cargo_lock_bytes = fs::read(runtime_cargo_lock)?;
+    let cargo_lock_sha256 = sha256(&cargo_lock_bytes);
+    let build_receipt_bytes = fs::read(build_receipt_path)?;
+    let build_receipt = T28AlignedBuildReceiptV1::decode(&build_receipt_bytes)?;
+    if build_receipt.candidate_parent_commit != admission.plan.candidate_parent_commit
+        || build_receipt.candidate_commit != candidate_commit
+        || build_receipt.executable_sha256 != executable_sha256
+        || build_receipt.cargo_lock_sha256 != cargo_lock_sha256
+    {
+        return Err(std::io::Error::other(
+            "RFC-0049 build receipt differs from the admitted source or runtime artifacts",
+        )
+        .into());
+    }
+    let reader_iam_receipt_bytes = fs::read(reader_iam_receipt_path)?;
+    let reader_iam = T28ReaderIamReceiptV1::decode(
+        &reader_iam_receipt_bytes,
+        &admission.plan.reader_iam_receipt_sha256,
+    )?;
+    let machine_receipt_bytes = fs::read(machine_receipt_path)?;
+    let machine_receipt_sha256 = sha256(&machine_receipt_bytes);
+    let machine_identity = decode_t28_aligned_machine_identity(
+        &machine_receipt_bytes,
+        expected_machine_receipt_sha256,
+        candidate_commit,
+        &executable_sha256,
+        &loaded.plan.project,
+        &loaded.plan.bucket,
+        &loaded.plan.region,
+        &reader_iam,
+    )?;
+    let telemetry_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            std::io::Error::other(
+                "RFC-0049 curve requires OTEL_EXPORTER_OTLP_ENDPOINT for all signals",
+            )
+        })?;
+    let telemetry_endpoint_sha256 = sha256(telemetry_endpoint.as_bytes());
+    let controller_run_id = Uuid::new_v4().to_string();
+    let telemetry_config = TelemetryConfig {
+        protocol: "otlp-http".to_owned(),
+        endpoint_env: "OTEL_EXPORTER_OTLP_ENDPOINT".to_owned(),
+        required_signals: vec!["logs".to_owned(), "metrics".to_owned(), "traces".to_owned()],
+        required_for_profiles: vec!["t28-rfc0049".to_owned()],
+    };
+    let metric_registry: MetricRegistry =
+        toml::from_str(include_str!("../../../evals/metrics.toml"))?;
+    let telemetry_resource = RunResource {
+        service_version: env!("CARGO_PKG_VERSION").to_owned(),
+        environment: "objectkv-dev-gcs".to_owned(),
+        run_id: controller_run_id.clone(),
+        batch_id: controller_run_id.clone(),
+        suite_id: admission.plan.plan_id.clone(),
+        suite_hash: admission.raw_sha256.clone(),
+        profile_id: "t28-rfc0049".to_owned(),
+        profile_hash: loaded.raw_sha256.clone(),
+        candidate_commit: candidate_commit.to_owned(),
+        backend: "gcs".to_owned(),
+    };
+    fs::create_dir(output_dir)?;
+    write_new_file(&output_dir.join("plan.toml"), &plan_bytes)?;
+    write_new_file(
+        &output_dir.join("admission-plan.toml"),
+        &admission_plan_bytes,
+    )?;
+    write_new_file(
+        &output_dir.join("position-execution-plan.json"),
+        &position_execution_plan_bytes,
+    )?;
+    write_new_file(&output_dir.join("oracle.json"), &oracle_bytes)?;
+    write_new_file(
+        &output_dir.join("media-observation.json"),
+        &serde_json::to_vec_pretty(&media_observation)?,
+    )?;
+    write_new_file(&output_dir.join("locator.json"), &fs::read(locator_path)?)?;
+    write_new_file(
+        &output_dir.join("source-locator.json"),
+        &fs::read(source_locator_path)?,
+    )?;
+    write_new_file(
+        &output_dir.join("machine-receipt.json"),
+        &machine_receipt_bytes,
+    )?;
+    write_new_file(&output_dir.join("build-receipt.json"), &build_receipt_bytes)?;
+    write_new_file(&output_dir.join("runtime-Cargo.lock"), &cargo_lock_bytes)?;
+    write_new_file(
+        &output_dir.join("reader-iam-receipt.json"),
+        &reader_iam_receipt_bytes,
+    )?;
+    write_new_file(
+        &output_dir.join("telemetry-endpoint.txt"),
+        telemetry_endpoint.as_bytes(),
+    )?;
+    let linux_boot_id = fs::read_to_string("/proc/sys/kernel/random/boot_id")?;
+    let host_lease_identity = format!(
+        "{}\0{}\0{}",
+        machine_identity.instance_id,
+        linux_boot_id.trim(),
+        expected_plan_sha256
+    );
+    let host_lease_root = PathBuf::from("/var/lib/objectkv-hot/rfc0049-leases");
+    fs::create_dir_all(&host_lease_root)?;
+    let lock_path = host_lease_root.join(format!(
+        "t28-rfc0049-host-{}.lock",
+        &sha256(host_lease_identity.as_bytes())[..16]
+    ));
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(lock_path)?;
+    let _host_lease =
+        Flock::lock(lock_file, FlockArg::LockExclusiveNonblock).map_err(|(_, error)| {
+            std::io::Error::other(format!("RFC-0049 host lease is busy: {error}"))
+        })?;
+
+    let telemetry = Telemetry::init(&telemetry_config, "t28-rfc0049", &telemetry_resource)?;
+    let mut recorder = telemetry.recorder(&metric_registry);
+    let run_span = info_span!(
+        "okv.eval.t28.rfc0049.curve",
+        run.id = %controller_run_id,
+        plan.id = %loaded.plan.plan_id,
+        plan.sha256 = %loaded.raw_sha256
+    );
+    let run_guard = run_span.enter();
+    info!("RFC-0049 point and scan curve started");
+    let measurements = (|| -> Result<_, Box<dyn Error>> {
+        let (point_positions, point_bindings) = run_t28_aligned_point_children(
+            &loaded,
+            &controller_run_id,
+            &admission.raw_sha256,
+            &executable_sha256,
+            &executable,
+            locator_path,
+            expected_envelope_sha256,
+            source_locator_path,
+            expected_source_envelope_sha256,
+            oracle_path,
+            expected_oracle_sha256,
+            position_execution_plan_path,
+            expected_position_execution_plan_sha256,
+            output_dir,
+            &mut recorder,
+        )?;
+        let (scan_positions, scan_bindings) = run_t28_aligned_scan_children(
+            &loaded,
+            &controller_run_id,
+            &admission.raw_sha256,
+            &executable_sha256,
+            &executable,
+            locator_path,
+            expected_envelope_sha256,
+            source_locator_path,
+            expected_source_envelope_sha256,
+            oracle_path,
+            expected_oracle_sha256,
+            position_execution_plan_path,
+            expected_position_execution_plan_sha256,
+            output_dir,
+            &mut recorder,
+        )?;
+        Ok((
+            point_positions,
+            scan_positions,
+            point_bindings,
+            scan_bindings,
+        ))
+    })();
+    info!(
+        execution.succeeded = measurements.is_ok(),
+        "RFC-0049 measurements stopped; flushing telemetry exporters"
+    );
+    drop(recorder);
+    drop(run_guard);
+    let telemetry_flush = telemetry.shutdown();
+    let outcome = (|| -> Result<T28AlignedPerformanceRunReceiptV1, Box<dyn Error>> {
+        let (point_positions, scan_positions, point_bindings, scan_bindings) = measurements?;
+        let receipt = T28AlignedPerformanceRunReceiptV1::new(
+            &loaded,
+            &admission,
+            controller_run_id.clone(),
+            candidate_commit.to_owned(),
+            executable_sha256,
+            cargo_lock_sha256,
+            &build_receipt,
+            machine_receipt_sha256,
+            &machine_identity,
+            admission.plan.reader_iam_receipt_sha256.clone(),
+            telemetry_endpoint_sha256,
+            telemetry_flush,
+            &media_observation,
+            &point_positions,
+            &scan_positions,
+            &point_bindings,
+            &scan_bindings,
+        )?;
+        write_new_file(
+            &output_dir.join("performance-run.json"),
+            &serde_json::to_vec_pretty(&receipt)?,
+        )?;
+        Ok(receipt)
+    })();
+    match outcome {
+        Ok(receipt) => Ok(receipt),
+        Err(error) => seal_t28_aligned_failure(
+            &loaded,
+            &admission,
+            &controller_run_id,
+            candidate_commit,
+            output_dir,
+            telemetry_flush,
+            &error.to_string(),
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seal_t28_aligned_failure(
+    loaded: &LoadedT28AlignedCurvePlanV1,
+    admission: &LoadedT28AlignedAdmissionPlanV1,
+    controller_run_id: &str,
+    candidate_commit: &str,
+    output_dir: &Path,
+    telemetry_flush: TelemetryFlushReport,
+    error: &str,
+) -> Result<T28AlignedPerformanceRunReceiptV1, Box<dyn Error>> {
+    let failed_path = output_dir.join("failed-run.json");
+    let point_hashes = completed_t28_artifact_hashes(output_dir, "point-").unwrap_or_default();
+    let scan_hashes = completed_t28_artifact_hashes(output_dir, "scan-").unwrap_or_default();
+    let seal_result = T28AlignedFailedRunReceiptV1::seal(
+        loaded,
+        admission,
+        controller_run_id.to_owned(),
+        candidate_commit.to_owned(),
+        error.to_owned(),
+        point_hashes,
+        scan_hashes,
+        telemetry_flush,
+    )
+    .map_err(std::io::Error::other)
+    .and_then(|failed| {
+        serde_json::to_vec_pretty(&failed)
+            .map_err(std::io::Error::other)
+            .and_then(|bytes| write_new_file(&failed_path, &bytes))
+    });
+    match seal_result {
+        Ok(()) => Err(std::io::Error::other(format!(
+            "RFC-0049 execution failed: {error}; sealed evidence is at {}",
+            failed_path.display()
+        ))
+        .into()),
+        Err(seal_error) => Err(std::io::Error::other(format!(
+            "RFC-0049 execution failed: {error}; failure receipt could not be written: {seal_error}"
+        ))
+        .into()),
+    }
+}
+
+fn completed_t28_artifact_hashes(
+    output_dir: &Path,
+    prefix: &str,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut paths = fs::read_dir(output_dir)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(prefix))
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+        .iter()
+        .map(|path| {
+            fs::read(path)
+                .map(|bytes| sha256(&bytes))
+                .map_err(Into::into)
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_lines)]
+fn replay_t28_aligned_evidence_graph(
+    evidence_dir: &Path,
+    performance: &T28AlignedPerformanceRunReceiptV1,
+) -> Result<(), Box<dyn Error>> {
+    let loaded = T28AlignedCurvePlanV1::decode(
+        &fs::read(evidence_dir.join("plan.toml"))?,
+        &performance.physical_plan_sha256,
+    )?;
+    let admission = T28AlignedAdmissionPlanV1::decode(
+        &fs::read(evidence_dir.join("admission-plan.toml"))?,
+        &performance.admission_plan_sha256,
+    )?;
+    let position_plan_bytes = fs::read(evidence_dir.join("position-execution-plan.json"))?;
+    let position_plan: T28TypedLayoutExecutionPlanV1 =
+        serde_json::from_slice(&position_plan_bytes)?;
+    let oracle_bytes = fs::read(evidence_dir.join("oracle.json"))?;
+    let oracle = decode_t28_layout_oracle(&oracle_bytes, &position_plan.oracle_sha256)?;
+    let source_locator_bytes = fs::read(evidence_dir.join("source-locator.json"))?;
+    let source_locator = decode_typed_layout_placement(
+        &source_locator_bytes,
+        &position_plan.placement_envelope_sha256,
+    )?;
+    let media: T28AlignedMediaObservationV1 =
+        serde_json::from_slice(&fs::read(evidence_dir.join("media-observation.json"))?)?;
+    media.validate()?;
+    let locator_bytes = fs::read(evidence_dir.join("locator.json"))?;
+    let locator =
+        decode_typed_layout_placement(&locator_bytes, &media.candidate_placement_envelope_sha256)?;
+    validate_t28_aligned_candidate_locator(&media, &locator)?;
+    let build_receipt =
+        T28AlignedBuildReceiptV1::decode(&fs::read(evidence_dir.join("build-receipt.json"))?)?;
+    let cargo_lock_bytes = fs::read(evidence_dir.join("runtime-Cargo.lock"))?;
+    let reader_iam_bytes = fs::read(evidence_dir.join("reader-iam-receipt.json"))?;
+    let reader_iam =
+        T28ReaderIamReceiptV1::decode(&reader_iam_bytes, &performance.reader_iam_receipt_sha256)?;
+    let machine_receipt_bytes = fs::read(evidence_dir.join("machine-receipt.json"))?;
+    let machine_identity = decode_t28_aligned_machine_identity(
+        &machine_receipt_bytes,
+        &performance.machine_receipt_sha256,
+        &performance.candidate_commit,
+        &performance.executable_sha256,
+        &loaded.plan.project,
+        &loaded.plan.bucket,
+        &loaded.plan.region,
+        &reader_iam,
+    )?;
+    let telemetry_endpoint_bytes = fs::read(evidence_dir.join("telemetry-endpoint.txt"))?;
+    if admission.plan.physical_plan_sha256 != loaded.raw_sha256
+        || admission.plan.position_execution_plan_sha256 != position_plan.execution_plan_sha256
+        || position_plan.calculated_sha256()? != position_plan.execution_plan_sha256
+        || position_plan.fixture_id != media.fixture_id
+        || position_plan.root_sha256 != media.source_root_sha256
+        || position_plan.placement_envelope_sha256 != media.source_placement_envelope_sha256
+        || position_plan.workload_plan_sha256 != oracle.workload_plan_sha256
+        || position_plan.workload_plan_sha256 != loaded.plan.logical_oracle.workload_plan_sha256
+        || media.canonical_history_sha256 != oracle.fixture.canonical_history_sha256
+        || source_locator.fixture_id != media.fixture_id
+        || source_locator.root_sha256 != media.source_root_sha256
+        || source_locator.prefix != media.control_prefix
+        || locator.envelope_sha256 != media.candidate_placement_envelope_sha256
+        || locator.fixture_id != media.fixture_id
+        || locator.root_sha256 != media.root_sha256
+        || !media
+            .candidate_prefix
+            .starts_with(&format!("{}/", locator.prefix.trim_end_matches('/')))
+        || locator.project != loaded.plan.project
+        || locator.bucket != loaded.plan.bucket
+        || locator.region != loaded.plan.region
+        || source_locator.project != loaded.plan.project
+        || source_locator.bucket != loaded.plan.bucket
+        || source_locator.region != loaded.plan.region
+        || build_receipt.receipt_sha256 != performance.build_receipt_sha256
+        || sha256(&cargo_lock_bytes) != performance.cargo_lock_sha256
+        || sha256(&machine_receipt_bytes) != performance.machine_receipt_sha256
+        || sha256(&reader_iam_bytes) != performance.reader_iam_receipt_sha256
+        || sha256(&telemetry_endpoint_bytes) != performance.telemetry_endpoint_sha256
+        || machine_identity.instance_id != performance.machine_instance_id
+        || machine_identity.collector_instance_id != performance.collector_instance_id
+        || machine_identity.service_account != performance.runtime_principal
+    {
+        return Err(std::io::Error::other(
+            "RFC-0049 persisted input graph differs from the performance receipt",
+        )
+        .into());
+    }
+    let point_receipts = t28_evidence_paths(evidence_dir, "point-", false)?
+        .iter()
+        .map(|path| T28AlignedPointPositionReceiptV2::decode(&fs::read(path)?).map_err(Into::into))
+        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+    let scan_receipts = t28_evidence_paths(evidence_dir, "scan-", false)?
+        .iter()
+        .map(|path| T28TypedScanPositionReceiptV1::decode(&fs::read(path)?).map_err(Into::into))
+        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+    let point_bindings = t28_evidence_paths(evidence_dir, "point-", true)?
+        .iter()
+        .map(|path| {
+            fs::read(path).map_err(Into::into).and_then(|bytes| {
+                serde_json::from_slice::<T28AlignedChildBindingV1>(&bytes).map_err(Into::into)
+            })
+        })
+        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+    let scan_bindings = t28_evidence_paths(evidence_dir, "scan-", true)?
+        .iter()
+        .map(|path| {
+            fs::read(path).map_err(Into::into).and_then(|bytes| {
+                serde_json::from_slice::<T28AlignedChildBindingV1>(&bytes).map_err(Into::into)
+            })
+        })
+        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+    let telemetry_flush = TelemetryFlushReport {
+        metrics_flush_succeeded: performance.telemetry_metrics_flush_succeeded,
+        traces_flush_succeeded: performance.telemetry_traces_flush_succeeded,
+        logs_flush_succeeded: performance.telemetry_logs_flush_succeeded,
+        metrics_shutdown_succeeded: performance.telemetry_metrics_shutdown_succeeded,
+        traces_shutdown_succeeded: performance.telemetry_traces_shutdown_succeeded,
+        logs_shutdown_succeeded: performance.telemetry_logs_shutdown_succeeded,
+    };
+    let replayed = T28AlignedPerformanceRunReceiptV1::new(
+        &loaded,
+        &admission,
+        performance.controller_run_id.clone(),
+        performance.candidate_commit.clone(),
+        performance.executable_sha256.clone(),
+        performance.cargo_lock_sha256.clone(),
+        &build_receipt,
+        performance.machine_receipt_sha256.clone(),
+        &machine_identity,
+        performance.reader_iam_receipt_sha256.clone(),
+        performance.telemetry_endpoint_sha256.clone(),
+        telemetry_flush,
+        &media,
+        &point_receipts,
+        &scan_receipts,
+        &point_bindings,
+        &scan_bindings,
+    )?;
+    if replayed.receipt_sha256 != performance.receipt_sha256 {
+        return Err(std::io::Error::other(
+            "RFC-0049 evidence graph does not reproduce the performance receipt",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn t28_evidence_paths(
+    evidence_dir: &Path,
+    prefix: &str,
+    bindings: bool,
+) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let mut paths = fs::read_dir(evidence_dir)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                return false;
+            };
+            let is_json = path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+            name.starts_with(prefix) && is_json && name.ends_with(".binding.json") == bindings
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    Ok(paths)
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn run_t28_aligned_point_children(
+    loaded: &LoadedT28AlignedCurvePlanV1,
+    controller_run_id: &str,
+    admission_plan_sha256: &str,
+    executable_sha256: &str,
+    executable: &Path,
+    locator_path: &Path,
+    expected_envelope_sha256: &str,
+    source_locator_path: &Path,
+    expected_source_envelope_sha256: &str,
+    oracle_path: &Path,
+    expected_oracle_sha256: &str,
+    position_execution_plan_path: &Path,
+    expected_position_execution_plan_sha256: &str,
+    output_dir: &Path,
+    recorder: &mut MetricRecorder,
+) -> Result<
+    (
+        Vec<T28AlignedPointPositionReceiptV2>,
+        Vec<T28AlignedChildBindingV1>,
+    ),
+    Box<dyn Error>,
+> {
+    let expected_positions = loaded.plan.expected_point_positions()?;
+    let mut receipts = Vec::with_capacity(expected_positions.len());
+    let mut bindings = Vec::with_capacity(expected_positions.len());
+    for expected in expected_positions {
+        let subject = aligned_point_subject_id(expected.subject);
+        let output_path = output_dir.join(format!(
+            "point-s{}-b{}-p{}-{subject}.json",
+            expected.trace_seed, expected.block_ordinal, expected.position_in_block
+        ));
+        let position_span = info_span!(
+            "okv.eval.t28.rfc0049.point",
+            trace.seed = expected.trace_seed,
+            block.ordinal = expected.block_ordinal,
+            position.ordinal = expected.position_in_block,
+            subject
+        );
+        let _position_guard = position_span.enter();
+        let child = Command::new(executable)
+            .arg("t28-aligned-layout-point-position-gcs")
+            .arg("--locator")
+            .arg(locator_path)
+            .arg("--expected-envelope-sha256")
+            .arg(expected_envelope_sha256)
+            .arg("--source-locator")
+            .arg(source_locator_path)
+            .arg("--expected-source-envelope-sha256")
+            .arg(expected_source_envelope_sha256)
+            .arg("--oracle")
+            .arg(oracle_path)
+            .arg("--expected-oracle-sha256")
+            .arg(expected_oracle_sha256)
+            .arg("--plan")
+            .arg(position_execution_plan_path)
+            .arg("--expected-plan-sha256")
+            .arg(expected_position_execution_plan_sha256)
+            .arg("--subject")
+            .arg(subject)
+            .arg("--trace-seed")
+            .arg(expected.trace_seed.to_string())
+            .arg("--measured-operations")
+            .arg(loaded.plan.point_lane.reads_per_position.to_string())
+            .arg("--output")
+            .arg(&output_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let child_process_id = child.id();
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            let failure_path = output_path.with_extension("failure.txt");
+            write_new_file(&failure_path, &output.stderr)?;
+            return Err(std::io::Error::other(format!(
+                "RFC-0049 point child failed; evidence is at {}",
+                failure_path.display()
+            ))
+            .into());
+        }
+        let receipt = T28AlignedPointPositionReceiptV2::decode(&fs::read(&output_path)?)?;
+        if receipt.base.process_id != child_process_id
+            || receipt.base.trace_seed != expected.trace_seed
+            || receipt.base.subject != expected.subject
+        {
+            return Err(std::io::Error::other(
+                "RFC-0049 point child identity differs from the controller schedule",
+            )
+            .into());
+        }
+        record_t28_aligned_point_telemetry(recorder, &receipt)?;
+        let binding = T28AlignedChildBindingV1::seal(
+            controller_run_id.to_owned(),
+            admission_plan_sha256.to_owned(),
+            loaded.raw_sha256.clone(),
+            expected_position_execution_plan_sha256.to_owned(),
+            T28AlignedChildLaneV1::Point,
+            expected.trace_seed,
+            expected.block_ordinal,
+            expected.position_in_block,
+            subject.to_owned(),
+            receipt.base.process_id,
+            executable_sha256.to_owned(),
+            receipt.receipt_sha256.clone(),
+        )?;
+        write_new_file(
+            &output_path.with_extension("binding.json"),
+            &serde_json::to_vec_pretty(&binding)?,
+        )?;
+        info!(
+            p99.end_to_end_nanos = receipt.base.p99_latency_nanos,
+            p99.provider_pair_max_nanos = receipt.provider_pair_max_p99_nanos,
+            p99.local_residual_nanos = receipt.local_residual_p99_nanos,
+            "RFC-0049 point position recorded"
+        );
+        receipts.push(receipt);
+        bindings.push(binding);
+    }
+    Ok((receipts, bindings))
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn run_t28_aligned_scan_children(
+    loaded: &LoadedT28AlignedCurvePlanV1,
+    controller_run_id: &str,
+    admission_plan_sha256: &str,
+    executable_sha256: &str,
+    executable: &Path,
+    locator_path: &Path,
+    expected_envelope_sha256: &str,
+    source_locator_path: &Path,
+    expected_source_envelope_sha256: &str,
+    oracle_path: &Path,
+    expected_oracle_sha256: &str,
+    position_execution_plan_path: &Path,
+    expected_position_execution_plan_sha256: &str,
+    output_dir: &Path,
+    recorder: &mut MetricRecorder,
+) -> Result<
+    (
+        Vec<T28TypedScanPositionReceiptV1>,
+        Vec<T28AlignedChildBindingV1>,
+    ),
+    Box<dyn Error>,
+> {
+    let expected_positions = loaded.plan.expected_scan_positions()?;
+    let mut receipts = Vec::with_capacity(expected_positions.len());
+    let mut bindings = Vec::with_capacity(expected_positions.len());
+    for expected in expected_positions {
+        let subject = aligned_scan_subject_id(expected.subject);
+        let output_path = output_dir.join(format!(
+            "scan-s{}-b{}-p{}-{subject}.json",
+            expected.trace_seed, expected.block_ordinal, expected.position_in_block
+        ));
+        let position_span = info_span!(
+            "okv.eval.t28.rfc0049.scan",
+            trace.seed = expected.trace_seed,
+            block.ordinal = expected.block_ordinal,
+            position.ordinal = expected.position_in_block,
+            subject
+        );
+        let _position_guard = position_span.enter();
+        let child = Command::new(executable)
+            .arg("t28-aligned-layout-scan-position-gcs")
+            .arg("--locator")
+            .arg(locator_path)
+            .arg("--expected-envelope-sha256")
+            .arg(expected_envelope_sha256)
+            .arg("--source-locator")
+            .arg(source_locator_path)
+            .arg("--expected-source-envelope-sha256")
+            .arg(expected_source_envelope_sha256)
+            .arg("--oracle")
+            .arg(oracle_path)
+            .arg("--expected-oracle-sha256")
+            .arg(expected_oracle_sha256)
+            .arg("--plan")
+            .arg(position_execution_plan_path)
+            .arg("--expected-plan-sha256")
+            .arg(expected_position_execution_plan_sha256)
+            .arg("--subject")
+            .arg(subject)
+            .arg("--trace-seed")
+            .arg(expected.trace_seed.to_string())
+            .arg("--output")
+            .arg(&output_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let child_process_id = child.id();
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            let failure_path = output_path.with_extension("failure.txt");
+            write_new_file(&failure_path, &output.stderr)?;
+            return Err(std::io::Error::other(format!(
+                "RFC-0049 scan child failed; evidence is at {}",
+                failure_path.display()
+            ))
+            .into());
+        }
+        let receipt = T28TypedScanPositionReceiptV1::decode(&fs::read(&output_path)?)?;
+        if receipt.process_id != child_process_id
+            || receipt.trace_seed != expected.trace_seed
+            || receipt.subject != expected.subject
+        {
+            return Err(std::io::Error::other(
+                "RFC-0049 scan child identity differs from the controller schedule",
+            )
+            .into());
+        }
+        record_t28_aligned_scan_telemetry(recorder, &receipt)?;
+        let binding = T28AlignedChildBindingV1::seal(
+            controller_run_id.to_owned(),
+            admission_plan_sha256.to_owned(),
+            loaded.raw_sha256.clone(),
+            expected_position_execution_plan_sha256.to_owned(),
+            T28AlignedChildLaneV1::Scan,
+            expected.trace_seed,
+            expected.block_ordinal,
+            expected.position_in_block,
+            subject.to_owned(),
+            receipt.process_id,
+            executable_sha256.to_owned(),
+            receipt.receipt_sha256.clone(),
+        )?;
+        write_new_file(
+            &output_path.with_extension("binding.json"),
+            &serde_json::to_vec_pretty(&binding)?,
+        )?;
+        info!(
+            query.elapsed_nanos = receipt.query_elapsed_nanos,
+            rows_per_second = receipt.rows_per_second,
+            provider_attempts = receipt.provider_attempts,
+            "RFC-0049 scan position recorded"
+        );
+        receipts.push(receipt);
+        bindings.push(binding);
+    }
+    Ok((receipts, bindings))
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn record_t28_aligned_point_telemetry(
+    recorder: &mut MetricRecorder,
+    receipt: &T28AlignedPointPositionReceiptV2,
+) -> Result<(), Box<dyn Error>> {
+    let backend = aligned_point_subject_id(receipt.base.subject);
+    for sample in &receipt.operation_latency_samples {
+        for (operation, nanos) in [
+            ("point-read-end-to-end", sample.end_to_end_nanos),
+            (
+                "point-read-provider-pair-max",
+                sample.provider_pair_max_nanos,
+            ),
+            ("point-read-local-residual", sample.local_residual_nanos),
+            ("point-read-pair-completion", sample.pair_completion_nanos),
+        ] {
+            recorder.record(
+                "operation.duration",
+                nanos as f64 / 1_000_000_000.0,
+                attributes(&[
+                    ("lane", "cold-point"),
+                    ("workload", "t28-rfc0049-aligned-point"),
+                    ("operation", operation),
+                    ("backend", backend),
+                    ("cache.state", "metadata-warm-data-cold"),
+                    ("result", "success"),
+                ]),
+            )?;
+        }
+    }
+    recorder.record(
+        "object_store.requests",
+        receipt.base.measured_provider_attempts as f64,
+        attributes(&[
+            ("lane", "cold-point"),
+            ("workload", "t28-rfc0049-aligned-point"),
+            ("backend", backend),
+            ("store", "gcs"),
+            ("api", "get-range"),
+            ("result", "success"),
+        ]),
+    )?;
+    recorder.record(
+        "object_store.bytes",
+        receipt.base.measured_response_bytes as f64,
+        attributes(&[
+            ("lane", "cold-point"),
+            ("workload", "t28-rfc0049-aligned-point"),
+            ("backend", backend),
+            ("store", "gcs"),
+            ("direction", "read"),
+            ("api", "get-range"),
+        ]),
+    )?;
+    recorder.record(
+        "correctness.failures",
+        receipt.base.correctness_anomalies as f64,
+        attributes(&[
+            ("lane", "cold-point"),
+            ("workload", "t28-rfc0049-aligned-point"),
+            ("failure.class", "point-read"),
+        ]),
+    )?;
+    Ok(())
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn record_t28_aligned_scan_telemetry(
+    recorder: &mut MetricRecorder,
+    receipt: &T28TypedScanPositionReceiptV1,
+) -> Result<(), Box<dyn Error>> {
+    let backend = aligned_scan_subject_id(receipt.subject);
+    recorder.record(
+        "operation.duration",
+        receipt.query_elapsed_nanos as f64 / 1_000_000_000.0,
+        attributes(&[
+            ("lane", "range-read"),
+            ("workload", "t28-rfc0049-projected-scan"),
+            ("operation", "projection-scan"),
+            ("backend", backend),
+            ("cache.state", "metadata-warm-data-cold"),
+            ("result", "success"),
+        ]),
+    )?;
+    recorder.record(
+        "object_store.requests",
+        receipt.provider_attempts as f64,
+        attributes(&[
+            ("lane", "range-read"),
+            ("workload", "t28-rfc0049-projected-scan"),
+            ("backend", backend),
+            ("store", "gcs"),
+            ("api", "get-range"),
+            ("result", "success"),
+        ]),
+    )?;
+    recorder.record(
+        "object_store.bytes",
+        receipt.response_bytes as f64,
+        attributes(&[
+            ("lane", "range-read"),
+            ("workload", "t28-rfc0049-projected-scan"),
+            ("backend", backend),
+            ("store", "gcs"),
+            ("direction", "read"),
+            ("api", "get-range"),
+        ]),
+    )?;
+    recorder.record(
+        "correctness.failures",
+        receipt.correctness_anomalies as f64,
+        attributes(&[
+            ("lane", "range-read"),
+            ("workload", "t28-rfc0049-projected-scan"),
+            ("failure.class", "projected-scan"),
+        ]),
+    )?;
+    Ok(())
+}
+
+const fn aligned_point_subject_id(subject: T28TypedPointSubjectV1) -> &'static str {
+    match subject {
+        T28TypedPointSubjectV1::C0IndexedRow => "c0_indexed_row",
+        T28TypedPointSubjectV1::C5v2AlignedColumnar => "c5v2_aligned_columnar",
+        T28TypedPointSubjectV1::C5ColumnarMain => "c5_columnar_main",
+    }
+}
+
+const fn aligned_scan_subject_id(subject: T28TypedScanSubjectV1) -> &'static str {
+    match subject {
+        T28TypedScanSubjectV1::C0IndexedRow => "c0_indexed_row",
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => "c5v2_aligned_columnar",
+        T28TypedScanSubjectV1::C5ColumnarMain => "c5_columnar_main",
+    }
 }
 
 #[allow(clippy::cast_precision_loss)]

@@ -1,14 +1,16 @@
 //! Fresh-process point positions for the RFC-0048 matched layout curve.
 
 use crate::provider_attempt::{
-    ProviderAttemptBackend, ProviderAttemptEventV1, ProviderAttemptPhase,
+    scope_logical_operation, ProviderAttemptBackend, ProviderAttemptEventV1, ProviderAttemptPhase,
 };
 use crate::storage_layout::{
-    t28_typed_point_outcome_sha256, T28AlignedLayoutReader, T28AlignedScan,
+    t28_typed_point_outcome_sha256, T28AlignedFixtureV1, T28AlignedLayoutReader, T28AlignedScan,
     T28ColumnarLayoutReader, T28ColumnarScan, T28OpenedAlignedLayout, T28OpenedTypedLayout,
     T28RowLayoutReader, T28TypedLayoutExecutionPlanV1,
 };
-use crate::t28_layout::{T28LayoutOracleV1, TypedLayoutPlacementLocatorV1, TypedLayoutSubjectV1};
+use crate::t28_layout::{
+    T28LayoutOracleV1, TypedLayoutObjectRoleV1, TypedLayoutPlacementLocatorV1, TypedLayoutSubjectV1,
+};
 use arrow::array::{Int64Array, UInt16Array, UInt32Array, UInt64Array};
 use datafusion::prelude::SessionContext;
 use futures_util::{stream, StreamExt};
@@ -16,10 +18,12 @@ use okv_object::{content_sha256, Backend, PointReadOutcome};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const RECEIPT_SCHEMA_VERSION: u32 = 1;
+const ALIGNED_POINT_RECEIPT_SCHEMA_VERSION: u32 = 2;
 
 /// One subject in the matched point lane.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -146,6 +150,67 @@ pub struct T28TypedPointPositionReceiptV1 {
     pub receipt_sha256: String,
 }
 
+/// Per-logical-point latency decomposition from the provider attempt lifecycle.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum T28AlignedObjectRoleV2 {
+    IndexedRow,
+    Payload,
+    Projection,
+}
+
+/// One completed provider attempt bound to one logical point read.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28AlignedProviderAttemptV2 {
+    pub api: String,
+    pub object_role: T28AlignedObjectRoleV2,
+    pub object_key: String,
+    pub requested_range: Range<u64>,
+    pub returned_range: Range<u64>,
+    pub expected_generation: String,
+    pub returned_generation: String,
+    pub response_payload_bytes: u64,
+    pub started_monotonic_nanos: u64,
+    pub elapsed_nanos: u64,
+    pub result: String,
+}
+
+/// Per-logical-point latency decomposition from the provider attempt lifecycle.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28AlignedPointOperationV2 {
+    pub ordinal: u64,
+    pub end_to_end_nanos: u64,
+    pub provider_pair_max_nanos: u64,
+    pub local_residual_nanos: u64,
+    pub pair_start_skew_nanos: u64,
+    pub pair_completion_nanos: u64,
+    pub provider_attempts: u64,
+    pub provider_pair_overlapped: bool,
+    pub attempts: Vec<T28AlignedProviderAttemptV2>,
+}
+
+/// RFC-0049 point receipt with provider attempts correlated to logical reads.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28AlignedPointPositionReceiptV2 {
+    pub schema_version: u32,
+    pub base: T28TypedPointPositionReceiptV1,
+    pub operation_latency_samples: Vec<T28AlignedPointOperationV2>,
+    pub provider_pair_max_p50_nanos: u64,
+    pub provider_pair_max_p95_nanos: u64,
+    pub provider_pair_max_p99_nanos: u64,
+    pub provider_pair_max_p999_nanos: u64,
+    pub local_residual_p50_nanos: u64,
+    pub local_residual_p95_nanos: u64,
+    pub local_residual_p99_nanos: u64,
+    pub local_residual_p999_nanos: u64,
+    pub maximum_pair_start_skew_nanos: u64,
+    pub maximum_pair_completion_nanos: u64,
+    pub receipt_sha256: String,
+}
+
 /// Immutable output from one fresh C0 or C5 projected-scan process.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -190,6 +255,147 @@ pub struct T28TypedScanPositionReceiptV1 {
     pub measured_started_unix_nanos: u64,
     pub measured_finished_unix_nanos: u64,
     pub receipt_sha256: String,
+}
+
+/// Authenticated media inventory derived from the published C0 and C5v2
+/// child descriptors, never from plan constants.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct T28AlignedMediaObservationV1 {
+    pub fixture_id: String,
+    pub root_sha256: String,
+    pub canonical_history_sha256: String,
+    pub candidate_placement_envelope_sha256: String,
+    pub source_root_sha256: String,
+    pub source_placement_envelope_sha256: String,
+    pub control_prefix: String,
+    pub candidate_prefix: String,
+    pub control_closure_sha256: String,
+    pub candidate_closure_sha256: String,
+    pub control_total_media_bytes: u64,
+    pub candidate_total_media_bytes: u64,
+    pub control_objects: Vec<crate::t28_layout::TypedLayoutObjectIdentityV1>,
+    pub candidate_objects: Vec<crate::t28_layout::TypedLayoutObjectIdentityV1>,
+    pub source_c0_reused_by_reference: bool,
+    pub observation_sha256: String,
+}
+
+impl T28AlignedMediaObservationV1 {
+    fn seal(
+        opened: &T28OpenedAlignedLayout,
+        aligned_locator: &TypedLayoutPlacementLocatorV1,
+    ) -> Result<Self, String> {
+        let fixture = opened.fixture();
+        aligned_locator.validate()?;
+        if aligned_locator.fixture_id != fixture.fixture_id
+            || aligned_locator.root_sha256 != fixture.root_sha256
+        {
+            return Err("RFC-0049 aligned locator differs from opened media".to_owned());
+        }
+        let control_total_media_bytes = fixture
+            .source_c0
+            .objects
+            .iter()
+            .fold(0_u64, |total, object| total.saturating_add(object.length));
+        let candidate_total_media_bytes = fixture
+            .candidate
+            .objects
+            .iter()
+            .fold(0_u64, |total, object| total.saturating_add(object.length));
+        let mut observation = Self {
+            fixture_id: fixture.fixture_id.clone(),
+            root_sha256: fixture.root_sha256.clone(),
+            canonical_history_sha256: fixture.canonical_history_sha256.clone(),
+            candidate_placement_envelope_sha256: aligned_locator.envelope_sha256.clone(),
+            source_root_sha256: fixture.source_root_sha256.clone(),
+            source_placement_envelope_sha256: fixture.source_placement_envelope_sha256.clone(),
+            control_prefix: fixture.source_c0_prefix.clone(),
+            candidate_prefix: fixture.candidate.prefix.clone(),
+            control_closure_sha256: fixture.source_c0.closure_sha256.clone(),
+            candidate_closure_sha256: fixture.candidate.closure_sha256.clone(),
+            control_total_media_bytes,
+            candidate_total_media_bytes,
+            control_objects: fixture.source_c0.objects.clone(),
+            candidate_objects: fixture.candidate.objects.clone(),
+            source_c0_reused_by_reference: fixture.source_c0_prefix != fixture.candidate.prefix
+                && fixture.source_c0.canonical_history_sha256 == fixture.canonical_history_sha256,
+            observation_sha256: String::new(),
+        };
+        observation.observation_sha256 = observation.calculated_sha256()?;
+        observation.validate()?;
+        Ok(observation)
+    }
+
+    /// Recompute the authenticated inventory digest and its component totals.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for empty or duplicate media, arithmetic drift, or a
+    /// changed observation digest.
+    pub fn validate(&self) -> Result<(), String> {
+        let control_total = self
+            .control_objects
+            .iter()
+            .fold(0_u64, |total, object| total.saturating_add(object.length));
+        let candidate_total = self
+            .candidate_objects
+            .iter()
+            .fold(0_u64, |total, object| total.saturating_add(object.length));
+        if !valid_sha256(&self.fixture_id)
+            || !valid_sha256(&self.root_sha256)
+            || !valid_sha256(&self.canonical_history_sha256)
+            || !valid_sha256(&self.candidate_placement_envelope_sha256)
+            || !valid_sha256(&self.source_root_sha256)
+            || !valid_sha256(&self.source_placement_envelope_sha256)
+            || self.control_prefix.trim_matches('/').is_empty()
+            || self.candidate_prefix.trim_matches('/').is_empty()
+            || self.control_prefix == self.candidate_prefix
+            || !valid_sha256(&self.control_closure_sha256)
+            || !valid_sha256(&self.candidate_closure_sha256)
+            || self.control_objects.is_empty()
+            || self.candidate_objects.is_empty()
+            || control_total != self.control_total_media_bytes
+            || candidate_total != self.candidate_total_media_bytes
+            || !self.source_c0_reused_by_reference
+            || self.observation_sha256 != self.calculated_sha256()?
+        {
+            return Err("invalid RFC-0049 authenticated media observation".to_owned());
+        }
+        Ok(())
+    }
+
+    fn calculated_sha256(&self) -> Result<String, String> {
+        let mut unsigned = self.clone();
+        unsigned.observation_sha256.clear();
+        serde_json::to_vec(&unsigned)
+            .map(|bytes| content_sha256(&bytes))
+            .map_err(|error| error.to_string())
+    }
+}
+
+/// Authenticate a persisted aligned-root locator against the media receipt
+/// that is already bound into the performance run.
+///
+/// # Errors
+///
+/// Returns an error for a changed envelope, root generation, object identity,
+/// fixture, placement, or child prefix.
+pub fn validate_t28_aligned_candidate_locator(
+    media: &T28AlignedMediaObservationV1,
+    locator: &TypedLayoutPlacementLocatorV1,
+) -> Result<(), String> {
+    media.validate()?;
+    locator.validate()?;
+    if locator.envelope_sha256 != media.candidate_placement_envelope_sha256
+        || locator.fixture_id != media.fixture_id
+        || locator.root_sha256 != media.root_sha256
+        || !media
+            .candidate_prefix
+            .starts_with(&format!("{}/", locator.prefix.trim_end_matches('/')))
+    {
+        return Err("RFC-0049 candidate locator differs from persisted media".to_owned());
+    }
+    Ok(())
 }
 
 impl T28TypedScanPositionReceiptV1 {
@@ -367,6 +573,318 @@ impl T28TypedPointPositionReceiptV1 {
             .map(|bytes| content_sha256(&bytes))
             .map_err(|error| error.to_string())
     }
+}
+
+impl T28AlignedPointPositionReceiptV2 {
+    /// Decode and authenticate one RFC-0049 correlated point receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed JSON, an invalid base receipt, an
+    /// uncorrelated provider attempt, a sequential candidate pair, or any
+    /// derived percentile or digest drift.
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let receipt: Self = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    fn seal(
+        base: T28TypedPointPositionReceiptV1,
+        operation_latency_samples: Vec<T28AlignedPointOperationV2>,
+    ) -> Result<Self, String> {
+        let mut provider = operation_latency_samples
+            .iter()
+            .map(|sample| sample.provider_pair_max_nanos)
+            .collect::<Vec<_>>();
+        let mut local = operation_latency_samples
+            .iter()
+            .map(|sample| sample.local_residual_nanos)
+            .collect::<Vec<_>>();
+        provider.sort_unstable();
+        local.sort_unstable();
+        let mut receipt = Self {
+            schema_version: ALIGNED_POINT_RECEIPT_SCHEMA_VERSION,
+            base,
+            provider_pair_max_p50_nanos: nearest_rank(&provider, 50, 100)?,
+            provider_pair_max_p95_nanos: nearest_rank(&provider, 95, 100)?,
+            provider_pair_max_p99_nanos: nearest_rank(&provider, 99, 100)?,
+            provider_pair_max_p999_nanos: nearest_rank(&provider, 999, 1_000)?,
+            local_residual_p50_nanos: nearest_rank(&local, 50, 100)?,
+            local_residual_p95_nanos: nearest_rank(&local, 95, 100)?,
+            local_residual_p99_nanos: nearest_rank(&local, 99, 100)?,
+            local_residual_p999_nanos: nearest_rank(&local, 999, 1_000)?,
+            maximum_pair_start_skew_nanos: operation_latency_samples
+                .iter()
+                .map(|sample| sample.pair_start_skew_nanos)
+                .max()
+                .unwrap_or(0),
+            maximum_pair_completion_nanos: operation_latency_samples
+                .iter()
+                .map(|sample| sample.pair_completion_nanos)
+                .max()
+                .unwrap_or(0),
+            operation_latency_samples,
+            receipt_sha256: String::new(),
+        };
+        receipt.receipt_sha256 = receipt.calculated_sha256()?;
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Recompute every correlation, percentile, and digest invariant.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the nested receipt and every logical point
+    /// prove the exact RFC-0049 provider fanout and latency decomposition.
+    pub fn validate(&self) -> Result<(), String> {
+        self.base.validate()?;
+        let operation_count =
+            usize::try_from(self.base.measured_operations).map_err(|error| error.to_string())?;
+        if self.schema_version != ALIGNED_POINT_RECEIPT_SCHEMA_VERSION
+            || !matches!(
+                self.base.subject,
+                T28TypedPointSubjectV1::C0IndexedRow | T28TypedPointSubjectV1::C5v2AlignedColumnar
+            )
+            || self.operation_latency_samples.len() != operation_count
+        {
+            return Err("invalid RFC-0049 correlated point receipt boundary".to_owned());
+        }
+
+        let expected_attempts = self.base.subject.maximum_requests_per_point();
+        let require_overlap = self.base.subject == T28TypedPointSubjectV1::C5v2AlignedColumnar;
+        let mut previous_ordinal = None;
+        let mut end_to_end = Vec::with_capacity(operation_count);
+        let mut provider = Vec::with_capacity(operation_count);
+        let mut local = Vec::with_capacity(operation_count);
+        for sample in &self.operation_latency_samples {
+            if previous_ordinal.is_some_and(|previous| previous >= sample.ordinal)
+                || sample.end_to_end_nanos == 0
+                || sample.provider_pair_max_nanos == 0
+                || sample.local_residual_nanos
+                    != sample
+                        .end_to_end_nanos
+                        .saturating_sub(sample.pair_completion_nanos)
+                || sample.pair_completion_nanos < sample.provider_pair_max_nanos
+                || sample.pair_completion_nanos > sample.end_to_end_nanos
+                || sample.pair_start_skew_nanos > sample.pair_completion_nanos
+                || sample.provider_attempts != expected_attempts
+                || sample.provider_attempts
+                    != u64::try_from(sample.attempts.len()).unwrap_or(u64::MAX)
+                || sample.provider_pair_overlapped != require_overlap
+                || !valid_aligned_attempts(sample, self.base.subject)
+            {
+                return Err("invalid RFC-0049 logical point correlation".to_owned());
+            }
+            previous_ordinal = Some(sample.ordinal);
+            end_to_end.push(sample.end_to_end_nanos);
+            provider.push(sample.provider_pair_max_nanos);
+            local.push(sample.local_residual_nanos);
+        }
+        end_to_end.sort_unstable();
+        provider.sort_unstable();
+        local.sort_unstable();
+        if end_to_end != self.base.latency_nanos
+            || self.provider_pair_max_p50_nanos != nearest_rank(&provider, 50, 100)?
+            || self.provider_pair_max_p95_nanos != nearest_rank(&provider, 95, 100)?
+            || self.provider_pair_max_p99_nanos != nearest_rank(&provider, 99, 100)?
+            || self.provider_pair_max_p999_nanos != nearest_rank(&provider, 999, 1_000)?
+            || self.local_residual_p50_nanos != nearest_rank(&local, 50, 100)?
+            || self.local_residual_p95_nanos != nearest_rank(&local, 95, 100)?
+            || self.local_residual_p99_nanos != nearest_rank(&local, 99, 100)?
+            || self.local_residual_p999_nanos != nearest_rank(&local, 999, 1_000)?
+            || self.maximum_pair_start_skew_nanos
+                != self
+                    .operation_latency_samples
+                    .iter()
+                    .map(|sample| sample.pair_start_skew_nanos)
+                    .max()
+                    .unwrap_or(0)
+            || self.maximum_pair_completion_nanos
+                != self
+                    .operation_latency_samples
+                    .iter()
+                    .map(|sample| sample.pair_completion_nanos)
+                    .max()
+                    .unwrap_or(0)
+            || self.receipt_sha256 != self.calculated_sha256()?
+        {
+            return Err("invalid RFC-0049 correlated point receipt derivation".to_owned());
+        }
+        Ok(())
+    }
+
+    /// Rebind every provider attempt to the persisted descriptor inventory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a key, generation, range, role, or byte count is
+    /// not exactly authorized by the authenticated media observation.
+    pub fn validate_against_media(
+        &self,
+        media: &T28AlignedMediaObservationV1,
+    ) -> Result<(), String> {
+        self.validate()?;
+        media.validate()?;
+        if self.base.fixture_id != media.fixture_id || self.base.root_sha256 != media.root_sha256 {
+            return Err("RFC-0049 point receipt differs from persisted media".to_owned());
+        }
+        for sample in &self.operation_latency_samples {
+            for attempt in &sample.attempts {
+                let (objects, prefix, role) = match (self.base.subject, attempt.object_role) {
+                    (T28TypedPointSubjectV1::C0IndexedRow, T28AlignedObjectRoleV2::IndexedRow) => (
+                        &media.control_objects,
+                        media.control_prefix.as_str(),
+                        TypedLayoutObjectRoleV1::Data,
+                    ),
+                    (
+                        T28TypedPointSubjectV1::C5v2AlignedColumnar,
+                        T28AlignedObjectRoleV2::Projection,
+                    ) => (
+                        &media.candidate_objects,
+                        media.candidate_prefix.as_str(),
+                        TypedLayoutObjectRoleV1::Projection,
+                    ),
+                    (
+                        T28TypedPointSubjectV1::C5v2AlignedColumnar,
+                        T28AlignedObjectRoleV2::Payload,
+                    ) => (
+                        &media.candidate_objects,
+                        media.candidate_prefix.as_str(),
+                        TypedLayoutObjectRoleV1::Payload,
+                    ),
+                    _ => {
+                        return Err(
+                            "RFC-0049 persisted attempt role differs from its subject".to_owned()
+                        );
+                    }
+                };
+                let descriptor = objects
+                    .iter()
+                    .find(|object| object.role == role)
+                    .ok_or_else(|| "RFC-0049 persisted media omits an attempt role".to_owned())?;
+                let expected_key = format!(
+                    "{}/{}",
+                    prefix.trim_matches('/'),
+                    descriptor.key.trim_start_matches('/')
+                );
+                if attempt.object_key != expected_key
+                    || attempt.expected_generation != descriptor.generation
+                    || attempt.returned_generation != descriptor.generation
+                    || attempt.requested_range != attempt.returned_range
+                    || attempt.requested_range.end > descriptor.length
+                    || attempt.response_payload_bytes
+                        != attempt
+                            .requested_range
+                            .end
+                            .saturating_sub(attempt.requested_range.start)
+                {
+                    return Err(
+                        "RFC-0049 persisted attempt differs from its media descriptor".to_owned(),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Calculate the receipt digest without trusting its stored digest field.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when serialization fails.
+    pub fn calculated_sha256(&self) -> Result<String, String> {
+        let mut unsigned = self.clone();
+        unsigned.receipt_sha256.clear();
+        serde_json::to_vec(&unsigned)
+            .map(|bytes| content_sha256(&bytes))
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn valid_aligned_attempts(
+    sample: &T28AlignedPointOperationV2,
+    subject: T28TypedPointSubjectV1,
+) -> bool {
+    if sample.attempts.is_empty()
+        || sample.attempts.iter().any(|attempt| {
+            attempt.api != "get"
+                || attempt.requested_range.start >= attempt.requested_range.end
+                || attempt.requested_range != attempt.returned_range
+                || attempt.expected_generation.is_empty()
+                || attempt.expected_generation != attempt.returned_generation
+                || attempt.response_payload_bytes == 0
+                || attempt.elapsed_nanos == 0
+                || attempt.result != "ok"
+        })
+    {
+        return false;
+    }
+    let roles = sample
+        .attempts
+        .iter()
+        .map(|attempt| attempt.object_role)
+        .collect::<Vec<_>>();
+    let object_roles_match = match subject {
+        T28TypedPointSubjectV1::C0IndexedRow => roles == [T28AlignedObjectRoleV2::IndexedRow],
+        T28TypedPointSubjectV1::C5v2AlignedColumnar => {
+            roles
+                == [
+                    T28AlignedObjectRoleV2::Payload,
+                    T28AlignedObjectRoleV2::Projection,
+                ]
+                && sample.attempts[0].object_key.ends_with("payload.okv2")
+                && sample.attempts[1].object_key.ends_with("projection.okp2")
+        }
+        T28TypedPointSubjectV1::C5ColumnarMain => false,
+    };
+    if !object_roles_match {
+        return false;
+    }
+    let earliest_start = sample
+        .attempts
+        .iter()
+        .map(|attempt| attempt.started_monotonic_nanos)
+        .min()
+        .unwrap_or(0);
+    let latest_start = sample
+        .attempts
+        .iter()
+        .map(|attempt| attempt.started_monotonic_nanos)
+        .max()
+        .unwrap_or(0);
+    let earliest_finish = sample
+        .attempts
+        .iter()
+        .map(|attempt| {
+            attempt
+                .started_monotonic_nanos
+                .saturating_add(attempt.elapsed_nanos)
+        })
+        .min()
+        .unwrap_or(0);
+    let latest_finish = sample
+        .attempts
+        .iter()
+        .map(|attempt| {
+            attempt
+                .started_monotonic_nanos
+                .saturating_add(attempt.elapsed_nanos)
+        })
+        .max()
+        .unwrap_or(0);
+    sample.provider_pair_max_nanos
+        == sample
+            .attempts
+            .iter()
+            .map(|attempt| attempt.elapsed_nanos)
+            .max()
+            .unwrap_or(0)
+        && sample.pair_start_skew_nanos == latest_start.saturating_sub(earliest_start)
+        && sample.pair_completion_nanos == latest_finish.saturating_sub(earliest_start)
+        && sample.provider_pair_overlapped
+            == (sample.attempts.len() > 1 && latest_start < earliest_finish)
 }
 
 /// Run one metadata-warm, data-cold point position in the current fresh
@@ -553,6 +1071,33 @@ async fn open_aligned_with_source_plan(
     Ok((aligned, plan))
 }
 
+/// Open the exact aligned root and derive stored-media totals and component
+/// identities from its authenticated child descriptors.
+///
+/// # Errors
+///
+/// Returns an error for locator, root, source-plan, object-identity, or media
+/// inventory drift.
+pub async fn inspect_t28_aligned_media(
+    backend: Arc<dyn Backend>,
+    aligned_locator: &TypedLayoutPlacementLocatorV1,
+    source_locator: &TypedLayoutPlacementLocatorV1,
+    oracle: &T28LayoutOracleV1,
+    plan_bytes: &[u8],
+    expected_plan_sha256: &str,
+) -> Result<T28AlignedMediaObservationV1, String> {
+    let (opened, _) = open_aligned_with_source_plan(
+        backend,
+        aligned_locator,
+        source_locator,
+        oracle,
+        plan_bytes,
+        expected_plan_sha256,
+    )
+    .await?;
+    T28AlignedMediaObservationV1::seal(&opened, aligned_locator)
+}
+
 /// Run one viewer-only RFC-0049 point position against the reused C0 or C5v2.
 ///
 /// # Errors
@@ -570,7 +1115,7 @@ pub async fn run_t28_aligned_point_position(
     subject: T28TypedPointSubjectV1,
     trace_seed: u64,
     measured_operations: usize,
-) -> Result<T28TypedPointPositionReceiptV1, String> {
+) -> Result<T28AlignedPointPositionReceiptV2, String> {
     if !matches!(
         subject,
         T28TypedPointSubjectV1::C0IndexedRow | T28TypedPointSubjectV1::C5v2AlignedColumnar
@@ -631,7 +1176,11 @@ pub async fn run_t28_aligned_point_position(
             let reader = Arc::clone(&reader);
             async move {
                 let started = Instant::now();
-                let outcome = reader.read(operation.key, operation.read_version).await?;
+                let outcome = scope_logical_operation(
+                    operation.ordinal,
+                    reader.read(operation.key, operation.read_version),
+                )
+                .await?;
                 Ok::<MeasuredPoint, String>(MeasuredPoint {
                     ordinal: operation.ordinal,
                     latency_nanos: u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
@@ -660,7 +1209,10 @@ pub async fn run_t28_aligned_point_position(
         .map(|point| point.latency_nanos)
         .collect::<Vec<_>>();
     latency_nanos.sort_unstable();
-    let provider = evaluate_provider_events(&attempts.events(), subject)?;
+    let provider_events = attempts.events();
+    let correlated =
+        correlate_provider_events(&provider_events, &points, subject, opened.fixture())?;
+    let provider = evaluate_provider_events(&provider_events, subject)?;
     let expected_attempts = u64::try_from(measured_operations)
         .unwrap_or(u64::MAX)
         .saturating_mul(subject.maximum_requests_per_point());
@@ -711,7 +1263,7 @@ pub async fn run_t28_aligned_point_position(
     };
     receipt.receipt_sha256 = receipt.calculated_sha256()?;
     receipt.validate()?;
-    Ok(receipt)
+    T28AlignedPointPositionReceiptV2::seal(receipt, correlated)
 }
 
 /// Run one complete projected scan in the current fresh process.
@@ -721,7 +1273,11 @@ pub async fn run_t28_aligned_point_position(
 /// Returns an error for plan drift, a wrong ordered projection or aggregate,
 /// opaque-payload access, unbounded fetches or batches, concurrent provider
 /// calls, generation drift, or a malformed receipt.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)]
 pub async fn run_t28_typed_scan_position(
     backend: Arc<dyn Backend>,
     locator: &TypedLayoutPlacementLocatorV1,
@@ -871,13 +1427,15 @@ pub async fn run_t28_typed_scan_position(
         .unwrap_or_default();
     let projection_fetch_requests = match subject {
         T28TypedScanSubjectV1::C0IndexedRow => provider.attempts,
-        T28TypedScanSubjectV1::C5ColumnarMain => columnar.projection_fetch_requests,
-        T28TypedScanSubjectV1::C5v2AlignedColumnar => columnar.projection_fetch_requests,
+        T28TypedScanSubjectV1::C5ColumnarMain | T28TypedScanSubjectV1::C5v2AlignedColumnar => {
+            columnar.projection_fetch_requests
+        }
     };
     let peak_fetch_bytes = match subject {
         T28TypedScanSubjectV1::C0IndexedRow => provider.maximum_response_bytes,
-        T28TypedScanSubjectV1::C5ColumnarMain => columnar.peak_fetch_bytes,
-        T28TypedScanSubjectV1::C5v2AlignedColumnar => columnar.peak_fetch_bytes,
+        T28TypedScanSubjectV1::C5ColumnarMain | T28TypedScanSubjectV1::C5v2AlignedColumnar => {
+            columnar.peak_fetch_bytes
+        }
     };
     let rows_u64 = u64::try_from(rows).unwrap_or(u64::MAX);
     let mut receipt = T28TypedScanPositionReceiptV1 {
@@ -934,7 +1492,11 @@ pub async fn run_t28_typed_scan_position(
 ///
 /// Returns an error for source-plan drift, incorrect snapshot output, opaque
 /// payload access, unbounded fetches, or malformed receipt evidence.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)]
 pub async fn run_t28_aligned_scan_position(
     backend: Arc<dyn Backend>,
     aligned_locator: &TypedLayoutPlacementLocatorV1,
@@ -1185,6 +1747,7 @@ struct ProviderEvaluation {
     peak_inflight: u64,
 }
 
+#[allow(clippy::too_many_lines)]
 fn evaluate_provider_events(
     events: &[ProviderAttemptEventV1],
     subject: T28TypedPointSubjectV1,
@@ -1237,9 +1800,9 @@ fn evaluate_provider_events(
             .max(completed.response_payload_bytes);
         evaluation.latencies.push(completed.elapsed_nanos);
         intervals.push((
-            completed.started_unix_nanos,
+            completed.started_monotonic_nanos,
             completed
-                .started_unix_nanos
+                .started_monotonic_nanos
                 .saturating_add(completed.elapsed_nanos),
         ));
         evaluation.full_object_requests = evaluation.full_object_requests.saturating_add(
@@ -1301,6 +1864,215 @@ fn evaluate_provider_events(
     Ok(evaluation)
 }
 
+#[derive(Clone)]
+struct CorrelatedProviderAttempt {
+    observation: T28AlignedProviderAttemptV2,
+    finished_monotonic_nanos: u64,
+}
+
+#[allow(clippy::too_many_lines)]
+fn correlate_provider_events(
+    events: &[ProviderAttemptEventV1],
+    points: &[MeasuredPoint],
+    subject: T28TypedPointSubjectV1,
+    fixture: &T28AlignedFixtureV1,
+) -> Result<Vec<T28AlignedPointOperationV2>, String> {
+    let mut by_provider_operation = BTreeMap::<u64, Vec<&ProviderAttemptEventV1>>::new();
+    for event in events {
+        by_provider_operation
+            .entry(event.operation_id)
+            .or_default()
+            .push(event);
+    }
+    let mut by_logical_operation = BTreeMap::<u64, Vec<CorrelatedProviderAttempt>>::new();
+    for pair in by_provider_operation.values() {
+        if pair.len() != 2
+            || pair[0].phase != ProviderAttemptPhase::Started
+            || pair[1].phase != ProviderAttemptPhase::Completed
+            || pair[0].logical_operation_id.is_none()
+            || pair[0].logical_operation_id != pair[1].logical_operation_id
+            || pair[0].started_unix_nanos != pair[1].started_unix_nanos
+            || pair[0].started_monotonic_nanos != pair[1].started_monotonic_nanos
+            || pair[1].elapsed_nanos == 0
+        {
+            return Err("RFC-0049 provider attempt is not bound to one logical point".to_owned());
+        }
+        let logical_operation_id = pair[0]
+            .logical_operation_id
+            .ok_or_else(|| "RFC-0049 provider attempt omitted its logical point".to_owned())?;
+        let started = pair[0];
+        let completed = pair[1];
+        let object_role = match subject {
+            T28TypedPointSubjectV1::C0IndexedRow => T28AlignedObjectRoleV2::IndexedRow,
+            T28TypedPointSubjectV1::C5v2AlignedColumnar
+                if started.object_key.ends_with("projection.okp2") =>
+            {
+                T28AlignedObjectRoleV2::Projection
+            }
+            T28TypedPointSubjectV1::C5v2AlignedColumnar
+                if started.object_key.ends_with("payload.okv2") =>
+            {
+                T28AlignedObjectRoleV2::Payload
+            }
+            _ => return Err("RFC-0049 provider attempt has an unexpected object role".to_owned()),
+        };
+        let requested_range = started
+            .requested_range
+            .clone()
+            .ok_or_else(|| "RFC-0049 provider attempt is not a bounded range GET".to_owned())?;
+        let returned_range = completed
+            .returned_range
+            .clone()
+            .ok_or_else(|| "RFC-0049 provider attempt omitted its returned range".to_owned())?;
+        let expected_generation = started
+            .expected_revision
+            .as_ref()
+            .and_then(|revision| revision.version.clone())
+            .ok_or_else(|| {
+                "RFC-0049 provider attempt omitted its expected generation".to_owned()
+            })?;
+        let returned_generation = completed
+            .returned_revision
+            .as_ref()
+            .and_then(|revision| revision.version.clone())
+            .ok_or_else(|| {
+                "RFC-0049 provider attempt omitted its returned generation".to_owned()
+            })?;
+        let (expected_prefix, expected_role) = match (subject, object_role) {
+            (T28TypedPointSubjectV1::C0IndexedRow, T28AlignedObjectRoleV2::IndexedRow) => (
+                fixture.source_c0_prefix.as_str(),
+                TypedLayoutObjectRoleV1::Data,
+            ),
+            (T28TypedPointSubjectV1::C5v2AlignedColumnar, T28AlignedObjectRoleV2::Projection) => (
+                fixture.candidate.prefix.as_str(),
+                TypedLayoutObjectRoleV1::Projection,
+            ),
+            (T28TypedPointSubjectV1::C5v2AlignedColumnar, T28AlignedObjectRoleV2::Payload) => (
+                fixture.candidate.prefix.as_str(),
+                TypedLayoutObjectRoleV1::Payload,
+            ),
+            _ => return Err("RFC-0049 provider role differs from its subject".to_owned()),
+        };
+        let expected_object = match subject {
+            T28TypedPointSubjectV1::C0IndexedRow => fixture
+                .source_c0
+                .objects
+                .iter()
+                .find(|object| object.role == expected_role),
+            T28TypedPointSubjectV1::C5v2AlignedColumnar => fixture
+                .candidate
+                .objects
+                .iter()
+                .find(|object| object.role == expected_role),
+            T28TypedPointSubjectV1::C5ColumnarMain => None,
+        }
+        .ok_or_else(|| "RFC-0049 fixture omits an expected point object".to_owned())?;
+        let expected_key = format!(
+            "{}/{}",
+            expected_prefix.trim_matches('/'),
+            expected_object.key.trim_start_matches('/')
+        );
+        if started.api != "get"
+            || started.object_key != expected_key
+            || completed.object_key != expected_key
+            || expected_generation != expected_object.generation
+            || returned_generation != expected_object.generation
+            || requested_range != returned_range
+            || requested_range.end > expected_object.length
+            || completed.response_payload_bytes
+                != requested_range.end.saturating_sub(requested_range.start)
+        {
+            return Err("RFC-0049 provider attempt differs from its fixture descriptor".to_owned());
+        }
+        let finished_monotonic_nanos = completed
+            .started_monotonic_nanos
+            .checked_add(completed.elapsed_nanos)
+            .ok_or_else(|| "RFC-0049 provider completion overflow".to_owned())?;
+        by_logical_operation
+            .entry(logical_operation_id)
+            .or_default()
+            .push(CorrelatedProviderAttempt {
+                observation: T28AlignedProviderAttemptV2 {
+                    api: completed.api.clone(),
+                    object_role,
+                    object_key: completed.object_key.clone(),
+                    requested_range,
+                    returned_range,
+                    expected_generation,
+                    returned_generation,
+                    response_payload_bytes: completed.response_payload_bytes,
+                    started_monotonic_nanos: completed.started_monotonic_nanos,
+                    elapsed_nanos: completed.elapsed_nanos,
+                    result: completed.result.clone().unwrap_or_default(),
+                },
+                finished_monotonic_nanos,
+            });
+    }
+    if by_logical_operation.len() != points.len() {
+        return Err("RFC-0049 provider correlation does not cover every point".to_owned());
+    }
+
+    let expected_attempts =
+        usize::try_from(subject.maximum_requests_per_point()).map_err(|error| error.to_string())?;
+    let require_overlap = subject == T28TypedPointSubjectV1::C5v2AlignedColumnar;
+    let mut correlated = Vec::with_capacity(points.len());
+    for point in points {
+        let calls = by_logical_operation
+            .get(&point.ordinal)
+            .ok_or_else(|| "RFC-0049 logical point has no provider attempts".to_owned())?;
+        if calls.len() != expected_attempts {
+            return Err("RFC-0049 logical point has the wrong provider fanout".to_owned());
+        }
+        let earliest_start = calls
+            .iter()
+            .map(|call| call.observation.started_monotonic_nanos)
+            .min()
+            .ok_or_else(|| "RFC-0049 logical point has no provider start".to_owned())?;
+        let latest_start = calls
+            .iter()
+            .map(|call| call.observation.started_monotonic_nanos)
+            .max()
+            .ok_or_else(|| "RFC-0049 logical point has no provider start".to_owned())?;
+        let earliest_finish = calls
+            .iter()
+            .map(|call| call.finished_monotonic_nanos)
+            .min()
+            .ok_or_else(|| "RFC-0049 logical point has no provider completion".to_owned())?;
+        let latest_finish = calls
+            .iter()
+            .map(|call| call.finished_monotonic_nanos)
+            .max()
+            .ok_or_else(|| "RFC-0049 logical point has no provider completion".to_owned())?;
+        let provider_pair_max_nanos = calls
+            .iter()
+            .map(|call| call.observation.elapsed_nanos)
+            .max()
+            .ok_or_else(|| "RFC-0049 logical point has no provider latency".to_owned())?;
+        let provider_pair_overlapped = calls.len() > 1 && latest_start < earliest_finish;
+        if provider_pair_overlapped != require_overlap {
+            return Err("RFC-0049 logical point violated its provider overlap contract".to_owned());
+        }
+        let pair_completion_nanos = latest_finish.saturating_sub(earliest_start);
+        let mut observations = calls
+            .iter()
+            .map(|call| call.observation.clone())
+            .collect::<Vec<_>>();
+        observations.sort_by_key(|attempt| attempt.object_role);
+        correlated.push(T28AlignedPointOperationV2 {
+            ordinal: point.ordinal,
+            end_to_end_nanos: point.latency_nanos,
+            provider_pair_max_nanos,
+            local_residual_nanos: point.latency_nanos.saturating_sub(pair_completion_nanos),
+            pair_start_skew_nanos: latest_start.saturating_sub(earliest_start),
+            pair_completion_nanos,
+            provider_attempts: u64::try_from(calls.len()).unwrap_or(u64::MAX),
+            provider_pair_overlapped,
+            attempts: observations,
+        });
+    }
+    Ok(correlated)
+}
+
 fn peak_inflight(intervals: &[(u64, u64)]) -> u64 {
     let mut events = intervals
         .iter()
@@ -1346,6 +2118,7 @@ fn valid_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
 const fn is_zero(value: &u64) -> bool {
     *value == 0
 }

@@ -1,6 +1,6 @@
 # RFC-0049: Aligned columnar point gather
 
-- Status: `[PROPOSED]`, pre-implementation review SHIP on 2026-08-30
+- Status: `[EVALUATING]`, immutable GCS publication and preflight `[VERIFIED]`
 - Authors: DOSS
 - Created: 2026-08-30
 - Corrects: RFC-0048 C5 point path
@@ -52,6 +52,63 @@ which payload page to request, so two provider tails compose serially.
 The 31.595x projected-scan result establishes that replacing the columnar
 media with a row sidecar would discard demonstrated leverage. The correction
 must preserve projection-only scan I/O while removing sequential point I/O.
+
+## Implementation and preflight result
+
+Source `8ff14a2` implements the exact C5v2 encoder, decoder, compact aligned
+index, Merkle range proofs, concurrent point gather, immutable root closure,
+and projection-only DataFusion source. The Rust encoder byte-matches the
+independent JavaScript oracle for all 13,695,766 media bytes.
+
+The real GCS viewer-only preflight measured:
+
+| Metric | C0 indexed row | C5v2 aligned columnar | Ratio |
+|---|---:|---:|---:|
+| point p50 | 36.737 ms | 38.113 ms | 1.037x |
+| point p95 | 82.928 ms | 65.777 ms | 0.793x |
+| point p99 | 130.172 ms | 113.082 ms | 0.869x |
+| point p99.9 | 251.138 ms | 135.772 ms | 0.541x |
+| point response bytes | 16,585,027 | 4,422,951 | 0.267x |
+| projected scan rows/s | 1,885.6 | 59,758.5 | 31.692x |
+| projected scan bytes | 13,105,844 | 1,701,414 | 0.130x |
+| projected scan GETs | 203 | 7 | 0.034x |
+
+All 256 projection and payload request pairs overlapped. Both subjects returned
+the exact independent point outcomes and projected snapshot with zero
+anomalies. C5v2 performed zero opaque-payload reads during the scan. The
+preflight passes its 2.50x point and 1.25x scan guards. Admission remains
+`[EVALUATING]` until the frozen 15-block curve and OTel requirements pass.
+
+Evidence:
+`docs/artifacts/eval-receipts/rfc0049-t28-aligned-preflight-gcp-r0-2026-08-30/README.md`.
+
+## Admission controller
+
+`[CODE-COMPLETE]` The Rust admission controller now owns the complete 60-point
+position and 30-scan position execution. Every position runs in a fresh child
+process and binds the controller, physical plan, admission plan, position plan,
+binary, process, subject, seed, block, and receipt digest.
+
+The finalizer replays the persisted evidence graph instead of trusting stored
+aggregates. It authenticates both plans, the postpublication operation plan,
+oracle, candidate and source locators, candidate build edge, runtime
+`Cargo.lock`, benchmark machine, reader-only IAM, telemetry endpoint, media
+inventory, every provider key, generation and range, every child binding, and
+the raw logs, metrics and traces exports. Collector counts are derived from
+actual `logRecords`, metric `dataPoints`, and spans whose complete run resource
+matches the controller run. A resealed locator with a changed object generation
+is a required negative control.
+
+Every failure after telemetry starts attempts to seal `failed-run.json`. A
+valid run that misses any performance or telemetry gate emits a typed
+`verified = false` verdict. The frozen admission-plan SHA-256 is
+`1faec4b6eabd37ae99f2ac3309edec659915705ab31ab5e2c2f59cf7e784f01a`.
+The GCP runner passed 155 of 155 evaluator tests and the changed-surface strict
+Clippy gate. Fable's final adversarial review returned `SHIP`.
+
+The controller is not a performance result. The RFC remains `[EVALUATING]`
+until the one frozen GCS execution and independent collector finalization seal
+either a passing or failing receipt.
 
 ## Format boundary
 
