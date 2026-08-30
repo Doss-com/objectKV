@@ -29,6 +29,8 @@ const CANONICAL_HISTORY_SHA256: &str =
     "d4be64434f6b69990a2787876f514c6036727b41dcf1c5e120f91b6ce968ecd4";
 const PROJECTION_KEY: &str = "layout/columnar-v2/projection.okp2";
 const PROJECTION_SHA256: &str = "dd67841b2c27a935273478d202d3bb00a506a7fecf522241df369669bb98e24c";
+const POISONED_PROJECTION_SHA256: &str =
+    "ab15ec361e94730fceb267254549bae8d85ca794f5c6006e40ccb5a9e4fac352";
 const POISON_ID: &str = "projection_full_object_byte_0_xor_0x80";
 const REJECTION_STAGE: &str = "generation_pinned_child_full_object_sha256";
 const REJECTION_ERROR: &str = "corrupt: RFC-0048 generation-pinned child read identity mismatch";
@@ -104,6 +106,8 @@ pub struct T28AlignedClosureRecoveryReceiptV1 {
 pub struct T28AlignedRecoveryInjectionV1 {
     pub provider_key: String,
     pub response_bytes: u64,
+    pub byte_offset: u64,
+    pub xor_mask: u8,
     pub unpoisoned_first_byte: u8,
     pub poisoned_first_byte: u8,
     pub unpoisoned_sha256: String,
@@ -325,11 +329,12 @@ impl T28AlignedClosureRecoveryPoisonReceiptV1 {
             && self.provider_requests[0].response_bytes == self.object_response_bytes;
         let corruption_injected = self.injection.provider_key == expected_provider_key
             && self.injection.response_bytes == target_object.length
+            && self.injection.byte_offset == 0
+            && self.injection.xor_mask == 0x80
             && self.injection.poisoned_first_byte == (self.injection.unpoisoned_first_byte ^ 0x80)
             && self.injection.unpoisoned_sha256 == target_object.sha256
             && self.injection.unpoisoned_sha256 == PROJECTION_SHA256
-            && valid_sha256(&self.injection.poisoned_sha256)
-            && self.injection.poisoned_sha256 != self.injection.unpoisoned_sha256;
+            && self.injection.poisoned_sha256 == POISONED_PROJECTION_SHA256;
         let corruption_rejected =
             self.rejection_stage == REJECTION_STAGE && self.rejection_error == REJECTION_ERROR;
         let list_free = self.list_requests == 0;
@@ -461,6 +466,8 @@ impl Backend for ExactObjectCorruptionBackend {
             let injection = T28AlignedRecoveryInjectionV1 {
                 provider_key: key.to_owned(),
                 response_bytes: u64::try_from(read.bytes.len()).unwrap_or(u64::MAX),
+                byte_offset: 0,
+                xor_mask: 0x80,
                 unpoisoned_first_byte,
                 poisoned_first_byte,
                 unpoisoned_sha256,
