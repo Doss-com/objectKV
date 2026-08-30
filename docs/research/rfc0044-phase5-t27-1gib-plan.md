@@ -45,6 +45,12 @@ logs, metrics, and traces passed. Each stratum ran for about 1 hour 6 minutes.
 T27 remains `[EVALUATING]`: five of 27 direct-NVMe strata and zero of two
 buffered sentinels are complete.
 
+The seed-2207 BA p99 result is close to the 1.20x ceiling at 1.188676x. A
+[block-level checkpoint](t27-zipf14-tail-latency-checkpoint-2026-08-30.md)
+finds stable native throughput and absolute p99 but material direct-control
+tail movement between seeds 1103 and 2207. No gate or architecture change is
+selected before the running seed-3301 stratum resolves that ambiguity.
+
 ## Decision
 
 Do not run the 1 GiB admission on the current cache-pressure runner. First
