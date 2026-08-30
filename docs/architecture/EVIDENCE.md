@@ -108,7 +108,7 @@ This is construction and recovery evidence, not a new throughput point.
 | Matrix row | Measurement | Why it remains `[EVALUATING]` |
 | ---: | --- | --- |
 | 3 | DataFusion range source reached 2.544M source rows/s and reduced projection requests from 1,761 to 54 | Dirty local diagnostic; no exact live-tail, complete-memory, OTel, or GCS curve |
-| 4 | The first open-loop matched-media diagnostic stayed stable through 40k offered records/s at 5.434 ms record p99, saturated near 45k to 46k ack/s, and reached approximately 1.18x dedicated `pd-ssd` saturation throughput. All 39 node checks across 13 named runs were exact | One repeat, no CPU or OTel attribution, frozen 1 ms and 100k targets missed, no failure injection or transaction resolver |
+| 4 | The v2 batch-frame diagnostic moved the local-NVMe knee from 40k to 60k offered records/s to 100k to 150k and saturation from 45k to 46k ack/s to approximately 107k. At 100k offered, p99 was 4.593 ms and all records were accepted. All 15 v2 node checks were exact, and journal amplification fell from approximately 2.0x to 1.286x per node | One repeat on recreated nodes, no new matched media control, CPU or independent OTel attribution, frozen simultaneous 1 ms and 100k target missed, no failure injection or transaction resolver |
 | 5 | Exact object-base plus txLog-suffix recovery works | Sustained debt, physical bounds, brownout, and host-loss curves are open |
 | 6 | Local branch, replay, and empty replacement worker are exact | Parent-size independence and GCS request curve are open |
 | 11 | Streaming base-plus-tail operator is exact on bounded fixtures | Tail-size, query-memory, GCS, and OLTP-interference curves are open |
@@ -276,6 +276,23 @@ binary wire framing, with node-side stage timing, not a larger batch.
 
 Evidence:
 `docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`.
+
+`[CODE-COMPLETE]` The staged log now uses one versioned batch journal frame and
+a binary request/response protocol. `[VERIFIED]` The unchanged process oracle
+preserves v1 reads, exact retry, restart, torn-tail repair, stale-writer
+fencing, and byte-identical segment recovery. A full 256 by 128-byte batch is
+42,080 journal bytes rather than 65,536.
+
+`[EVALUATING]` The topology-matched v2 run moved the knee to between 100k and
+150k offered records/s and saturated near 107k ack/s. The exact 100k point
+accepted all 131,072 records at 86,852 ack/s and 4.593 ms record p99. Its
+node-sync, quorum, and queue-dwell p99 values were 1.773, 2.212, and 2.492 ms.
+Across five points, all 633,436 accepted records were acknowledged, all 15
+final node histories were exact, and no anomaly or foreground object operation
+occurred. The 1 ms gate is below the measured media-sync p99 and remains open.
+
+Evidence:
+`docs/artifacts/eval-receipts/staged-txlog-l2-batch-frame-gcp-r0-2026-08-30/README.md`.
 
 ```text
 generation-pinned locator + immutable operation plan

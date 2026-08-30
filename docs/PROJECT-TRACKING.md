@@ -421,8 +421,9 @@ that sequence rather than maintaining a second independent plan.
 The current critical path is:
 
 ```text
-RFC-0046 object-layout geometry
-  -> independent-media replicated commit
+native txLog active-writer and persistence curve
+  -> one end-to-end transaction path
+  -> repeated commit failure and OTel curve
   -> objectification debt, host loss, and bounded local media
   -> metadata branch and lazy reopen
   -> multi-range cell
@@ -436,12 +437,14 @@ deferred
   -> row-1 cache hit/miss attribution
   -> complete provider-v2 cache-pressure curve
   -> row-2 GCS provider-tail strategy and cache refill
+  -> row-3 independent OTel and sealed object-layout verdict
 ```
 
 Every step keeps one primary metric and its own correctness and resource hard
 gates. A missed curve causes a mechanism or provider-profile redesign, not a
-stop decision for objectKV. The immediate owned task is the RFC-0049 row-3
-C5v2 admission curve. `[CODE-COMPLETE]` Its Rust controller and full evidence
+stop decision for objectKV. The active row is RFC-0045 row 4. Its v2 batch frame
+moved the measured software ceiling; direct active-writer scheduling and one
+transaction integration are next. The prior RFC-0049 row-3 C5v2 controller and full evidence
 graph passed 158 of 158 remote evaluator tests and Fable returned `SHIP`.
 `[VERIFIED]` Its immutable GCS preflight
 measured point p99 at 0.869x C0, 0.267x point bytes, and all 256 concurrent
@@ -958,6 +961,29 @@ integration wait for that software ceiling to move.
 
 Receipt:
 `docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`.
+
+`[CODE-COMPLETE]` The first row-4 optimization replaces numeric-array JSON and
+one envelope per record with a binary batch protocol and one versioned,
+checksummed `OKVT` frame per batch. The v2 reader preserves v1 compatibility,
+exact retry, and whole-batch torn-tail recovery. A full 256 by 128-byte frame
+is 42,080 bytes rather than 65,536.
+
+`[EVALUATING]` The topology-matched GCP run repeated the exact prior
+131,072-record workload and 32,768-record queue at 40k, 60k, 100k, 150k, and
+200k offered records/s. The knee moved from 40k to 60k under v1 to 100k to 150k
+under v2. Saturated throughput rose from 45k to 46k ack/s to approximately
+107k, about 2.35x. At 100k offered, all records were accepted at 86,852 ack/s
+and 4.593 ms p99. Node-sync, quorum, and queue-dwell p99 were 1.773, 2.212, and
+2.492 ms. Per-node journal amplification fell from approximately 2.0x to
+1.286x. All 633,436 accepted records were acknowledged, all 15 node histories
+were exact, and no anomaly or foreground object operation occurred.
+
+This clears the framing falsifier but not row 4. The simultaneous 1 ms and 100k
+gate remains unmet, the v2 curve has one repeat on recreated nodes, and failure,
+independent OTel, and transaction integration remain open. The next code slice
+targets active-writer queueing and measured persistence policy, then connects
+one ordered transaction through the staged log. Receipt:
+`docs/artifacts/eval-receipts/staged-txlog-l2-batch-frame-gcp-r0-2026-08-30/README.md`.
 
 `[VERIFIED]` RFC-0050 R2 checks the integrated 3-node model through 2,484,568
 generated states and the 2-transaction concurrency scope through 4,496,463

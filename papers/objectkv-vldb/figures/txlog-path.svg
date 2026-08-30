@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="610" viewBox="0 0 1200 610" role="img" aria-labelledby="title desc">
   <title id="title">objectKV staged transaction-log batch path</title>
-  <desc id="desc">A flowchart shows batching at the active writer, persistent connections to three independent NVMe log nodes, quorum acknowledgement, asynchronous object publication, current measurements, and the remaining open-loop evaluation boundary.</desc>
+  <desc id="desc">A flowchart shows the active-writer queue, one binary batch sent over persistent connections, one version-two journal frame and fsync on each of three NVMe nodes, quorum acknowledgement, and asynchronous object publication.</desc>
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#757575"/></marker>
     <style>
@@ -8,31 +8,31 @@
     </style>
   </defs>
 
-  <text class="title" x="48" y="38">One physical batch amortizes three independent durable appends</text>
+  <text class="title" x="48" y="38">One binary batch becomes one durable frame per log node</text>
 
   <rect class="lane" x="48" y="68" width="1104" height="336" rx="4"/>
-  <text class="head" x="70" y="96">Foreground L2a path</text>
-  <text class="status" x="1055" y="96">VERIFIED</text>
+  <text class="head" x="70" y="96">Foreground v2 path</text>
+  <text class="status" x="1028" y="96">CODE COMPLETE</text>
 
-  <rect class="future" x="70" y="132" width="166" height="76" rx="4"/>
-  <text class="text" x="90" y="157">open-loop queue</text>
-  <text class="small" x="90" y="177">batch dwell + limits</text>
-  <text class="small" x="90" y="194">next measurement</text>
+  <rect class="active" x="70" y="132" width="166" height="76" rx="4"/>
+  <text class="text" x="90" y="157">active-writer queue</text>
+  <text class="small" x="90" y="177">32,768-record bound</text>
+  <text class="small" x="90" y="194">256 records or 250 us</text>
 
   <rect class="active" x="278" y="132" width="188" height="76" rx="4"/>
   <text class="text" x="298" y="157">TxLogClient</text>
-  <text class="small" x="298" y="177">256 consecutive records</text>
-  <text class="small" x="298" y="194">one persistent TCP / node</text>
+  <text class="small" x="298" y="177">binary consecutive batch</text>
+  <text class="small" x="298" y="194">one persistent TCP per node</text>
 
   <rect class="box" x="520" y="116" width="252" height="72" rx="4"/>
   <text class="text" x="540" y="141">LogNode 0</text>
-  <text class="small" x="540" y="161">validate all -> append frames -> fsync NVMe</text>
+  <text class="small" x="540" y="161">decode -> validate -> one v2 frame -> fsync</text>
   <rect class="box" x="520" y="204" width="252" height="72" rx="4"/>
   <text class="text" x="540" y="229">LogNode 1</text>
-  <text class="small" x="540" y="249">validate all -> append frames -> fsync NVMe</text>
+  <text class="small" x="540" y="249">decode -> validate -> one v2 frame -> fsync</text>
   <rect class="box" x="520" y="292" width="252" height="72" rx="4"/>
   <text class="text" x="540" y="317">LogNode 2</text>
-  <text class="small" x="540" y="337">validate all -> append frames -> fsync NVMe</text>
+  <text class="small" x="540" y="337">decode -> validate -> one v2 frame -> fsync</text>
 
   <path class="flow" d="M236 170H278"/>
   <path class="flow" d="M466 170H492V152H520"/>
@@ -51,8 +51,8 @@
 
   <rect class="lane" x="48" y="424" width="1104" height="138" rx="4"/>
   <text class="head" x="70" y="452">Measured boundary and asynchronous continuation</text>
-  <text class="metric" x="70" y="482">768 batches: p50 4.357 ms  |  p95 4.535 ms  |  p99 4.716 ms  |  p99.9 5.343 ms</text>
-  <text class="small" x="70" y="505">49,028 records/s median; 196,608/196,608 acknowledged; exact final state; zero anomalies</text>
+  <text class="metric" x="70" y="482">100k offered: p50 2.318 ms  |  p95 3.995 ms  |  p99 4.593 ms  |  p99.9 5.768 ms</text>
+  <text class="small" x="70" y="505">86,852 ack/s at 100k; saturation about 107k; journal bytes 1.286x payload; exact state</text>
 
   <rect class="future" x="710" y="466" width="180" height="58" rx="4"/>
   <text class="text" x="730" y="490">SegmentPublisher</text>
@@ -63,5 +63,5 @@
   <path class="async" d="M890 495H936"/>
   <text class="small" x="899" y="484">async</text>
 
-  <text class="small" x="70" y="544">Open: matched durable control, queue-depth sweep, per-record dwell, node loss, transaction integration, and OTel correlation.</text>
+  <text class="small" x="70" y="544">Open: direct active-writer scheduling, repeated matched control, node loss, transaction integration, and OTel correlation.</text>
 </svg>

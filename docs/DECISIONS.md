@@ -1877,14 +1877,15 @@ Evidence:
 
 ## D73. Optimize the staged log at the batch-frame and binary-wire waist
 
-Status: `[EVALUATING]`, 2026-08-30.
+Status: implementation and local process contract `[VERIFIED]`; real-infra
+curve `[EVALUATING]`, 2026-08-30.
 
 Decision: preserve the current quorum, writer-epoch, consecutive-position,
 exact-retry, and bounded-queue semantics while replacing the physical
-per-record overhead on the hot path. The next candidate uses one versioned,
-checksummed journal frame for a consecutive batch and a binary client-node wire
-frame. The node must separately report decode, validation, encoding, write, and
-sync duration before the open-loop curve is repeated.
+per-record overhead on the hot path. The implemented candidate uses one
+versioned, checksummed journal frame for a consecutive batch and a binary
+client-node wire frame. The node separately reports decode, validation,
+encoding, write, and sync duration.
 
 The first one-repeat matched-media diagnostic found the local-NVMe knee between
 40k and 60k offered 128-byte records/s. Candidate saturation was approximately
@@ -1899,6 +1900,14 @@ each 128-byte payload, and the JSON protocol expands byte arrays into numeric
 values. The evidence is consistent with per-record encode, wire, hash, or frame
 work, but the missing CPU profile prevents assigning the ceiling to one stage.
 
+The v2 run moved the knee to between 100k and 150k offered records/s. It reached
+approximately 107k ack/s at saturation, about 2.35x the v1 result. At 100k
+offered, record p99 was 4.593 ms and every record was accepted. Per-node journal
+amplification fell from approximately 2.0x to 1.286x. At that point, sync p99
+was 1.773 ms, quorum p99 was 2.212 ms, and queue-dwell p99 was 2.492 ms. The
+next txLog optimization therefore targets active-writer scheduling and the
+measured persistence policy, not another codec revision.
+
 Optimizes for: moving the measured software ceiling without weakening the
 durability contract or hiding queue saturation behind larger batches.
 
@@ -1907,4 +1916,5 @@ formats. Compatibility begins at the explicitly versioned batch format, with
 the L1 fixtures retained as migration inputs.
 
 Evidence:
-`docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`.
+`docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`;
+`docs/artifacts/eval-receipts/staged-txlog-l2-batch-frame-gcp-r0-2026-08-30/README.md`.

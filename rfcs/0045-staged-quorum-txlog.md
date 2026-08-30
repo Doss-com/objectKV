@@ -40,6 +40,18 @@ anomalies. This is a one-repeat diagnostic without OTel, CPU attribution,
 failure injection, cross-zone coverage, or transaction integration. The
 admitted L2 curve and L3 through L6 remain open, and the RFC remains proposed.
 
+`[CODE-COMPLETE]` The first measured optimization replaces per-record journal
+frames with one versioned checksummed batch frame and replaces JSON payload
+arrays with a binary client-node protocol. `[EVALUATING]` A topology-matched
+GCP curve moved the knee to between 100,000 and 150,000 offered records/s and
+raised saturated throughput to approximately 107,000 records/s, about 2.35x
+the v1 frame. At 100,000 offered records/s, it acknowledged 86,852 records/s at
+4.593 ms p99 with no refusal. All 633,436 accepted records across five points
+were acknowledged, all 15 node digests matched, and no anomaly or foreground
+object operation occurred. The absolute simultaneous 1 ms and 100,000-record/s
+gate remains unmet. Receipt:
+`docs/artifacts/eval-receipts/staged-txlog-l2-batch-frame-gcp-r0-2026-08-30/README.md`.
+
 ## Decision
 
 Evaluate a reusable single-writer staged log service as the next physical
@@ -437,6 +449,23 @@ and node-side encode, write, and sync timing the next implementation slice.
 The evidence is consistent with per-record software work, but lacks the CPU
 profile required to assign the cost to one component. Receipt:
 `docs/artifacts/eval-receipts/staged-txlog-l2-open-loop-gcp-r1-2026-08-30/README.md`.
+
+`[CODE-COMPLETE]` The v2 `OKVT` format now writes one indivisible frame per
+consecutive batch while preserving request identity, exact retry, v1 recovery,
+and whole-batch torn-tail truncation. A full 256 by 128-byte frame is 42,080
+bytes rather than 65,536 bytes. The binary request path sends raw payloads and
+reports decode, validation, journal encode, write, and sync durations.
+
+`[EVALUATING]` The exact 131,072-record, 32,768-queue workload then ran at 40k,
+60k, 100k, 150k, and 200k offered records/s on three recreated
+`n2-standard-8` local-NVMe nodes. Record p99 was 3.864, 4.194, and 4.593 ms at
+40k, 60k, and 100k, with zero refusal. At 150k, queue dwell raised record p99
+to 201.981 ms; saturated throughput was approximately 107k records/s. At the
+100k point, node-sync p99 was 1.773 ms, quorum p99 was 2.212 ms, and queue-dwell
+p99 was 2.492 ms. Journal amplification fell from approximately 2.0x to 1.286x
+per node. This moves the software ceiling but shows that the 1 ms gate is below
+the measured media-sync p99 on this profile. Receipt:
+`docs/artifacts/eval-receipts/staged-txlog-l2-batch-frame-gcp-r0-2026-08-30/README.md`.
 
 Primary metric: p99 `log.append.ack_duration` at the largest offered load that
 keeps success at 100 percent and queue refusal below one percent.

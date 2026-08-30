@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
   <title id="title">Four performance curves that characterize objectKV balance</title>
-  <desc id="desc">A two by two set of direct-labeled charts covers resident throughput, resident p99 latency, open-loop transaction-log saturation on NVMe and persistent SSD, and C5v2 object-layout leverage.</desc>
+  <desc id="desc">A two by two set of direct-labeled charts covers resident throughput, resident p99 latency, the transaction-log batch-frame shift on local NVMe, and C5v2 object-layout leverage.</desc>
   <defs>
     <style>
       .panel{fill:#fafafa;stroke:#00000014;stroke-width:1}.bar{fill:#1a85ff}.muted{fill:#c9c9c9}.risk{fill:#727272}.line{stroke:#a8a8a8;stroke-width:1}.grid{stroke:#dedede;stroke-width:1}.gate{stroke:#1a85ff;stroke-width:1.5;stroke-dasharray:6 4}.nvme{fill:none;stroke:#1a85ff;stroke-width:2}.control{fill:none;stroke:#7a7a7a;stroke-width:2}.nvme-point{fill:#1a85ff}.control-point{fill:#7a7a7a}.title{font:600 24px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.head{font:600 15px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#171717}.text{font:400 12px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#4d4d4d}.small{font:400 11px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#6b6b6b}.value{font:600 12px ui-monospace,"SF Mono",Menlo,monospace;fill:#171717}.status{font:600 10px system-ui,-apple-system,"Segoe UI",sans-serif;fill:#0061d5;letter-spacing:.4px}
@@ -27,16 +27,16 @@
   <text class="small" x="642" y="328">Lower is better. All admitted points remain below 1.20x.</text>
 
   <rect class="panel" x="48" y="380" width="532" height="278" rx="4"/>
-  <text class="head" x="70" y="408">Open-loop txLog record p99</text><text class="status" x="464" y="408">EVALUATING</text>
+  <text class="head" x="70" y="408">Batch-frame txLog p99 shift</text><text class="status" x="464" y="408">EVALUATING</text>
   <line class="grid" x1="132" y1="588" x2="548" y2="588"/><line class="grid" x1="132" y1="537" x2="548" y2="537"/><line class="grid" x1="132" y1="486" x2="548" y2="486"/><line class="grid" x1="132" y1="435" x2="548" y2="435"/>
   <text class="small" x="76" y="592">1 ms</text><text class="small" x="70" y="541">10 ms</text><text class="small" x="64" y="490">100 ms</text><text class="small" x="58" y="439">1000 ms</text>
-  <path class="nvme" d="M160 556L248 550L336 449L424 443L512 443"/>
-  <path class="control" d="M160 553L248 530L336 438L424 438L512 438"/>
-  <circle class="nvme-point" cx="160" cy="556" r="4"/><circle class="nvme-point" cx="248" cy="550" r="4"/><circle class="nvme-point" cx="336" cy="449" r="4"/><circle class="nvme-point" cx="424" cy="443" r="4"/><circle class="nvme-point" cx="512" cy="443" r="4"/>
-  <circle class="control-point" cx="160" cy="553" r="4"/><circle class="control-point" cx="248" cy="530" r="4"/><circle class="control-point" cx="336" cy="438" r="4"/><circle class="control-point" cx="424" cy="438" r="4"/><circle class="control-point" cx="512" cy="438" r="4"/>
-  <text class="small" x="150" y="610">20k</text><text class="small" x="238" y="610">40k</text><text class="small" x="326" y="610">60k</text><text class="small" x="414" y="610">80k</text><text class="small" x="498" y="610">100k</text>
-  <line class="nvme" x1="150" y1="628" x2="178" y2="628"/><text class="small" x="184" y="632">local NVMe</text><line class="control" x1="294" y1="628" x2="322" y2="628"/><text class="small" x="328" y="632">pd-ssd control</text>
-  <text class="small" x="70" y="650">Knee lies between 40k and 60k offered records/s. Logarithmic latency axis.</text>
+  <path class="nvme" d="M160 558L248 556L336 554L424 470L512 463"/>
+  <path class="control" d="M160 551L248 449L336 443"/>
+  <circle class="nvme-point" cx="160" cy="558" r="4"/><circle class="nvme-point" cx="248" cy="556" r="4"/><circle class="nvme-point" cx="336" cy="554" r="4"/><circle class="nvme-point" cx="424" cy="470" r="4"/><circle class="nvme-point" cx="512" cy="463" r="4"/>
+  <circle class="control-point" cx="160" cy="551" r="4"/><circle class="control-point" cx="248" cy="449" r="4"/><circle class="control-point" cx="336" cy="443" r="4"/>
+  <text class="small" x="150" y="610">40k</text><text class="small" x="238" y="610">60k</text><text class="small" x="326" y="610">100k</text><text class="small" x="414" y="610">150k</text><text class="small" x="498" y="610">200k</text>
+  <line class="nvme" x1="150" y1="628" x2="178" y2="628"/><text class="small" x="184" y="632">v2 batch frame</text><line class="control" x1="310" y1="628" x2="338" y2="628"/><text class="small" x="344" y="632">v1 record frame</text>
+  <text class="small" x="70" y="650">Knee moved from 40k-60k to 100k-150k offered records/s. Logarithmic latency.</text>
 
   <rect class="panel" x="620" y="380" width="532" height="278" rx="4"/>
   <text class="head" x="642" y="408">C5v2 object geometry / C0</text><text class="status" x="1036" y="408">VERIFIED</text>

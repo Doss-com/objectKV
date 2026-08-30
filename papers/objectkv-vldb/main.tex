@@ -52,15 +52,17 @@ GCS recovery reconstructed 25,014 MVCC records with five named GETs and rejected
 a one-byte corruption. A TLA+ model explored 2.48M and 4.50M generated states in
 two finite scopes; six weakened-contract controls each reached its named
 invariant violation. A three-machine same-zone NVMe \txlog{} preflight reached
-49,028 128-byte records/s median with exact final state. The first bounded
-open-loop diagnostic then located its knee between 40,000 and 60,000 offered
-records/s. At 40,000, record p99 was 5.434 ms; saturation was 45,000 to 46,000
-records/s, approximately 1.18x a matched dedicated-SSD control. These results
-do not establish a complete cell and miss the frozen 1 ms and 100,000-record/s
-targets. Multi-range transactions, RAM admission, PostgreSQL, Redis, and scaled
-HTAP remain open gates. The contribution is therefore a precise system shape,
-evidence boundary, and evaluation program for deciding each layer with matched
-controls.
+49,028 128-byte records/s median with exact final state. Its first open-loop
+curve saturated near 45,000 records/s. Replacing per-record journal envelopes
+and JSON payload arrays with one binary batch frame moved the measured knee to
+between 100,000 and 150,000 offered records/s, raised saturation to about
+107,000 records/s, and reduced per-node journal amplification from about 2.0x
+to 1.286x. At 100,000 offered records/s, p99 was 4.593 ms with no refusal.
+These one-repeat diagnostics do not establish a complete cell and still miss
+the frozen simultaneous 1 ms and 100,000-record/s target. Multi-range
+transactions, RAM admission, PostgreSQL, Redis, and scaled HTAP remain open
+gates. The contribution is therefore a precise system shape, evidence boundary,
+and evaluation program for deciding each layer with matched controls.
 \end{abstract}
 
 \maketitle
@@ -331,8 +333,9 @@ their local log stream. A lost reply is resolved by transaction identity, not by
 blindly applying the transaction again.
 
 The physical \txlog{} may group consecutive records into one bounded node
-batch. A node validates the batch before mutation, writes every new frame,
-performs one shared stable-media sync, and only then advances memory. Each
+batch. A node validates the batch before mutation, writes one versioned
+checksummed batch frame, performs one shared stable-media sync, and only then
+advances memory. Each
 record becomes committed only after its containing batch reaches the required
 node quorum. This trades explicit batching dwell for fsync amortization; dwell
 time remains part of the record's acknowledgement latency.
@@ -343,9 +346,10 @@ partitioned conflict representation, and admitted repeated commit curve remain
 
 Figure~\ref{fig:txlog} makes the physical boundary explicit. L2a verifies the
 closed-loop batch, persistent connections, independent local-NVMe roots, quorum
-acknowledgement, and exact final histories. The L2 diagnostic adds open-loop
-arrival, bounded queueing, batch dwell, and a matched media control. Neither run
-includes a transaction resolver.
+acknowledgement, and exact final histories. L2 adds open-loop arrival, bounded
+queueing, batch dwell, and a matched media control. The v2 diagnostic then
+isolates the binary wire and batch journal frame. None includes a transaction
+resolver.
 
 \begin{figure*}[t]
   \centering
@@ -517,10 +521,10 @@ refinement remain \evaluating{}.
 Figure~\ref{fig:ladder} separates mechanism evidence from operational evidence.
 The project has used real files, MinIO, TCP processes, process kill, GCP local
 NVMe, regional GCS, restricted service accounts, and independent OTel exports.
-It has run the staged \txlog{} preflight and a one-repeat open-loop matched-media
-diagnostic across three independent same-zone machines. It has not run the
-admitted repeated commit curve, injected failure into that curve, or sent a
-complete native transaction through those machines.
+It has run the staged \txlog{} preflight, a one-repeat matched-media curve, and
+one measured batch-frame optimization across three independent same-zone
+machines. It has not run the admitted repeated commit curve, injected failure
+into that curve, or sent a complete native transaction through those machines.
 
 \begin{figure*}[t]
   \centering
@@ -545,11 +549,11 @@ complete native transaction through those machines.
     RocksDB RangeEngine & \verified{} scoped & matched single-range reads at 1,
     8, and 32 clients on GCP local NVMe & writes, eviction curve, range movement,
     and full cell RPC \\
-    Native quorum \txlog{} & \evaluating & three independent same-zone NVMe
-    nodes; stable through 40k offered records/s at 5.434 ms record p99;
-    approximately 1.18x control saturation throughput; exact final state &
-    batch-frame and wire optimization, repeated curve, failure, OTel, and
-    integrated transaction \\
+    Native quorum \txlog{} & \evaluating & v2 frame on three independent
+    same-zone NVMe nodes; 100k offered at 4.593 ms p99; approximately 107k
+    ack/s saturation; 1.286x journal bytes; exact final state & active-writer
+    scheduling, repeated matched curve, failure, OTel, and integrated
+    transaction \\
     Object publication and recovery & \verified{} scoped & generation-pinned GCS
     root, exact closure reconstruction, corruption rejection, zero-copy branch &
     sustained debt, brownout, publication latency \\
@@ -701,6 +705,46 @@ binary wire frame, and exposes node-side encode, write, and sync duration. The
 diagnostic is consistent with per-record software cost, but lacks CPU profiles
 needed to assign that cost to one component.
 
+That candidate is now \codecomplete{}. The v2 journal shares batch metadata and
+one checksum, remains compatible with v1 recovery, and discards a torn batch as
+one unit. A full 256 by 128-byte journal frame is 42,080 bytes rather than
+65,536. The network path carries raw payload bytes and returns node-stage
+timings.
+
+\begin{table*}[t]
+  \centering
+  \small
+  \caption{Topology-matched v2 batch-frame diagnostic. Every point attempts
+  131,072 records through the same bounded queue as the v1 curve.}
+  \label{tab:txlogv2}
+  \begin{tabularx}{\textwidth}{@{}r r r r r r r r@{}}
+    \toprule
+    Offered & Ack/s & Batch mean & p50 & p95 & p99 & p99.9 & Queue p99 \\
+    \midrule
+    40k/s  & 36,771  & 35.4  & 1.275 ms   & 3.434 ms   & 3.864 ms   & 5.120 ms   & 2.576 ms \\
+    60k/s  & 54,246  & 57.8  & 1.439 ms   & 3.572 ms   & 4.194 ms   & 5.635 ms   & 2.486 ms \\
+    100k/s & 86,852  & 143.6 & 2.318 ms   & 3.995 ms   & 4.593 ms   & 5.768 ms   & 2.492 ms \\
+    150k/s & 107,279 & 255.5 & 114.196 ms & 196.542 ms & 201.981 ms & 202.935 ms & 200.076 ms \\
+    200k/s & 106,921 & 255.0 & 202.512 ms & 279.231 ms & 285.191 ms & 286.513 ms & 283.470 ms \\
+    \bottomrule
+  \end{tabularx}
+\end{table*}
+
+The knee moved from 40k--60k to 100k--150k offered records/s, and saturation
+rose about 2.35x to 107k ack/s. At the shared 60k and 100k points, v2 p99 was
+0.008x and 0.007x v1 because those loads no longer saturated the queue. At
+100k, decode, validation, encode, write, sync, and complete quorum p99 were
+0.030, 0.064, 0.268, 0.046, 1.773, and 2.212 ms. Queue-dwell p99 was 2.492 ms.
+The remaining tail is therefore persistence plus active-writer queueing, not
+framing. Per-node journal amplification fell from about 2.0x to 1.286x.
+
+All 633,436 accepted records across the five v2 points were acknowledged and
+all 15 final histories matched with zero anomalies or foreground object
+operations. This verifies the named runs, not row 4. The curve has one repeat
+on recreated nodes, no new persistent-SSD control, no failure injection, and
+no transaction resolver. It also misses the simultaneous 1 ms and 100k gate;
+the measured node-sync p99 alone is 1.773 ms.
+
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{figures/performance-balance.pdf}
@@ -733,10 +777,10 @@ more important blocker than the next row.
     3 & Point and scan object geometry & \evaluating & C5v2 preflight, recovery,
     1.040058x compaction bytes, and zero-copy branch verified & independent OTel
     and sealed curve verdict \\
-    4 & Native three-node commit & \evaluating & open-loop knee between 40k and
-    60k offered records/s; saturation 45k to 46k ack/s, approximately 1.18x
-    \texttt{pd-ssd}; exact final digests & batch frame plus binary wire, repeated
-    curve, then failure and transaction integration \\
+    4 & Native three-node commit & \evaluating & v2 knee between 100k and 150k;
+    saturation about 107k ack/s; 100k offered at 4.593 ms p99; 1.286x journal
+    bytes; exact final digests & active-writer scheduling, repeated matched
+    curve, then failure and one transaction integration \\
     5 & Brownout and host loss & \evaluating & exact base plus suffix recovery &
     sustained write with object-fault schedule and hard debt ceiling \\
     6 & Branch and lazy reopen & \evaluating & exact local branch and empty worker &
@@ -832,10 +876,10 @@ amplification.
     \toprule
     Risk & Failure signal & Earliest decisive eval & Consequence \\
     \midrule
-    Quorum tax & native commit misses the absolute latency or throughput gate
-    after one measured framing optimization & repeated three-machine curve with
-    exact durability, queue, and client path & retain FoundationDB or TiKV
-    transaction plane for the first product surface \\
+    Quorum tax & native commit remains above the absolute latency gate after
+    framing, direct scheduling, and measured persistence work & repeated
+    three-machine curve with exact durability, queue, and client path & publish
+    separate SSD-durable and RAM-speed envelopes; do not hide the tradeoff \\
     Double logging & engine WAL, \txlog{}, and objectification dominate bytes or
     CPU & per-layer bytes and CPU during mixed writes & native hybrid log or
     remove redundant durability layer \\
@@ -860,12 +904,13 @@ amplification.
 The immediate sequence is narrow:
 
 \begin{enumerate}
-  \item replace per-record \texttt{OKVT} envelopes and JSON payload arrays with
-  a versioned batch frame and binary wire frame, instrumenting every node stage;
-  \item rerun 20k through 100k open-loop points before spending on five repeats;
-  \item add repeated, OTel, and failure evidence only if the knee materially moves;
-  \item integrate one transaction path, then begin the first multi-range
-  strict-serializability history.
+  \item retain the v2 frame and remove avoidable active-writer dispatch and
+  queueing, following the direct-session lesson from Garnet;
+  \item measure persistence policy against the local-NVMe sync distribution,
+  without weakening the acknowledged durability label;
+  \item integrate one ordered transaction path, then add repeated, OTel, and
+  failure evidence around that composed path;
+  \item begin the first multi-range strict-serializability history.
 \end{enumerate}
 
 This order avoids building PostgreSQL, Redis, and DataFusion product surfaces on
@@ -903,13 +948,13 @@ own portable reconstruction, history, branching, and analytical layout.
 
 Current evidence supports the single-range RocksDB read boundary, scoped C5v2
 GCS geometry and recovery, the finite cell safety model, and current-model
-staged-prefix trace conformance. It also locates the current three-machine
-\txlog{} operating boundary: stable at 40k offered records/s, saturated near
-45k to 46k, faster than the matched persistent-SSD control, but short of the
-absolute targets. It does not yet support the complete distributed claim. The
-next useful proof is whether batch journal and binary wire framing move that
-software ceiling without weakening exact quorum durability. If that path
-clears, failure and transaction integration precede the multi-range milestone.
+staged-prefix trace conformance. The v2 batch frame moved the current
+three-machine \txlog{} knee to 100k--150k offered records/s, raised saturation
+to about 107k ack/s, and cut journal amplification to 1.286x. Exact quorum
+durability held, but 4.593 ms p99 at 100k offered still misses the 1 ms target.
+It does not yet support the complete distributed claim. The next useful proof
+is whether direct active-writer scheduling removes the queue contribution,
+followed by one transaction integration and a repeated failure curve.
 PostgreSQL, Redis-like objects, logs, search, virtual filesystems, and DataFusion
 then become typed consumers of one measured fabric rather than separate storage
 systems.
