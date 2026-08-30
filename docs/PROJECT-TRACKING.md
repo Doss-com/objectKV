@@ -458,8 +458,11 @@ the program will not rerun completed cloud work for receipt-only repair. C5v2
 is still `[EVALUATING]`. Its first exact GCS complete-child recovery reproduced
 25,014 retained records and 15,742 live rows from five full GETs and 13,700,110
 bytes in 792.221 ms. It verified 1,584 frame proofs with zero LIST or writes.
-A sealed cloud poison, OTel confirmation, compaction amplification, and
-branch-reference gates remain. Rows 1 and 2 remain explicit deferred
+`[VERIFIED]` The sealed cloud control changed byte zero of the exact projection
+object, bound both clean and poisoned digests, repeated the five exact GETs,
+and failed at the generation-pinned child digest with zero LIST or writes.
+OTel confirmation, compaction amplification, and branch-reference gates
+remain. Rows 1 and 2 remain explicit deferred
 performance debt; their receipts are not combined with row 3.
 
 ## Current checkpoint
@@ -913,13 +916,17 @@ independent-media, GCS-publication, append-latency, throughput, transaction
 commit, or OpenRaft-replacement claim. L2 same-zone independent-machine
 evaluation is the next staged txLog rung after the active read-path rows.
 
-`[VERIFIED]` Source `beba5ef` maps the L1 process path to the RFC-0050 cell
-trace. Its exact GCP release binary accepted 36 healthy events and three
-post-restart stable-quorum assertions with zero anomalies. The
-early-acknowledgement poison failed at assertion zero because no
-restart-observed stable quorum existed. This is a staged txLog-prefix proof,
-not complete-cell refinement. Receipt:
-`docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
+`[VERIFIED]` RFC-0050 R2 checks the integrated 3-node model through 2,484,568
+generated states and the 2-transaction concurrency scope through 4,496,463
+generated states. Six exact fault controls produced their named invariant
+counterexamples. Fable returned `SHIP` after two adversarial passes. Receipt:
+`formal/evidence/gcp-r2-2026-08-30.json`.
+
+`[CODE-COMPLETE]` The hand-written Rust trace checker replays selected model
+events, checks constant assumptions, and rejects changed derived state. The
+older 36-event GCP L1 receipt remains historical mechanism evidence bound to an
+older model identity. A new R2-bound trace remains `[EVALUATING]`; no complete
+Rust implementation refinement is claimed.
 
 Do not expand MultiRaft, PostgreSQL, or metacluster scope until the resident
 read and bounded cold-object lookup curves clear their controls.

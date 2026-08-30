@@ -2,8 +2,8 @@
 
 - Status: `[PROPOSED]`
 - Model mechanism: `[VERIFIED]` in two finite scopes
-- Implementation refinement: staged txLog prefix `[VERIFIED]`, complete cell
-  `[EVALUATING]`
+- Hand-written trace conformance: checker `[CODE-COMPLETE]`, current-model
+  infrastructure receipt `[EVALUATING]`
 - Authors: DOSS
 - Created: 2026-08-30
 
@@ -16,7 +16,7 @@ immutable object publication, safe log reclamation, and disposable serving
 images.
 
 Do not create independent formal models that can each pass while violating an
-inter-layer invariant. Specialized models may refine one mechanism, but they
+inter-layer invariant. Specialized models may describe one mechanism, but they
 must map their externally visible transitions back to this cell model.
 
 ```text
@@ -68,7 +68,7 @@ contract. RAM can also stage writes, but a volatile copy does not satisfy the
 default durable commit contract. A serving image may be discarded at any time
 and must be reconstructed from the active object closure plus retained txLog.
 
-## Implementation refinement vocabulary
+## Implementation trace-conformance vocabulary
 
 The implementation should emit a compact trace using these stable event names.
 Payloads must include cell, generation, version, transaction or publication
@@ -88,12 +88,16 @@ identity, and the relevant media or worker identity.
 | `HydrateServingImage`, `ServeRead` | `ServingImage` and `SingleRange` | GP3.1 and GP3.1.1 `[VERIFIED]` |
 | `LoseRam`, `LoseStableMedium` | worker or media fault injection | independent-host envelope `[EVALUATING]` |
 
-`[VERIFIED]` The first trace checker consumes the stable event vocabulary and
-is bound to the exact TLA+ model SHA-256. On the GCP R0 runner it accepted a
-36-event staged txLog trace with three post-restart stable-quorum assertions.
-The early-acknowledgement subject was rejected at assertion zero because no
-restart-observed stable quorum existed. This verifies only the RFC-0045 L1
-prefix, not transaction commit, publication, txLog pop, or serving recovery.
+`[CODE-COMPLETE]` The trace checker consumes the stable event vocabulary,
+replays every event and assertion, validates the TLA+ constant assumptions,
+and binds the receipt to the exact model SHA-256. It is a hand-written
+conformance checker, not a mechanical TLA+ refinement proof.
+
+`[EVALUATING]` The retained GCP R0 staged txLog receipt accepted a 36-event
+trace with three post-restart stable-quorum assertions and rejected an early
+acknowledgement subject. That receipt is historical mechanism evidence bound to
+an older model identity. It does not verify conformance to the current R2
+model. A fresh current-model implementation trace remains required.
 
 ## Model-check result
 
@@ -101,15 +105,16 @@ TLC 2.19 exhaustively explored:
 
 | Scope | Generated | Distinct | Depth | Result |
 |---|---:|---:|---:|---|
-| integrated 3-node cell, 1 transaction, 2 generations, 1 stable-media loss | 2,486,430 | 99,408 | 23 | no invariant violation |
+| integrated 3-node cell, 1 transaction, 2 generations, 1 stable-media loss | 2,484,568 | 99,408 | 23 | no invariant violation |
 | 3-node concurrency, 2 conflicting transactions, 2 generations | 4,496,463 | 164,668 | 28 | no invariant violation |
 
 Six deliberate contract violations each produced a counterexample: early
 acknowledgement, stale-generation commit, unsafe txLog pop, incomplete object
 publication, stale serving read, and skipped conflict validation.
 
-The exact model, configurations, limitations, and receipt are under
-[`formal/`](../formal/README.md).
+The exact model, configurations, raw-log hashes, limitations, and R2 receipt
+are under [`formal/`](../formal/README.md). The R2 model SHA-256 is
+`55d5bb137b9e3c37deace42f92b4602b022a7583b0a23a801ef707f40618a3ba`.
 
 ## Relationship to Oswald
 
@@ -132,13 +137,14 @@ ordering, and fencing contract. It does not prove liveness, an unbounded node or
 transaction count, object-store semantics, RocksDB correctness, SQL semantics,
 or performance. It also does not make a finite TLC success a production proof.
 
-Those claims remain owned by mechanism-specific formal refinements, Rust trace
+Those claims remain owned by mechanism-specific models, Rust trace
 conformance, and the master performance matrix.
 
 ## Next decision-bearing work
 
-1. Extend the verified staged txLog prefix through `CommitTxn` and
-   `DeliverCommitted` in the independent-media T29 receipt.
+1. Regenerate the staged txLog trace against the current R2 model, then extend
+   it through `CommitTxn` and `DeliverCommitted` in the independent-media T29
+   receipt.
 2. Emit publication, safe-pop, and serving-recovery transitions from their
    current implementation boundaries.
 3. Check one retained poison at each new cross-layer boundary.
@@ -146,7 +152,9 @@ conformance, and the master performance matrix.
    new architectural decision, such as resolver partitioning, cannot be stated
    with the current contract.
 
-Receipt:
+Finite-model receipt: `formal/evidence/gcp-r2-2026-08-30.json`.
+
+Historical staged txLog trace:
 `docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
 
 This optimizes for one communicable architecture and early detection of unsafe

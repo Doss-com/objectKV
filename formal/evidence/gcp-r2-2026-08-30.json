@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "status": "verified_finite_model_scope",
+  "claim": "bounded_tla_safety_only",
+  "date": "2026-08-30",
+  "source_commit": "7226e81a1dc5964a0fca4d203323f8b78d7e12dc",
+  "runner": {
+    "project": "doss-objectkv-dev",
+    "zone": "us-central1-a",
+    "instance": "objectkv-bench-t27a2-r0-runner"
+  },
+  "tool": {
+    "name": "TLC",
+    "version": "2.19",
+    "tla2tools_version": "1.7.4",
+    "jar_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+    "java": "openjdk 17.0.20.1"
+  },
+  "model": {
+    "path": "formal/ObjectKVCell.tla",
+    "sha256": "55d5bb137b9e3c37deace42f92b4602b022a7583b0a23a801ef707f40618a3ba"
+  },
+  "healthy_runs": [
+    {
+      "config": "formal/ObjectKVCell.cfg",
+      "config_sha256": "ac8afe822f8a39f96917de638b2ef22fa98e9b8ddc3af63200459deaf4b0155a",
+      "log_sha256": "238ebdb886f02be0adc8ef049eff2e6507cac92475306965c515791f51307d08",
+      "nodes": 3,
+      "transactions": 1,
+      "max_generation": 2,
+      "max_media_failures": 1,
+      "generated_states": 2484568,
+      "distinct_states": 99408,
+      "search_depth": 23,
+      "queue_remaining": 0,
+      "result": "no_error",
+      "action_coverage_reported": {
+        "DeliverCommitted": "70:43663",
+        "ActivateObjectFrontier": "152:13110",
+        "LoseRam": "2212:178642",
+        "LoseStableMedium": "3037:101352",
+        "HydrateServingImage": "50972:1896588",
+        "ServeRead": "0:34839"
+      }
+    },
+    {
+      "config": "formal/ObjectKVConcurrency.cfg",
+      "config_sha256": "d8fe70fab46dcda9d8df4ced919730ccc6abc93d43cea549686ca9ee5149f6ab",
+      "log_sha256": "041cc351000c1ff27ae113b9453d8a031e62fce4a47a0e075379ee2a7278e680",
+      "nodes": 3,
+      "transactions": 2,
+      "max_generation": 2,
+      "max_media_failures": 1,
+      "generated_states": 4496463,
+      "distinct_states": 164668,
+      "search_depth": 28,
+      "queue_remaining": 0,
+      "result": "no_error"
+    }
+  ],
+  "negative_controls": [
+    {
+      "config": "formal/poisons/AckBeforeStableQuorum.cfg",
+      "config_sha256": "6bee1482502236deeafd97f0031e9d660044f2fd7ee44ed69b60eb908bd1e3f1",
+      "log_sha256": "bfaee75357aa263efbac4c37ddf4129e410c807fdea3153f3d21ddc2044dff40",
+      "expected_invariant": "RepliesTellTheTruth",
+      "generated_states": 157,
+      "distinct_states": 71,
+      "search_depth": 5,
+      "result": "named_invariant_counterexample"
+    },
+    {
+      "config": "formal/poisons/IgnoreGenerationFence.cfg",
+      "config_sha256": "37377d702f33c8319c05b8d5cd334a92c450bbdb0f22bb63f0534e29666eb290",
+      "log_sha256": "10ef8b066f6312516ed64313ffac2f59c3a96173eb7ea317e4f487f38eb7fbe0",
+      "expected_invariant": "GenerationsAreFenced",
+      "generated_states": 10793,
+      "distinct_states": 1468,
+      "search_depth": 9,
+      "result": "named_invariant_counterexample"
+    },
+    {
+      "config": "formal/poisons/PopStalePendingFrontier.cfg",
+      "config_sha256": "3592a6468bb0c0bf38aa944cce0c6faddc367fba85f8801309ee8420ea8e2f8a",
+      "log_sha256": "db7b8e7444779c66b67b35b3e046da269c050531a42b490fc62083dee62dd23a",
+      "expected_invariant": "SafeTxLogPop",
+      "generated_states": 82551,
+      "distinct_states": 7963,
+      "search_depth": 12,
+      "result": "named_invariant_counterexample"
+    },
+    {
+      "config": "formal/poisons/PublishIncompleteClosure.cfg",
+      "config_sha256": "d360cb72f1333566c8530dbe4503af4e7fc3dcf0df25806e2c97d8a74ddda702",
+      "log_sha256": "9c346fae3f9f1918f20c2f91e173108746602d76204cfccf8daa5b5e7c55df0e",
+      "expected_invariant": "PublicationsAreComplete",
+      "generated_states": 13418,
+      "distinct_states": 1738,
+      "search_depth": 9,
+      "result": "named_invariant_counterexample"
+    },
+    {
+      "config": "formal/poisons/ServeStaleImage.cfg",
+      "config_sha256": "12279b58c120ad7e0653d24685f5a0b0c183942489a2fc0560b34738650b5b7b",
+      "log_sha256": "6099f74f53f542ecb122e256dde8a57439b11eee5a0a85be00906e5914e1f4cf",
+      "expected_invariant": "ServingReadsAreSafe",
+      "generated_states": 1483,
+      "distinct_states": 302,
+      "search_depth": 6,
+      "result": "named_invariant_counterexample"
+    },
+    {
+      "config": "formal/poisons/SkipConflictValidation.cfg",
+      "config_sha256": "70f77d6a23792d7b295342943982470701169ddaf75b38c7ef40636f6433759d",
+      "log_sha256": "861810717844398356298c64289bb14ac5c72243b772a7842df5eb7ce58a887b",
+      "expected_invariant": "ConflictsAreValidated",
+      "generated_states": 220294,
+      "distinct_states": 15475,
+      "search_depth": 15,
+      "result": "named_invariant_counterexample"
+    }
+  ],
+  "archive": {
+    "uri": "gs://doss-objectkv-dev-okv-evals/eval-receipts/objectkv-cell-tla-r2-55d5bb1/objectkv-cell-tla-r2-55d5bb1.tar.gz",
+    "generation": "1788122230581424",
+    "size_bytes": 14090,
+    "sha256": "407bbfe489f9bb699a1f33f33031f7c9cdce5697c44524295acd971dba0167c4"
+  },
+  "claims_excluded": [
+    "unbounded proof",
+    "liveness",
+    "mechanical Rust refinement",
+    "Raft or Paxos correctness",
+    "object-store correctness",
+    "production performance"
+  ]
+}

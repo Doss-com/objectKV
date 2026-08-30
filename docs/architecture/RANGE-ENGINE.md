@@ -34,6 +34,33 @@ Every process uses some working RAM. In this document, turning off `ram_image`
 means no admitted base-value image in RAM. It does not mean the process uses
 zero memory for metadata, the recent MVCC overlay, buffers, or request state.
 
+## One state, several fabric views
+
+`[PROPOSED]` The switches select physical serving mechanisms inside one
+versioned RangeEngine state. They do not create independent consistency domains
+for byte KV, objects, ranges, logs, and columnar access.
+
+```text
+one okv-fabric session and transaction envelope
+  -> byte KV | structured object | ordered range | log | columnar
+  -> read | upsert | atomic_modify | delete | ordered_scan
+  -> one MVCC overlay and coverage map
+  -> RAM image | native NVMe cache | RocksDB image
+```
+
+Current Garnet v2 provides useful evidence for this shape: string, object,
+unified, and vector sessions share one Tsavorite store and hybrid log. objectKV
+retains ordered keys, range conflicts, strict cell transactions, and immutable
+object closures, so Garnet is a design input rather than a dependency. See
+[`garnet-storage-and-distribution-study-2026-08-30.md`](../research/garnet-storage-and-distribution-study-2026-08-30.md).
+
+The likely native provider is one hybrid-log engine whose resident portion is
+RAM and whose colder pages may use direct NVMe. RocksDB remains a separate
+resident-engine provider. If RAM and RocksDB are both enabled, RAM is a bounded
+cache or overlay over the same logical state, not a second authoritative
+database. The eval must decide whether a three-provider composer creates enough
+benefit to justify duplicate bytes and write fanout.
+
 ## Three switches, two kinds of thing
 
 | Switch | Kind | Function | Cost and behavior | Current evidence |

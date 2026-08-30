@@ -741,8 +741,10 @@ become one GitHub issue.
   positions for receipt-only repair. `[EVALUATING]` The first exact GCS
   complete-closure recovery reproduced 25,014 records and 15,742 live rows
   through five full GETs, 13,700,110 bytes, 1,584 verified frame proofs, zero
-  LIST or writes, and 792.221 ms elapsed. Its cloud poison and OTel
-  confirmation remain open. Next measure compaction write amplification and
+  LIST or writes, and 792.221 ms elapsed. `[VERIFIED]` Its sealed cloud poison
+  changed one exact projection byte and failed at the generation-pinned child
+  digest after the same five GETs, with zero LIST or writes. OTel confirmation
+  remains open. Next measure compaction write amplification and
   branch reference reuse as separate receipts. Curve evidence:
   `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r2-failed-gcp-r0-2026-08-30/README.md`.
   Recovery evidence:
@@ -771,12 +773,15 @@ become one GitHub issue.
   no independent-media, transaction-commit, GCS-publication, or performance
   claim. Its receipt is
   `docs/artifacts/eval-receipts/staged-txlog-l1-gcp-r0-2026-08-30/README.md`.
-  `[VERIFIED]` The same L1 boundary now emits the RFC-0050 transition
-  vocabulary. A retained GCP receipt accepted 36 healthy events and three
-  post-restart stable-quorum assertions. The early-acknowledgement poison
-  failed at its first assertion. Transaction commit and delivery remain the
-  T29 refinement gap. Receipt:
-  `docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
+  `[VERIFIED]` RFC-0050 R2 checks two finite TLC scopes and six named fault
+  controls. Fable returned `SHIP` after counterexamples corrected latest reads,
+  serving loss, generation fencing, poison assignment, trace replay, and
+  deserialized quorum assumptions. Receipt:
+  `formal/evidence/gcp-r2-2026-08-30.json`.
+  `[CODE-COMPLETE]` The Rust bridge is hand-written bounded trace conformance.
+  The prior 36-event receipt is bound to an older model and remains historical
+  mechanism evidence. Regenerate it against R2 before T29 extends through
+  transaction commit and delivery.
 
 ### T30. Bound objectification debt and local recovery media `[EVALUATING]`
 

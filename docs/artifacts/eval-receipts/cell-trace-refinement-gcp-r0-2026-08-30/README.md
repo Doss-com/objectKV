@@ -1,25 +1,27 @@
-# Cell trace refinement, GCP R0
+# Historical cell trace-conformance receipt, GCP R0
 
-Status: `[VERIFIED]` for the staged txLog stable-media prefix on one GCP
-runner. This does not verify a complete cell or independent-machine media.
+Status: `[EVALUATING]` as current-model conformance. This retained receipt is
+historical mechanism evidence bound to model SHA-256 `cca6a66f...` and a
+checker that did not independently replay its derived result. It does not
+verify the current R2 model, a complete cell, or independent-machine media.
 
 ## Result
 
-The exact Rust process events from the RFC-0045 L1 staged txLog mechanism now
-refine the stable transition vocabulary in RFC-0050.
+The exact Rust process events from the RFC-0045 L1 staged txLog mechanism were
+mapped to the stable transition vocabulary in the earlier RFC-0050 model.
 
 ```text
 three txLog processes
   -> CellTraceEventV1
-  -> checker bound to exact ObjectKVCell.tla SHA-256
+  -> historical checker bound to exact ObjectKVCell.tla SHA-256
   -> healthy prefix accepted
   -> early-acknowledgement poison rejected
 ```
 
 | Subject | Events | Post-restart assertions | Result |
 |---|---:|---:|---|
-| correct | 36 | 3 | `[VERIFIED]` accepted, zero anomalies |
-| acknowledge before sync | 15 | 3 | `[VERIFIED]` rejected at assertion 0 |
+| correct | 36 | 3 | accepted, zero anomalies |
+| acknowledge before sync | 15 | 3 | rejected at assertion 0 |
 
 The poison violation was
 `StableQuorumAtAcknowledgement: acknowledgement lacks a restart-observed stable quorum`.
@@ -48,12 +50,13 @@ generation `1788118582554879`, 1,753 bytes, archive SHA-256
 
 ## Claim boundary
 
-`[VERIFIED]` This receipt covers RAM staging, stable journal persistence,
-process loss, restart observation, writer-generation replacement, and the
-stable-quorum acknowledgement assertion for the first three positions.
+`[VERIFIED]` RFC-0045 L1 separately covers RAM staging, stable journal
+persistence, process loss, restart observation, writer-generation replacement,
+and the stable-quorum acknowledgement mechanism for this one-host scope.
 
-`[EVALUATING]` Transaction conflict resolution, replicated commit delivery,
-object publication, txLog pop, complete serving recovery, and independent
-machine failure still need implementation traces. The fourth position proves
-generation advance and installation, but is not described as post-restart
-acknowledgement evidence.
+`[EVALUATING]` A fresh trace must use the R2 model identity and replay-validating
+checker. Transaction conflict resolution, replicated commit delivery, object
+publication, txLog pop, complete serving recovery, and independent-machine
+failure still need implementation traces. The fourth position exercises
+generation advance and installation, but is not post-restart acknowledgement
+evidence.

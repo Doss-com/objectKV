@@ -208,23 +208,28 @@ remote library suite. Fable returned `SHIP`. Admission r2 remains
 Evidence:
 `docs/artifacts/eval-receipts/rfc0049-t28-aligned-r1-failed-gcp-r0-2026-08-30/README.md`.
 
-`[EVALUATING]` The C5v2 complete-child recovery now reads the exact root,
+`[VERIFIED]` The C5v2 complete-child recovery reads the exact root,
 manifest, index, projection, and payload without LIST or writes. Its first GCS
 run reconstructed 25,014 retained records and 15,742 live rows, verified 792
 proofs per data object, and matched the independent canonical history digest
-in 792.221 ms. A sealed cloud poison and OTel confirmation remain.
+in 792.221 ms. The sealed cloud control changed byte zero of the exact
+projection object, bound both object digests, repeated the five exact GETs, and
+failed at the generation-pinned child digest. Independent OTel confirmation
+remains `[EVALUATING]`.
 
 Evidence:
 `docs/artifacts/eval-receipts/c5v2-closure-recovery-gcp-r0-2026-08-30/README.md`.
 
-`[VERIFIED]` The RFC-0050 implementation bridge now maps the staged txLog L1
-process path to the executable cell model. The exact GCP binary accepted 36
-healthy events and three post-restart stable-quorum assertions. Its
-early-acknowledgement poison failed at assertion zero. Complete transaction,
-publication, pop, and serving traces remain `[EVALUATING]`.
+`[VERIFIED]` RFC-0050 R2 checks the integrated 3-node model through 2,484,568
+generated states and the 2-transaction concurrency scope through 4,496,463
+generated states. Six exact fault controls produced their named invariant
+counterexamples, and Fable returned `SHIP`. `[CODE-COMPLETE]` The hand-written
+Rust checker replays selected events and validates the TLA+ assumptions. A
+current-model infrastructure trace and mechanical implementation refinement
+remain `[EVALUATING]`.
 
 Evidence:
-`docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
+`formal/evidence/gcp-r2-2026-08-30.json`.
 
 ```text
 generation-pinned locator + immutable operation plan

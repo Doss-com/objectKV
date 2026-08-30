@@ -1788,31 +1788,37 @@ Evidence:
 
 ## D71. Use one executable cell model as the architecture contract
 
-Status: finite model mechanism `[VERIFIED]`; staged txLog implementation
-refinement `[VERIFIED]`; complete-cell refinement `[EVALUATING]`, 2026-08-30.
+Status: finite model mechanism `[VERIFIED]`; hand-written Rust trace checker
+`[CODE-COMPLETE]`; current-model infrastructure conformance `[EVALUATING]`,
+2026-08-30.
 
 Decision: maintain one integrated TLA+ state machine for the externally visible
 behavior of a complete objectKV cell. It composes concurrent conflict
 validation, generation fencing, RAM staging, stable-media quorum
 acknowledgement, exact txLog retention, authenticated object publication, safe
 txLog pop, and disposable RAM, NVMe, or Rocks serving images. Specialized
-formal models may refine a subsystem, but their visible transitions must map
+formal models may describe a subsystem, but their visible transitions must map
 back to this cell contract.
 
 TLC 2.19 exhaustively checked one integrated three-node scope through
-2,486,430 generated states and one two-transaction concurrency scope through
+2,484,568 generated states and one two-transaction concurrency scope through
 4,496,463 generated states without a safety violation. Six independent fault
-switches each produced the intended invariant counterexample. This verifies
-only the named finite model scopes. It does not prove the Rust implementation,
-unbounded operation, liveness, Raft or Paxos, or production performance.
+switches each produced its exact named invariant counterexample. Fable's first
+review found unsafe latest-read, serving-loss, generation, and receipt-replay
+gaps. Its second review found RAM-only serving loss and deserialized quorum
+assumptions. Source `7226e81` closes those gaps. The R2 archive binds the model,
+configs, healthy logs, poison logs, tool, runner, and exact hashes. This
+verifies only the named finite model scopes. It does not prove the Rust
+implementation, unbounded operation, liveness, Raft or Paxos, or production
+performance.
 
-Source `beba5ef` adds the executable Rust trace checker. On the GCP R0 runner,
-its exact release binary accepted 36 staged txLog events and three post-restart
-stable-quorum assertions with zero anomalies. Its early-acknowledgement subject
-was rejected at assertion zero with the named stable-quorum violation. This
-closes the RFC-0045 L1 prefix only. The next refinement extends that same
-vocabulary through transaction commit and delivery in T29, then through object
-publication, safe pop, and serving recovery.
+The Rust checker now independently replays every event and assertion, rejects
+constant assignments outside the TLA+ assumptions, and detects changed derived
+state. It remains `[CODE-COMPLETE]` hand-written bounded trace conformance. The
+older GCP staged txLog trace is historical mechanism evidence bound to an older
+model identity, not current proof. The next receipt reruns that trace against
+R2, then extends the vocabulary through transaction commit and delivery in T29,
+object publication, safe pop, and serving recovery.
 
 Optimizes for: one reviewable source of truth for cross-layer safety and a
 direct bridge from architecture diagrams to implementation and eval receipts.
@@ -1821,5 +1827,7 @@ Gives up: treating separate subsystem models as sufficient proof of the cell or
 claiming that finite-state exploration establishes real-infrastructure
 correctness.
 
-Specification: `formal/README.md`. Design record: RFC-0050. Receipt:
+Specification: `formal/README.md`. Design record: RFC-0050. Finite-model
+receipt: `formal/evidence/gcp-r2-2026-08-30.json`. Historical implementation
+trace:
 `docs/artifacts/eval-receipts/cell-trace-refinement-gcp-r0-2026-08-30/README.md`.
