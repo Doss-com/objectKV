@@ -4,10 +4,11 @@ use crate::provider_attempt::{
     ProviderAttemptBackend, ProviderAttemptEventV1, ProviderAttemptPhase,
 };
 use crate::storage_layout::{
-    t28_typed_point_outcome_sha256, T28ColumnarLayoutReader, T28ColumnarScan, T28OpenedTypedLayout,
+    t28_typed_point_outcome_sha256, T28AlignedLayoutReader, T28AlignedScan,
+    T28ColumnarLayoutReader, T28ColumnarScan, T28OpenedAlignedLayout, T28OpenedTypedLayout,
     T28RowLayoutReader, T28TypedLayoutExecutionPlanV1,
 };
-use crate::t28_layout::{T28LayoutOracleV1, TypedLayoutPlacementLocatorV1};
+use crate::t28_layout::{T28LayoutOracleV1, TypedLayoutPlacementLocatorV1, TypedLayoutSubjectV1};
 use arrow::array::{Int64Array, UInt16Array, UInt32Array, UInt64Array};
 use datafusion::prelude::SessionContext;
 use futures_util::{stream, StreamExt};
@@ -26,6 +27,7 @@ const RECEIPT_SCHEMA_VERSION: u32 = 1;
 pub enum T28TypedPointSubjectV1 {
     C0IndexedRow,
     C5ColumnarMain,
+    C5v2AlignedColumnar,
 }
 
 /// One subject in the matched projected-scan lane.
@@ -34,6 +36,7 @@ pub enum T28TypedPointSubjectV1 {
 pub enum T28TypedScanSubjectV1 {
     C0IndexedRow,
     C5ColumnarMain,
+    C5v2AlignedColumnar,
 }
 
 impl T28TypedScanSubjectV1 {
@@ -41,6 +44,7 @@ impl T28TypedScanSubjectV1 {
         match self {
             Self::C0IndexedRow => "c0_indexed_row_scan",
             Self::C5ColumnarMain => "c5_columnar_main_scan",
+            Self::C5v2AlignedColumnar => "c5v2_aligned_columnar_scan",
         }
     }
 }
@@ -50,13 +54,14 @@ impl T28TypedPointSubjectV1 {
         match self {
             Self::C0IndexedRow => "c0_indexed_row",
             Self::C5ColumnarMain => "c5_columnar_main",
+            Self::C5v2AlignedColumnar => "c5v2_aligned_columnar",
         }
     }
 
     fn maximum_requests_per_point(self) -> u64 {
         match self {
             Self::C0IndexedRow => 1,
-            Self::C5ColumnarMain => 2,
+            Self::C5ColumnarMain | Self::C5v2AlignedColumnar => 2,
         }
     }
 }
@@ -64,6 +69,7 @@ impl T28TypedPointSubjectV1 {
 enum PointReader {
     C0(Arc<T28RowLayoutReader>),
     C5(Arc<T28ColumnarLayoutReader>),
+    C5v2(Arc<T28AlignedLayoutReader>),
 }
 
 impl PointReader {
@@ -71,6 +77,17 @@ impl PointReader {
         match self {
             Self::C0(reader) => reader.point(key, version).await.map(|read| read.outcome),
             Self::C5(reader) => reader.point(key, version).await,
+            Self::C5v2(reader) => reader.point(key, version).await,
+        }
+    }
+
+    fn point_gather_snapshot(&self) -> (u64, u64) {
+        match self {
+            Self::C5v2(reader) => {
+                let snapshot = reader.point_gather_snapshot();
+                (snapshot.point_pairs, snapshot.overlapping_point_pairs)
+            }
+            Self::C0(_) | Self::C5(_) => (0, 0),
         }
     }
 }
@@ -108,6 +125,10 @@ pub struct T28TypedPointPositionReceiptV1 {
     pub returned_generation_mismatches: u64,
     pub provider_errors: u64,
     pub correctness_anomalies: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub point_pairs: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub overlapping_point_pairs: u64,
     pub latency_nanos: Vec<u64>,
     pub p50_latency_nanos: u64,
     pub p95_latency_nanos: u64,
@@ -298,6 +319,15 @@ impl T28TypedPointPositionReceiptV1 {
             || self.returned_generation_mismatches != 0
             || self.provider_errors != 0
             || self.correctness_anomalies != 0
+            || match self.subject {
+                T28TypedPointSubjectV1::C5v2AlignedColumnar => {
+                    self.point_pairs != self.measured_operations
+                        || self.overlapping_point_pairs != self.point_pairs
+                }
+                T28TypedPointSubjectV1::C0IndexedRow | T28TypedPointSubjectV1::C5ColumnarMain => {
+                    self.point_pairs != 0 || self.overlapping_point_pairs != 0
+                }
+            }
             || self.latency_nanos.len() != operation_count
             || self.provider_latency_nanos.len()
                 != usize::try_from(self.measured_provider_attempts)
@@ -387,6 +417,9 @@ pub async fn run_t28_typed_point_position(
             let bytes = reader.resident_metadata_bytes();
             (PointReader::C5(reader), bytes)
         }
+        T28TypedPointSubjectV1::C5v2AlignedColumnar => {
+            return Err("C5v2 requires an RFC-0049 aligned root".to_owned());
+        }
     };
     let reader = Arc::new(reader);
 
@@ -458,6 +491,208 @@ pub async fn run_t28_typed_point_position(
         returned_generation_mismatches: provider.returned_generation_mismatches,
         provider_errors: provider.errors,
         correctness_anomalies: u64::try_from(correctness_anomalies).unwrap_or(u64::MAX),
+        point_pairs: 0,
+        overlapping_point_pairs: 0,
+        p50_latency_nanos: nearest_rank(&latency_nanos, 50, 100)?,
+        p95_latency_nanos: nearest_rank(&latency_nanos, 95, 100)?,
+        p99_latency_nanos: nearest_rank(&latency_nanos, 99, 100)?,
+        p999_latency_nanos: nearest_rank(&latency_nanos, 999, 1_000)?,
+        latency_nanos,
+        provider_p50_latency_nanos: nearest_rank(&provider.latencies, 50, 100)?,
+        provider_p95_latency_nanos: nearest_rank(&provider.latencies, 95, 100)?,
+        provider_p99_latency_nanos: nearest_rank(&provider.latencies, 99, 100)?,
+        provider_p999_latency_nanos: nearest_rank(&provider.latencies, 999, 1_000)?,
+        provider_latency_nanos: provider.latencies,
+        wall_elapsed_nanos,
+        process_id: std::process::id(),
+        measured_started_unix_nanos,
+        measured_finished_unix_nanos,
+        receipt_sha256: String::new(),
+    };
+    receipt.receipt_sha256 = receipt.calculated_sha256()?;
+    receipt.validate()?;
+    Ok(receipt)
+}
+
+async fn open_aligned_with_source_plan(
+    backend: Arc<dyn Backend>,
+    aligned_locator: &TypedLayoutPlacementLocatorV1,
+    source_locator: &TypedLayoutPlacementLocatorV1,
+    oracle: &T28LayoutOracleV1,
+    plan_bytes: &[u8],
+    expected_plan_sha256: &str,
+) -> Result<(T28OpenedAlignedLayout, T28TypedLayoutExecutionPlanV1), String> {
+    let source = T28OpenedTypedLayout::open(Arc::clone(&backend), source_locator).await?;
+    let plan = T28TypedLayoutExecutionPlanV1::decode(
+        plan_bytes,
+        expected_plan_sha256,
+        source_locator,
+        source.fixture(),
+        oracle,
+    )?;
+    let aligned = T28OpenedAlignedLayout::open(backend, aligned_locator).await?;
+    let source_c0 = source
+        .fixture()
+        .children
+        .iter()
+        .find(|child| child.subject == TypedLayoutSubjectV1::C0IndexedRow)
+        .ok_or_else(|| "RFC-0049 source root omits C0".to_owned())?;
+    let fixture = aligned.fixture();
+    if fixture.source_root_sha256 != source.fixture().root_sha256
+        || fixture.source_root_generation != source_locator.root_generation
+        || fixture.source_placement_envelope_sha256 != source_locator.envelope_sha256
+        || &fixture.source_c0 != source_c0
+        || fixture.fixture_id != source.fixture().fixture_id
+        || fixture.oracle_sha256 != source.fixture().oracle_sha256
+        || fixture.workload_plan_sha256 != source.fixture().workload_plan_sha256
+        || fixture.physical_plan_sha256
+            != "5b6f2ee2ceaeabae78ff689f33c42fc2bc2022070970e6bb66a1ea410be17d61"
+    {
+        return Err("RFC-0049 aligned root does not close over its source plan".to_owned());
+    }
+    Ok((aligned, plan))
+}
+
+/// Run one viewer-only RFC-0049 point position against the reused C0 or C5v2.
+///
+/// # Errors
+///
+/// Returns an error for source-plan drift, wrong outcomes, missing concurrent
+/// pair overlap, extra provider work, or malformed receipt evidence.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub async fn run_t28_aligned_point_position(
+    backend: Arc<dyn Backend>,
+    aligned_locator: &TypedLayoutPlacementLocatorV1,
+    source_locator: &TypedLayoutPlacementLocatorV1,
+    oracle: &T28LayoutOracleV1,
+    plan_bytes: &[u8],
+    expected_plan_sha256: &str,
+    subject: T28TypedPointSubjectV1,
+    trace_seed: u64,
+    measured_operations: usize,
+) -> Result<T28TypedPointPositionReceiptV1, String> {
+    if !matches!(
+        subject,
+        T28TypedPointSubjectV1::C0IndexedRow | T28TypedPointSubjectV1::C5v2AlignedColumnar
+    ) {
+        return Err("RFC-0049 point position selected an incompatible subject".to_owned());
+    }
+    let attempts = Arc::new(ProviderAttemptBackend::new(backend, subject.id())?);
+    let observed_backend: Arc<dyn Backend> = attempts.clone();
+    let (opened, plan) = open_aligned_with_source_plan(
+        Arc::clone(&observed_backend),
+        aligned_locator,
+        source_locator,
+        oracle,
+        plan_bytes,
+        expected_plan_sha256,
+    )
+    .await?;
+    if measured_operations == 0
+        || measured_operations > usize::try_from(plan.point_reads_per_position).unwrap_or(0)
+        || plan.point_concurrent_tasks != 8
+    {
+        return Err("invalid RFC-0049 point-position size or concurrency".to_owned());
+    }
+    let trace = plan
+        .trace(trace_seed)
+        .ok_or_else(|| "RFC-0049 point position selected an unknown trace".to_owned())?;
+    let (reader, resident_metadata_bytes) = match subject {
+        T28TypedPointSubjectV1::C0IndexedRow => {
+            let reader = Arc::new(opened.c0().await?);
+            let bytes = reader.resident_metadata_bytes();
+            (PointReader::C0(reader), bytes)
+        }
+        T28TypedPointSubjectV1::C5v2AlignedColumnar => {
+            let reader = Arc::new(opened.c5v2().await?);
+            let bytes = reader.resident_metadata_bytes();
+            (PointReader::C5v2(reader), bytes)
+        }
+        T28TypedPointSubjectV1::C5ColumnarMain => unreachable!(),
+    };
+    let reader = Arc::new(reader);
+
+    for _ in 0..plan.point_warmup_canary_reads {
+        observed_backend
+            .get(
+                &aligned_locator.root_key,
+                None,
+                Some(&aligned_locator.root_revision()),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    attempts.clear_events();
+
+    let measured_started_unix_nanos = unix_nanos();
+    let wall_started = Instant::now();
+    let mut points = stream::iter(trace.operations.iter().take(measured_operations).cloned())
+        .map(|operation| {
+            let reader = Arc::clone(&reader);
+            async move {
+                let started = Instant::now();
+                let outcome = reader.read(operation.key, operation.read_version).await?;
+                Ok::<MeasuredPoint, String>(MeasuredPoint {
+                    ordinal: operation.ordinal,
+                    latency_nanos: u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                    outcome_sha256: t28_typed_point_outcome_sha256(&outcome),
+                    expected_outcome_sha256: operation.expected_outcome_sha256,
+                })
+            }
+        })
+        .buffer_unordered(8)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    let wall_elapsed_nanos = u64::try_from(wall_started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+    let measured_finished_unix_nanos = unix_nanos();
+    points.sort_by_key(|point| point.ordinal);
+    let correctness_anomalies = points
+        .iter()
+        .filter(|point| point.outcome_sha256 != point.expected_outcome_sha256)
+        .count();
+    if correctness_anomalies != 0 {
+        return Err("RFC-0049 point position returned an incorrect outcome".to_owned());
+    }
+    let mut latency_nanos = points
+        .iter()
+        .map(|point| point.latency_nanos)
+        .collect::<Vec<_>>();
+    latency_nanos.sort_unstable();
+    let provider = evaluate_provider_events(&attempts.events(), subject)?;
+    let expected_attempts = u64::try_from(measured_operations)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(subject.maximum_requests_per_point());
+    if provider.attempts != expected_attempts {
+        return Err("RFC-0049 point position did not issue its exact provider fanout".to_owned());
+    }
+    let (point_pairs, overlapping_point_pairs) = reader.point_gather_snapshot();
+    let mut receipt = T28TypedPointPositionReceiptV1 {
+        schema_version: RECEIPT_SCHEMA_VERSION,
+        execution_plan_sha256: plan.execution_plan_sha256,
+        fixture_id: opened.fixture().fixture_id.clone(),
+        root_sha256: opened.fixture().root_sha256.clone(),
+        subject,
+        trace_seed,
+        measured_operations: u64::try_from(measured_operations).unwrap_or(u64::MAX),
+        concurrent_tasks: 8,
+        warmup_canary_reads: plan.point_warmup_canary_reads,
+        resident_metadata_bytes,
+        measured_provider_attempts: provider.attempts,
+        measured_response_bytes: provider.response_bytes,
+        maximum_point_bytes_upper_bound: provider.maximum_point_bytes_upper_bound,
+        maximum_attempts_per_point: subject.maximum_requests_per_point(),
+        full_object_requests: provider.full_object_requests,
+        list_requests: provider.list_requests,
+        put_requests: provider.put_requests,
+        delete_requests: provider.delete_requests,
+        missing_expected_generation_requests: provider.missing_expected_generation_requests,
+        returned_generation_mismatches: provider.returned_generation_mismatches,
+        provider_errors: provider.errors,
+        correctness_anomalies: u64::try_from(correctness_anomalies).unwrap_or(u64::MAX),
+        point_pairs,
+        overlapping_point_pairs,
         p50_latency_nanos: nearest_rank(&latency_nanos, 50, 100)?,
         p95_latency_nanos: nearest_rank(&latency_nanos, 95, 100)?,
         p99_latency_nanos: nearest_rank(&latency_nanos, 99, 100)?,
@@ -529,6 +764,9 @@ pub async fn run_t28_typed_scan_position(
             let stats = provider.stats();
             let provider: Arc<dyn datafusion::catalog::TableProvider> = provider;
             (provider, stats, Some(scan), resident)
+        }
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => {
+            return Err("C5v2 requires an RFC-0049 aligned root".to_owned());
         }
     };
 
@@ -621,6 +859,9 @@ pub async fn run_t28_typed_scan_position(
         match subject {
             T28TypedScanSubjectV1::C0IndexedRow => T28TypedPointSubjectV1::C0IndexedRow,
             T28TypedScanSubjectV1::C5ColumnarMain => T28TypedPointSubjectV1::C5ColumnarMain,
+            T28TypedScanSubjectV1::C5v2AlignedColumnar => {
+                T28TypedPointSubjectV1::C5v2AlignedColumnar
+            }
         },
     )?;
     let source = source_stats.snapshot();
@@ -631,11 +872,237 @@ pub async fn run_t28_typed_scan_position(
     let projection_fetch_requests = match subject {
         T28TypedScanSubjectV1::C0IndexedRow => provider.attempts,
         T28TypedScanSubjectV1::C5ColumnarMain => columnar.projection_fetch_requests,
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => columnar.projection_fetch_requests,
     };
     let peak_fetch_bytes = match subject {
         T28TypedScanSubjectV1::C0IndexedRow => provider.maximum_response_bytes,
         T28TypedScanSubjectV1::C5ColumnarMain => columnar.peak_fetch_bytes,
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => columnar.peak_fetch_bytes,
     };
+    let rows_u64 = u64::try_from(rows).unwrap_or(u64::MAX);
+    let mut receipt = T28TypedScanPositionReceiptV1 {
+        schema_version: RECEIPT_SCHEMA_VERSION,
+        execution_plan_sha256: plan.execution_plan_sha256,
+        fixture_id: opened.fixture().fixture_id.clone(),
+        root_sha256: opened.fixture().root_sha256.clone(),
+        subject,
+        trace_seed,
+        query: plan.scan_query,
+        configured_range_fetch_concurrency: 1,
+        observed_peak_range_fetch_concurrency: provider.peak_inflight,
+        resident_metadata_bytes,
+        rows: rows_u64,
+        ordered_projection_sha256,
+        quantity_sum: expected_quantity_sum.to_string(),
+        query_elapsed_nanos,
+        rows_per_second: rows_u64 as f64 / (query_elapsed_nanos as f64 / 1_000_000_000.0),
+        provider_attempts: provider.attempts,
+        response_bytes: provider.response_bytes,
+        full_object_requests: provider.full_object_requests,
+        list_requests: provider.list_requests,
+        put_requests: provider.put_requests,
+        delete_requests: provider.delete_requests,
+        missing_expected_generation_requests: provider.missing_expected_generation_requests,
+        returned_generation_mismatches: provider.returned_generation_mismatches,
+        provider_errors: provider.errors,
+        source_scan_plans: source.scan_plans,
+        source_projection_pushdown_plans: source.projection_pushdown_plans,
+        source_stripes: source.stripes_read,
+        source_batches: source.batches_emitted,
+        source_rows: source.rows_emitted,
+        peak_arrow_batch_rows: source.peak_batch_rows,
+        peak_arrow_batch_bytes: source.peak_batch_bytes,
+        projection_fetch_requests,
+        peak_fetch_bytes,
+        opaque_payload_requests: columnar.payload_requests,
+        opaque_payload_response_bytes: columnar.payload_response_bytes,
+        correctness_anomalies: anomalies,
+        process_id: std::process::id(),
+        measured_started_unix_nanos,
+        measured_finished_unix_nanos,
+        receipt_sha256: String::new(),
+    };
+    receipt.receipt_sha256 = receipt.calculated_sha256()?;
+    receipt.validate()?;
+    Ok(receipt)
+}
+
+/// Run one viewer-only RFC-0049 projected-scan position against reused C0 or
+/// projection-only C5v2 media.
+///
+/// # Errors
+///
+/// Returns an error for source-plan drift, incorrect snapshot output, opaque
+/// payload access, unbounded fetches, or malformed receipt evidence.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub async fn run_t28_aligned_scan_position(
+    backend: Arc<dyn Backend>,
+    aligned_locator: &TypedLayoutPlacementLocatorV1,
+    source_locator: &TypedLayoutPlacementLocatorV1,
+    oracle: &T28LayoutOracleV1,
+    plan_bytes: &[u8],
+    expected_plan_sha256: &str,
+    subject: T28TypedScanSubjectV1,
+    trace_seed: u64,
+) -> Result<T28TypedScanPositionReceiptV1, String> {
+    if !matches!(
+        subject,
+        T28TypedScanSubjectV1::C0IndexedRow | T28TypedScanSubjectV1::C5v2AlignedColumnar
+    ) {
+        return Err("RFC-0049 scan position selected an incompatible subject".to_owned());
+    }
+    let attempts = Arc::new(ProviderAttemptBackend::new(backend, subject.id())?);
+    let observed_backend: Arc<dyn Backend> = attempts.clone();
+    let (opened, plan) = open_aligned_with_source_plan(
+        Arc::clone(&observed_backend),
+        aligned_locator,
+        source_locator,
+        oracle,
+        plan_bytes,
+        expected_plan_sha256,
+    )
+    .await?;
+    if plan.trace(trace_seed).is_none() || plan.scan_concurrent_fetches != 1 {
+        return Err("invalid RFC-0049 scan-position seed or concurrency".to_owned());
+    }
+
+    let (provider, source_stats, aligned_scan, resident_metadata_bytes) = match subject {
+        T28TypedScanSubjectV1::C0IndexedRow => {
+            let reader = opened.c0().await?;
+            let resident = reader.resident_metadata_bytes();
+            let provider = reader.table_provider();
+            let stats = provider.stats();
+            let provider: Arc<dyn datafusion::catalog::TableProvider> = provider;
+            (provider, stats, None, resident)
+        }
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => {
+            let reader = opened.c5v2().await?;
+            let resident = reader.resident_metadata_bytes();
+            let scan = reader.table_provider(
+                usize::try_from(plan.scan_fetch_target_bytes).unwrap_or(usize::MAX),
+            );
+            let provider = scan.provider();
+            let stats = provider.stats();
+            let provider: Arc<dyn datafusion::catalog::TableProvider> = provider;
+            (provider, stats, Some(scan), resident)
+        }
+        T28TypedScanSubjectV1::C5ColumnarMain => unreachable!(),
+    };
+
+    for _ in 0..plan.point_warmup_canary_reads {
+        observed_backend
+            .get(
+                &aligned_locator.root_key,
+                None,
+                Some(&aligned_locator.root_revision()),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    attempts.clear_events();
+
+    let context = SessionContext::new();
+    context
+        .register_table("okv_layout", provider)
+        .map_err(|error| error.to_string())?;
+    let measured_started_unix_nanos = unix_nanos();
+    let started = Instant::now();
+    let batches = context
+        .sql(&plan.scan_query)
+        .await
+        .map_err(|error| error.to_string())?
+        .collect()
+        .await
+        .map_err(|error| error.to_string())?;
+    let rows = batches.iter().fold(0_usize, |total, batch| {
+        total.saturating_add(batch.num_rows())
+    });
+    let expected_rows = usize::try_from(oracle.fixture.live_row_count).unwrap_or(usize::MAX);
+    let expected_quantity_sum = oracle
+        .fixture
+        .aggregate
+        .quantity_sum
+        .parse::<i64>()
+        .map_err(|error| error.to_string())?;
+    let mut projection = Sha256::new();
+    projection.update(b"okv-t28-ordered-projection-v1\0");
+    projection.update(u64::try_from(rows).unwrap_or(u64::MAX).to_be_bytes());
+    let mut anomalies = u64::from(rows != expected_rows);
+    let mut previous_key = None;
+    for batch in &batches {
+        let keys = batch
+            .column_by_name("key")
+            .and_then(|array| array.as_any().downcast_ref::<UInt64Array>())
+            .ok_or_else(|| "RFC-0049 scan key column is absent".to_owned())?;
+        let tenants = batch
+            .column_by_name("tenant")
+            .and_then(|array| array.as_any().downcast_ref::<UInt32Array>())
+            .ok_or_else(|| "RFC-0049 scan tenant column is absent".to_owned())?;
+        let categories = batch
+            .column_by_name("category")
+            .and_then(|array| array.as_any().downcast_ref::<UInt16Array>())
+            .ok_or_else(|| "RFC-0049 scan category column is absent".to_owned())?;
+        let quantities = batch
+            .column_by_name("quantity")
+            .and_then(|array| array.as_any().downcast_ref::<Int64Array>())
+            .ok_or_else(|| "RFC-0049 scan quantity column is absent".to_owned())?;
+        let counts = batch
+            .column_by_name("row_count")
+            .ok_or_else(|| "RFC-0049 scan row-count column is absent".to_owned())?;
+        let sums = batch
+            .column_by_name("quantity_sum")
+            .ok_or_else(|| "RFC-0049 scan quantity-sum column is absent".to_owned())?;
+        for row in 0..batch.num_rows() {
+            let key = keys.value(row);
+            anomalies = anomalies.saturating_add(u64::from(
+                previous_key.is_some_and(|previous| previous >= key),
+            ));
+            previous_key = Some(key);
+            projection.update(key.to_be_bytes());
+            projection.update(tenants.value(row).to_be_bytes());
+            projection.update(categories.value(row).to_be_bytes());
+            projection.update(quantities.value(row).to_be_bytes());
+            anomalies = anomalies.saturating_add(u64::from(
+                array_u64(counts.as_ref(), row)?
+                    != u64::try_from(expected_rows).unwrap_or(u64::MAX),
+            ));
+            anomalies = anomalies.saturating_add(u64::from(
+                array_i64(sums.as_ref(), row)? != expected_quantity_sum,
+            ));
+        }
+    }
+    let ordered_projection_sha256 = format!("{:x}", projection.finalize());
+    anomalies = anomalies.saturating_add(u64::from(
+        ordered_projection_sha256 != oracle.fixture.ordered_projection_sha256,
+    ));
+    let query_elapsed_nanos = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+    let measured_finished_unix_nanos = unix_nanos();
+    let point_subject = match subject {
+        T28TypedScanSubjectV1::C0IndexedRow => T28TypedPointSubjectV1::C0IndexedRow,
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => T28TypedPointSubjectV1::C5v2AlignedColumnar,
+        T28TypedScanSubjectV1::C5ColumnarMain => unreachable!(),
+    };
+    let provider = evaluate_provider_events(&attempts.events(), point_subject)?;
+    let source = source_stats.snapshot();
+    let columnar = aligned_scan
+        .as_ref()
+        .map(T28AlignedScan::source_snapshot)
+        .unwrap_or_default();
+    let projection_fetch_requests = match subject {
+        T28TypedScanSubjectV1::C0IndexedRow => provider.attempts,
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => columnar.projection_fetch_requests,
+        T28TypedScanSubjectV1::C5ColumnarMain => unreachable!(),
+    };
+    let peak_fetch_bytes = match subject {
+        T28TypedScanSubjectV1::C0IndexedRow => provider.maximum_response_bytes,
+        T28TypedScanSubjectV1::C5v2AlignedColumnar => columnar.peak_fetch_bytes,
+        T28TypedScanSubjectV1::C5ColumnarMain => unreachable!(),
+    };
+    if subject == T28TypedScanSubjectV1::C5v2AlignedColumnar
+        && (projection_fetch_requests == 0 || projection_fetch_requests > 64)
+    {
+        return Err("RFC-0049 C5v2 scan exceeded its projection GET budget".to_owned());
+    }
     let rows_u64 = u64::try_from(rows).unwrap_or(u64::MAX);
     let mut receipt = T28TypedScanPositionReceiptV1 {
         schema_version: RECEIPT_SCHEMA_VERSION,
@@ -811,9 +1278,13 @@ fn evaluate_provider_events(
         evaluation.errors = evaluation
             .errors
             .saturating_add(u64::from(completed.result.as_deref() != Some("ok")));
-        if started.object_key.ends_with("projection.okcp") {
+        if started.object_key.ends_with("projection.okcp")
+            || started.object_key.ends_with("projection.okp2")
+        {
             maximum_projection = maximum_projection.max(completed.response_payload_bytes);
-        } else if started.object_key.ends_with("payload.okcv") {
+        } else if started.object_key.ends_with("payload.okcv")
+            || started.object_key.ends_with("payload.okv2")
+        {
             maximum_payload = maximum_payload.max(completed.response_payload_bytes);
         } else {
             maximum_other = maximum_other.max(completed.response_payload_bytes);
@@ -822,7 +1293,7 @@ fn evaluate_provider_events(
     evaluation.latencies.sort_unstable();
     evaluation.maximum_point_bytes_upper_bound = match subject {
         T28TypedPointSubjectV1::C0IndexedRow => maximum_other,
-        T28TypedPointSubjectV1::C5ColumnarMain => {
+        T28TypedPointSubjectV1::C5ColumnarMain | T28TypedPointSubjectV1::C5v2AlignedColumnar => {
             maximum_projection.saturating_add(maximum_payload)
         }
     };
@@ -873,6 +1344,10 @@ fn valid_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+const fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 #[cfg(test)]

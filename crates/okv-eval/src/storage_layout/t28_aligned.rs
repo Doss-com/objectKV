@@ -2,7 +2,7 @@
 
 use super::columnar_aligned::{
     prepare_t28_aligned_columnar_layout, T28AlignedColumnarCore, T28AlignedColumnarScanCore,
-    INDEX_KEY, MANIFEST_KEY, PAYLOAD_KEY, PROJECTION_KEY,
+    T28AlignedPointPairSnapshot, INDEX_KEY, MANIFEST_KEY, PAYLOAD_KEY, PROJECTION_KEY,
 };
 use super::t28_typed::{
     capture_identity, child_total_bytes, numeric_generation, validate_history_against_oracle,
@@ -290,6 +290,14 @@ pub struct T28AlignedScanSnapshot {
     pub payload_response_bytes: u64,
 }
 
+/// Runtime evidence that each point issued overlapping projection and payload
+/// provider calls.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct T28AlignedPointGatherSnapshot {
+    pub point_pairs: u64,
+    pub overlapping_point_pairs: u64,
+}
+
 /// One C5v2 DataFusion provider and its source counters.
 pub struct T28AlignedScan {
     inner: T28AlignedColumnarScanCore,
@@ -335,6 +343,16 @@ impl T28AlignedLayoutReader {
     #[must_use]
     pub fn resident_metadata_bytes(&self) -> u64 {
         self.inner.resident_metadata_bytes()
+    }
+
+    /// Sample point-pair lifecycle counters.
+    #[must_use]
+    pub fn point_gather_snapshot(&self) -> T28AlignedPointGatherSnapshot {
+        let snapshot: T28AlignedPointPairSnapshot = self.inner.point_pair_snapshot();
+        T28AlignedPointGatherSnapshot {
+            point_pairs: snapshot.point_pairs,
+            overlapping_point_pairs: snapshot.overlapping_point_pairs,
+        }
     }
 }
 

@@ -24,6 +24,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Instant;
 
 const FORMAT_VERSION: u16 = 2;
 const FORMAT_GENERATION: u64 = 1;
@@ -373,6 +374,15 @@ pub(super) struct T28AlignedColumnarCore {
     backend: Arc<dyn Backend>,
     prepared: Arc<PreparedAlignedLayout>,
     read_version: u64,
+    point_pairs: AtomicU64,
+    overlapping_point_pairs: AtomicU64,
+}
+
+/// Runtime observation of the concurrent projection and payload gather.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct T28AlignedPointPairSnapshot {
+    pub point_pairs: u64,
+    pub overlapping_point_pairs: u64,
 }
 
 /// One C5v2 provider plus counters owned by its projection-only source.
@@ -492,6 +502,8 @@ impl T28AlignedColumnarCore {
             backend,
             prepared,
             read_version,
+            point_pairs: AtomicU64::new(0),
+            overlapping_point_pairs: AtomicU64::new(0),
         })
     }
 
@@ -515,14 +527,33 @@ impl T28AlignedColumnarCore {
         if pair_bytes > MAX_FRAME_PAIR_BYTES {
             return Err("RFC-0049 C5v2 frame pair exceeds the point byte ceiling".to_owned());
         }
-        let projection_request =
-            self.backend
-                .get(PROJECTION_KEY, Some(to_u64_range(projection_range)?), None);
-        let payload_request =
-            self.backend
-                .get(PAYLOAD_KEY, Some(to_u64_range(payload_range)?), None);
-        let (projection_read, payload_read) = tokio::try_join!(projection_request, payload_request)
-            .map_err(|error| error.to_string())?;
+        let projection_range = to_u64_range(projection_range)?;
+        let payload_range = to_u64_range(payload_range)?;
+        let projection_request = async {
+            let started = Instant::now();
+            let read = self
+                .backend
+                .get(PROJECTION_KEY, Some(projection_range), None)
+                .await;
+            (read, started, Instant::now())
+        };
+        let payload_request = async {
+            let started = Instant::now();
+            let read = self
+                .backend
+                .get(PAYLOAD_KEY, Some(payload_range), None)
+                .await;
+            (read, started, Instant::now())
+        };
+        let (projection, payload) = tokio::join!(projection_request, payload_request);
+        let (projection_read, projection_started, projection_finished) = projection;
+        let (payload_read, payload_started, payload_finished) = payload;
+        let projection_read = projection_read.map_err(|error| error.to_string())?;
+        let payload_read = payload_read.map_err(|error| error.to_string())?;
+        self.point_pairs.fetch_add(1, Ordering::Relaxed);
+        if projection_started < payload_finished && payload_started < projection_finished {
+            self.overlapping_point_pairs.fetch_add(1, Ordering::Relaxed);
+        }
         decode_point_pair(
             &self.prepared.index,
             ordinal,
@@ -537,6 +568,13 @@ impl T28AlignedColumnarCore {
         self.prepared
             .manifest_bytes
             .saturating_add(self.prepared.index_bytes)
+    }
+
+    pub(super) fn point_pair_snapshot(&self) -> T28AlignedPointPairSnapshot {
+        T28AlignedPointPairSnapshot {
+            point_pairs: self.point_pairs.load(Ordering::Relaxed),
+            overlapping_point_pairs: self.overlapping_point_pairs.load(Ordering::Relaxed),
+        }
     }
 
     pub(super) fn table_provider(
