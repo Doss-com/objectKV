@@ -27,5 +27,6 @@ pub mod serving_recovery_openraft;
 pub mod staged_txlog_process;
 pub mod storage_layout;
 pub mod t27_plan;
+pub mod t28_cold_point;
 pub mod telemetry;
 pub mod transaction_batch;

@@ -291,7 +291,12 @@ impl PointBlockPlanV1 {
         Ok(self.offset..end)
     }
 
-    fn validate(&self) -> Result<[u8; DIGEST_BYTES], String> {
+    /// Validate bounds and return the decoded block checksum.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed bounds, versions, or checksums.
+    pub fn validate(&self) -> Result<[u8; DIGEST_BYTES], String> {
         let range = self.range()?;
         if self.object_length == 0
             || self.length == 0

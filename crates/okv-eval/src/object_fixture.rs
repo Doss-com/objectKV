@@ -1494,6 +1494,19 @@ pub(crate) fn base_records(
         .collect())
 }
 
+pub(crate) fn base_record_at(
+    seed: u64,
+    key_id: u64,
+    value_bytes: usize,
+    version: u64,
+) -> RowRecord {
+    RowRecord::value(
+        key_bytes(key_id),
+        version,
+        base_value(seed, key_id, value_bytes),
+    )
+}
+
 pub(crate) fn base_value_txlog_accounting(
     retained: &[RetainedTransactionRecord],
     base: &[RowRecord],
