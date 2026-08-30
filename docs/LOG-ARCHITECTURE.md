@@ -308,8 +308,16 @@ committed segments through the manifest, and bounds the publication queue.
 Each of six targeted poisons was detected across three seeds. The receipt is
 `docs/artifacts/eval-receipts/staged-txlog-l0-gcp-r0-2026-08-30/README.md`.
 
+`[VERIFIED]` L1 runs three real child processes with distinct roots and TCP
+listeners. It verifies synchronized `OKVT` frames, exact retry without journal
+growth, restart and torn-tail repair, stale-epoch fencing, and byte-identical
+`OKVL` segment previews across three seeds. The unchanged evaluator rejects
+early acknowledgement, stale-writer acceptance, and divergent-segment poisons.
+Its receipt is
+`docs/artifacts/eval-receipts/staged-txlog-l1-gcp-r0-2026-08-30/README.md`.
+
 The standalone service does not replace OpenRaft or verify transaction commit.
-L0 starts no process, sends no network append, persists no NVMe record, and
-publishes no GCS segment. T29 may integrate it only after fencing,
-unknown-outcome repair, bounded queues, segment economics, and recovery pass,
-and only if the complete transaction path does not double log.
+L1 uses one machine and local files, sends no object operation, and makes no
+latency or throughput claim. T29 may integrate it only after independent-media
+quorum, fencing, unknown-outcome repair, bounded queues, segment economics, and
+recovery pass, and only if the complete transaction path does not double log.

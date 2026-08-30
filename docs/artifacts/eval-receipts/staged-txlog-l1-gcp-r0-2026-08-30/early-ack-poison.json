@@ -1,0 +1,129 @@
+{
+  "artifact_refs": [
+    "okv-staged-txlog-process://ack_before_sync/1103/ee8764ee340937b9e640db1030b3ec09a07e93ebcc511d06266cf5d9481ca69a",
+    "okv-staged-txlog-process://ack_before_sync/2207/47ba21ad3128cd8218dca0b078912a0e193f174d0cf203c1bac6c840201987af",
+    "okv-staged-txlog-process://ack_before_sync/3301/15a5a97496e9b876d80f22105323842b9d62a7931c76ad3766ed6c232c204121",
+    "/tmp/staged-txlog-l1-8a225ca/early-ack-poison.json"
+  ],
+  "backend": "local-process",
+  "batch_id": "f5c7b9c2-1051-4272-932e-580a0bb7b528",
+  "budget": {
+    "kind": "seconds",
+    "limit": 180.0,
+    "observed": 0.256286524
+  },
+  "candidate_commit": "8a225cac10c51d65fbe08fe2933bbea9eac782c6",
+  "created_at": "2026-08-30T01:30:49.668992412+00:00",
+  "hard_gates": [
+    {
+      "id": "correctness_failures",
+      "status": "fail"
+    },
+    {
+      "id": "workload_execution",
+      "status": "fail"
+    },
+    {
+      "id": "budget_must_hold",
+      "status": "pass"
+    },
+    {
+      "id": "schema_valid",
+      "status": "pass"
+    },
+    {
+      "detail": "starts=18, kills=18, seeds=3",
+      "id": "staged_txlog_process.distinct_process_topology",
+      "status": "pass"
+    },
+    {
+      "detail": "acknowledged_appends=9, network_append_requests=45",
+      "id": "staged_txlog_process.durable_write_quorum",
+      "status": "pass"
+    },
+    {
+      "id": "staged_txlog_process.exact_retry_no_physical_effect",
+      "status": "pass"
+    },
+    {
+      "detail": "acknowledged_record_loss=9",
+      "id": "staged_txlog_process.restart_recovery",
+      "status": "fail"
+    },
+    {
+      "id": "staged_txlog_process.torn_tail_repair",
+      "status": "pass"
+    },
+    {
+      "id": "staged_txlog_process.stale_writer_fenced",
+      "status": "pass"
+    },
+    {
+      "id": "staged_txlog_process.segment_identity",
+      "status": "fail"
+    },
+    {
+      "detail": "object_operations=0",
+      "id": "staged_txlog_process.no_object_operations",
+      "status": "pass"
+    },
+    {
+      "id": "staged_txlog_process.bounded_physical_bytes",
+      "status": "pass"
+    },
+    {
+      "detail": "control=ack_before_sync",
+      "id": "staged_txlog_process.negative_control_detected",
+      "status": "pass"
+    },
+    {
+      "detail": "one-host process mechanism; append timing is diagnostic and does not claim independent-machine latency",
+      "id": "staged_txlog_process.l1_scope_only",
+      "status": "pass"
+    }
+  ],
+  "lane": "staged-txlog-correctness",
+  "parent_commit": "8d07959dbe7c90c5cbf6b2b4230054f7a9bcf997",
+  "primary_metric": {
+    "direction": "lower",
+    "mad": 0.0,
+    "median": 1.0,
+    "name": "okv.eval.correctness.anomalies",
+    "samples": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "statistic": "total",
+    "unit": "{anomaly}",
+    "value": 3.0
+  },
+  "profile": {
+    "evidence_class": "contract",
+    "hash": "3a6397f53c1d87c87684de90ebdcc838f7c2e58b43bc9c118536a7f97bbef16e",
+    "id": "local-process",
+    "lockfile_hash": "85fd5d79ab99965dd3eac6fbba955d57045de2b48e4d2a4bc3ab1d30e2698201",
+    "machine": "x86_64",
+    "rustc": "rustc 1.88.0 (6b00bc388 2025-06-23)"
+  },
+  "reason": "staged txLog L1 negative control ack_before_sync was detected",
+  "run_id": "f5c7b9c2-1051-4272-932e-580a0bb7b528",
+  "schema_version": 1,
+  "secondary_metrics": {
+    "operation.duration.median": 0.256286524,
+    "staged_txlog_process.acknowledged_appends": 9.0,
+    "staged_txlog_process.acknowledged_record_loss": 9.0,
+    "staged_txlog_process.network_append_requests": 45.0,
+    "staged_txlog_process.object_operations": 0.0,
+    "staged_txlog_process.process_kills": 18.0,
+    "staged_txlog_process.process_starts": 18.0
+  },
+  "seeds": [
+    1103,
+    2207,
+    3301
+  ],
+  "suite": "staged-txlog-v1",
+  "suite_hash": "b0e96a4b282bdfa243db6aa099d90c66a38f01e8585757fb98b799500f41fd5b",
+  "verdict": "discard"
+}

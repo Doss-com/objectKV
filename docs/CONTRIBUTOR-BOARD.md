@@ -704,8 +704,13 @@ become one GitHub issue.
   commit until the unchanged strict-serializability and retry histories pass.
   `[VERIFIED]` L0 now covers the deterministic quorum, fencing, retry,
   publication-visibility, and queue contract across three seeds and six
-  negative controls. L1 through L5 remain open, and L0 makes no process,
-  independent-media, transaction-commit, or performance claim.
+  negative controls. `[VERIFIED]` L1 adds three real TCP log-node processes,
+  synchronized local journals, exact restart and torn-tail recovery,
+  stale-writer fencing, deterministic segment bytes, and three process-level
+  negative controls across three seeds. L2 through L5 remain open, and L1 makes
+  no independent-media, transaction-commit, GCS-publication, or performance
+  claim. Its receipt is
+  `docs/artifacts/eval-receipts/staged-txlog-l1-gcp-r0-2026-08-30/README.md`.
 
 ### T30. Bound objectification debt and local recovery media `[EVALUATING]`
 

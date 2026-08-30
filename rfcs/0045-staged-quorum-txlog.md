@@ -13,9 +13,17 @@ visibility, manifest-only reads, and bounded queues across three seeds and six
 negative controls. The clean-source receipt is
 `docs/artifacts/eval-receipts/staged-txlog-l0-gcp-r0-2026-08-30/README.md`.
 
-`[PROPOSED]` L1 through L6 remain open. No log-node process, network append,
-NVMe persistence, GCS segment, performance curve, transaction commit, or
-OpenRaft replacement is verified by L0, so the RFC remains proposed.
+`[VERIFIED]` L1 runs three real log-node processes with distinct roots and TCP
+listeners. Across three seeds it verifies synchronized `OKVT` appends, exact
+retry identity, torn-tail repair, restart recovery, stale-writer fencing, and
+byte-identical `OKVL` segment previews. Each of three process poisons is
+rejected. The clean-source receipt is
+`docs/artifacts/eval-receipts/staged-txlog-l1-gcp-r0-2026-08-30/README.md`.
+
+`[PROPOSED]` L2 through L6 remain open. L1 uses one machine and local files, so
+it does not verify independent-media quorum durability, GCS segment
+publication, latency, throughput, transaction commit, or an OpenRaft
+replacement. The RFC remains proposed.
 
 ## Decision
 
@@ -306,8 +314,9 @@ Primary metric: `correctness.anomalies`, total must be zero.
 
 Start three real log-node processes and one client. Prove exact frames,
 checksums, sync ordering, process restart, and deterministic segment bytes for
-128 B, 1 KiB, and 4 KiB records. This is `[CODE-COMPLETE]` evidence only and
-cannot support a cloud latency claim.
+128 B, 1 KiB, and 4 KiB records. This is `[VERIFIED]` for the one-host process
+mechanics and cannot support an independent-machine durability or cloud
+latency claim.
 
 The L1 candidate freezes two experimental byte contracts before implementation:
 

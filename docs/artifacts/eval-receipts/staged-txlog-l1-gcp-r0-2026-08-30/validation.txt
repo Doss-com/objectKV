@@ -1,0 +1,52 @@
+validated suite staged-txlog-v1 with 78 metrics, 4 lanes, 18 workloads, and 2 profiles
+validated program objectkv-golden-path-v1 with 9 phases and 23 gates
+   Compiling typenum v1.20.1
+   Compiling generic-array v0.14.7
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling okv-wal v0.0.0 (/tmp/objectkv-l1-clean-8a225ca/crates/okv-wal)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.03s
+     Running unittests src/lib.rs (/tmp/objectkv-l1-source/target/debug/deps/okv_wal-fc3339b5619255d4)
+
+running 21 tests
+test node_journal::tests::every_writable_record_kind_round_trips_through_the_decoder ... ok
+test node_journal::tests::journal_v1_compatibility_fixture_is_dual_readable ... ok
+test node_journal::tests::raw_history_corpus_freezes_pre_refactor_replay_behavior ... ok
+test node_journal::tests::empty_committed_identity_is_rejected_before_write ... ok
+test node_journal::tests::empty_purge_identity_is_rejected_before_write ... ok
+test node_journal::tests::empty_vote_is_rejected_before_any_bytes_are_written ... ok
+test node_journal::tests::expired_append_batch_writes_nothing_and_straddling_batch_writes_only_live_entries ... ok
+test node_journal::tests::complete_corruption_fails_closed ... ok
+test node_journal::tests::durable_prefix_of_suffix_replacement_is_replayable ... ok
+test node_journal::tests::stale_compaction_file_is_ignored_after_authoritative_replay ... ok
+test node_journal::tests::torn_tail_is_removed_before_a_new_durable_record ... ok
+test staged::tests::log_segment_v1_matches_frozen_fixture ... ok
+test node_journal::tests::vote_commit_log_truncate_and_purge_survive_reopen ... ok
+test staged::tests::node_journal_v1_matches_frozen_fixture ... ok
+test staged::tests::exact_retry_restart_epoch_fence_and_torn_repair_are_physical ... ok
+test tests::frame_v1_compatibility_fixture_is_dual_readable ... ok
+test staged::tests::segment_preview_is_deterministic_and_frontier_checked ... ok
+test tests::quorum_frames_survive_reopen_and_single_replica_loss ... ok
+test tests::leader_only_suffix_is_not_recovered ... ok
+test tests::torn_suffix_is_ignored_but_complete_corruption_without_quorum_fails ... ok
+test node_journal::tests::canonical_compaction_reclaims_obsolete_history_and_reopens_exactly ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+   Doc-tests okv_wal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling okv-eval v0.0.0 (/tmp/objectkv-l1-clean-8a225ca/crates/okv-eval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 55.03s
+     Running unittests src/lib.rs (/tmp/objectkv-l1-source/target/debug/deps/okv_eval-d2ceb164fb9856cc)
+
+running 2 tests
+test staged_txlog_process::tests::wire_protocol_round_trips_append_requests ... ok
+test staged_txlog_process::tests::deterministic_payload_is_seeded_and_exact_length ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 106 filtered out; finished in 0.00s

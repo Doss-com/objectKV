@@ -181,23 +181,30 @@ evaluation, plus an explicitly experimental switch to unbounded S3 work
 queues. These changes identify useful adversarial cases for objectKV, but the
 branch is `[EVALUATING]` work rather than production evidence.
 
-## Proposed objectKV evaluation additions
+## objectKV evaluation translation
 
-Do not interrupt T27. Add these after the current admission curve establishes
+`[VERIFIED]` RFC-0045 L1 now applies the first paper-derived mechanism in three
+real local processes. It verifies exact synchronized frames, restart and torn
+tail recovery, writer fencing, and deterministic segment bytes, with an
+unchanged oracle that rejects three process poisons. The receipt is
+`docs/artifacts/eval-receipts/staged-txlog-l1-gcp-r0-2026-08-30/README.md`.
+It is not a latency result and does not reproduce the paper's independent-host
+performance topology.
+
+Do not interrupt T27. Continue after the current admission curve establishes
 the read-serving baseline:
 
-1. `L1`, one writer and one log, 2-of-3 quorum append latency versus offered
-   load for 128 B, 1 KiB, and 4 KiB records.
-2. `L2`, matched RAM-only and RAM plus NVMe profiles, with the durability class
-   included in every receipt.
-3. `L3`, 256 KiB through 32 MiB object-segment sweep, measuring PUT
+1. `L2`, three independent local-NVMe log nodes and a separate writer, with
+   2-of-3 quorum append latency versus offered load for 128 B, 1 KiB, and 4 KiB
+   records and a matched same-zone remote-block control.
+2. `L3`, writer and node failure, fencing, availability, and tail repair under
+   admitted load.
+3. `L4`, 256 KiB through 32 MiB object-segment sweep, measuring PUT
    amortization, publication lag, retained tail bytes, and recovery time.
-4. `L4`, kill one log node under load, then measure availability, p50, p99, and
-   under-replicated tail repair.
-5. `L5`, fence the writer during in-flight appends and verify one committed
-   contiguous prefix across RAM, NVMe, and object segments.
-6. `L6`, compare same-zone quorum NVMe against remote block WAL and direct
-   object WAL on GCP, including cost per million appends.
+4. `L5`, matched RAM-only and RAM plus NVMe profiles, with the durability class
+   included in every receipt.
+5. `L6`, integrate exactly one transaction path and compare it with the current
+   OpenRaft path without double logging.
 
 The relevant admission question is not whether BtrLog's published number can
 be repeated. It is whether objectKV can retain the same log-path advantage once

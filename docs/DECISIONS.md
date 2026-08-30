@@ -1627,6 +1627,9 @@ ordering, and transaction integration remain separate gates.
 Evidence contract: RFC-0045 and `evals/suites/staged-txlog.toml`. `[VERIFIED]`
 L0 deterministic protocol semantics now cover quorum acknowledgement, writer
 epochs, exact retries, suffix repair, committed segment visibility,
-manifest-only reads, and bounded queues. The service, process, independent
-media, object publication, transaction integration, and performance rungs
-remain `[PROPOSED]`.
+manifest-only reads, and bounded queues. `[VERIFIED]` L1 runs three real
+log-node processes over TCP and proves synchronized local journals, exact
+retries, restart and torn-tail recovery, stale-writer fencing, and deterministic
+segment bytes across three seeds and three process poisons. Independent media,
+object publication, transaction integration, and performance rungs remain
+`[PROPOSED]`.

@@ -293,6 +293,19 @@ receipt are generation-pinned in GCS. T27 remains `[EVALUATING]` with 24
 direct-NVMe strata and two buffered sentinels open. Evidence is in
 [`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s3301-gcp-r0-2026-08-30/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s3301-gcp-r0-2026-08-30/README.md).
 
+`[VERIFIED]` Stratum `c50-z14-s1103` then raised Zipf skew to 1.4 under the
+same source, plan, workload, execution envelope, machine incarnation, and
+lease. Its 20 fresh processes produced AB and BA throughput ratios of
+0.974144x and 0.976563x direct RocksDB, p99 ratios of 0.875320x and 0.901665x,
+CPU/read ratios of 1.022413x and 1.024776x, physical-read ratios of 0.995322x
+and 0.995223x, and read amplification of 1.000000x. All gates passed.
+Collector-side inspection found 21 log, 65 metric, and 20 trace JSONL exports
+for run `a9b6d86a-8680-46af-aae7-a7acebc7844b`. The create-only evidence
+archive and standalone receipt were downloaded and hash-verified by generation.
+T27 remains `[EVALUATING]` with 23 direct-NVMe strata and two buffered sentinels
+open. Evidence is in
+[`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md`](artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md).
+
 `[VERIFIED]` The comparator now also binds both results to the suite hash in the
 current program plan and evaluates configurable cross-result constraints. The
 topology-matched GP3.1 throughput and p99 constraints passed in both process
@@ -365,9 +378,9 @@ read-only consumer, standalone control, separate seeds, fresh-process runner,
 raw evidence, runtime binding, telemetry completion, and poison boundaries are
 `[VERIFIED]`. The final runner adds one authenticated resumable receipt per
 stratum and rejects cross-execution aggregation. Thirty-two focused T27 tests
-pass in the remote release build. The first of 27 direct-NVMe strata is now
+pass in the remote release build. Four of 27 direct-NVMe strata are now
 `[VERIFIED]` at near-RocksDB parity. The next experiment executes the remaining
-26 strata against the same plan, workload, executable, machine incarnation,
+23 strata against the same plan, workload, executable, machine incarnation,
 and infrastructure lease, then runs two buffered sentinels. The corrected
 64 MiB calibration remains the buffered regression anchor, and the direct-NVMe
 preflight remains the physical-media control.
@@ -806,8 +819,22 @@ poisons produced one anomaly per seed and received `discard`. The receipt is
 This result verifies only deterministic protocol semantics. It does not start
 log-node processes, synchronize NVMe, send network appends, publish GCS
 segments, measure latency or throughput, verify transaction commit, or replace
-OpenRaft. L1 process mechanics and L2 same-zone independent-machine evaluation
-are the next staged txLog rungs.
+OpenRaft.
+
+`[VERIFIED]` RFC-0045 L1 now has a clean-source process receipt at
+`8a225cac10c51d65fbe08fe2933bbea9eac782c6`. Across seeds 1103, 2207, and 3301,
+the candidate passed every gate with zero anomalies. It started and killed 18
+real child processes, completed 12 acknowledged appends through 54 TCP append
+requests, recovered every acknowledged record, repaired every injected torn
+tail, rejected stale writers, preserved exact retries without journal growth,
+and constructed byte-identical segments. Early-acknowledgement, stale-writer,
+and divergent-segment controls each received `discard`. The receipt is
+`docs/artifacts/eval-receipts/staged-txlog-l1-gcp-r0-2026-08-30/README.md`.
+
+L1 verifies one-host process and local-journal mechanics only. It makes no
+independent-media, GCS-publication, append-latency, throughput, transaction
+commit, or OpenRaft-replacement claim. L2 same-zone independent-machine
+evaluation is the next staged txLog rung after the active read-path rows.
 
 Do not expand MultiRaft, PostgreSQL, or metacluster scope until the resident
 read and bounded cold-object lookup curves clear their controls.

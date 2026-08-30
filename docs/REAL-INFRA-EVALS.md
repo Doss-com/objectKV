@@ -372,6 +372,19 @@ after the receipt passed and released its host lease. T27 remains
 `[EVALUATING]` with 24 direct-NVMe strata and two buffered sentinels open. See
 `docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z08-s3301-gcp-r0-2026-08-30/README.md`.
 
+`[VERIFIED]` The fourth stratum, `c50-z14-s1103`, raised the Zipf skew to 1.4
+against the same execution envelope. Its 20 fresh processes produced AB and BA
+throughput ratios of 0.974144x and 0.976563x direct RocksDB, p99 ratios of
+0.875320x and 0.901665x, CPU/read ratios of 1.022413x and 1.024776x,
+physical-read ratios of 0.995322x and 0.995223x, and read amplification of
+1.000000x. All gates passed. Independent collector inspection found 21 log,
+65 metric, and 20 trace JSONL exports for the run ID. The 1 hour 7 minute
+evidence archive and standalone receipt are generation-pinned in GCS. The
+driver began `c50-z14-s2207` only after the receipt passed and released its
+host lease. T27 remains `[EVALUATING]` with 23 direct-NVMe strata and two
+buffered sentinels open. See
+`docs/artifacts/eval-receipts/t27-1gib-stratum-c50-z14-s1103-gcp-r0-2026-08-30/README.md`.
+
 `[VERIFIED]` The incumbent-plane R0 runner executed GP2.5.1 semantic elimination
 and GP2.5.2 logical lifecycle. FoundationDB 7.4.6 rejected the frozen
 write-skew history and passed all five implemented semantic gates. TiKV 8.5.7

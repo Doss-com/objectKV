@@ -1,0 +1,6 @@
+objectkv-dev-build-l1-r0
+objectkv-dev-build-l1-r0
+3238616570699595101
+projects/905754265363/machineTypes/e2-standard-8
+projects/905754265363/zones/us-central1-a
+Linux objectkv-dev-build-l1-r0 6.1.0-52-cloud-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.180-1 (2026-08-03) x86_64 GNU/Linux
