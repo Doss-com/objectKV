@@ -22074,13 +22074,18 @@ fn run_object_store_conformance(workload: &WorkloadConfig, backend_id: &str) -> 
     }
 }
 
+// Eval result metrics are f64, which can round integers above 2^53.
+#[allow(clippy::cast_precision_loss)]
 fn bounded_count(value: u64) -> f64 {
-    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+    value as f64
 }
 
 fn bounded_usize(value: usize) -> f64 {
     bounded_count(u64::try_from(value).unwrap_or(u64::MAX))
 }
+
+#[cfg(test)]
+mod count_conversion_tests;
 
 fn gate_status(passed: bool) -> GateStatus {
     if passed {
