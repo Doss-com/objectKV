@@ -353,19 +353,21 @@ impl KvReadClient {
             .await
             .map_err(KvReadClientError::RouteRefreshFailed)?;
         validate_snapshot_identity(self.cell_id, self.tenant_id, &refreshed_snapshot)?;
-        if refreshed_snapshot.map_version <= prior_version {
-            return Err(KvReadClientError::RouteRefreshDidNotAdvance {
-                current: prior_version,
-                refreshed: refreshed_snapshot.map_version,
-            });
-        }
         let mut cached = self.routes.write().map_err(|_| {
             KvReadClientError::InvalidRangeMap("cached range map is poisoned".to_owned())
         })?;
+        let refreshed_version = refreshed_snapshot.map_version;
         if refreshed_snapshot.map_version > cached.map_version {
             *cached = Arc::new(refreshed_snapshot);
         }
-        Ok(())
+        if cached.map_version > prior_version {
+            Ok(())
+        } else {
+            Err(KvReadClientError::RouteRefreshDidNotAdvance {
+                current: prior_version,
+                refreshed: refreshed_version,
+            })
+        }
     }
 }
 
@@ -600,6 +602,47 @@ mod tests {
                 refreshed: 1,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn accepts_another_readers_newer_map_when_source_reply_is_stale() {
+        let protocol = RangeReadProtocolConfig {
+            max_frame_bytes: 16 * 1024,
+            request_timeout_millis: 100,
+        };
+        let old = ClientRangeMapSnapshot {
+            cell_id: CELL_ID,
+            tenant_id: TENANT_ID,
+            map_version: 1,
+            routes: vec![route("127.0.0.1:1", 71, 9, b"a", b"z")],
+        };
+        let newer = ClientRangeMapSnapshot {
+            map_version: 2,
+            routes: vec![route("127.0.0.1:1", 72, 10, b"a", b"z")],
+            ..old.clone()
+        };
+        let source = Arc::new(StaticRangeMapSource {
+            snapshot: old.clone(),
+            refreshes: AtomicU64::new(0),
+        });
+        let client = KvReadClient::new(
+            CELL_ID,
+            TENANT_ID,
+            KvReadClientConfig {
+                protocol,
+                max_route_refreshes: 2,
+            },
+            old,
+            source.clone(),
+        )
+        .unwrap();
+
+        // Another reader publishes v2 after this reader captured v1, while
+        // the authority response to this reader still carries v1.
+        *client.routes.write().unwrap() = Arc::new(newer.clone());
+        client.refresh_or_limit(1, 0).await.unwrap();
+        assert_eq!(client.current_snapshot().unwrap().as_ref(), &newer);
+        assert_eq!(source.refreshes.load(Ordering::SeqCst), 1);
     }
 
     fn route(
